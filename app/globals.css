@@ -1,0 +1,119 @@
+@import "tailwindcss";
+
+@theme {
+  /* Football Legacy — matchday programme meets trophy room */
+  --color-pitch: #0b0c0f; /* page background */
+  --color-surface: #111318;
+  --color-raised: #171a21;
+  --color-hover: #1d212a;
+  --color-line: #232833;
+  --color-ink: #e9e7e1;
+  --color-dim: #8b909c;
+  --color-faint: #5a5f6b;
+  --color-gold: #d9b45c;
+  --color-gold-hi: #f2d488;
+  --color-gold-lo: #a87f2e;
+  --color-win: #3fb27f;
+  --color-loss: #e05252;
+  --color-draw: #8b909c;
+
+  --font-display: var(--font-saira), "Arial Narrow", sans-serif;
+  --font-body: var(--font-instrument), system-ui, sans-serif;
+}
+
+html,
+body {
+  background: var(--color-pitch);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+}
+
+/* the signature: a thin gold thread */
+.gold-thread {
+  height: 1px;
+  background: linear-gradient(90deg, var(--color-gold-hi), var(--color-gold-lo) 55%, transparent);
+}
+
+.gold-grad {
+  background: linear-gradient(135deg, var(--color-gold-hi), var(--color-gold-lo));
+}
+
+.gold-text {
+  background: linear-gradient(135deg, var(--color-gold-hi), var(--color-gold));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.display {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #232833;
+  border-radius: 5px;
+  border: 2px solid var(--color-pitch);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes eventIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.event-in {
+  animation: eventIn 0.25s ease-out both;
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.toast-in {
+  animation: toastIn 0.2s ease-out both;
+}
+
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 1px;
+}
