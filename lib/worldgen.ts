@@ -8,8 +8,8 @@ import { TUNING, type TuningConfig } from "./config/tuning";
 import { archetypesForPosition, getArchetype } from "./config/archetypes";
 import { traitsForPosition } from "./config/traits";
 import { overallFromAttrs } from "./config/positions";
-import { poolFor, NAME_POOLS, type ClubDef } from "./config/names";
-import { defaultCountryDB, type CountryDatabase, type PlayerSeed } from "./database";
+import { poolFor, NAME_POOLS } from "./config/names";
+import { defaultCountryDB, type ClubSeed, type CountryDatabase, type PlayerSeed } from "./database";
 import { FORMATIONS } from "./config/formations";
 import { mulberry32, deriveSeed, pick, randInt, randNormal, shuffle, type RNG } from "./rng";
 import { playerValue } from "./value";
@@ -249,7 +249,7 @@ export function materializePlayer(
 function generateSquad(
   rng: RNG,
   cfg: TuningConfig,
-  club: ClubDef,
+  club: ClubSeed,
   homeNat: string,
   homeShare: number,
   players: Record<string, PlayerBio>,
@@ -275,7 +275,9 @@ function generateSquad(
     const pos = players[id].positions[0];
     have.set(pos, (have.get(pos) ?? 0) + 1);
   }
-  const starterAvg = 40 + club.rep * 0.5;
+  // Squad strength: an authored squadQuality (create-a-club / modded DBs)
+  // overrides reputation as the generated squad's level.
+  const starterAvg = 40 + (club.squadQuality ?? club.rep) * 0.5;
   for (const [pos, count] of SQUAD_TEMPLATE) {
     for (let i = have.get(pos) ?? 0; i < count; i++) {
       // first player per position ≈ starter level, later ones are depth
@@ -302,7 +304,9 @@ function randomTactic(rng: RNG): Tactic {
   };
 }
 
-function clubBudget(rep: number): number {
+/** Starting transfer budget from reputation. Exported so the new-game setup can
+ * preview the budget a created club will open with. */
+export function clubBudget(rep: number): number {
   return Math.max(2_000_000, Math.round(Math.pow(Math.max(0, rep - 40), 2) * 40_000));
 }
 
@@ -358,10 +362,11 @@ function resolveSeed(opts: NewGameOptions): number {
     opts.userTeamId,
     [...opts.viewCountries].sort().join(","),
   ];
-  // fingerprint custom databases so a modded roster yields its own stable world
+  // fingerprint custom databases so a modded roster (or a created club/player)
+  // yields its own stable world — content-hashed, so any edit rerolls
   if (opts.countryDBs) {
     for (const code of Object.keys(opts.countryDBs).sort()) {
-      parts.push(`db:${code}:${JSON.stringify(opts.countryDBs[code]).length}`);
+      parts.push(`db:${code}:${hashString(JSON.stringify(opts.countryDBs[code]))}`);
     }
   }
   return hashString(parts.join("|"));

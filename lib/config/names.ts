@@ -59,6 +59,121 @@ export const NAME_POOLS: NamePool[] = [
     first: ["Santiago", "Mateo", "Joaquin", "Facundo", "Agustin", "Lautaro", "Franco", "Nicolas", "Ezequiel", "Gonzalo", "Julian", "Ramiro", "Tomas", "Valentin", "Bautista"],
     last: ["Gonzalez", "Rodriguez", "Gomez", "Diaz", "Alvarez", "Romero", "Benitez", "Acosta", "Medina", "Herrera", "Aguirre", "Molina", "Ortiz", "Silva", "Rojas", "Ledesma", "Paredes", "Sosa", "Villalba", "Cabrera"],
   },
+  {
+    nat: "POR",
+    first: ["Joao", "Diogo", "Goncalo", "Tiago", "Andre", "Ruben", "Bernardo", "Rafael", "Bruno", "Nuno", "Vitor", "Fabio", "Ricardo", "Duarte", "Afonso"],
+    last: ["Silva", "Santos", "Ferreira", "Pereira", "Oliveira", "Costa", "Rodrigues", "Martins", "Fernandes", "Goncalves", "Lopes", "Marques", "Sousa", "Carvalho", "Ramos", "Pinto", "Teixeira", "Moreira", "Correia", "Neves"],
+  },
+  {
+    nat: "TUR",
+    first: ["Emre", "Burak", "Hakan", "Cengiz", "Kerem", "Arda", "Yusuf", "Mert", "Ozan", "Berat", "Kaan", "Salih", "Ferdi", "Baris", "Halil"],
+    last: ["Yilmaz", "Kaya", "Demir", "Sahin", "Celik", "Aydin", "Ozturk", "Arslan", "Dogan", "Kilic", "Aslan", "Cetin", "Kara", "Koc", "Kurt", "Ozdemir", "Polat", "Erdogan", "Yildiz", "Aktas"],
+  },
+  {
+    nat: "USA",
+    first: ["Tyler", "Brandon", "Austin", "Landon", "Chris", "Josh", "Zack", "Caleb", "Brian", "Devon", "Trevor", "Cade", "Logan", "Hunter", "Weston"],
+    last: ["Johnson", "Williams", "Brown", "Jones", "Miller", "Davis", "Wilson", "Anderson", "Taylor", "Thomas", "Moore", "Jackson", "Martin", "Harris", "Thompson", "Robinson", "Clark", "Lewis", "Hall", "Young"],
+  },
+  {
+    nat: "BEL",
+    first: ["Thibaut", "Kevin", "Youri", "Axel", "Wout", "Timothy", "Arthur", "Maxim", "Bryan", "Jens", "Sander", "Dries", "Lukas", "Milan", "Senne"],
+    last: ["Peeters", "Janssens", "Maes", "Jacobs", "Mertens", "Willems", "Claes", "Goossens", "Wouters", "DeSmet", "Dubois", "Lambert", "Dupont", "Simon", "Martens", "Michiels", "VanDamme", "Segers", "Hendrickx", "Lemmens"],
+  },
+  {
+    nat: "SUI",
+    first: ["Granit", "Remo", "Silvan", "Noah", "Cedric", "Fabian", "Michel", "Renato", "Dan", "Luca", "Andrin", "Nico", "Joel", "Marco", "Yann"],
+    last: ["Muller", "Meier", "Schmid", "Keller", "Weber", "Huber", "Schneider", "Steiner", "Frei", "Baumann", "Brunner", "Gerber", "Widmer", "Zimmermann", "Moser", "Graf", "Wyss", "Roth", "Suter", "Bachmann"],
+  },
+  {
+    nat: "AUT",
+    first: ["Marcel", "David", "Konrad", "Stefan", "Xaver", "Christoph", "Marko", "Patrick", "Michael", "Romano", "Nikolaus", "Maximilian", "Philipp", "Sasa", "Alexander"],
+    last: ["Gruber", "Huber", "Bauer", "Wagner", "Pichler", "Steiner", "Moser", "Mayer", "Hofer", "Leitner", "Berger", "Fuchs", "Eder", "Fischer", "Schmid", "Winkler", "Weber", "Schwarz", "Maier", "Lang"],
+  },
+  {
+    nat: "CRO",
+    first: ["Luka", "Mateo", "Ivan", "Marcelo", "Josko", "Ante", "Lovro", "Mario", "Nikola", "Borna", "Duje", "Marin", "Petar", "Toni", "Kristijan"],
+    last: ["Horvat", "Kovacevic", "Babic", "Maric", "Juric", "Novak", "Kovacic", "Knezevic", "Vukovic", "Markovic", "Petrovic", "Matic", "Tomic", "Pavlovic", "Simic", "Blazevic", "Grgic", "Radic", "Perisic", "Brozovic"],
+  },
+  {
+    nat: "CZE",
+    first: ["Tomas", "Patrik", "Ondrej", "Ladislav", "Vaclav", "Lukas", "Adam", "David", "Jan", "Matej", "Pavel", "Antonin", "Michal", "Jakub", "Vladimir"],
+    last: ["Novak", "Svoboda", "Novotny", "Dvorak", "Cerny", "Prochazka", "Kucera", "Vesely", "Horak", "Nemec", "Pokorny", "Marek", "Pospisil", "Hajek", "Kral", "Jelinek", "Ruzicka", "Benes", "Fiala", "Sedlacek"],
+  },
+  {
+    nat: "DEN",
+    first: ["Christian", "Pierre", "Andreas", "Mikkel", "Rasmus", "Kasper", "Simon", "Joakim", "Jonas", "Morten", "Frederik", "Victor", "Jesper", "Oliver", "Mads"],
+    last: ["Jensen", "Nielsen", "Hansen", "Pedersen", "Andersen", "Christensen", "Larsen", "Sorensen", "Rasmussen", "Jorgensen", "Petersen", "Madsen", "Kristensen", "Olsen", "Thomsen", "Christiansen", "Poulsen", "Johansen", "Mortensen", "Eriksen"],
+  },
+  {
+    nat: "NOR",
+    first: ["Erling", "Martin", "Sander", "Kristian", "Fredrik", "Morten", "Jorgen", "Sondre", "Marius", "Andreas", "Magnus", "Ola", "Eirik", "Haakon", "Sigurd"],
+    last: ["Hansen", "Johansen", "Olsen", "Larsen", "Andersen", "Pedersen", "Nilsen", "Kristiansen", "Jensen", "Karlsen", "Johnsen", "Pettersen", "Eriksen", "Berg", "Haugen", "Hagen", "Johannessen", "Andreassen", "Jacobsen", "Dahl"],
+  },
+  {
+    nat: "SCO",
+    first: ["Callum", "Andy", "Scott", "Kieran", "Ryan", "Stuart", "John", "Billy", "Lewis", "Angus", "Fraser", "Craig", "Ewan", "Blair", "Cameron"],
+    last: ["MacDonald", "Campbell", "Stewart", "Robertson", "Ferguson", "McGregor", "Fraser", "Sinclair", "Douglas", "Murray", "Bruce", "Wallace", "Hamilton", "Boyd", "Burns", "McLean", "Grant", "Kerr", "Duncan", "Ross"],
+  },
+  {
+    nat: "GRE",
+    first: ["Giorgos", "Kostas", "Dimitris", "Anastasios", "Petros", "Vangelis", "Christos", "Fotis", "Nikos", "Sotiris", "Panagiotis", "Thanasis", "Manolis", "Stavros", "Lefteris"],
+    last: ["Papadopoulos", "Papadakis", "Georgiou", "Nikolaidis", "Ioannou", "Vlachos", "Angelopoulos", "Antoniou", "Makris", "Alexiou", "Economou", "Karagounis", "Christodoulou", "Dimitriou", "Fotopoulos", "Katsaros", "Lambros", "Manolas", "Petridis", "Samaras"],
+  },
+  {
+    nat: "POL",
+    first: ["Robert", "Piotr", "Wojciech", "Kamil", "Krzysztof", "Jakub", "Karol", "Mateusz", "Sebastian", "Przemyslaw", "Bartosz", "Nicola", "Michal", "Damian", "Arkadiusz"],
+    last: ["Nowak", "Kowalski", "Wisniewski", "Wojcik", "Kowalczyk", "Kaminski", "Lewandowski", "Zielinski", "Szymanski", "Wozniak", "Dabrowski", "Kozlowski", "Jankowski", "Mazur", "Kwiatkowski", "Krawczyk", "Piotrowski", "Grabowski", "Zajac", "Pawlowski"],
+  },
+  {
+    nat: "ROU",
+    first: ["Andrei", "Razvan", "Florin", "Nicolae", "Ianis", "Dennis", "Valentin", "Darius", "Alexandru", "Octavian", "Radu", "Mihai", "Stefan", "Cristian", "Vlad"],
+    last: ["Popescu", "Ionescu", "Popa", "Stan", "Dumitrescu", "Stoica", "Gheorghe", "Constantin", "Marin", "Radu", "Munteanu", "Matei", "Lazar", "Ciobanu", "Rusu", "Florea", "Barbu", "Nistor", "Preda", "Dragomir"],
+  },
+  {
+    nat: "SRB",
+    first: ["Dusan", "Aleksandar", "Sergej", "Filip", "Nemanja", "Strahinja", "Sasa", "Andrija", "Lazar", "Marko", "Nikola", "Vanja", "Stefan", "Milos", "Luka"],
+    last: ["Jovanovic", "Petrovic", "Nikolic", "Markovic", "Djordjevic", "Stojanovic", "Ilic", "Stankovic", "Pavlovic", "Milosevic", "Todorovic", "Ristic", "Kostic", "Savic", "Popovic", "Radovanovic", "Zivkovic", "Mitrovic", "Vasic", "Lukic"],
+  },
+  {
+    nat: "RUS",
+    first: ["Aleksandr", "Artem", "Daniil", "Matvey", "Igor", "Sergey", "Dmitri", "Anton", "Maksim", "Ivan", "Nikita", "Roman", "Andrey", "Kirill", "Pavel"],
+    last: ["Ivanov", "Smirnov", "Kuznetsov", "Popov", "Vasilyev", "Petrov", "Sokolov", "Mikhailov", "Novikov", "Fedorov", "Morozov", "Volkov", "Alekseev", "Lebedev", "Semenov", "Egorov", "Pavlov", "Kozlov", "Stepanov", "Nikolaev"],
+  },
+  {
+    nat: "UKR",
+    first: ["Andriy", "Oleksandr", "Mykhailo", "Ruslan", "Vitaliy", "Taras", "Serhiy", "Illia", "Artem", "Bohdan", "Denys", "Yevhen", "Nazar", "Vladyslav", "Dmytro"],
+    last: ["Shevchenko", "Kovalenko", "Bondarenko", "Tkachenko", "Kravchenko", "Boyko", "Melnyk", "Shevchuk", "Polishchuk", "Lysenko", "Rudenko", "Savchenko", "Petrenko", "Marchenko", "Pavlenko", "Kharchenko", "Moroz", "Klymenko", "Tymoshenko", "Zinchenko"],
+  },
+  {
+    nat: "JPN",
+    first: ["Takefusa", "Kaoru", "Ritsu", "Wataru", "Daichi", "Hiroki", "Takumi", "Yuto", "Kenta", "Shoya", "Ayase", "Reo", "Sota", "Koki", "Haruya"],
+    last: ["Sato", "Suzuki", "Takahashi", "Tanaka", "Watanabe", "Ito", "Yamamoto", "Nakamura", "Kobayashi", "Kato", "Yoshida", "Yamada", "Sasaki", "Yamaguchi", "Matsumoto", "Inoue", "Kimura", "Hayashi", "Shimizu", "Endo"],
+  },
+  {
+    nat: "KOR",
+    first: ["Min-jae", "Heung-min", "Kang-in", "Woo-young", "Jae-sung", "In-beom", "Gue-sung", "Hyun-woo", "Seung-ho", "Ji-sung", "Young-woo", "Tae-hwan", "Dong-hyun", "Sang-ho", "Jun-ho"],
+    last: ["Kim", "Lee", "Park", "Choi", "Jung", "Kang", "Cho", "Yoon", "Jang", "Lim", "Han", "Oh", "Seo", "Shin", "Kwon", "Hwang", "Ahn", "Song", "Yoo", "Hong"],
+  },
+  {
+    nat: "KSA",
+    first: ["Salem", "Firas", "Saleh", "Sami", "Yasser", "Abdullah", "Mohammed", "Fahad", "Nawaf", "Saud", "Khalid", "Turki", "Nasser", "Hattan", "Ali"],
+    last: ["AlDawsari", "AlBuraikan", "AlShehri", "AlNajei", "AlGhannam", "AlBulaihi", "AlAmri", "AlFaraj", "AlMalki", "AlOtaibi", "AlHarbi", "AlQahtani", "AlMutairi", "AlShammari", "AlZahrani", "AlGhamdi", "AlJuwayr", "AlOboud", "AlHassan", "AlSahafi"],
+  },
+  {
+    nat: "MEX",
+    first: ["Hirving", "Raul", "Edson", "Cesar", "Orbelin", "Uriel", "Luis", "Erick", "Jorge", "Alexis", "Diego", "Carlos", "Fernando", "Emilio", "Santiago"],
+    last: ["Hernandez", "Garcia", "Martinez", "Lopez", "Gonzalez", "Perez", "Rodriguez", "Sanchez", "Ramirez", "Cruz", "Flores", "Gomez", "Vargas", "Jimenez", "Reyes", "Torres", "Aguilar", "Mendoza", "Guzman", "Ochoa"],
+  },
+  {
+    nat: "COL",
+    first: ["Luis", "Juan", "Rafael", "Duvan", "Wilmar", "Davinson", "Yerry", "Mateus", "Jhon", "Camilo", "Kevin", "Deiver", "Jorman", "Santiago", "Andres"],
+    last: ["Diaz", "Cuadrado", "Borja", "Zapata", "Barrios", "Sanchez", "Mina", "Uribe", "Arias", "Vargas", "Castano", "Machado", "Campaz", "Quintero", "Mojica", "Cardona", "Lerma", "Muriel", "Ospina", "Perea"],
+  },
+  {
+    nat: "AUS",
+    first: ["Harry", "Mathew", "Jackson", "Aiden", "Riley", "Connor", "Denis", "Aziz", "Craig", "Cameron", "Jamie", "Marco", "Kye", "Nestory", "Brandon"],
+    last: ["Souttar", "Ryan", "Irvine", "Goodwin", "McGree", "Metcalfe", "Genreau", "Behich", "Duke", "Devlin", "Maclaren", "Tilio", "Rowles", "Mabil", "Borrello", "Hrustic", "Boyle", "King", "Strain", "Bos"],
+  },
 ];
 
 export function poolFor(nat: string): NamePool {

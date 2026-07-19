@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import { COUNTRIES, getCountry } from "@/lib/config/countries";
-import { PRESETS, getPreset, loadPreset } from "@/lib/config/presets";
+import { PRESETS, getPreset, loadPreset, proceduralFromPreset } from "@/lib/config/presets";
 import {
   COUNTRY_DB_SCHEMA,
   countryDBTemplate,
@@ -15,7 +15,11 @@ import {
 } from "@/lib/database";
 import { teamIdFor } from "@/lib/worldgen";
 import { storedKey } from "@/lib/auth";
-import { CountryFlag, Crest, GoldButton, GhostButton, Modal } from "./ui";
+import { NAME_POOLS } from "@/lib/config/names";
+import { overallFromAttrs } from "@/lib/config/positions";
+import { CountryFlag, Crest, Flag, GoldButton, GhostButton, Modal, Ovr, PosBadge } from "./ui";
+import CreateClubModal, { customClubSeed, type CustomClub } from "./CreateClubModal";
+import CreatePlayerModal, { customPlayerSeed, type CustomPlayer } from "./CreatePlayerModal";
 
 export default function MainMenu() {
   const [mode, setMode] = useState<"menu" | "new">("menu");
@@ -105,40 +109,47 @@ function SaveList({ onNew }: { onNew: () => void }) {
 }
 
 // A per-country database choice: the procedural default, a built-in preset, or a
-// validated upload. Countries that ship no procedural default (preset-only, e.g.
-// USA) can never carry `{ source: "default" }` — their choice is preset/custom.
+// validated upload. Every country carries a default: engine countries have a
+// fictional procedural world; preset-only countries derive theirs from the
+// preset (real clubs, generated squads — see proceduralFromPreset).
 type DbChoice =
   | { source: "default" }
   | { source: "preset" }
   | { source: "custom"; db: CountryDatabase; fileName: string };
 
-/** A selectable country in the setup form: a code + display name, plus whether it
- * has a built-in procedural default and/or a bundled preset. Merges the engine's
- * default countries with any preset-only countries (Portugal, Türkiye, USA…). */
+/** A selectable country in the setup form: a code + display name, plus whether
+ * its default is the engine's fictional world (vs. derived from the preset) and
+ * whether it ships a bundled preset. Merges the engine's default countries with
+ * the preset-only countries. */
 interface CountryOption {
   code: string;
   name: string;
-  hasDefault: boolean;
+  hasEngineDefault: boolean;
   hasPreset: boolean;
 }
 
 const COUNTRY_OPTIONS: CountryOption[] = (() => {
   const byCode = new Map<string, CountryOption>();
-  for (const c of COUNTRIES) byCode.set(c.code, { code: c.code, name: c.name, hasDefault: true, hasPreset: false });
+  for (const c of COUNTRIES) byCode.set(c.code, { code: c.code, name: c.name, hasEngineDefault: true, hasPreset: false });
   for (const p of PRESETS) {
     const existing = byCode.get(p.code);
     if (existing) existing.hasPreset = true;
-    else byCode.set(p.code, { code: p.code, name: p.name, hasDefault: false, hasPreset: true });
+    else byCode.set(p.code, { code: p.code, name: p.name, hasEngineDefault: false, hasPreset: true });
   }
   return Array.from(byCode.values());
 })();
 
 const OPTION_MAP: Record<string, CountryOption> = Object.fromEntries(COUNTRY_OPTIONS.map((o) => [o.code, o]));
 
-/** The default choice for a country: its procedural default if it has one, else
- * its preset (preset-only countries have no valid "default"). */
-function initialChoice(code: string): DbChoice {
-  return OPTION_MAP[code]?.hasDefault ? { source: "default" } : { source: "preset" };
+/** Every country starts on its default database (procedural or preset-derived). */
+function initialChoice(): DbChoice {
+  return { source: "default" };
+}
+
+/** A country whose "default" is derived from its preset (no engine club pool)
+ * needs the preset asset fetched even when Default is the active choice. */
+function defaultNeedsPreset(code: string): boolean {
+  return !OPTION_MAP[code]?.hasEngineDefault;
 }
 
 function NewGameForm({ onBack }: { onBack: () => void }) {
@@ -159,20 +170,36 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
   const [presetDbs, setPresetDbs] = useState<Record<string, CountryDatabase>>({});
   const [starting, setStarting] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  // Create-a-club / create-a-player (setup-only state; both are spliced into the
+  // chosen databases at start, so worldgen sees them as ordinary authored data).
+  const [customClub, setCustomClub] = useState<CustomClub | null>(null);
+  const [clubModalOpen, setClubModalOpen] = useState(false);
+  const [customPlayers, setCustomPlayers] = useState<CustomPlayer[]>([]);
+  /** null = closed, "new" = creating, otherwise the player being edited. */
+  const [playerModal, setPlayerModal] = useState<CustomPlayer | "new" | null>(null);
 
   const includedCodes = useMemo(
     () => Array.from(new Set([playableCountry, ...viewCountries])),
     [playableCountry, viewCountries]
   );
 
-  const choiceFor = (code: string): DbChoice => dbChoices[code] ?? initialChoice(code);
+  const choiceFor = (code: string): DbChoice => dbChoices[code] ?? initialChoice();
+
+  /** Drop created players whose destination country is no longer valid. */
+  const prunePlayers = (keptCodes: string[], invalidatedCode?: string) =>
+    setCustomPlayers((list) =>
+      list.filter((p) => keptCodes.includes(p.country) && p.country !== invalidatedCode)
+    );
 
   // Load every preset that an included country resolves to, once. Presets are
-  // immutable static assets, so a single fetch per country suffices.
+  // immutable static assets, so a single fetch per country suffices. A country
+  // whose default is preset-derived needs the asset for "default" too.
   useEffect(() => {
     for (const code of includedCodes) {
       const choice = choiceFor(code);
-      if (choice.source !== "preset" || presetDbs[code]) continue;
+      const wanted =
+        choice.source === "preset" || (choice.source === "default" && defaultNeedsPreset(code));
+      if (!wanted || presetDbs[code]) continue;
       loadPreset(code)
         .then((db) => setPresetDbs((m) => ({ ...m, [code]: db })))
         .catch((err) => showToast(err instanceof Error ? err.message : "Couldn't load preset."));
@@ -185,15 +212,48 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
     const choice = choiceFor(code);
     if (choice.source === "custom") return choice.db;
     if (choice.source === "preset") return presetDbs[code] ?? null;
-    return defaultCountryDB(code);
+    const engine = defaultCountryDB(code);
+    if (engine) return engine;
+    return presetDbs[code] ? proceduralFromPreset(presetDbs[code]) : null;
   };
 
-  // The playable country's top division clubs, honoring its chosen database. Null
-  // while a preset is still loading (the club grid shows a spinner state then).
-  const playableDb = dbForChoice(playableCountry);
+  // The database as worldgen will actually receive it: the chosen source with
+  // the created club spliced into the top division and any created players
+  // appended to their destination club's roster.
+  const effectiveDbFor = (code: string): CountryDatabase | null => {
+    const base = dbForChoice(code);
+    if (!base) return null;
+    const withClub = code === playableCountry && customClub !== null;
+    const playersHere = customPlayers.filter((p) => p.country === code);
+    if (!withClub && playersHere.length === 0) return base;
+    const db = structuredClone(base);
+    if (withClub && customClub) {
+      const top = [...db.divisions].sort((a, b) => a.tier - b.tier)[0];
+      if (top && customClub.replaceIndex < top.clubs.length) {
+        top.clubs[customClub.replaceIndex] = customClubSeed(customClub);
+      }
+    }
+    for (const cp of playersHere) {
+      const club = db.divisions.find((d) => d.id === cp.divisionId)?.clubs[cp.clubIndex];
+      if (club) (club.players ??= []).push(customPlayerSeed(cp));
+    }
+    return db;
+  };
+
+  // The playable country's top division clubs, honoring its chosen database and
+  // the created club. Null while a preset is still loading (the club grid shows
+  // a spinner state then). `originalTopDiv` (pre-replacement) feeds the
+  // create-a-club modal's "club to replace" list.
+  const basePlayableDb = dbForChoice(playableCountry);
+  const originalTopDiv = basePlayableDb ? [...basePlayableDb.divisions].sort((a, b) => a.tier - b.tier)[0] : null;
+  const playableDb = effectiveDbFor(playableCountry);
   const topDiv = playableDb ? [...playableDb.divisions].sort((a, b) => a.tier - b.tier)[0] : null;
   const clubs = topDiv?.clubs ?? [];
-  const playableLoading = choiceFor(playableCountry).source === "preset" && !presetDbs[playableCountry];
+  const playableChoice = choiceFor(playableCountry);
+  const playableLoading =
+    !presetDbs[playableCountry] &&
+    (playableChoice.source === "preset" ||
+      (playableChoice.source === "default" && defaultNeedsPreset(playableCountry)));
 
   const setChoice = (code: string, choice: DbChoice) => setDbChoices((m) => ({ ...m, [code]: choice }));
 
@@ -201,12 +261,16 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
     if (clubIndex === null || !managerName.trim() || starting || !topDiv) return;
     setStarting(true);
     await new Promise((r) => setTimeout(r, 30)); // let the button state paint
-    // Anything but the procedural default must be passed as an explicit DB.
+    // Anything but the untouched engine default must be passed as an explicit
+    // DB — including a default modified by a created club or player, and the
+    // preset-derived defaults (worldgen can't reconstruct those on its own).
     const countryDBs: Record<string, CountryDatabase> = {};
     for (const code of includedCodes) {
-      const db = dbForChoice(code);
-      const choice = choiceFor(code);
-      if (choice.source !== "default" && db) countryDBs[code] = db;
+      const db = effectiveDbFor(code);
+      if (!db) continue;
+      const modified =
+        (code === playableCountry && customClub !== null) || customPlayers.some((p) => p.country === code);
+      if (choiceFor(code).source !== "default" || defaultNeedsPreset(code) || modified) countryDBs[code] = db;
     }
     await newGame({
       saveName: saveName.trim() || "My Legacy",
@@ -255,6 +319,9 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
                 setPlayableCountry(c.code);
                 setClubIndex(null);
                 setViewCountries((prev) => prev.filter((x) => x !== c.code));
+                // The created club belongs to the previous country's top division.
+                if (c.code !== playableCountry) setCustomClub(null);
+                prunePlayers([c.code, ...viewCountries.filter((x) => x !== c.code)]);
               }}
               className={`flex items-center gap-2 rounded-md border p-2.5 text-left transition-colors ${
                 playableCountry === c.code ? "border-gold bg-hover" : "border-line bg-surface hover:bg-hover"
@@ -264,7 +331,7 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium">{c.name}</div>
                 <div className="text-[10px] text-faint">
-                  {c.hasPreset && !c.hasDefault ? "Preset database" : c.hasPreset ? "Default or preset" : "Default database"}
+                  {c.hasPreset ? "Default or preset" : "Default database"}
                 </div>
               </div>
             </button>
@@ -272,32 +339,71 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
         </div>
       </div>
 
-      {/* Step 2: club within the top division */}
+      {/* Step 2: club within the top division — pick an existing club or create
+          your own (which replaces one of them). */}
       <div>
-        <span className="display text-xs font-semibold tracking-widest text-faint">
-          CHOOSE YOUR CLUB — {topDiv?.name ?? ""}
-        </span>
+        <div className="flex items-center justify-between">
+          <span className="display text-xs font-semibold tracking-widest text-faint">
+            CHOOSE YOUR CLUB — {topDiv?.name ?? ""}
+          </span>
+          {!customClub && !playableLoading && (
+            <button onClick={() => setClubModalOpen(true)} className="text-[11px] text-gold hover:underline">
+              ＋ Create your own club
+            </button>
+          )}
+        </div>
+        {customClub && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-gold-lo/50 bg-surface px-3 py-2">
+            <Crest colors={customClub.colors} short={customClub.short} size={24} />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">{customClub.name}</span>
+            <span className="text-[11px] text-faint">
+              replaces {originalTopDiv?.clubs[customClub.replaceIndex]?.name ?? "—"}
+            </span>
+            <button
+              onClick={() => setClubModalOpen(true)}
+              className="rounded border border-line px-2 py-1 text-[11px] text-dim hover:text-ink"
+            >
+              Edit
+            </button>
+            <button
+              onClick={() => {
+                setCustomClub(null);
+                setClubIndex(null);
+              }}
+              className="rounded border border-line px-2 py-1 text-[11px] text-faint hover:text-loss"
+              title="Remove created club"
+            >
+              ✕
+            </button>
+          </div>
+        )}
         {playableLoading ? (
           <div className="mt-2 rounded-md border border-line bg-surface px-3 py-6 text-center text-xs text-faint">
             Loading preset clubs…
           </div>
         ) : (
           <div className="mt-2 grid max-h-64 grid-cols-2 gap-2 overflow-y-auto pr-1">
-            {clubs.map((c, i) => (
-              <button
-                key={c.short + i}
-                onClick={() => setClubIndex(i)}
-                className={`flex items-center gap-3 rounded-md border p-2.5 text-left transition-colors ${
-                  clubIndex === i ? "border-gold bg-hover" : "border-line bg-surface hover:bg-hover"
-                }`}
-              >
-                <Crest colors={c.colors} short={c.short} size={30} />
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">{c.name}</div>
-                  <div className="text-[11px] text-faint">Reputation {c.rep}</div>
-                </div>
-              </button>
-            ))}
+            {clubs.map((c, i) => {
+              const isYours = customClub !== null && i === customClub.replaceIndex;
+              return (
+                <button
+                  key={c.short + i}
+                  onClick={() => setClubIndex(i)}
+                  className={`flex items-center gap-3 rounded-md border p-2.5 text-left transition-colors ${
+                    clubIndex === i ? "border-gold bg-hover" : "border-line bg-surface hover:bg-hover"
+                  }`}
+                >
+                  <Crest colors={c.colors} short={c.short} size={30} />
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">{c.name}</div>
+                    <div className="text-[11px] text-faint">
+                      Reputation {c.rep}
+                      {isYours && <span className="display ml-1.5 font-semibold text-gold">YOUR CREATION</span>}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -313,9 +419,10 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
             return (
               <button
                 key={c.code}
-                onClick={() =>
-                  setViewCountries(on ? viewCountries.filter((id) => id !== c.code) : [...viewCountries, c.code])
-                }
+                onClick={() => {
+                  setViewCountries(on ? viewCountries.filter((id) => id !== c.code) : [...viewCountries, c.code]);
+                  if (on) prunePlayers(includedCodes.filter((x) => x !== c.code));
+                }}
                 className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm ${
                   on ? "border-gold-lo bg-hover text-ink" : "border-line text-faint hover:text-dim"
                 }`}
@@ -345,12 +452,63 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
               choice={choiceFor(code)}
               onChange={(choice) => {
                 setChoice(code, choice);
-                if (code === playableCountry) setClubIndex(null);
+                if (code === playableCountry) {
+                  setClubIndex(null);
+                  setCustomClub(null); // replaceIndex refers to the old club list
+                }
+                // Division ids / club indices may differ in the new database.
+                prunePlayers(includedCodes, code);
               }}
               onError={showToast}
             />
           ))}
         </div>
+      </div>
+
+      {/* Step 5 (optional): created players, injected into their destination
+          club's roster at world build. */}
+      <div>
+        <div className="mb-2 flex items-center justify-between">
+          <span className="display text-xs font-semibold tracking-widest text-faint">CREATE-A-PLAYER (OPTIONAL)</span>
+          <button onClick={() => setPlayerModal("new")} className="text-[11px] text-gold hover:underline">
+            ＋ Create a player
+          </button>
+        </div>
+        {customPlayers.length === 0 ? (
+          <p className="text-[11px] text-faint">
+            Design your own players and place them at any included club — yours or a rival&apos;s.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {customPlayers.map((p) => {
+              const db = effectiveDbFor(p.country);
+              const clubName =
+                db?.divisions.find((d) => d.id === p.divisionId)?.clubs[p.clubIndex]?.name ?? "Unknown club";
+              return (
+                <div key={p.id} className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface px-3 py-2">
+                  <Flag nat={p.nationality} size={12} />
+                  <PosBadge pos={p.positions[0]} />
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{p.name}</span>
+                  <Ovr value={overallFromAttrs(p.attrs, p.positions[0])} size="sm" />
+                  <span className="text-[11px] text-faint">→ {clubName}</span>
+                  <button
+                    onClick={() => setPlayerModal(p)}
+                    className="rounded border border-line px-2 py-1 text-[11px] text-dim hover:text-ink"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => setCustomPlayers((list) => list.filter((x) => x.id !== p.id))}
+                    className="rounded border border-line px-2 py-1 text-[11px] text-faint hover:text-loss"
+                    title="Remove created player"
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="flex justify-between pt-2">
@@ -361,13 +519,47 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
       </div>
 
       {guideOpen && <CustomDbGuide onClose={() => setGuideOpen(false)} />}
+      {clubModalOpen && originalTopDiv && (
+        <CreateClubModal
+          clubs={originalTopDiv.clubs}
+          initial={customClub}
+          onSave={(club) => {
+            setCustomClub(club);
+            setClubIndex(club.replaceIndex); // you manage the club you created
+            setClubModalOpen(false);
+          }}
+          onClose={() => setClubModalOpen(false)}
+        />
+      )}
+      {playerModal !== null && (
+        <CreatePlayerModal
+          countries={includedCodes.map((code) => ({ code, name: OPTION_MAP[code]?.name ?? code }))}
+          dbFor={effectiveDbFor}
+          natOptions={NAT_OPTIONS}
+          initial={playerModal === "new" ? null : playerModal}
+          onSave={(p) => {
+            setCustomPlayers((list) =>
+              playerModal === "new" ? [...list, p] : list.map((x) => (x.id === p.id ? p : x))
+            );
+            setPlayerModal(null);
+          }}
+          onClose={() => setPlayerModal(null)}
+        />
+      )}
     </div>
   );
 }
 
-/** One country's database picker: choose the procedural default (when available)
- * or the bundled preset, or upload + validate a custom JSON file (with a
- * Download-template shortcut). Preset-only countries omit the default option. */
+/** Nationality codes offered by create-a-player: every name pool plus every
+ * selectable country. */
+const NAT_OPTIONS: string[] = Array.from(
+  new Set([...NAME_POOLS.map((p) => p.nat), ...COUNTRY_OPTIONS.map((o) => o.code)])
+).sort();
+
+/** One country's database picker: choose the default (procedural for engine
+ * countries; real clubs + generated squads for preset-only ones) or the bundled
+ * preset, or upload + validate a custom JSON file (with a Download-template
+ * shortcut). */
 function CountryDbRow({
   code,
   choice,
@@ -423,7 +615,7 @@ function CountryDbRow({
         <span className="flex items-center gap-1.5 text-[11px] text-win">
           ✓ {choice.fileName}
           <button
-            onClick={() => onChange(initialChoice(code))}
+            onClick={() => onChange(initialChoice())}
             className="text-faint hover:text-loss"
             title="Discard custom file"
           >
@@ -432,8 +624,14 @@ function CountryDbRow({
         </span>
       ) : (
         <div className="flex items-center gap-1 rounded border border-line/70 p-0.5">
-          {option?.hasDefault &&
-            segBtn(choice.source === "default", "Default", () => onChange({ source: "default" }), "Procedural default database")}
+          {segBtn(
+            choice.source === "default",
+            "Default",
+            () => onChange({ source: "default" }),
+            option?.hasEngineDefault
+              ? "Procedural default database"
+              : "Real clubs with generated squads"
+          )}
           {preset &&
             segBtn(choice.source === "preset", "Preset", () => onChange({ source: "preset" }), preset.blurb)}
         </div>
@@ -513,7 +711,9 @@ function CustomDbGuide({ onClose }: { onClose: () => void }) {
             <code className="text-gold">name</code>, <code className="text-gold">short</code> (2–4 letters),{" "}
             <code className="text-gold">colors</code> (two hex strings), <code className="text-gold">rep</code> (1–100),{" "}
             <code className="text-gold">stadium</code>. An optional <code className="text-gold">players[]</code> array
-            gives a hand-authored roster; omit it and the squad is generated for you.
+            gives a hand-authored roster; omit it and the squad is generated for you. An optional{" "}
+            <code className="text-gold">squadQuality</code> (1–100) sets the generated squad&apos;s strength
+            independently of <code>rep</code>.
           </p>
         </div>
         <div>

@@ -171,11 +171,31 @@ const COUNTRY_TO_FLAG: Record<string, string> = {
   Belgium: "be",
   Sweden: "se",
   Nigeria: "ng",
-  // Preset-database countries
+  // Preset-database countries (both the picker display name and the JSON's own
+  // `name` are mapped where they differ, e.g. South Korea / "Korea, South").
   "United States": "us",
   USA: "us",
   Turkey: "tr",
   "Türkiye": "tr",
+  Australia: "au",
+  Austria: "at",
+  Colombia: "co",
+  Croatia: "hr",
+  "Czech Republic": "cz",
+  Denmark: "dk",
+  Greece: "gr",
+  Japan: "jp",
+  Mexico: "mx",
+  Norway: "no",
+  Poland: "pl",
+  Romania: "ro",
+  Russia: "ru",
+  "Saudi Arabia": "sa",
+  Serbia: "rs",
+  "South Korea": "kr",
+  "Korea, South": "kr",
+  Switzerland: "ch",
+  Ukraine: "ua",
 };
 
 /** URL for a player's nationality flag, or null if unmapped. */

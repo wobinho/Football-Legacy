@@ -44,6 +44,11 @@ export interface PlayerSeed {
 /** A club, optionally with an explicit roster. */
 export interface ClubSeed extends ClubDef {
   players?: PlayerSeed[];
+  /** Optional generated-squad strength (1–100). When set, worldgen sizes the
+   * procedural squad off this instead of `rep` — so a created/modded club can be
+   * a big-reputation club with a weak squad or vice versa. Roster players
+   * authored in `players` are unaffected. */
+  squadQuality?: number;
 }
 
 export interface DivisionSeed {
@@ -164,6 +169,8 @@ function validateClub(c: unknown, where: string, push: (m: string) => void) {
   if (typeof club.rep !== "number" || club.rep < 1 || club.rep > 100)
     push(`${where}.rep must be a reputation number 1–100.`);
   if (typeof club.stadium !== "string" || !club.stadium.trim()) push(`${where}.stadium must be a non-empty string.`);
+  if (club.squadQuality !== undefined && (typeof club.squadQuality !== "number" || club.squadQuality < 1 || club.squadQuality > 100))
+    push(`${where}.squadQuality must be a number 1–100 (or omitted to use rep).`);
   if (club.players !== undefined) {
     if (!Array.isArray(club.players)) push(`${where}.players must be an array (or omitted for a generated squad).`);
     else club.players.forEach((p, pi) => validatePlayerSeed(p, `${where}.players[${pi}]`, push));

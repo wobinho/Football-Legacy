@@ -7,6 +7,25 @@ Save-schema version is noted where it moved. The game auto-migrates older saves 
 
 ---
 
+## 2026-07-19 — 32 country presets & preset-derived defaults
+
+Save schema: unchanged. New-game setup only; existing saves unaffected.
+
+- **Preset registry rebuilt** — `lib/config/presets.ts` now registers all 32 country databases in
+  `public/database_presets/` under their real filenames (`<CODE>-country-db.json`). The old registry
+  pointed at 8 stale filenames (`ENGLAND.json`, …), so most presets 404'd at new-game setup.
+- **Every country now offers Default *and* Preset** — countries without an engine club pool derive
+  their "Default" from the preset: same real league and clubs, hand-authored rosters stripped so
+  squads are procedurally generated (`proceduralFromPreset`). Setup fetches the preset asset for
+  such a country even when Default is selected, and always passes the derived DB to worldgen.
+- **Flags** — `COUNTRY_TO_FLAG` covers all new country names (Japan, Mexico, Poland, "Korea,
+  South" / South Korea, Saudi Arabia, …), so league flags render for every preset country.
+- **Name pools** — 23 new nationality pools in `lib/config/names.ts` (POR, TUR, USA, BEL, SUI, AUT,
+  CRO, CZE, DEN, NOR, SCO, GRE, POL, ROU, SRB, RUS, UKR, JPN, KOR, KSA, MEX, COL, AUS) so generated
+  squads and youth intakes for the new countries stop falling back to English names.
+
+---
+
 ## 2026-07-19 — Mobile layout fixes (Academy & Scouting)
 
 Save schema: unchanged. Layout-only; desktop rendering is untouched.
