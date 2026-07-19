@@ -16,7 +16,7 @@ import { userBid, respondToOffer, type BidOutcome, type OfferResponse } from "@/
 import { hireStaff, dismissCandidate, fireStaff } from "@/lib/staff";
 import { acceptSponsor, declineSponsor } from "@/lib/sponsors";
 import { upgradeFacility, upgradeTrainingFacility, type Facility, type TrainingFacility } from "@/lib/economy";
-import type { SponsorSlot, StaffSlot, TeamAssignments } from "@/lib/types";
+import type { StaffSlot, TeamAssignments } from "@/lib/types";
 import {
   promoteToSenior,
   demoteToAcademy,
@@ -84,6 +84,7 @@ interface GameStore {
   upgrade: (facility: Facility) => void;
   upgradeTraining: (facility: TrainingFacility) => void;
   markRead: (inboxId: string) => void;
+  markAllRead: () => void;
 
   // Sponsors / investments (v6)
   signSponsor: (offerId: string) => void;
@@ -418,7 +419,7 @@ export const useGame = create<GameStore>((set, get) => ({
   signSponsor: (offerId) => {
     const g = get().game;
     if (!g) return;
-    const err = acceptSponsor(g, offerId, TUNING);
+    const err = acceptSponsor(g, offerId);
     if (err) get().showToast(err);
     else get().showToast("Sponsorship deal signed — weekly income up.");
     get().bump(true);
@@ -466,6 +467,7 @@ export const useGame = create<GameStore>((set, get) => ({
         academy: "Youth Academy upgraded — bigger, better intake classes.",
         scoutNetwork: "Max Scouts increased — send more scouts abroad.",
         academySquad: "Academy Squad Size increased — room for more prospects.",
+        focusSlot: "Focus Slots increased — flag more prospects for focus.",
       };
       get().showToast(msg[facility]);
     }
@@ -477,6 +479,13 @@ export const useGame = create<GameStore>((set, get) => ({
     if (!g) return;
     const item = g.inbox.find((i) => i.id === inboxId);
     if (item) item.read = true;
+    get().bump(false);
+  },
+
+  markAllRead: () => {
+    const g = get().game;
+    if (!g) return;
+    for (const item of g.inbox) item.read = true;
     get().bump(false);
   },
 

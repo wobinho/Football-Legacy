@@ -11,6 +11,7 @@ design session before changing, `[FUTURE]` must not be built but must not be blo
 - `npm run calibrate [n]` — match-engine calibration harness (targets: ~2.7 goals/match, ~45% home wins)
 - `npx tsx scripts/smoke.ts [seasons]` — headless multi-season simulation (loop/rollover/cup/transfer sanity)
 - `node scripts/ui-test.mjs` — end-to-end UI drive via headless Edge (dev server must be running)
+- `node scripts/ui-test-mobile.mjs` — same at a 390×844 phone viewport (Academy/Scouting focus)
 
 ## Architecture (mirrors GAME_DESIGN.md §2 module map)
 

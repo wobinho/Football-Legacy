@@ -9,7 +9,7 @@ import { hashString, mulberry32, deriveSeed, uid } from "./rng";
 import { isMonday, formatDayShort, buildSeasonSchedule, seasonYearLabel } from "./calendar";
 import { buildSideInput, pickLineup, headCoachMult } from "./selection";
 import { simulateMatch } from "./engine/match";
-import { generateLeagueFixtures, drawCupRound, settleCupRound, applyPromotionRelegation, computeTable, initCup } from "./season";
+import { generateLeagueFixtures, drawCupRound, applyPromotionRelegation, initCup } from "./season";
 import { dailyRecovery, applyMatchFatigue, nudgeForm, applySeasonDevelopment, mentorGrowthBonus } from "./development";
 import { weeklyEconomyTick, applySeasonPrizes } from "./economy";
 import { aiWeeklyTransferTick, refreshValues } from "./transfers";
@@ -177,7 +177,7 @@ function advanceDay(state: GameState): StopReason | null {
   if (day === sched.winterOpenDay) {
     refreshValues(state, cfg);
     pushInbox(state, "window", "Winter transfer window open", "The winter window is open until 1 February. Sim leagues have updated tables and form to browse.");
-    loanMidseasonReports(state, cfg);
+    loanMidseasonReports(state);
   }
 
   // Staff market: dismissed slots refill after a couple of days (v6).
@@ -403,7 +403,7 @@ export function runSeasonRollover(state: GameState) {
   state.fixtures = playableDivs.flatMap((id, idx) =>
     generateLeagueFixtures(id, state.leagues[id].teamIds, state.schedule.leagueRoundDays, state.seed + state.season * (17 + idx * 14))
   );
-  state.cup = initCup(playableDivs.flatMap((id) => state.leagues[id].teamIds), state.teams, deriveSeed(state.seed, `cup:${state.season}`));
+  state.cup = initCup(playableDivs.flatMap((id) => state.leagues[id].teamIds));
   state.currentDay = state.schedule.seasonStartDay;
   state.staffMarket = generateStaffMarket(deriveSeed(state.seed, `staff:${state.season}`));
   rolloverSponsors(state); // expire deals that have run their course (v6)

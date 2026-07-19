@@ -117,10 +117,9 @@ export default function Calendar() {
                 <>
                   <span className="absolute left-1 top-0.5 tnum text-[9px] leading-none text-faint">{dayOfMonth(day)}</span>
                   <span
-                    className={`absolute left-0.5 top-0.5 rounded-[3px] px-1 text-[8px] font-bold leading-none ${
+                    className={`absolute right-0.5 top-0.5 rounded-[3px] px-1 text-[8px] font-bold leading-none ${
                       isHome ? "text-win/80" : "text-dim"
                     }`}
-                    style={{ left: "auto", right: 2 }}
                     title={isHome ? "Home" : "Away"}
                   >
                     {isHome ? "H" : "A"}

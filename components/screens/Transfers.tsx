@@ -12,7 +12,7 @@ import { askPrice } from "@/lib/transfers";
 import { wageDemand, maxLengthFor } from "@/lib/contracts";
 import { transferWindowState } from "@/lib/calendar";
 import { formatMoney } from "@/lib/value";
-import { ArchetypeIcon, Card, Crest, Flag, GhostButton, GoldButton, Modal, Money, MoneyInput, Ovr, PosBadge, PotentialBadge, Section, Tabs } from "../ui";
+import { ArchetypeIcon, Card, Crest, Flag, GhostButton, GoldButton, Modal, Money, MoneyInput, Ovr, PosBadge, Tabs } from "../ui";
 
 type Tab = "search" | "offers" | "listed" | "free";
 
@@ -148,11 +148,6 @@ function SearchTab() {
             right={
               <div className="w-28 text-right">
                 <Money value={p.value} className="text-dim" />
-                {p.age < TUNING.growthEndAge && (
-                  <div className="text-[10px]">
-                    <PotentialBadge game={game} p={p} />
-                  </div>
-                )}
               </div>
             }
           />
@@ -436,6 +431,7 @@ function NegotiateModal({ offerId, onClose }: { offerId: string; onClose: () => 
 function ListedTab() {
   const game = useGame((s) => s.game)!;
   const toggle = useGame((s) => s.toggleTransferList);
+  const viewPlayer = useGame((s) => s.viewPlayer);
   const team = game.teams[game.userTeamId];
   const players = team.playerIds.map((id) => game.players[id]).filter(Boolean).sort((a, b) => b.overall - a.overall);
   return (
@@ -445,11 +441,22 @@ function ListedTab() {
         return (
           <div key={p.id} className="flex items-center gap-3 border-b border-line/50 px-3 py-2 text-sm last:border-0">
             <PosBadge pos={p.positions[0]} />
-            <span className="min-w-0 flex-1 truncate font-medium">{p.name}</span>
+            <button onClick={() => viewPlayer(p.id)} className="group min-w-0 flex-1 text-left">
+              <span className="flex items-center gap-1.5 truncate font-medium">
+                <Flag nat={p.nationality} size={13} />
+                <span className="truncate transition-colors group-hover:text-gold">{p.name}</span>
+                <span className="ml-1 text-[11px] text-faint">{p.age}y</span>
+              </span>
+              <span className="flex items-center gap-1.5 truncate text-[11px] text-faint">
+                <ArchetypeIcon archetypeId={p.archetypeId} size={12} />
+                <span className="truncate">{getArchetype(p.archetypeId).name}</span>
+              </span>
+            </button>
             <Money value={p.value} className="text-dim" />
             <Ovr value={p.overall} size="sm" />
             <button
               onClick={() => toggle(p.id)}
+              title={listed ? "Remove from the transfer list" : "Put on the transfer list to attract offers"}
               className={`display w-24 rounded px-2 py-1 text-xs font-semibold ${
                 listed ? "gold-grad text-black" : "border border-line text-faint hover:text-dim"
               }`}

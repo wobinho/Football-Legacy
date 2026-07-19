@@ -110,7 +110,7 @@ export function upgradeFacility(state: GameState, facility: Facility, cfg: Tunin
 // These carry no weekly income; they speed development / recovery. Kept next to
 // the income facilities so all facility upgrades share one purchase pattern.
 
-export type TrainingFacility = "training" | "medical" | "academy" | "scoutNetwork" | "academySquad";
+export type TrainingFacility = "training" | "medical" | "academy" | "scoutNetwork" | "academySquad" | "focusSlot";
 
 function trainingLevelOf(state: GameState, teamId: string, facility: TrainingFacility): number {
   const team = state.teams[teamId];
@@ -123,7 +123,9 @@ function trainingLevelOf(state: GameState, teamId: string, facility: TrainingFac
           ? team.academyLevel
           : facility === "scoutNetwork"
             ? team.scoutNetworkLevel
-            : team.academySquadLevel) ?? 0
+            : facility === "academySquad"
+              ? team.academySquadLevel
+              : team.focusSlotLevel) ?? 0
   );
 }
 
@@ -134,7 +136,9 @@ function trainingMaxLevel(facility: TrainingFacility, cfg: TuningConfig): number
       ? cfg.scoutNetworkMaxLevel
       : facility === "academySquad"
         ? cfg.academySquadMaxLevel
-        : cfg.trainingFacilityMaxLevel;
+        : facility === "focusSlot"
+          ? cfg.focusSlotMaxLevel
+          : cfg.trainingFacilityMaxLevel;
 }
 
 /** Cost to buy the next level of a training facility, or null if already maxed. */
@@ -150,7 +154,9 @@ export function trainingNextCost(state: GameState, teamId: string, facility: Tra
           ? cfg.academyUpgradeCost
           : facility === "scoutNetwork"
             ? cfg.scoutNetworkUpgradeCost
-            : cfg.academySquadUpgradeCost;
+            : facility === "academySquad"
+              ? cfg.academySquadUpgradeCost
+              : cfg.focusSlotUpgradeCost;
   return costs[level] ?? null;
 }
 
@@ -165,7 +171,8 @@ export function upgradeTrainingFacility(state: GameState, facility: TrainingFaci
   else if (facility === "medical") team.medicalLevel = (team.medicalLevel ?? 0) + 1;
   else if (facility === "academy") team.academyLevel = (team.academyLevel ?? 0) + 1;
   else if (facility === "scoutNetwork") team.scoutNetworkLevel = (team.scoutNetworkLevel ?? 0) + 1;
-  else team.academySquadLevel = (team.academySquadLevel ?? 0) + 1;
+  else if (facility === "academySquad") team.academySquadLevel = (team.academySquadLevel ?? 0) + 1;
+  else team.focusSlotLevel = (team.focusSlotLevel ?? 0) + 1;
   return null;
 }
 

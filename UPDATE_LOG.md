@@ -7,6 +7,56 @@ Save-schema version is noted where it moved. The game auto-migrates older saves 
 
 ---
 
+## 2026-07-19 — Mobile layout fixes (Academy & Scouting)
+
+Save schema: unchanged. Layout-only; desktop rendering is untouched.
+
+- **Academy → Squad on phones was unusable** — the fixed-track grid (22rem actions column) crushed
+  the player column to nothing, names overlapped ages and actions stacked in a sliver. Below `md`
+  each row now stacks: an identity line (pos · flag · name · archetype · age · OVR · potential,
+  with a `y` suffix on age since the column header is hidden) and a wrapping actions line beneath.
+  From `md` up the original aligned grid is unchanged (the row wrapper dissolves via
+  `display: contents`).
+- **Scouting tab** — the "scouts available / + SEND A SCOUT" footer and each prospect report's
+  fee/actions footer now wrap instead of cramming on one line; the recall ✕ on an assignment is a
+  36px touch target on phones (28px from `md` up).
+- **New `scripts/ui-test-mobile.mjs`** — drives the game at a 390×844 viewport through every Academy
+  tab, hires a scout and sends them out (exercising the two-step confirm, the send-a-scout modal and
+  the active-assignment layout), screenshots each step and checks for horizontal overflow.
+  Same contract as `ui-test.mjs`: dev server running, `UI_TEST_OUT` optional.
+
+---
+
+## 2026-07-19 — Codebase cleanup & UI polish
+
+Save schema: unchanged. No balance changes (engine cleanup is signature-only; calibration untouched).
+
+**Cleanup**
+
+- Enabled `noUnusedLocals` / `noUnusedParameters` in tsconfig and removed every hit: dead state in
+  KeyGate, dead imports (Transfers, gameloop, gameStore, season), unused params on `initCup`,
+  `loanMidseasonReports`, `acceptSponsor`, `rollSetPiece`, and leftover locals in MatchDay,
+  PlayerProfile and season's cup draw.
+- `scripts/ui-test.mjs` no longer hardcodes a machine-specific screenshot folder — set `UI_TEST_OUT`
+  or it defaults to a temp dir (printed at the end of a run).
+- Competition's tab strip drops its `as never` casts; Calendar's H/A badge drops an inline-style
+  positioning hack.
+
+**UI / UX**
+
+- **Home** — "Mark all read (n)" action on the Inbox header; unread items carry a gold dot; friendlier
+  empty-inbox card; the league panel shows a last-5 **form guide** (W/D/L chips with score tooltips).
+- **Academy** — the squad tab's floating text block is now a proper stat-chip row (places, focus
+  slots, senior space, next/last intake) with tooltips; **Release** uses the standard two-step
+  confirm button instead of a native `window.confirm`.
+- **Club → History** — all-time top scorers / most appearances rows are now clickable and open the
+  player profile (the list previously took an `onView` handler it never used; record rows now carry
+  the player id).
+- **Transfers → My Listings** — rows show flag, age and archetype, and the player name opens the
+  full profile; the List toggle gained a tooltip.
+
+---
+
 ## 2026-07-19 — Youth & scouting overhaul
 
 Save schema: **v10** (unchanged — all new fields are optional and default safely on old saves).

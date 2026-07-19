@@ -9,15 +9,26 @@ import { useGame } from "@/store/gameStore";
 import type { Pos, PlayerBio, ScoutPosGroup, ScoutRegion } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
 import { ARCHETYPES, getArchetype } from "@/lib/config/archetypes";
-import { academyPlayers, potentialView, scoutCapacity } from "@/lib/academy";
+import {
+  academyPlayers,
+  focusSlots,
+  potentialView,
+  scoutCapacity,
+  u21Eligible,
+  u21Shortfall,
+  U21_SIDE_SIZE,
+  U21_MIN_GK,
+  U21_MIN_OUTFIELD,
+} from "@/lib/academy";
 import { academySquadCap, trainingNextCost } from "@/lib/economy";
+import { plansForPosition, resolveTrainingPlan } from "@/lib/config/training";
 import { SCOUT_REGIONS } from "@/lib/config/scouting";
 import { transferWindowState, formatDayShort } from "@/lib/calendar";
 import { formatMoney } from "@/lib/value";
 import { staffSlotsForDept } from "@/lib/staff";
-import { Card, ConfirmButton, Flag, GhostButton, GoldButton, Modal, Ovr, PosBadge, PotentialBadge, Section, Stars, StarRange, Tabs } from "../ui";
+import { Card, ConfirmButton, Flag, GhostButton, GoldButton, Modal, Ovr, PosBadge, PotentialBadge, Section, Stars, StarRange, Tabs, UpgradeCard } from "../ui";
 
-type Tab = "squad" | "u21" | "scouting" | "staff";
+type Tab = "squad" | "u21" | "scouting" | "staff" | "upgrades";
 
 export default function AcademyScreen() {
   const game = useGame((s) => s.game)!;
@@ -33,6 +44,7 @@ export default function AcademyScreen() {
           { id: "u21", label: "U21 League" },
           { id: "scouting", label: "Scouting", badge: reports.length },
           { id: "staff", label: "Staff" },
+          { id: "upgrades", label: "Upgrades" },
         ]}
         active={tab}
         onChange={setTab}
@@ -41,6 +53,7 @@ export default function AcademyScreen() {
       {tab === "u21" && <U21Tab />}
       {tab === "scouting" && <ScoutingTab />}
       {tab === "staff" && <AcademyStaffTab />}
+      {tab === "upgrades" && <UpgradesTab />}
     </div>
   );
 }
@@ -189,9 +202,6 @@ function ScoutNetworkPanel({ def }: { def: ReturnType<typeof staffSlotsForDept>[
       {/* the appointed scout — a wide "field card" */}
       <Card className="mb-4 p-4">
         <div className="flex flex-wrap items-center gap-4">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg border border-line bg-raised text-2xl">
-            🔎
-          </div>
           {current ? (
             <>
               <div className="min-w-0 flex-1">
@@ -240,10 +250,7 @@ function ScoutNetworkPanel({ def }: { def: ReturnType<typeof staffSlotsForDept>[
                 className="flex flex-col overflow-hidden border-t-2 border-t-gold-lo/40 p-0"
               >
                 {/* scout "badge" header */}
-                <div className="flex items-center gap-3 bg-raised px-3 py-2.5">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-lg">
-                    🕵️
-                  </div>
+                <div className="flex items-center justify-between gap-3 bg-raised px-3 py-2.5">
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
                       <Flag nat={c.nationality} size={11} />
@@ -295,6 +302,13 @@ function statusChips(game: NonNullable<ReturnType<typeof useGame.getState>["game
   return chips;
 }
 
+// Shared grid template for the academy squad header + rows, applied from md up.
+// Fixed tracks for the data columns (Age/OVR/Potential/Actions) so the header —
+// a separate grid container from each row — lines its labels up with the values
+// below them. On phones the rows drop the grid entirely and stack: an identity
+// line (pos · name · age · OVR · potential) with the actions wrapping beneath.
+const SQUAD_GRID = "md:grid-cols-[2.25rem_1fr_2.5rem_3rem_4.5rem_minmax(0,22rem)]";
+
 function SquadTab() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
@@ -304,6 +318,7 @@ function SquadTab() {
   const toggleFocus = useGame((s) => s.academyToggleFocus);
   const toggleLoan = useGame((s) => s.academyToggleLoan);
   const recall = useGame((s) => s.academyRecall);
+  const setPlan = useGame((s) => s.setTrainingPlan);
 
   const team = game.teams[game.userTeamId];
   const seniorRoom = TUNING.squadCap - team.playerIds.length;
@@ -318,37 +333,49 @@ function SquadTab() {
     return vb.hiStars - va.hiStars || vb.loStars - va.loStars || b.overall - a.overall;
   });
 
+  const stats: { label: string; value: React.ReactNode; hint?: string }[] = [
+    {
+      label: "Academy places",
+      value: `${roster.length}/${academySquadCap(game, team.id, TUNING)}`,
+      hint: "Prospects in the academy — upgrade Academy Squad Size for more room",
+    },
+    {
+      label: "Focus slots",
+      value: `${game.academy.focusIds.length}/${focusSlots(game, TUNING)}`,
+      hint: "Focus prospects get guaranteed U21 starts and extra coaching",
+    },
+    { label: "Senior squad space", value: `${seniorRoom}`, hint: "Open spots in the first team for promotions" },
+    ...(intakeDay !== undefined && intakeDay > game.currentDay
+      ? [{ label: "Next intake class", value: formatDayShort(intakeDay), hint: "A new class of prospects arrives every March" }]
+      : []),
+    ...(intake
+      ? [
+          {
+            label: "Last class",
+            value: (
+              <>
+                {intake.playerIds.length} prospects
+                {intake.golden && <span className="gold-text"> · GOLDEN</span>}
+              </>
+            ),
+          },
+        ]
+      : []),
+  ];
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="text-right text-xs text-faint">
-          {intakeDay !== undefined && intakeDay > game.currentDay && (
-            <div>
-              Next intake class: <span className="tnum text-ink">{formatDayShort(intakeDay)}</span>
-            </div>
-          )}
-          {intake && (
-            <div>
-              Last class: {intake.playerIds.length} prospects{intake.golden && <span className="gold-text font-semibold"> · GOLDEN GENERATION</span>}
-            </div>
-          )}
-          <div>
-            Focus slots: <span className="tnum text-ink">{game.academy.focusIds.length}/{TUNING.u21FocusMax}</span>
+      <div className="flex flex-wrap gap-2">
+        {stats.map((s) => (
+          <div key={s.label} className="rounded-md border border-line bg-surface px-3 py-1.5" title={s.hint}>
+            <div className="text-[9px] uppercase tracking-widest text-faint">{s.label}</div>
+            <div className="display tnum text-sm font-semibold text-ink">{s.value}</div>
           </div>
-          <div>
-            Academy places:{" "}
-            <span className="tnum text-ink">
-              {roster.length}/{academySquadCap(game, team.id, TUNING)}
-            </span>
-          </div>
-          <div>
-            Senior squad space: <span className="tnum text-ink">{seniorRoom}</span>
-          </div>
-        </div>
+        ))}
       </div>
 
       <Card className="divide-y divide-line/50">
-        <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-faint">
+        <div className={`hidden ${SQUAD_GRID} items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-faint md:grid`}>
           <span>Pos</span>
           <span>Player</span>
           <span className="text-center">Age</span>
@@ -366,30 +393,55 @@ function SquadTab() {
           const isFocus = game.academy.focusIds.includes(p.id);
           const listed = game.academy.loanList.includes(p.id);
           return (
-            <div key={p.id} className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] items-center gap-3 px-4 py-2.5">
-              <PosBadge pos={p.positions[0]} />
-              <button onClick={() => viewPlayer(p.id)} className="min-w-0 text-left hover:underline">
-                <span className="flex items-center gap-1.5">
-                  <Flag nat={p.nationality} size={11} />
-                  <span className="truncate font-medium">{p.name}</span>
+            <div key={p.id} className={`px-4 py-2.5 md:grid ${SQUAD_GRID} md:items-center md:gap-3`}>
+              {/* identity line — md:contents dissolves the wrapper so these
+                  become the first five grid cells on desktop */}
+              <div className="flex items-center gap-2.5 md:contents">
+                <PosBadge pos={p.positions[0]} />
+                <button onClick={() => viewPlayer(p.id)} className="group min-w-0 flex-1 text-left md:flex-none">
+                  <span className="flex items-center gap-1.5">
+                    <Flag nat={p.nationality} size={11} />
+                    <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
+                  </span>
+                  <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-faint">
+                    {getArchetype(p.archetypeId).name}
+                    {chips.map((c) => (
+                      <span key={c.label} className={`display rounded-sm border px-1 text-[9px] font-semibold ${c.cls}`}>
+                        {c.label}
+                      </span>
+                    ))}
+                  </span>
+                </button>
+                <span className="shrink-0 text-center tnum text-sm text-dim">
+                  {p.age}
+                  <span className="md:hidden">y</span>
                 </span>
-                <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-faint">
-                  {getArchetype(p.archetypeId).name}
-                  {chips.map((c) => (
-                    <span key={c.label} className={`display rounded-sm border px-1 text-[9px] font-semibold ${c.cls}`}>
-                      {c.label}
-                    </span>
-                  ))}
+                <span className="shrink-0 text-center">
+                  <Ovr value={p.overall} size="sm" />
                 </span>
-              </button>
-              <span className="text-center tnum text-sm text-dim">{p.age}</span>
-              <span className="text-center">
-                <Ovr value={p.overall} size="sm" />
-              </span>
-              <span className="text-center">
-                <PotentialBadge game={game} p={p} />
-              </span>
-              <span className="flex flex-wrap items-center justify-end gap-1.5">
+                <span className="shrink-0 text-center">
+                  <PotentialBadge game={game} p={p} />
+                </span>
+              </div>
+              <span className="mt-2 flex flex-wrap items-center gap-1.5 md:mt-0 md:justify-end">
+                {(() => {
+                  const plan = resolveTrainingPlan(p.trainingPlan, p.positions[0]);
+                  const options = plansForPosition(p.positions[0]);
+                  return (
+                    <select
+                      value={plan.id}
+                      onChange={(e) => setPlan(p.id, e.target.value)}
+                      title={`Training plan — ${plan.blurb}`}
+                      className="display rounded border border-line bg-raised px-2 py-1 text-[11px] font-semibold tracking-wide text-dim transition-colors hover:border-faint hover:text-ink focus:border-gold focus:outline-none"
+                    >
+                      {options.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.name}
+                        </option>
+                      ))}
+                    </select>
+                  );
+                })()}
                 <TextBtn
                   label={isFocus ? "★ Focus" : "☆ Focus"}
                   title={isFocus ? "Remove focus" : "Make focus prospect (guaranteed U21 starts + coaching)"}
@@ -424,13 +476,12 @@ function SquadTab() {
                   onClick={() => promote(p.id)}
                   disabled={seniorRoom <= 0 || !!p.loan || p.age < TUNING.academyPromoteMinAge}
                 />
-                <TextBtn
+                <ConfirmButton
                   label="Release"
-                  title="Release this prospect"
-                  danger
-                  onClick={() => {
-                    if (window.confirm(`Release ${p.name} from the academy?`)) release(p.id);
-                  }}
+                  confirmLabel="Sure?"
+                  tone="danger"
+                  onConfirm={() => release(p.id)}
+                  className="display !rounded !px-2 !py-1 !text-[11px] tracking-wide"
                 />
               </span>
             </div>
@@ -502,7 +553,7 @@ function U21SquadPicker() {
 
   return (
     <Section
-      title="U21 Matchday Squad"
+      title={`U21 Matchday Squad · ${U21_SIDE_SIZE}-a-side`}
       right={
         <span className="text-xs text-faint">
           {tagged > 0 ? (
@@ -531,9 +582,9 @@ function U21SquadPicker() {
                   }`}
                 >
                   <PosBadge pos={p.positions[0]} />
-                  <button onClick={() => viewPlayer(p.id)} className="min-w-0 flex-1 truncate text-left text-sm hover:underline">
+                  <button onClick={() => viewPlayer(p.id)} className="group min-w-0 flex-1 truncate text-left text-sm">
                     <span className="flex items-center gap-1.5">
-                      <span className="truncate font-medium">{p.name}</span>
+                      <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
                       <span className="tnum text-[11px] text-faint">{p.age}y</span>
                       {isFocus && <span className="display text-[9px] font-semibold text-gold">★</span>}
                     </span>
@@ -567,6 +618,39 @@ function U21SquadPicker() {
   );
 }
 
+/** Shown when the academy can't field a legal 7-a-side U21 side — the league is
+ * locked until the roster has at least one keeper and six outfielders. */
+function U21LockedBanner() {
+  const game = useGame((s) => s.game)!;
+  const short = u21Shortfall(game);
+  const need: string[] = [];
+  if (short.gk > 0) need.push(`${short.gk} goalkeeper${short.gk > 1 ? "s" : ""}`);
+  if (short.outfield > 0) need.push(`${short.outfield} outfield player${short.outfield > 1 ? "s" : ""}`);
+  return (
+    <Card className="border-l-2 border-l-loss/60 bg-gradient-to-r from-loss/[0.08] to-transparent p-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-loss/40 bg-loss/10 text-2xl">
+          🔒
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="display text-sm font-bold text-loss">U21 League Locked</div>
+          <p className="mt-0.5 text-[13px] leading-relaxed text-dim">
+            The U21s play {U21_SIDE_SIZE}-a-side. You need at least{" "}
+            <span className="text-ink">{U21_MIN_GK} goalkeeper</span> and{" "}
+            <span className="text-ink">{U21_MIN_OUTFIELD} outfield players</span> in the academy (loanees don&apos;t
+            count) before the side can take the field.
+            {need.length > 0 && (
+              <>
+                {" "}Still needed: <span className="font-semibold text-loss">{need.join(" and ")}</span>.
+              </>
+            )}
+          </p>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function U21Tab() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
@@ -576,8 +660,11 @@ function U21Tab() {
     .filter((p) => (p.youthStats?.apps ?? 0) > 0 && !p.loan)
     .sort((a, b) => (b.youthStats!.goals - a.youthStats!.goals) || b.youthStats!.ratingSum / b.youthStats!.apps - a.youthStats!.ratingSum / a.youthStats!.apps);
 
+  const eligible = u21Eligible(game);
+
   return (
     <div className="space-y-6">
+      {!eligible && <U21LockedBanner />}
       <U21SquadPicker />
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       <Section title="U21 Table" right={<span className="text-xs text-faint">round {u21.roundsPlayed} of {u21.matchDays.length}</span>}>
@@ -609,8 +696,9 @@ function U21Tab() {
           ))}
         </Card>
         <p className="mt-2 text-[11px] leading-snug text-faint">
-          The U21s play automatically — a midweek fixture every week or so. Your best prospects (focus first) start every
-          match; U21 minutes feed development at {Math.round(TUNING.u21MinutesWeight * 100)}% of senior weight.
+          The U21s play {U21_SIDE_SIZE}-a-side, automatically — a midweek fixture every week or so. Your best prospects
+          (focus first) start every match; U21 minutes feed development at {Math.round(TUNING.u21MinutesWeight * 100)}% of
+          senior weight.
         </p>
       </Section>
 
@@ -719,7 +807,7 @@ function ScoutingTab() {
             <Card className="p-4 text-sm text-dim">
               No scout on the books — hire a <b className="text-ink">Scout</b> on the <b className="text-ink">Staff</b> tab and you
               can start sending them abroad. More stars mean more reports and tighter potential reads; upgrade{" "}
-              <b className="text-ink">Max Scouts</b> below to send more out at once.
+              <b className="text-ink">Max Scouts</b> on the <b className="text-ink">Upgrades</b> tab to send more out at once.
             </Card>
           ) : (
             <Card className="p-4">
@@ -762,7 +850,7 @@ function ScoutingTab() {
                       <button
                         onClick={() => removeScout(a.id)}
                         title="Recall this scout — frees the slot to send a new brief"
-                        className="h-7 w-7 shrink-0 rounded border border-line text-sm text-dim hover:border-loss/50 hover:text-loss"
+                        className="h-9 w-9 shrink-0 rounded border border-line text-sm text-dim hover:border-loss/50 hover:text-loss md:h-7 md:w-7"
                       >
                         ✕
                       </button>
@@ -776,16 +864,16 @@ function ScoutingTab() {
                 )}
               </div>
 
-              <div className="mt-3 flex items-center justify-between">
-                <span className="text-[11px] text-faint">
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                <span className="min-w-0 flex-1 text-[11px] text-faint">
                   {assignments.length >= capacity
-                    ? "All scouts deployed. Upgrade Max Scouts below to send more."
+                    ? "All scouts deployed. Upgrade Max Scouts on the Upgrades tab to send more."
                     : `${capacity - assignments.length} scout${capacity - assignments.length === 1 ? "" : "s"} available.`}
                 </span>
                 <GoldButton
                   onClick={() => setSending(true)}
                   disabled={assignments.length >= capacity}
-                  className="!px-4 !py-1.5 text-xs"
+                  className="shrink-0 !px-4 !py-1.5 text-xs"
                 >
                   + SEND A SCOUT
                 </GoldButton>
@@ -793,8 +881,6 @@ function ScoutingTab() {
             </Card>
           )}
         </Section>
-
-        <UpgradesPanel />
       </div>
 
       <Section title="Prospect Reports" right={<span className="text-xs text-faint">{reports.length} active</span>}>
@@ -814,10 +900,10 @@ function ScoutingTab() {
               return (
                 <Card key={r.id} className="p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <button onClick={() => viewProspect(p)} className="flex min-w-0 items-center gap-2 text-left hover:underline">
+                    <button onClick={() => viewProspect(p)} className="group flex min-w-0 items-center gap-2 text-left">
                       <PosBadge pos={p.positions[0]} />
                       <Flag nat={p.nationality} size={12} />
-                      <span className="truncate font-semibold">{p.name}</span>
+                      <span className="truncate font-semibold transition-colors group-hover:text-gold">{p.name}</span>
                       <span className="tnum text-xs text-faint">age {p.age}</span>
                       {r.region && (
                         <span className="display rounded-sm border border-line px-1 text-[9px] font-semibold text-faint">
@@ -836,12 +922,12 @@ function ScoutingTab() {
                     {getArchetype(p.archetypeId).name} · click the name for full stats before you sign
                   </div>
                   <p className="mt-2 text-[13px] italic leading-relaxed text-dim">&ldquo;{r.note}&rdquo;</p>
-                  <div className="mt-3 flex items-center justify-between border-t border-line/60 pt-3">
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-3">
                     <span className="text-xs text-faint">
                       Fee <span className="display tnum text-sm font-semibold text-ink">{formatMoney(r.fee)}</span> · trail cold in{" "}
                       {r.expiresDay - game.currentDay}d
                     </span>
-                    <span className="flex items-center gap-2">
+                    <span className="flex flex-wrap items-center justify-end gap-2">
                       <GhostButton onClick={() => viewProspect(p)} className="!px-3 !py-1 text-xs">
                         View
                       </GhostButton>
@@ -978,9 +1064,11 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Scouting Department upgrades (§18 v7): Max Scouts and Academy Squad Size. Both
- * are one-time purchases routed through the shared training-facility machinery. */
-function UpgradesPanel() {
+/** Academy upgrades (§18 v8): Max Scouts, Academy Squad Size and Focus Slots.
+ * Its own tab (after Staff). Each upgrade carries a distinct accent colour so
+ * the three read as visually separate at a glance. All are one-time purchases
+ * routed through the shared training-facility machinery. */
+function UpgradesTab() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const upgradeTraining = useGame((s) => s.upgradeTraining);
@@ -988,11 +1076,13 @@ function UpgradesPanel() {
 
   const scoutLevel = team.scoutNetworkLevel ?? 0;
   const squadLevel = team.academySquadLevel ?? 0;
+  const focusLevel = team.focusSlotLevel ?? 0;
 
   const upgrades: {
-    key: "scoutNetwork" | "academySquad";
+    key: "scoutNetwork" | "academySquad" | "focusSlot";
     title: string;
     icon: string;
+    accent: string; // hex accent for the coloured border + tint
     level: number;
     maxLevel: number;
     influence: string;
@@ -1003,6 +1093,7 @@ function UpgradesPanel() {
       key: "scoutNetwork",
       title: "Max Scouts",
       icon: "🔭",
+      accent: "#4a90d9", // blue
       level: scoutLevel,
       maxLevel: TUNING.scoutNetworkMaxLevel,
       influence: "How many scouts you can have out on assignment at once. Needs at least one Scout on the staff.",
@@ -1013,60 +1104,51 @@ function UpgradesPanel() {
       key: "academySquad",
       title: "Academy Squad Size",
       icon: "🏟️",
+      accent: "#3fb27f", // green
       level: squadLevel,
       maxLevel: TUNING.academySquadMaxLevel,
       influence: "How many prospects the academy can hold at once — room for bigger intakes and more scouted signings.",
       now: `${TUNING.academySquadSizeBase + squadLevel * TUNING.academySquadSizePerLevel} places`,
       next: `${TUNING.academySquadSizeBase + (squadLevel + 1) * TUNING.academySquadSizePerLevel} places`,
     },
+    {
+      key: "focusSlot",
+      title: "Focus Slots",
+      icon: "⭐",
+      accent: "#b07fd9", // violet
+      level: focusLevel,
+      maxLevel: TUNING.focusSlotMaxLevel,
+      influence: `How many prospects you can flag as focus at once (guaranteed U21 starts + coach attention). Base ${TUNING.u21FocusBase}, up to ${TUNING.u21FocusMax}.`,
+      now: `${Math.min(TUNING.u21FocusMax, TUNING.u21FocusBase + focusLevel)} slots`,
+      next: `${Math.min(TUNING.u21FocusMax, TUNING.u21FocusBase + focusLevel + 1)} slots`,
+    },
   ];
 
   return (
-    <Section title="Upgrades">
-      <div className="space-y-3">
-        {upgrades.map((f) => {
-          const nextCost = trainingNextCost(game, game.userTeamId, f.key, TUNING);
-          const maxed = nextCost === null;
-          const canAfford = nextCost !== null && team.budget >= nextCost;
-          return (
-            <Card key={f.key} className="p-4">
-              <div className="flex flex-wrap items-center gap-4">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-line bg-raised text-2xl">
-                  {f.icon}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="display font-semibold">{f.title}</span>
-                    <span className="text-xs text-faint">
-                      Level {f.level} / {f.maxLevel}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-[12px] leading-snug text-dim">{f.influence}</p>
-                  <div className="mt-2 flex gap-1">
-                    {Array.from({ length: f.maxLevel }).map((_, i) => (
-                      <span key={i} className={`h-1.5 flex-1 rounded-full ${i < f.level ? "gold-grad" : "bg-line"}`} />
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="mt-3 flex items-center justify-between border-t border-line/60 pt-3">
-                <span className="text-xs text-faint">
-                  <span className="display font-semibold text-win">{f.now}</span>
-                  {!maxed && <span className="text-faint"> → {f.next}</span>}
-                  {!maxed && <span className="text-faint"> · {formatMoney(nextCost!)}</span>}
-                </span>
-                {maxed ? (
-                  <span className="display rounded-md border border-gold-lo/50 px-3 py-1.5 text-xs font-semibold text-gold">MAX</span>
-                ) : (
-                  <GoldButton onClick={() => upgradeTraining(f.key)} disabled={!canAfford} className="!py-1.5 text-xs">
-                    UPGRADE
-                  </GoldButton>
-                )}
-              </div>
-            </Card>
-          );
-        })}
-      </div>
-    </Section>
+    <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">
+      {upgrades.map((f) => {
+        const nextCost = trainingNextCost(game, game.userTeamId, f.key, TUNING);
+        const maxed = nextCost === null;
+        const canAfford = nextCost !== null && team.budget >= nextCost;
+        return (
+          <UpgradeCard
+            key={f.key}
+            title={f.title}
+            icon={f.icon}
+            accent={f.accent}
+            level={f.level}
+            maxLevel={f.maxLevel}
+            blurb={f.influence}
+            effectNow={f.now}
+            effectNext={f.next}
+            cost={maxed ? "—" : formatMoney(nextCost!)}
+            maxed={maxed}
+            canAfford={canAfford}
+            note={maxed ? "Fully upgraded." : canAfford ? "A one-time academy upgrade." : "Not enough budget yet."}
+            onUpgrade={() => upgradeTraining(f.key)}
+          />
+        );
+      })}
+    </div>
   );
 }

@@ -1,8 +1,12 @@
 // Drive the game UI end-to-end in headless Edge and capture screenshots.
 import { chromium } from "playwright-core";
+import fs from "fs";
+import os from "os";
 import path from "path";
 
-const OUT = "C:/Users/wobin/AppData/Local/Temp/claude/c--Users-wobin-Downloads-Football-Legacy/d86b54ff-ac4f-494a-80a6-253cbc6e5e91/scratchpad";
+// Screenshots land in UI_TEST_OUT if set, else a temp folder (printed at the end).
+const OUT = process.env.UI_TEST_OUT || path.join(os.tmpdir(), "football-legacy-ui");
+fs.mkdirSync(OUT, { recursive: true });
 const shot = (name) => path.join(OUT, name);
 
 const errors = [];
@@ -84,10 +88,14 @@ await page.waitForSelector("text=U21 Table");
 await page.screenshot({ path: shot("11-academy-u21.png") });
 await page.click('button:has-text("Scouting")');
 await page.waitForSelector("text=Scouting Department");
-await page.waitForSelector("text=Upgrades"); // v7 Upgrades panel (Max Scouts / Academy Squad Size)
+await page.screenshot({ path: shot("12-academy-scouting.png") });
+// v8: upgrades moved to their own tab (Max Scouts / Academy Squad Size / Focus Slots)
+await page.click('nav >> button:has-text("Academy")');
+await page.click('button:has-text("Upgrades")');
 await page.waitForSelector("text=Max Scouts");
 await page.waitForSelector("text=Academy Squad Size");
-await page.screenshot({ path: shot("12-academy-scouting.png") });
+await page.waitForSelector("text=Focus Slots");
+await page.screenshot({ path: shot("12b-academy-upgrades.png") });
 
 // development (§5 v8): training plans tab
 await page.click('nav >> button:has-text("Development")');
@@ -101,5 +109,6 @@ await page.waitForTimeout(200);
 await page.screenshot({ path: shot("13-training-plans.png") });
 
 console.log("UI FLOW OK");
+console.log("screenshots:", OUT);
 console.log("console errors:", errors.length ? errors.slice(0, 10) : "none");
 await browser.close();

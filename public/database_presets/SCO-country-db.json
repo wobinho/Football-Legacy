@@ -1,0 +1,6725 @@
+{
+  "schema": "fl-country-db@2",
+  "code": "SCO",
+  "name": "Scotland",
+  "nat": "SCO",
+  "homeShare": 0.6,
+  "divisions": [
+    {
+      "id": "SCO1",
+      "name": "Scottish Premiership",
+      "tier": 1,
+      "clubs": [
+        {
+          "name": "Celtic FC",
+          "short": "CEL",
+          "colors": [
+            "#d71920",
+            "#ffffff"
+          ],
+          "rep": 72,
+          "stadium": "Celtic Park",
+          "players": [
+            {
+              "name": "Viljami Sinisalo",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 22,
+                "pas": 51,
+                "dri": 45,
+                "def": 72,
+                "phy": 74
+              },
+              "age": 25,
+              "nationality": "FIN",
+              "potential": 69,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Cameron Carter-Vickers",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 68,
+                "sho": 42,
+                "pas": 67,
+                "dri": 60,
+                "def": 91,
+                "phy": 94
+              },
+              "age": 29,
+              "nationality": "USA",
+              "potential": 79,
+              "archetypeId": "stopper",
+              "traits": [
+                "marshal"
+              ]
+            },
+            {
+              "name": "Auston Trusty",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 52,
+                "pas": 64,
+                "dri": 58,
+                "def": 86,
+                "phy": 92
+              },
+              "age": 28,
+              "nationality": "USA",
+              "potential": 76,
+              "archetypeId": "stopper",
+              "traits": [
+                "marshal"
+              ]
+            },
+            {
+              "name": "Liam Scales",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 50,
+                "pas": 64,
+                "dri": 58,
+                "def": 86,
+                "phy": 90
+              },
+              "age": 28,
+              "nationality": "IRL",
+              "potential": 76,
+              "archetypeId": "stopper",
+              "traits": [
+                "marshal"
+              ]
+            },
+            {
+              "name": "Maik Nawrocki",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 64,
+                "sho": 34,
+                "pas": 61,
+                "dri": 55,
+                "def": 82,
+                "phy": 87
+              },
+              "age": 25,
+              "nationality": "POL",
+              "potential": 73,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Kolo Touré",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 34,
+                "pas": 61,
+                "dri": 55,
+                "def": 82,
+                "phy": 71
+              },
+              "age": 40,
+              "nationality": "CIV",
+              "potential": 72,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Kieran Tierney",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 79,
+                "sho": 55,
+                "pas": 75,
+                "dri": 75,
+                "def": 82,
+                "phy": 78
+              },
+              "age": 29,
+              "nationality": "SCO",
+              "potential": 77,
+              "archetypeId": "wing_back",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Tyler Blackett",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 40,
+                "pas": 67,
+                "dri": 67,
+                "def": 73,
+                "phy": 69
+              },
+              "age": 32,
+              "nationality": "ENG",
+              "potential": 69,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Alistair Johnston",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 81,
+                "sho": 53,
+                "pas": 75,
+                "dri": 75,
+                "def": 82,
+                "phy": 78
+              },
+              "age": 28,
+              "nationality": "CAN",
+              "potential": 77,
+              "archetypeId": "wing_back",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Anthony Ralston",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 74,
+                "sho": 51,
+                "pas": 69,
+                "dri": 69,
+                "def": 75,
+                "phy": 71
+              },
+              "age": 28,
+              "nationality": "SCO",
+              "potential": 71,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Colby Donovan",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 74,
+                "sho": 40,
+                "pas": 67,
+                "dri": 67,
+                "def": 73,
+                "phy": 71
+              },
+              "age": 20,
+              "nationality": "SCO",
+              "potential": 69,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Callum McGregor",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 56,
+                "pas": 78,
+                "dri": 72,
+                "def": 82,
+                "phy": 78
+              },
+              "age": 33,
+              "nationality": "SCO",
+              "potential": 75,
+              "archetypeId": "deep_playmaker",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Tomoki Iwata",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 64,
+                "sho": 46,
+                "pas": 75,
+                "dri": 69,
+                "def": 79,
+                "phy": 76
+              },
+              "age": 29,
+              "nationality": "JPN",
+              "potential": 72,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Luca Connell",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 43,
+                "pas": 71,
+                "dri": 65,
+                "def": 73,
+                "phy": 72
+              },
+              "age": 25,
+              "nationality": "IRL",
+              "potential": 68,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Reo Hatate",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 74,
+                "sho": 60,
+                "pas": 88,
+                "dri": 84,
+                "def": 76,
+                "phy": 76
+              },
+              "age": 29,
+              "nationality": "JPN",
+              "potential": 79,
+              "archetypeId": "playmaker",
+              "traits": [
+                "maestro",
+                "dead_ball"
+              ]
+            },
+            {
+              "name": "Arne Engels",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 76,
+                "sho": 62,
+                "pas": 87,
+                "dri": 83,
+                "def": 75,
+                "phy": 80
+              },
+              "age": 23,
+              "nationality": "BEL",
+              "potential": 82,
+              "archetypeId": "playmaker",
+              "traits": [
+                "maestro",
+                "dead_ball"
+              ]
+            },
+            {
+              "name": "Paulo Bernardo",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 73,
+                "sho": 70,
+                "pas": 83,
+                "dri": 79,
+                "def": 71,
+                "phy": 74
+              },
+              "age": 24,
+              "nationality": "POR",
+              "potential": 76,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "David Turnbull",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 71,
+                "sho": 59,
+                "pas": 83,
+                "dri": 79,
+                "def": 71,
+                "phy": 76
+              },
+              "age": 27,
+              "nationality": "SCO",
+              "potential": 75,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Aaron Mooy",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 62,
+                "sho": 59,
+                "pas": 83,
+                "dri": 79,
+                "def": 71,
+                "phy": 69
+              },
+              "age": 36,
+              "nationality": "AUS",
+              "potential": 74,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Luke McCowan",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 68,
+                "sho": 58,
+                "pas": 81,
+                "dri": 77,
+                "def": 69,
+                "phy": 72
+              },
+              "age": 29,
+              "nationality": "SCO",
+              "potential": 72,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Alex Oxlade-Chamberlain",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 62,
+                "sho": 66,
+                "pas": 79,
+                "dri": 75,
+                "def": 68,
+                "phy": 69
+              },
+              "age": 33,
+              "nationality": "ENG",
+              "potential": 71,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Benjamin Nygren",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 79,
+                "sho": 75,
+                "pas": 87,
+                "dri": 87,
+                "def": 59,
+                "phy": 72
+              },
+              "age": 25,
+              "nationality": "SWE",
+              "potential": 79,
+              "archetypeId": "adv_playmaker",
+              "traits": [
+                "maestro",
+                "dead_ball"
+              ]
+            },
+            {
+              "name": "Tom Rogic",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 63,
+                "pas": 76,
+                "dri": 76,
+                "def": 52,
+                "phy": 62
+              },
+              "age": 34,
+              "nationality": "AUS",
+              "potential": 68,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Jota",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 88,
+                "sho": 79,
+                "pas": 81,
+                "dri": 91,
+                "def": 52,
+                "phy": 69
+              },
+              "age": 27,
+              "nationality": "POR",
+              "potential": 80,
+              "archetypeId": "speed_winger"
+            },
+            {
+              "name": "Daizen Maeda",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 87,
+                "sho": 76,
+                "pas": 82,
+                "dri": 92,
+                "def": 53,
+                "phy": 69
+              },
+              "age": 29,
+              "nationality": "JPN",
+              "potential": 79,
+              "archetypeId": "speed_winger"
+            },
+            {
+              "name": "Jeffrey Schlupp",
+              "positions": [
+                "LW",
+                "LW"
+              ],
+              "attrs": {
+                "pac": 69,
+                "sho": 63,
+                "pas": 76,
+                "dri": 76,
+                "def": 61,
+                "phy": 65
+              },
+              "age": 34,
+              "nationality": "GHA",
+              "potential": 72,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Hyun-jun Yang",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 82,
+                "sho": 63,
+                "pas": 73,
+                "dri": 82,
+                "def": 47,
+                "phy": 64
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 73,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Kelechi Iheanacho",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 82,
+                "sho": 88,
+                "pas": 73,
+                "dri": 84,
+                "def": 47,
+                "phy": 88
+              },
+              "age": 30,
+              "nationality": "NGA",
+              "potential": 79,
+              "archetypeId": "poacher",
+              "traits": [
+                "clinical",
+                "leader"
+              ]
+            },
+            {
+              "name": "Adam Idah",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 83,
+                "sho": 81,
+                "pas": 70,
+                "dri": 80,
+                "def": 45,
+                "phy": 85
+              },
+              "age": 25,
+              "nationality": "IRL",
+              "potential": 79,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Tomas Cvancara",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 78,
+                "sho": 85,
+                "pas": 65,
+                "dri": 75,
+                "def": 42,
+                "phy": 80
+              },
+              "age": 26,
+              "nationality": "CZE",
+              "potential": 73,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Rangers FC",
+          "short": "RAN",
+          "colors": [
+            "#fdb913",
+            "#ffffff"
+          ],
+          "rep": 70,
+          "stadium": "Ibrox Stadium",
+          "players": [
+            {
+              "name": "Jack Butland",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 23,
+                "pas": 53,
+                "dri": 47,
+                "def": 74,
+                "phy": 76
+              },
+              "age": 33,
+              "nationality": "ENG",
+              "potential": 71,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Liam Kelly",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 22,
+                "pas": 50,
+                "dri": 45,
+                "def": 71,
+                "phy": 72
+              },
+              "age": 30,
+              "nationality": "SCO",
+              "potential": 68,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Nasser Djiga",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 69,
+                "sho": 52,
+                "pas": 65,
+                "dri": 58,
+                "def": 87,
+                "phy": 93
+              },
+              "age": 24,
+              "nationality": "BFA",
+              "potential": 78,
+              "archetypeId": "stopper",
+              "traits": [
+                "marshal"
+              ]
+            },
+            {
+              "name": "Connor Goldson",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 36,
+                "pas": 64,
+                "dri": 58,
+                "def": 86,
+                "phy": 89
+              },
+              "age": 34,
+              "nationality": "ENG",
+              "potential": 75,
+              "archetypeId": "stopper",
+              "traits": [
+                "marshal",
+                "evergreen"
+              ]
+            },
+            {
+              "name": "John Souttar",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 51,
+                "pas": 63,
+                "dri": 57,
+                "def": 85,
+                "phy": 89
+              },
+              "age": 30,
+              "nationality": "SCO",
+              "potential": 74,
+              "archetypeId": "stopper",
+              "traits": [
+                "marshal"
+              ]
+            },
+            {
+              "name": "Ben Davies",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 34,
+                "pas": 61,
+                "dri": 55,
+                "def": 82,
+                "phy": 85
+              },
+              "age": 31,
+              "nationality": "ENG",
+              "potential": 72,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Russell Martin",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 51,
+                "sho": 34,
+                "pas": 60,
+                "dri": 54,
+                "def": 81,
+                "phy": 76
+              },
+              "age": 40,
+              "nationality": "SCO",
+              "potential": 71,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Leon King",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 40,
+                "pas": 58,
+                "dri": 52,
+                "def": 78,
+                "phy": 80
+              },
+              "age": 23,
+              "nationality": "SCO",
+              "potential": 68,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Jack Simpson",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 56,
+                "sho": 32,
+                "pas": 56,
+                "dri": 50,
+                "def": 76,
+                "phy": 80
+              },
+              "age": 30,
+              "nationality": "ENG",
+              "potential": 67,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "James Tavernier",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 73,
+                "sho": 45,
+                "pas": 75,
+                "dri": 75,
+                "def": 82,
+                "phy": 76
+              },
+              "age": 35,
+              "nationality": "ENG",
+              "potential": 76,
+              "archetypeId": "wing_back",
+              "traits": [
+                "evergreen"
+              ]
+            },
+            {
+              "name": "Dujon Sterling",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 79,
+                "sho": 43,
+                "pas": 73,
+                "dri": 73,
+                "def": 79,
+                "phy": 77
+              },
+              "age": 27,
+              "nationality": "ENG",
+              "potential": 75,
+              "archetypeId": "wing_back"
+            },
+            {
+              "name": "Max Aarons",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 79,
+                "sho": 48,
+                "pas": 73,
+                "dri": 73,
+                "def": 79,
+                "phy": 74
+              },
+              "age": 27,
+              "nationality": "ENG",
+              "potential": 75,
+              "archetypeId": "wing_back"
+            },
+            {
+              "name": "Nicolas Raskin",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 72,
+                "sho": 61,
+                "pas": 80,
+                "dri": 74,
+                "def": 84,
+                "phy": 81
+              },
+              "age": 25,
+              "nationality": "BEL",
+              "potential": 79,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Connor Barron",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 64,
+                "sho": 44,
+                "pas": 72,
+                "dri": 66,
+                "def": 74,
+                "phy": 72
+              },
+              "age": 24,
+              "nationality": "SCO",
+              "potential": 69,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Bailey Rice",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 48,
+                "pas": 68,
+                "dri": 62,
+                "def": 70,
+                "phy": 69
+              },
+              "age": 20,
+              "nationality": "SCO",
+              "potential": 66,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Mohamed Diomandé",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 73,
+                "sho": 59,
+                "pas": 83,
+                "dri": 79,
+                "def": 71,
+                "phy": 75
+              },
+              "age": 25,
+              "nationality": "CIV",
+              "potential": 76,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Joe Rothwell",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 58,
+                "pas": 81,
+                "dri": 77,
+                "def": 69,
+                "phy": 73
+              },
+              "age": 32,
+              "nationality": "ENG",
+              "potential": 72,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Ryan Jack",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 55,
+                "pas": 77,
+                "dri": 73,
+                "def": 66,
+                "phy": 67
+              },
+              "age": 34,
+              "nationality": "SCO",
+              "potential": 69,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Greg Docherty",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 62,
+                "sho": 54,
+                "pas": 76,
+                "dri": 72,
+                "def": 65,
+                "phy": 67
+              },
+              "age": 30,
+              "nationality": "SCO",
+              "potential": 68,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Bongani Zungu",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 58,
+                "sho": 53,
+                "pas": 75,
+                "dri": 71,
+                "def": 64,
+                "phy": 66
+              },
+              "age": 34,
+              "nationality": "RSA",
+              "potential": 67,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Todd Cantwell",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 76,
+                "sho": 73,
+                "pas": 88,
+                "dri": 88,
+                "def": 60,
+                "phy": 71
+              },
+              "age": 28,
+              "nationality": "ENG",
+              "potential": 78,
+              "archetypeId": "adv_playmaker",
+              "traits": [
+                "maestro",
+                "dead_ball"
+              ]
+            },
+            {
+              "name": "Nedim Bajrami",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 74,
+                "sho": 72,
+                "pas": 85,
+                "dri": 85,
+                "def": 58,
+                "phy": 69
+              },
+              "age": 27,
+              "nationality": "ALB",
+              "potential": 76,
+              "archetypeId": "adv_playmaker",
+              "traits": [
+                "dead_ball"
+              ]
+            },
+            {
+              "name": "Kieran Dowell",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 68,
+                "sho": 67,
+                "pas": 80,
+                "dri": 80,
+                "def": 54,
+                "phy": 65
+              },
+              "age": 29,
+              "nationality": "ENG",
+              "potential": 71,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Matt Crooks",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 66,
+                "pas": 80,
+                "dri": 80,
+                "def": 54,
+                "phy": 66
+              },
+              "age": 32,
+              "nationality": "ENG",
+              "potential": 71,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Josh Windass",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 62,
+                "pas": 74,
+                "dri": 74,
+                "def": 50,
+                "phy": 58
+              },
+              "age": 33,
+              "nationality": "ENG",
+              "potential": 67,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Djeidi Gassama",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 78,
+                "sho": 65,
+                "pas": 69,
+                "dri": 78,
+                "def": 45,
+                "phy": 60
+              },
+              "age": 23,
+              "nationality": "MTN",
+              "potential": 68,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Zak Lovelace",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 75,
+                "sho": 62,
+                "pas": 66,
+                "dri": 75,
+                "def": 43,
+                "phy": 58
+              },
+              "age": 20,
+              "nationality": "ENG",
+              "potential": 66,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Andreas Skov Olsen",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 88,
+                "sho": 77,
+                "pas": 80,
+                "dri": 90,
+                "def": 51,
+                "phy": 72
+              },
+              "age": 27,
+              "nationality": "DEN",
+              "potential": 79,
+              "archetypeId": "speed_winger"
+            },
+            {
+              "name": "Oliver Antman",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 79,
+                "sho": 72,
+                "pas": 70,
+                "dri": 79,
+                "def": 45,
+                "phy": 63
+              },
+              "age": 25,
+              "nationality": "FIN",
+              "potential": 69,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Kemar Roofe",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 80,
+                "pas": 62,
+                "dri": 72,
+                "def": 40,
+                "phy": 71
+              },
+              "age": 34,
+              "nationality": "JAM",
+              "potential": 69,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Aberdeen FC",
+          "short": "ABE",
+          "colors": [
+            "#c8102e",
+            "#ffffff"
+          ],
+          "rep": 65,
+          "stadium": "Pittodrie Stadium",
+          "players": [
+            {
+              "name": "Zak Vyner",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 62,
+                "sho": 35,
+                "pas": 62,
+                "dri": 55,
+                "def": 83,
+                "phy": 87
+              },
+              "age": 29,
+              "nationality": "ENG",
+              "potential": 72,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Mats Knoester",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 33,
+                "pas": 58,
+                "dri": 53,
+                "def": 79,
+                "phy": 83
+              },
+              "age": 28,
+              "nationality": "NED",
+              "potential": 69,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Richard Jensen",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 56,
+                "sho": 37,
+                "pas": 57,
+                "dri": 51,
+                "def": 77,
+                "phy": 80
+              },
+              "age": 30,
+              "nationality": "FIN",
+              "potential": 67,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Alfie Dorrington",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 31,
+                "pas": 55,
+                "dri": 50,
+                "def": 75,
+                "phy": 80
+              },
+              "age": 21,
+              "nationality": "ENG",
+              "potential": 66,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Michael Rose",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 54,
+                "sho": 31,
+                "pas": 55,
+                "dri": 50,
+                "def": 75,
+                "phy": 78
+              },
+              "age": 31,
+              "nationality": "SCO",
+              "potential": 66,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Jack MacKenzie",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 72,
+                "sho": 40,
+                "pas": 66,
+                "dri": 66,
+                "def": 72,
+                "phy": 71
+              },
+              "age": 26,
+              "nationality": "SCO",
+              "potential": 68,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Hayden Coulson",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 69,
+                "sho": 39,
+                "pas": 64,
+                "dri": 64,
+                "def": 70,
+                "phy": 64
+              },
+              "age": 28,
+              "nationality": "ENG",
+              "potential": 67,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Daniel Harvie",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 68,
+                "sho": 38,
+                "pas": 63,
+                "dri": 63,
+                "def": 69,
+                "phy": 66
+              },
+              "age": 28,
+              "nationality": "SCO",
+              "potential": 66,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Alexander Jensen",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 75,
+                "sho": 41,
+                "pas": 68,
+                "dri": 68,
+                "def": 74,
+                "phy": 70
+              },
+              "age": 25,
+              "nationality": "DEN",
+              "potential": 70,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Nicky Devlin",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 38,
+                "pas": 63,
+                "dri": 63,
+                "def": 69,
+                "phy": 65
+              },
+              "age": 33,
+              "nationality": "SCO",
+              "potential": 66,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Ross McCrorie",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 64,
+                "sho": 46,
+                "pas": 74,
+                "dri": 68,
+                "def": 78,
+                "phy": 78
+              },
+              "age": 28,
+              "nationality": "SCO",
+              "potential": 72,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Ante Palaversa",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 45,
+                "pas": 69,
+                "dri": 63,
+                "def": 71,
+                "phy": 72
+              },
+              "age": 26,
+              "nationality": "CRO",
+              "potential": 67,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Dominic Ball",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 56,
+                "sho": 41,
+                "pas": 68,
+                "dri": 62,
+                "def": 70,
+                "phy": 70
+              },
+              "age": 31,
+              "nationality": "ENG",
+              "potential": 66,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Stuart Armstrong",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 64,
+                "pas": 82,
+                "dri": 78,
+                "def": 70,
+                "phy": 72
+              },
+              "age": 34,
+              "nationality": "SCO",
+              "potential": 73,
+              "archetypeId": "playmaker",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Lyall Cameron",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 69,
+                "sho": 66,
+                "pas": 79,
+                "dri": 75,
+                "def": 68,
+                "phy": 71
+              },
+              "age": 24,
+              "nationality": "SCO",
+              "potential": 72,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Dennis Geiger",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 56,
+                "pas": 79,
+                "dri": 75,
+                "def": 68,
+                "phy": 69
+              },
+              "age": 28,
+              "nationality": "GER",
+              "potential": 71,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Leighton Clarkson",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 55,
+                "pas": 77,
+                "dri": 73,
+                "def": 66,
+                "phy": 67
+              },
+              "age": 25,
+              "nationality": "ENG",
+              "potential": 69,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Scott Brown",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 51,
+                "sho": 53,
+                "pas": 74,
+                "dri": 70,
+                "def": 63,
+                "phy": 58
+              },
+              "age": 40,
+              "nationality": "SCO",
+              "potential": 67,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Adil Aouchiche",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 74,
+                "sho": 68,
+                "pas": 82,
+                "dri": 82,
+                "def": 55,
+                "phy": 66
+              },
+              "age": 24,
+              "nationality": "ALG",
+              "potential": 73,
+              "archetypeId": "adv_playmaker"
+            },
+            {
+              "name": "Jesper Karlsson",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 82,
+                "sho": 77,
+                "pas": 76,
+                "dri": 85,
+                "def": 49,
+                "phy": 66
+              },
+              "age": 28,
+              "nationality": "SWE",
+              "potential": 75,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Topi Keskinen",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 81,
+                "sho": 62,
+                "pas": 72,
+                "dri": 81,
+                "def": 47,
+                "phy": 63
+              },
+              "age": 23,
+              "nationality": "FIN",
+              "potential": 72,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ryan Hedges",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 75,
+                "sho": 68,
+                "pas": 72,
+                "dri": 81,
+                "def": 47,
+                "phy": 64
+              },
+              "age": 31,
+              "nationality": "WAL",
+              "potential": 71,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Shayden Morris",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 79,
+                "sho": 66,
+                "pas": 70,
+                "dri": 79,
+                "def": 45,
+                "phy": 62
+              },
+              "age": 24,
+              "nationality": "ENG",
+              "potential": 69,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Marko Lazetić",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 77,
+                "sho": 72,
+                "pas": 64,
+                "dri": 74,
+                "def": 41,
+                "phy": 79
+              },
+              "age": 22,
+              "nationality": "SRB",
+              "potential": 72,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Kevin Nisbet",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 72,
+                "sho": 74,
+                "pas": 64,
+                "dri": 74,
+                "def": 41,
+                "phy": 75
+              },
+              "age": 29,
+              "nationality": "SCO",
+              "potential": 71,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Oday Dabbagh",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 73,
+                "sho": 82,
+                "pas": 63,
+                "dri": 73,
+                "def": 41,
+                "phy": 75
+              },
+              "age": 28,
+              "nationality": "PLE",
+              "potential": 70,
+              "archetypeId": "poacher",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Ester Sokler",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 72,
+                "sho": 80,
+                "pas": 62,
+                "dri": 72,
+                "def": 40,
+                "phy": 73
+              },
+              "age": 27,
+              "nationality": "SVN",
+              "potential": 69,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Jayden Stockley",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 79,
+                "pas": 61,
+                "dri": 71,
+                "def": 40,
+                "phy": 73
+              },
+              "age": 33,
+              "nationality": "ENG",
+              "potential": 68,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Toyosi Olusanya",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 76,
+                "pas": 59,
+                "dri": 68,
+                "def": 38,
+                "phy": 69
+              },
+              "age": 29,
+              "nationality": "ENG",
+              "potential": 66,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Adam Rooney",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 58,
+                "sho": 76,
+                "pas": 59,
+                "dri": 68,
+                "def": 38,
+                "phy": 63
+              },
+              "age": 38,
+              "nationality": "IRL",
+              "potential": 66,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Hibernian FC",
+          "short": "HIB",
+          "colors": [
+            "#6c1d45",
+            "#ffffff"
+          ],
+          "rep": 64,
+          "stadium": "Easter Road Stadium",
+          "players": [
+            {
+              "name": "Josef Bursik",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 40,
+                "pas": 50,
+                "dri": 45,
+                "def": 71,
+                "phy": 73
+              },
+              "age": 26,
+              "nationality": "ENG",
+              "potential": 68,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Munashe Garananga",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 64,
+                "sho": 47,
+                "pas": 61,
+                "dri": 55,
+                "def": 82,
+                "phy": 86
+              },
+              "age": 25,
+              "nationality": "ZIM",
+              "potential": 73,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Grant Hanley",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 56,
+                "sho": 45,
+                "pas": 60,
+                "dri": 54,
+                "def": 81,
+                "phy": 82
+              },
+              "age": 35,
+              "nationality": "SCO",
+              "potential": 71,
+              "archetypeId": "stopper",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Rocky Bushiri",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 32,
+                "pas": 58,
+                "dri": 52,
+                "def": 78,
+                "phy": 81
+              },
+              "age": 27,
+              "nationality": "COD",
+              "potential": 68,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Will Fish",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 32,
+                "pas": 56,
+                "dri": 50,
+                "def": 76,
+                "phy": 79
+              },
+              "age": 23,
+              "nationality": "ENG",
+              "potential": 67,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Warren O'Hora",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 58,
+                "sho": 32,
+                "pas": 56,
+                "dri": 50,
+                "def": 76,
+                "phy": 79
+              },
+              "age": 27,
+              "nationality": "IRL",
+              "potential": 67,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Jonathan Spector",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 31,
+                "pas": 55,
+                "dri": 50,
+                "def": 75,
+                "phy": 70
+              },
+              "age": 40,
+              "nationality": "USA",
+              "potential": 66,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Mark Milligan",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 31,
+                "pas": 55,
+                "dri": 50,
+                "def": 75,
+                "phy": 68
+              },
+              "age": 40,
+              "nationality": "AUS",
+              "potential": 66,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Felix Passlack",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 71,
+                "sho": 40,
+                "pas": 67,
+                "dri": 67,
+                "def": 73,
+                "phy": 67
+              },
+              "age": 28,
+              "nationality": "GER",
+              "potential": 69,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Chris Cadden",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 39,
+                "pas": 64,
+                "dri": 64,
+                "def": 70,
+                "phy": 67
+              },
+              "age": 30,
+              "nationality": "SCO",
+              "potential": 67,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Dan Barlaser",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 46,
+                "pas": 74,
+                "dri": 68,
+                "def": 78,
+                "phy": 77
+              },
+              "age": 29,
+              "nationality": "ENG",
+              "potential": 72,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Josh Mulligan",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 68,
+                "sho": 60,
+                "pas": 78,
+                "dri": 74,
+                "def": 67,
+                "phy": 68
+              },
+              "age": 24,
+              "nationality": "SCO",
+              "potential": 70,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Dylan Levitt",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 53,
+                "pas": 75,
+                "dri": 71,
+                "def": 64,
+                "phy": 67
+              },
+              "age": 26,
+              "nationality": "WAL",
+              "potential": 67,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Alasana Manneh",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 56,
+                "pas": 72,
+                "dri": 69,
+                "def": 62,
+                "phy": 64
+              },
+              "age": 28,
+              "nationality": "GAM",
+              "potential": 66,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Emerson Hyndman",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 52,
+                "pas": 72,
+                "dri": 69,
+                "def": 62,
+                "phy": 62
+              },
+              "age": 30,
+              "nationality": "USA",
+              "potential": 66,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Josh Vela",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 57,
+                "sho": 52,
+                "pas": 72,
+                "dri": 69,
+                "def": 62,
+                "phy": 64
+              },
+              "age": 33,
+              "nationality": "ENG",
+              "potential": 66,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Jake Doyle-Hayes",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 51,
+                "pas": 71,
+                "dri": 68,
+                "def": 61,
+                "phy": 63
+              },
+              "age": 28,
+              "nationality": "IRL",
+              "potential": 65,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Joe Newell",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 56,
+                "sho": 51,
+                "pas": 71,
+                "dri": 68,
+                "def": 61,
+                "phy": 62
+              },
+              "age": 33,
+              "nationality": "ENG",
+              "potential": 65,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Nathan Moriah-Welsh",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 62,
+                "sho": 60,
+                "pas": 70,
+                "dri": 67,
+                "def": 60,
+                "phy": 61
+              },
+              "age": 24,
+              "nationality": "GUY",
+              "potential": 64,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Josh Campbell",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 69,
+                "sho": 64,
+                "pas": 77,
+                "dri": 77,
+                "def": 53,
+                "phy": 63
+              },
+              "age": 26,
+              "nationality": "SCO",
+              "potential": 69,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Jamie McGrath",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 58,
+                "pas": 76,
+                "dri": 76,
+                "def": 52,
+                "phy": 61
+              },
+              "age": 30,
+              "nationality": "IRL",
+              "potential": 68,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Rudi Molotnikov",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 68,
+                "pas": 72,
+                "dri": 72,
+                "def": 49,
+                "phy": 58
+              },
+              "age": 20,
+              "nationality": "SCO",
+              "potential": 65,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Élie Youan",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 78,
+                "sho": 67,
+                "pas": 71,
+                "dri": 80,
+                "def": 46,
+                "phy": 63
+              },
+              "age": 27,
+              "nationality": "FRA",
+              "potential": 70,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Nicky Cadden",
+              "positions": [
+                "LW",
+                "LW"
+              ],
+              "attrs": {
+                "pac": 68,
+                "sho": 55,
+                "pas": 71,
+                "dri": 71,
+                "def": 57,
+                "phy": 62
+              },
+              "age": 30,
+              "nationality": "SCO",
+              "potential": 67,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Abdellah Zoubir",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 64,
+                "pas": 68,
+                "dri": 77,
+                "def": 44,
+                "phy": 57
+              },
+              "age": 35,
+              "nationality": "FRA",
+              "potential": 67,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Kieron Bowie",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 80,
+                "sho": 86,
+                "pas": 66,
+                "dri": 76,
+                "def": 43,
+                "phy": 81
+              },
+              "age": 24,
+              "nationality": "SCO",
+              "potential": 75,
+              "archetypeId": "poacher",
+              "traits": [
+                "clinical"
+              ]
+            },
+            {
+              "name": "Dane Scarlett",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 78,
+                "sho": 84,
+                "pas": 65,
+                "dri": 74,
+                "def": 42,
+                "phy": 76
+              },
+              "age": 22,
+              "nationality": "ENG",
+              "potential": 74,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Jamie Maclaren",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 69,
+                "sho": 84,
+                "pas": 65,
+                "dri": 74,
+                "def": 42,
+                "phy": 74
+              },
+              "age": 33,
+              "nationality": "AUS",
+              "potential": 72,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Mykola Kukharevych",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 76,
+                "sho": 83,
+                "pas": 64,
+                "dri": 74,
+                "def": 41,
+                "phy": 79
+              },
+              "age": 25,
+              "nationality": "UKR",
+              "potential": 72,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Martin Boyle",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 75,
+                "pas": 59,
+                "dri": 68,
+                "def": 38,
+                "phy": 65
+              },
+              "age": 33,
+              "nationality": "AUS",
+              "potential": 66,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Heart of Midlothian FC",
+          "short": "HEA",
+          "colors": [
+            "#241f20",
+            "#ffffff"
+          ],
+          "rep": 62,
+          "stadium": "Tynecastle Park",
+          "players": [
+            {
+              "name": "Alexander Schwolow",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 38,
+                "sho": 21,
+                "pas": 48,
+                "dri": 43,
+                "def": 68,
+                "phy": 68
+              },
+              "age": 34,
+              "nationality": "GER",
+              "potential": 66,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Michael Steinwender",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 62,
+                "sho": 33,
+                "pas": 59,
+                "dri": 53,
+                "def": 80,
+                "phy": 85
+              },
+              "age": 26,
+              "nationality": "AUT",
+              "potential": 70,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Taylor Moore",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 55,
+                "sho": 31,
+                "pas": 55,
+                "dri": 50,
+                "def": 75,
+                "phy": 77
+              },
+              "age": 29,
+              "nationality": "ENG",
+              "potential": 66,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Stuart Findlay",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 54,
+                "sho": 31,
+                "pas": 55,
+                "dri": 50,
+                "def": 75,
+                "phy": 79
+              },
+              "age": 31,
+              "nationality": "SCO",
+              "potential": 66,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Frankie Kent",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 54,
+                "sho": 31,
+                "pas": 55,
+                "dri": 50,
+                "def": 75,
+                "phy": 78
+              },
+              "age": 31,
+              "nationality": "ENG",
+              "potential": 66,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Alex Cochrane",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 75,
+                "sho": 41,
+                "pas": 69,
+                "dri": 69,
+                "def": 75,
+                "phy": 69
+              },
+              "age": 26,
+              "nationality": "ENG",
+              "potential": 71,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Harry Milne",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 39,
+                "pas": 64,
+                "dri": 64,
+                "def": 70,
+                "phy": 67
+              },
+              "age": 30,
+              "nationality": "SCO",
+              "potential": 67,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Andrés Salazar",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 69,
+                "sho": 37,
+                "pas": 63,
+                "dri": 63,
+                "def": 68,
+                "phy": 65
+              },
+              "age": 24,
+              "nationality": "COL",
+              "potential": 65,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Sean Clare",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 37,
+                "pas": 63,
+                "dri": 63,
+                "def": 68,
+                "phy": 67
+              },
+              "age": 30,
+              "nationality": "ENG",
+              "potential": 65,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Beni Baningime",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 64,
+                "sho": 45,
+                "pas": 74,
+                "dri": 68,
+                "def": 77,
+                "phy": 74
+              },
+              "age": 28,
+              "nationality": "COD",
+              "potential": 71,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Calem Nieuwenhof",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 43,
+                "pas": 71,
+                "dri": 65,
+                "def": 73,
+                "phy": 73
+              },
+              "age": 25,
+              "nationality": "AUS",
+              "potential": 68,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Orestis Kiomourtzoglou",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 43,
+                "pas": 70,
+                "dri": 64,
+                "def": 72,
+                "phy": 73
+              },
+              "age": 28,
+              "nationality": "GER",
+              "potential": 67,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Malachi Boateng",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 41,
+                "pas": 68,
+                "dri": 62,
+                "def": 70,
+                "phy": 70
+              },
+              "age": 24,
+              "nationality": "ENG",
+              "potential": 66,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Cammy Devlin",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 56,
+                "pas": 78,
+                "dri": 74,
+                "def": 67,
+                "phy": 67
+              },
+              "age": 28,
+              "nationality": "AUS",
+              "potential": 70,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Blair Spittal",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 54,
+                "pas": 76,
+                "dri": 72,
+                "def": 65,
+                "phy": 68
+              },
+              "age": 31,
+              "nationality": "SCO",
+              "potential": 68,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Marc Leonard",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 52,
+                "pas": 72,
+                "dri": 69,
+                "def": 62,
+                "phy": 65
+              },
+              "age": 25,
+              "nationality": "SCO",
+              "potential": 66,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Ryan Edwards",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 57,
+                "sho": 52,
+                "pas": 72,
+                "dri": 69,
+                "def": 62,
+                "phy": 63
+              },
+              "age": 33,
+              "nationality": "AUS",
+              "potential": 66,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Aaron McEneff",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 58,
+                "sho": 51,
+                "pas": 71,
+                "dri": 68,
+                "def": 61,
+                "phy": 63
+              },
+              "age": 31,
+              "nationality": "IRL",
+              "potential": 65,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Alex Lowry",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 64,
+                "sho": 59,
+                "pas": 71,
+                "dri": 71,
+                "def": 48,
+                "phy": 58
+              },
+              "age": 23,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Josh Ginnelly",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 73,
+                "sho": 65,
+                "pas": 69,
+                "dri": 78,
+                "def": 45,
+                "phy": 59
+              },
+              "age": 29,
+              "nationality": "ENG",
+              "potential": 68,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Jake Mulraney",
+              "positions": [
+                "LW",
+                "LW"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 54,
+                "pas": 69,
+                "dri": 69,
+                "def": 55,
+                "phy": 59
+              },
+              "age": 30,
+              "nationality": "IRL",
+              "potential": 66,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Yutaro Oda",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 76,
+                "sho": 63,
+                "pas": 67,
+                "dri": 76,
+                "def": 43,
+                "phy": 59
+              },
+              "age": 25,
+              "nationality": "JPN",
+              "potential": 67,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Lawrence Shankland",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 72,
+                "sho": 84,
+                "pas": 65,
+                "dri": 75,
+                "def": 42,
+                "phy": 79
+              },
+              "age": 31,
+              "nationality": "SCO",
+              "potential": 72,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Juanma Delgado",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 77,
+                "pas": 60,
+                "dri": 69,
+                "def": 39,
+                "phy": 69
+              },
+              "age": 36,
+              "nationality": "ESP",
+              "potential": 67,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Stephen Humphrys",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 76,
+                "pas": 59,
+                "dri": 68,
+                "def": 38,
+                "phy": 70
+              },
+              "age": 29,
+              "nationality": "ENG",
+              "potential": 66,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Elton Kabangu",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 76,
+                "pas": 59,
+                "dri": 68,
+                "def": 38,
+                "phy": 68
+              },
+              "age": 28,
+              "nationality": "BEL",
+              "potential": 66,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Conor Washington",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 62,
+                "sho": 76,
+                "pas": 59,
+                "dri": 68,
+                "def": 38,
+                "phy": 66
+              },
+              "age": 34,
+              "nationality": "NIR",
+              "potential": 66,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Steven Naismith",
+              "positions": [
+                "ST",
+                "AM"
+              ],
+              "attrs": {
+                "pac": 56,
+                "sho": 69,
+                "pas": 66,
+                "dri": 72,
+                "def": 41,
+                "phy": 55
+              },
+              "age": 40,
+              "nationality": "SCO",
+              "potential": 66,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Aidan Keena",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 75,
+                "pas": 58,
+                "dri": 67,
+                "def": 37,
+                "phy": 68
+              },
+              "age": 27,
+              "nationality": "IRL",
+              "potential": 65,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Armand Gnanduillet",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 75,
+                "pas": 58,
+                "dri": 67,
+                "def": 37,
+                "phy": 69
+              },
+              "age": 34,
+              "nationality": "CIV",
+              "potential": 65,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Dundee FC",
+          "short": "DUN",
+          "colors": [
+            "#ffd700",
+            "#ffffff"
+          ],
+          "rep": 60,
+          "stadium": "Kilmac Stadium at Dens Park",
+          "players": [
+            {
+              "name": "Seny Dieng",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 23,
+                "pas": 53,
+                "dri": 47,
+                "def": 74,
+                "phy": 78
+              },
+              "age": 32,
+              "nationality": "SEN",
+              "potential": 72,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Antonio Portales",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 57,
+                "sho": 32,
+                "pas": 58,
+                "dri": 52,
+                "def": 78,
+                "phy": 80
+              },
+              "age": 30,
+              "nationality": "MEX",
+              "potential": 68,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Ryan Astley",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 32,
+                "pas": 56,
+                "dri": 50,
+                "def": 76,
+                "phy": 78
+              },
+              "age": 25,
+              "nationality": "WAL",
+              "potential": 67,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Billy Koumetio",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 32,
+                "pas": 56,
+                "dri": 50,
+                "def": 76,
+                "phy": 82
+              },
+              "age": 24,
+              "nationality": "FRA",
+              "potential": 67,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Aaron Donnelly",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 58,
+                "sho": 31,
+                "pas": 54,
+                "dri": 49,
+                "def": 73,
+                "phy": 76
+              },
+              "age": 23,
+              "nationality": "NIR",
+              "potential": 65,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Ryan Sweeney",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 55,
+                "sho": 31,
+                "pas": 54,
+                "dri": 49,
+                "def": 73,
+                "phy": 79
+              },
+              "age": 29,
+              "nationality": "IRL",
+              "potential": 65,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Kévin Gomis",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 30,
+                "pas": 54,
+                "dri": 48,
+                "def": 72,
+                "phy": 71
+              },
+              "age": 37,
+              "nationality": "FRA",
+              "potential": 64,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Ziyad Larkeche",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 73,
+                "sho": 40,
+                "pas": 66,
+                "dri": 66,
+                "def": 72,
+                "phy": 69
+              },
+              "age": 24,
+              "nationality": "FRA",
+              "potential": 68,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Owen Dodgson",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 36,
+                "pas": 61,
+                "dri": 61,
+                "def": 66,
+                "phy": 62
+              },
+              "age": 23,
+              "nationality": "ENG",
+              "potential": 63,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Jordan Marshall",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 36,
+                "pas": 61,
+                "dri": 61,
+                "def": 66,
+                "phy": 63
+              },
+              "age": 30,
+              "nationality": "ENG",
+              "potential": 63,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Vontae Daley-Campbell",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 70,
+                "sho": 38,
+                "pas": 63,
+                "dri": 63,
+                "def": 69,
+                "phy": 66
+              },
+              "age": 25,
+              "nationality": "ENG",
+              "potential": 66,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Dave Mackay",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 53,
+                "sho": 38,
+                "pas": 63,
+                "dri": 63,
+                "def": 69,
+                "phy": 57
+              },
+              "age": 40,
+              "nationality": "SCO",
+              "potential": 66,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Leigh Griffiths",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 57,
+                "sho": 53,
+                "pas": 67,
+                "dri": 67,
+                "def": 60,
+                "phy": 63
+              },
+              "age": 36,
+              "nationality": "SCO",
+              "potential": 67,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Kevin Thomson",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 51,
+                "pas": 71,
+                "dri": 68,
+                "def": 61,
+                "phy": 57
+              },
+              "age": 40,
+              "nationality": "SCO",
+              "potential": 65,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Charlie Adam",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 50,
+                "pas": 70,
+                "dri": 67,
+                "def": 60,
+                "phy": 58
+              },
+              "age": 40,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Stephen O'Donnell",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 50,
+                "pas": 70,
+                "dri": 67,
+                "def": 60,
+                "phy": 56
+              },
+              "age": 40,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Finlay Robertson",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 50,
+                "pas": 69,
+                "dri": 66,
+                "def": 59,
+                "phy": 60
+              },
+              "age": 24,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Max Anderson",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 50,
+                "pas": 69,
+                "dri": 66,
+                "def": 59,
+                "phy": 64
+              },
+              "age": 25,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Yan Dhanda",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 64,
+                "sho": 61,
+                "pas": 73,
+                "dri": 73,
+                "def": 50,
+                "phy": 58
+              },
+              "age": 28,
+              "nationality": "ENG",
+              "potential": 66,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Elton N'Gwatala",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 57,
+                "sho": 58,
+                "pas": 70,
+                "dri": 70,
+                "def": 48,
+                "phy": 55
+              },
+              "age": 33,
+              "nationality": "FRA",
+              "potential": 63,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Ryan Conroy",
+              "positions": [
+                "LW",
+                "LW"
+              ],
+              "attrs": {
+                "pac": 55,
+                "sho": 51,
+                "pas": 66,
+                "dri": 66,
+                "def": 53,
+                "phy": 53
+              },
+              "age": 39,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Scott Wright",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 76,
+                "sho": 67,
+                "pas": 71,
+                "dri": 80,
+                "def": 46,
+                "phy": 61
+              },
+              "age": 29,
+              "nationality": "SCO",
+              "potential": 70,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Paul McMullan",
+              "positions": [
+                "RW",
+                "RW"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 54,
+                "pas": 69,
+                "dri": 69,
+                "def": 55,
+                "phy": 61
+              },
+              "age": 30,
+              "nationality": "SCO",
+              "potential": 66,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Jason Cummings",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 70,
+                "sho": 81,
+                "pas": 63,
+                "dri": 73,
+                "def": 41,
+                "phy": 73
+              },
+              "age": 31,
+              "nationality": "AUS",
+              "potential": 70,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Amadou Bakayoko",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 76,
+                "pas": 59,
+                "dri": 68,
+                "def": 38,
+                "phy": 73
+              },
+              "age": 31,
+              "nationality": "SLE",
+              "potential": 66,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Michael Mellon",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 73,
+                "pas": 56,
+                "dri": 65,
+                "def": 36,
+                "phy": 67
+              },
+              "age": 23,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Diego Pineda",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 62,
+                "sho": 73,
+                "pas": 56,
+                "dri": 65,
+                "def": 36,
+                "phy": 65
+              },
+              "age": 31,
+              "nationality": "MEX",
+              "potential": 63,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Curtis Main",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 73,
+                "pas": 56,
+                "dri": 65,
+                "def": 36,
+                "phy": 63
+              },
+              "age": 34,
+              "nationality": "ENG",
+              "potential": 63,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "AJ Leitch-Smith",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 57,
+                "sho": 73,
+                "pas": 56,
+                "dri": 65,
+                "def": 36,
+                "phy": 61
+              },
+              "age": 36,
+              "nationality": "ENG",
+              "potential": 63,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Andy Barrowman",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 53,
+                "sho": 73,
+                "pas": 56,
+                "dri": 65,
+                "def": 36,
+                "phy": 60
+              },
+              "age": 40,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "St. Mirren FC",
+          "short": "ST",
+          "colors": [
+            "#c8102e",
+            "#ffffff"
+          ],
+          "rep": 60,
+          "stadium": "The SMISA Stadium",
+          "players": [
+            {
+              "name": "Zach Hemming",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 42,
+                "sho": 21,
+                "pas": 48,
+                "dri": 43,
+                "def": 68,
+                "phy": 70
+              },
+              "age": 26,
+              "nationality": "ENG",
+              "potential": 66,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Jak Alnwick",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 38,
+                "sho": 20,
+                "pas": 48,
+                "dri": 42,
+                "def": 67,
+                "phy": 67
+              },
+              "age": 33,
+              "nationality": "ENG",
+              "potential": 65,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Sean McLoughlin",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 58,
+                "sho": 33,
+                "pas": 58,
+                "dri": 53,
+                "def": 79,
+                "phy": 84
+              },
+              "age": 30,
+              "nationality": "IRL",
+              "potential": 69,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Richard Taylor",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 57,
+                "sho": 31,
+                "pas": 54,
+                "dri": 49,
+                "def": 73,
+                "phy": 77
+              },
+              "age": 26,
+              "nationality": "ENG",
+              "potential": 65,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Conor McCarthy",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 55,
+                "sho": 31,
+                "pas": 54,
+                "dri": 49,
+                "def": 73,
+                "phy": 79
+              },
+              "age": 28,
+              "nationality": "IRL",
+              "potential": 65,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Alex Gogic",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 52,
+                "sho": 36,
+                "pas": 54,
+                "dri": 49,
+                "def": 73,
+                "phy": 75
+              },
+              "age": 32,
+              "nationality": "CYP",
+              "potential": 65,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Thierry Small",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 71,
+                "sho": 39,
+                "pas": 64,
+                "dri": 64,
+                "def": 70,
+                "phy": 66
+              },
+              "age": 22,
+              "nationality": "ENG",
+              "potential": 67,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Scott Tanser",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 62,
+                "sho": 37,
+                "pas": 62,
+                "dri": 62,
+                "def": 67,
+                "phy": 64
+              },
+              "age": 32,
+              "nationality": "ENG",
+              "potential": 64,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Matthew Millar",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 37,
+                "pas": 63,
+                "dri": 63,
+                "def": 68,
+                "phy": 66
+              },
+              "age": 30,
+              "nationality": "AUS",
+              "potential": 65,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Jayden Richardson",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 68,
+                "sho": 37,
+                "pas": 62,
+                "dri": 62,
+                "def": 67,
+                "phy": 65
+              },
+              "age": 26,
+              "nationality": "ENG",
+              "potential": 64,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Marcus Fraser",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 62,
+                "sho": 37,
+                "pas": 62,
+                "dri": 62,
+                "def": 67,
+                "phy": 63
+              },
+              "age": 32,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Richard Tait",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 58,
+                "sho": 37,
+                "pas": 62,
+                "dri": 62,
+                "def": 67,
+                "phy": 60
+              },
+              "age": 37,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Nick McAllister",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 36,
+                "pas": 61,
+                "dri": 61,
+                "def": 66,
+                "phy": 63
+              },
+              "age": 26,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Eric Djemba Djemba",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 44,
+                "pas": 72,
+                "dri": 66,
+                "def": 74,
+                "phy": 62
+              },
+              "age": 40,
+              "nationality": "CMR",
+              "potential": 69,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Keanu Baccus",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 53,
+                "pas": 71,
+                "dri": 65,
+                "def": 73,
+                "phy": 71
+              },
+              "age": 28,
+              "nationality": "AUS",
+              "potential": 68,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Mark O'Hara",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 58,
+                "sho": 43,
+                "pas": 70,
+                "dri": 64,
+                "def": 72,
+                "phy": 74
+              },
+              "age": 31,
+              "nationality": "SCO",
+              "potential": 67,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Liam Donnelly",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 55,
+                "sho": 40,
+                "pas": 66,
+                "dri": 60,
+                "def": 68,
+                "phy": 67
+              },
+              "age": 30,
+              "nationality": "NIR",
+              "potential": 64,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Isaac Osbourne",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 40,
+                "pas": 66,
+                "dri": 60,
+                "def": 68,
+                "phy": 60
+              },
+              "age": 40,
+              "nationality": "ENG",
+              "potential": 64,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Killian Phillips",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 55,
+                "pas": 77,
+                "dri": 73,
+                "def": 66,
+                "phy": 71
+              },
+              "age": 24,
+              "nationality": "IRL",
+              "potential": 69,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Ethan Erhahon",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 54,
+                "pas": 76,
+                "dri": 72,
+                "def": 65,
+                "phy": 67
+              },
+              "age": 25,
+              "nationality": "SCO",
+              "potential": 68,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Allan Campbell",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 64,
+                "sho": 54,
+                "pas": 76,
+                "dri": 72,
+                "def": 65,
+                "phy": 66
+              },
+              "age": 28,
+              "nationality": "SCO",
+              "potential": 68,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Alan Gow",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 60,
+                "pas": 72,
+                "dri": 72,
+                "def": 49,
+                "phy": 52
+              },
+              "age": 40,
+              "nationality": "SCO",
+              "potential": 65,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Ísak Snaer Thorvaldsson",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 74,
+                "sho": 62,
+                "pas": 66,
+                "dri": 75,
+                "def": 43,
+                "phy": 58
+              },
+              "age": 25,
+              "nationality": "ISL",
+              "potential": 66,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ross Wallace",
+              "positions": [
+                "RW",
+                "RW"
+              ],
+              "attrs": {
+                "pac": 55,
+                "sho": 53,
+                "pas": 68,
+                "dri": 68,
+                "def": 54,
+                "phy": 51
+              },
+              "age": 40,
+              "nationality": "SCO",
+              "potential": 65,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Kyle McAllister",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 69,
+                "sho": 59,
+                "pas": 63,
+                "dri": 71,
+                "def": 41,
+                "phy": 55
+              },
+              "age": 27,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Dan Nlundulu",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 71,
+                "sho": 79,
+                "pas": 61,
+                "dri": 71,
+                "def": 40,
+                "phy": 73
+              },
+              "age": 27,
+              "nationality": "ENG",
+              "potential": 68,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Lee Erwin",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 78,
+                "pas": 60,
+                "dri": 70,
+                "def": 39,
+                "phy": 72
+              },
+              "age": 32,
+              "nationality": "SCO",
+              "potential": 67,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Jonah Ayunga",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 76,
+                "pas": 59,
+                "dri": 68,
+                "def": 38,
+                "phy": 70
+              },
+              "age": 29,
+              "nationality": "KEN",
+              "potential": 66,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Alex Greive",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 74,
+                "pas": 57,
+                "dri": 66,
+                "def": 37,
+                "phy": 66
+              },
+              "age": 27,
+              "nationality": "NZL",
+              "potential": 64,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Steven Thompson",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 51,
+                "sho": 74,
+                "pas": 57,
+                "dri": 66,
+                "def": 37,
+                "phy": 58
+              },
+              "age": 40,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Dundee United FC",
+          "short": "DUND",
+          "colors": [
+            "#000000",
+            "#ffffff"
+          ],
+          "rep": 60,
+          "stadium": "Tannadice Park",
+          "players": [
+            {
+              "name": "Jack Walton",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 21,
+                "pas": 48,
+                "dri": 43,
+                "def": 68,
+                "phy": 69
+              },
+              "age": 28,
+              "nationality": "ENG",
+              "potential": 66,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Ashley Maynard-Brewer",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 20,
+                "pas": 48,
+                "dri": 42,
+                "def": 67,
+                "phy": 69
+              },
+              "age": 27,
+              "nationality": "AUS",
+              "potential": 65,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Yevgeniy Kucherenko",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 20,
+                "pas": 48,
+                "dri": 42,
+                "def": 67,
+                "phy": 70
+              },
+              "age": 27,
+              "nationality": "UKR",
+              "potential": 65,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Ross Graham",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 32,
+                "pas": 56,
+                "dri": 50,
+                "def": 76,
+                "phy": 77
+              },
+              "age": 25,
+              "nationality": "SCO",
+              "potential": 67,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Emmanuel Adegboyega",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 57,
+                "sho": 30,
+                "pas": 54,
+                "dri": 48,
+                "def": 72,
+                "phy": 77
+              },
+              "age": 23,
+              "nationality": "IRL",
+              "potential": 64,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Jamie Robson",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 37,
+                "pas": 62,
+                "dri": 62,
+                "def": 67,
+                "phy": 62
+              },
+              "age": 29,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Scott McMann",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 64,
+                "sho": 37,
+                "pas": 62,
+                "dri": 62,
+                "def": 67,
+                "phy": 64
+              },
+              "age": 30,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Luca Stephenson",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 73,
+                "sho": 40,
+                "pas": 66,
+                "dri": 66,
+                "def": 72,
+                "phy": 69
+              },
+              "age": 23,
+              "nationality": "ENG",
+              "potential": 68,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Liam Smith",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 38,
+                "pas": 63,
+                "dri": 63,
+                "def": 69,
+                "phy": 65
+              },
+              "age": 30,
+              "nationality": "SCO",
+              "potential": 66,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Ryan Strain",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 38,
+                "pas": 63,
+                "dri": 63,
+                "def": 69,
+                "phy": 66
+              },
+              "age": 29,
+              "nationality": "AUS",
+              "potential": 66,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Kieran Freeman",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 37,
+                "pas": 62,
+                "dri": 62,
+                "def": 67,
+                "phy": 63
+              },
+              "age": 26,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Kyle Knoyle",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 64,
+                "sho": 37,
+                "pas": 62,
+                "dri": 62,
+                "def": 67,
+                "phy": 62
+              },
+              "age": 30,
+              "nationality": "ENG",
+              "potential": 64,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Vicko Sevelj",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 62,
+                "sho": 43,
+                "pas": 70,
+                "dri": 64,
+                "def": 72,
+                "phy": 72
+              },
+              "age": 26,
+              "nationality": "CRO",
+              "potential": 67,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Jeando Fuchs",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 42,
+                "pas": 69,
+                "dri": 63,
+                "def": 71,
+                "phy": 68
+              },
+              "age": 29,
+              "nationality": "CMR",
+              "potential": 67,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Craig Sibbald",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 54,
+                "sho": 40,
+                "pas": 66,
+                "dri": 60,
+                "def": 68,
+                "phy": 64
+              },
+              "age": 31,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Lewis Fiorini",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 65,
+                "pas": 75,
+                "dri": 71,
+                "def": 64,
+                "phy": 66
+              },
+              "age": 24,
+              "nationality": "SCO",
+              "potential": 67,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Peter Pawlett",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 56,
+                "sho": 59,
+                "pas": 71,
+                "dri": 71,
+                "def": 48,
+                "phy": 55
+              },
+              "age": 35,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Amar Fatah",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 78,
+                "sho": 65,
+                "pas": 69,
+                "dri": 78,
+                "def": 45,
+                "phy": 60
+              },
+              "age": 22,
+              "nationality": "SWE",
+              "potential": 68,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Will Ferry",
+              "positions": [
+                "LW",
+                "LW"
+              ],
+              "attrs": {
+                "pac": 73,
+                "sho": 56,
+                "pas": 72,
+                "dri": 72,
+                "def": 58,
+                "phy": 62
+              },
+              "age": 26,
+              "nationality": "IRL",
+              "potential": 68,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Kristijan Trapanovski",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 74,
+                "sho": 63,
+                "pas": 67,
+                "dri": 76,
+                "def": 43,
+                "phy": 59
+              },
+              "age": 27,
+              "nationality": "MKD",
+              "potential": 67,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ivan Dolcek",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 73,
+                "sho": 62,
+                "pas": 66,
+                "dri": 75,
+                "def": 43,
+                "phy": 58
+              },
+              "age": 26,
+              "nationality": "CRO",
+              "potential": 66,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Glenn Middleton",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 71,
+                "sho": 68,
+                "pas": 64,
+                "dri": 72,
+                "def": 42,
+                "phy": 55
+              },
+              "age": 27,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Logan Chalmers",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 71,
+                "sho": 60,
+                "pas": 64,
+                "dri": 72,
+                "def": 42,
+                "phy": 55
+              },
+              "age": 26,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Johnny Russell",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 68,
+                "sho": 64,
+                "pas": 71,
+                "dri": 80,
+                "def": 46,
+                "phy": 58
+              },
+              "age": 36,
+              "nationality": "SCO",
+              "potential": 70,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Luke Bolton",
+              "positions": [
+                "RW",
+                "RW"
+              ],
+              "attrs": {
+                "pac": 72,
+                "sho": 56,
+                "pas": 72,
+                "dri": 72,
+                "def": 58,
+                "phy": 62
+              },
+              "age": 27,
+              "nationality": "ENG",
+              "potential": 68,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Kai Fotheringham",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 72,
+                "sho": 60,
+                "pas": 64,
+                "dri": 72,
+                "def": 42,
+                "phy": 54
+              },
+              "age": 23,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Aidan Connolly",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 60,
+                "pas": 64,
+                "dri": 72,
+                "def": 42,
+                "phy": 53
+              },
+              "age": 31,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Sam Dalby",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 72,
+                "sho": 79,
+                "pas": 61,
+                "dri": 71,
+                "def": 40,
+                "phy": 75
+              },
+              "age": 27,
+              "nationality": "ENG",
+              "potential": 68,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Louis Appéré",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 75,
+                "pas": 58,
+                "dri": 67,
+                "def": 37,
+                "phy": 69
+              },
+              "age": 27,
+              "nationality": "SCO",
+              "potential": 65,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Jort van der Sande",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 74,
+                "pas": 57,
+                "dri": 66,
+                "def": 37,
+                "phy": 68
+              },
+              "age": 30,
+              "nationality": "BON",
+              "potential": 64,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Motherwell FC",
+          "short": "MOT",
+          "colors": [
+            "#00529f",
+            "#ffffff"
+          ],
+          "rep": 60,
+          "stadium": "Fir Park",
+          "players": [
+            {
+              "name": "George Long",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 39,
+                "sho": 21,
+                "pas": 49,
+                "dri": 43,
+                "def": 69,
+                "phy": 67
+              },
+              "age": 33,
+              "nationality": "ENG",
+              "potential": 67,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Stephen Welsh",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 39,
+                "pas": 58,
+                "dri": 52,
+                "def": 78,
+                "phy": 82
+              },
+              "age": 26,
+              "nationality": "SCO",
+              "potential": 68,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Shaun Hutchinson",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 52,
+                "sho": 32,
+                "pas": 57,
+                "dri": 51,
+                "def": 77,
+                "phy": 77
+              },
+              "age": 36,
+              "nationality": "ENG",
+              "potential": 67,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Tom Aldred",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 50,
+                "sho": 31,
+                "pas": 55,
+                "dri": 50,
+                "def": 75,
+                "phy": 75
+              },
+              "age": 36,
+              "nationality": "SCO",
+              "potential": 66,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Andy Rose",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 50,
+                "sho": 31,
+                "pas": 55,
+                "dri": 50,
+                "def": 75,
+                "phy": 74
+              },
+              "age": 36,
+              "nationality": "AUS",
+              "potential": 66,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Stephen McManus",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 31,
+                "pas": 55,
+                "dri": 50,
+                "def": 75,
+                "phy": 68
+              },
+              "age": 40,
+              "nationality": "SCO",
+              "potential": 66,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Dan Casey",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 55,
+                "sho": 31,
+                "pas": 54,
+                "dri": 49,
+                "def": 73,
+                "phy": 77
+              },
+              "age": 29,
+              "nationality": "IRL",
+              "potential": 65,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Liam Gordon",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 54,
+                "sho": 31,
+                "pas": 54,
+                "dri": 49,
+                "def": 73,
+                "phy": 78
+              },
+              "age": 30,
+              "nationality": "SCO",
+              "potential": 65,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Emmanuel Longelo",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 74,
+                "sho": 40,
+                "pas": 67,
+                "dri": 67,
+                "def": 73,
+                "phy": 70
+              },
+              "age": 26,
+              "nationality": "ENG",
+              "potential": 69,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Ewan Wilson",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 71,
+                "sho": 39,
+                "pas": 64,
+                "dri": 64,
+                "def": 70,
+                "phy": 66
+              },
+              "age": 22,
+              "nationality": "SCO",
+              "potential": 67,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Stevie Hammell",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 52,
+                "sho": 37,
+                "pas": 63,
+                "dri": 63,
+                "def": 68,
+                "phy": 55
+              },
+              "age": 40,
+              "nationality": "SCO",
+              "potential": 65,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Elliot Watt",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 41,
+                "pas": 68,
+                "dri": 62,
+                "def": 70,
+                "phy": 69
+              },
+              "age": 26,
+              "nationality": "SCO",
+              "potential": 66,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Davor Zdravkovski",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 58,
+                "sho": 41,
+                "pas": 68,
+                "dri": 62,
+                "def": 70,
+                "phy": 68
+              },
+              "age": 28,
+              "nationality": "MKD",
+              "potential": 66,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Barry Maguire",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 57,
+                "sho": 41,
+                "pas": 67,
+                "dri": 61,
+                "def": 69,
+                "phy": 70
+              },
+              "age": 28,
+              "nationality": "SCO",
+              "potential": 65,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Carl McHugh",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 53,
+                "sho": 41,
+                "pas": 67,
+                "dri": 61,
+                "def": 69,
+                "phy": 66
+              },
+              "age": 33,
+              "nationality": "IRL",
+              "potential": 65,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Paul Lawson",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 41,
+                "pas": 67,
+                "dri": 61,
+                "def": 69,
+                "phy": 59
+              },
+              "age": 40,
+              "nationality": "SCO",
+              "potential": 65,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Keith Lasley",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 41,
+                "pas": 67,
+                "dri": 61,
+                "def": 69,
+                "phy": 56
+              },
+              "age": 40,
+              "nationality": "SCO",
+              "potential": 65,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Callum Slattery",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 52,
+                "pas": 72,
+                "dri": 69,
+                "def": 62,
+                "phy": 65
+              },
+              "age": 27,
+              "nationality": "ENG",
+              "potential": 66,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Christian Ilic",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 51,
+                "pas": 71,
+                "dri": 68,
+                "def": 61,
+                "phy": 65
+              },
+              "age": 30,
+              "nationality": "CRO",
+              "potential": 65,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Regan Charles-Cook",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 72,
+                "sho": 69,
+                "pas": 68,
+                "dri": 77,
+                "def": 44,
+                "phy": 58
+              },
+              "age": 29,
+              "nationality": "GRN",
+              "potential": 67,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Stuart McKinstry",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 72,
+                "sho": 60,
+                "pas": 64,
+                "dri": 72,
+                "def": 42,
+                "phy": 56
+              },
+              "age": 24,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Callum Lang",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 77,
+                "sho": 67,
+                "pas": 71,
+                "dri": 80,
+                "def": 46,
+                "phy": 63
+              },
+              "age": 28,
+              "nationality": "ENG",
+              "potential": 70,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ibrahim Said",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 76,
+                "sho": 63,
+                "pas": 67,
+                "dri": 76,
+                "def": 43,
+                "phy": 57
+              },
+              "age": 24,
+              "nationality": "NGA",
+              "potential": 67,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Chris Humphrey",
+              "positions": [
+                "RW",
+                "RW"
+              ],
+              "attrs": {
+                "pac": 58,
+                "sho": 54,
+                "pas": 69,
+                "dri": 69,
+                "def": 55,
+                "phy": 55
+              },
+              "age": 39,
+              "nationality": "JAM",
+              "potential": 66,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ross McCormack",
+              "positions": [
+                "ST",
+                "AM"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 74,
+                "pas": 71,
+                "dri": 77,
+                "def": 44,
+                "phy": 58
+              },
+              "age": 40,
+              "nationality": "SCO",
+              "potential": 70,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Devante Cole",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 78,
+                "pas": 60,
+                "dri": 70,
+                "def": 39,
+                "phy": 72
+              },
+              "age": 31,
+              "nationality": "ENG",
+              "potential": 67,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Jack Vale",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 70,
+                "sho": 76,
+                "pas": 59,
+                "dri": 68,
+                "def": 38,
+                "phy": 70
+              },
+              "age": 25,
+              "nationality": "WAL",
+              "potential": 66,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Callum Hendry",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 76,
+                "pas": 59,
+                "dri": 68,
+                "def": 38,
+                "phy": 68
+              },
+              "age": 29,
+              "nationality": "SCO",
+              "potential": 66,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Connor Shields",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 75,
+                "pas": 58,
+                "dri": 67,
+                "def": 37,
+                "phy": 68
+              },
+              "age": 29,
+              "nationality": "SCO",
+              "potential": 65,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Filip Stuparevic",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 68,
+                "sho": 74,
+                "pas": 57,
+                "dri": 66,
+                "def": 37,
+                "phy": 68
+              },
+              "age": 26,
+              "nationality": "SRB",
+              "potential": 64,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Livingston FC",
+          "short": "LIV",
+          "colors": [
+            "#6c1d45",
+            "#ffffff"
+          ],
+          "rep": 60,
+          "stadium": "Home of the Set Fare Arena",
+          "players": [
+            {
+              "name": "Jérôme Prior",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 39,
+                "sho": 21,
+                "pas": 48,
+                "dri": 43,
+                "def": 68,
+                "phy": 70
+              },
+              "age": 31,
+              "nationality": "FRA",
+              "potential": 66,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Danny Wilson",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 54,
+                "sho": 32,
+                "pas": 58,
+                "dri": 52,
+                "def": 78,
+                "phy": 79
+              },
+              "age": 35,
+              "nationality": "SCO",
+              "potential": 68,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Jack Fitzwater",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 57,
+                "sho": 32,
+                "pas": 56,
+                "dri": 50,
+                "def": 76,
+                "phy": 79
+              },
+              "age": 29,
+              "nationality": "ENG",
+              "potential": 67,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Jon Guthrie",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 50,
+                "sho": 30,
+                "pas": 54,
+                "dri": 48,
+                "def": 72,
+                "phy": 75
+              },
+              "age": 34,
+              "nationality": "ENG",
+              "potential": 64,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Morgan Boyes",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 56,
+                "sho": 30,
+                "pas": 53,
+                "dri": 48,
+                "def": 71,
+                "phy": 75
+              },
+              "age": 25,
+              "nationality": "WAL",
+              "potential": 63,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Adam Montgomery",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 69,
+                "sho": 37,
+                "pas": 63,
+                "dri": 63,
+                "def": 68,
+                "phy": 63
+              },
+              "age": 24,
+              "nationality": "SCO",
+              "potential": 65,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Adam Lewis",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 36,
+                "pas": 61,
+                "dri": 61,
+                "def": 66,
+                "phy": 61
+              },
+              "age": 27,
+              "nationality": "ENG",
+              "potential": 63,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Jackson Longridge",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 62,
+                "sho": 36,
+                "pas": 61,
+                "dri": 61,
+                "def": 66,
+                "phy": 63
+              },
+              "age": 31,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Joshua Brenet",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 73,
+                "sho": 58,
+                "pas": 73,
+                "dri": 73,
+                "def": 79,
+                "phy": 74
+              },
+              "age": 32,
+              "nationality": "CUW",
+              "potential": 74,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Jack McMillan",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 37,
+                "pas": 62,
+                "dri": 62,
+                "def": 67,
+                "phy": 64
+              },
+              "age": 29,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Cammy Kerr",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 37,
+                "pas": 62,
+                "dri": 62,
+                "def": 67,
+                "phy": 64
+              },
+              "age": 31,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Mahamadou Susoho",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 45,
+                "pas": 74,
+                "dri": 68,
+                "def": 77,
+                "phy": 74
+              },
+              "age": 21,
+              "nationality": "ESP",
+              "potential": 72,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Stephen Kelly",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 53,
+                "pas": 74,
+                "dri": 70,
+                "def": 63,
+                "phy": 65
+              },
+              "age": 26,
+              "nationality": "SCO",
+              "potential": 67,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Macaulay Tait",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 51,
+                "pas": 71,
+                "dri": 68,
+                "def": 61,
+                "phy": 61
+              },
+              "age": 21,
+              "nationality": "SCO",
+              "potential": 65,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Aidan Denholm",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 50,
+                "pas": 69,
+                "dri": 66,
+                "def": 59,
+                "phy": 61
+              },
+              "age": 23,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Dylan Bahamboula",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 59,
+                "pas": 71,
+                "dri": 71,
+                "def": 48,
+                "phy": 60
+              },
+              "age": 31,
+              "nationality": "CGO",
+              "potential": 64,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Scott Pittman",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 56,
+                "sho": 58,
+                "pas": 70,
+                "dri": 70,
+                "def": 48,
+                "phy": 54
+              },
+              "age": 34,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Dan MacKay",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 71,
+                "sho": 59,
+                "pas": 63,
+                "dri": 71,
+                "def": 41,
+                "phy": 54
+              },
+              "age": 25,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Cristian Montano",
+              "positions": [
+                "LW",
+                "LW"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 51,
+                "pas": 66,
+                "dri": 66,
+                "def": 53,
+                "phy": 56
+              },
+              "age": 35,
+              "nationality": "COL",
+              "potential": 63,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Connor McLennan",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 72,
+                "sho": 61,
+                "pas": 65,
+                "dri": 73,
+                "def": 42,
+                "phy": 57
+              },
+              "age": 27,
+              "nationality": "SCO",
+              "potential": 65,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Steven Bradley",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 72,
+                "sho": 60,
+                "pas": 64,
+                "dri": 72,
+                "def": 42,
+                "phy": 58
+              },
+              "age": 24,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Aphelele Teto",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 71,
+                "sho": 59,
+                "pas": 63,
+                "dri": 71,
+                "def": 41,
+                "phy": 55
+              },
+              "age": 23,
+              "nationality": "RSA",
+              "potential": 63,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Josh Mullin",
+              "positions": [
+                "RW",
+                "RW"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 51,
+                "pas": 66,
+                "dri": 66,
+                "def": 53,
+                "phy": 56
+              },
+              "age": 34,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ryan Hardie",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 71,
+                "sho": 81,
+                "pas": 63,
+                "dri": 73,
+                "def": 41,
+                "phy": 76
+              },
+              "age": 29,
+              "nationality": "SCO",
+              "potential": 70,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Tete Yengi",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 69,
+                "sho": 75,
+                "pas": 58,
+                "dri": 67,
+                "def": 37,
+                "phy": 73
+              },
+              "age": 26,
+              "nationality": "AUS",
+              "potential": 65,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Zak Rudden",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 74,
+                "pas": 57,
+                "dri": 66,
+                "def": 37,
+                "phy": 69
+              },
+              "age": 26,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Joel Nouble",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 74,
+                "pas": 57,
+                "dri": 66,
+                "def": 37,
+                "phy": 70
+              },
+              "age": 30,
+              "nationality": "ENG",
+              "potential": 64,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Jack Hamilton",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 73,
+                "pas": 56,
+                "dri": 65,
+                "def": 36,
+                "phy": 68
+              },
+              "age": 26,
+              "nationality": "UNK",
+              "potential": 63,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Robbie Muirhead",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 73,
+                "pas": 56,
+                "dri": 65,
+                "def": 36,
+                "phy": 69
+              },
+              "age": 30,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Gavin Reilly",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 73,
+                "pas": 56,
+                "dri": 65,
+                "def": 36,
+                "phy": 65
+              },
+              "age": 33,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Kilmarnock FC",
+          "short": "KIL",
+          "colors": [
+            "#e30613",
+            "#ffffff"
+          ],
+          "rep": 59,
+          "stadium": "BBSP Stadium, Rugby Park",
+          "players": [
+            {
+              "name": "Maksymilian Stryjek",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 21,
+                "pas": 50,
+                "dri": 44,
+                "def": 70,
+                "phy": 72
+              },
+              "age": 30,
+              "nationality": "POL",
+              "potential": 67,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Kelle Roos",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 38,
+                "sho": 21,
+                "pas": 48,
+                "dri": 43,
+                "def": 68,
+                "phy": 70
+              },
+              "age": 34,
+              "nationality": "NED",
+              "potential": 66,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Sam Walker",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 36,
+                "sho": 20,
+                "pas": 47,
+                "dri": 42,
+                "def": 66,
+                "phy": 67
+              },
+              "age": 35,
+              "nationality": "ENG",
+              "potential": 64,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Lewis Mayo",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 39,
+                "pas": 58,
+                "dri": 52,
+                "def": 78,
+                "phy": 82
+              },
+              "age": 26,
+              "nationality": "SCO",
+              "potential": 68,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Robbie Deas",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 58,
+                "sho": 31,
+                "pas": 55,
+                "dri": 50,
+                "def": 75,
+                "phy": 78
+              },
+              "age": 26,
+              "nationality": "SCO",
+              "potential": 66,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Ash Taylor",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 30,
+                "pas": 54,
+                "dri": 48,
+                "def": 72,
+                "phy": 74
+              },
+              "age": 36,
+              "nationality": "WAL",
+              "potential": 64,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Dominic Thompson",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 68,
+                "sho": 37,
+                "pas": 63,
+                "dri": 63,
+                "def": 68,
+                "phy": 65
+              },
+              "age": 26,
+              "nationality": "ENG",
+              "potential": 65,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Garry Hay",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 51,
+                "sho": 37,
+                "pas": 62,
+                "dri": 62,
+                "def": 67,
+                "phy": 51
+              },
+              "age": 40,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Ben Chrisene",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 36,
+                "pas": 61,
+                "dri": 61,
+                "def": 66,
+                "phy": 63
+              },
+              "age": 23,
+              "nationality": "ENG",
+              "potential": 63,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Jack Burroughs",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 68,
+                "sho": 37,
+                "pas": 62,
+                "dri": 62,
+                "def": 67,
+                "phy": 66
+              },
+              "age": 25,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Youssouf Mulumbu",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 40,
+                "pas": 66,
+                "dri": 60,
+                "def": 68,
+                "phy": 61
+              },
+              "age": 39,
+              "nationality": "COD",
+              "potential": 64,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "David Watson",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 70,
+                "sho": 62,
+                "pas": 80,
+                "dri": 76,
+                "def": 68,
+                "phy": 71
+              },
+              "age": 21,
+              "nationality": "SCO",
+              "potential": 74,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Liam Kelly",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 55,
+                "sho": 53,
+                "pas": 74,
+                "dri": 70,
+                "def": 63,
+                "phy": 64
+              },
+              "age": 36,
+              "nationality": "SCO",
+              "potential": 67,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Jack Byrne",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 52,
+                "pas": 72,
+                "dri": 69,
+                "def": 62,
+                "phy": 63
+              },
+              "age": 30,
+              "nationality": "IRL",
+              "potential": 66,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Ben Brannan",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 51,
+                "pas": 71,
+                "dri": 68,
+                "def": 61,
+                "phy": 62
+              },
+              "age": 19,
+              "nationality": "SCO",
+              "potential": 65,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Kyle Magennis",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 50,
+                "pas": 70,
+                "dri": 67,
+                "def": 60,
+                "phy": 63
+              },
+              "age": 28,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Brad Lyons",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 58,
+                "sho": 50,
+                "pas": 70,
+                "dri": 67,
+                "def": 60,
+                "phy": 62
+              },
+              "age": 29,
+              "nationality": "NIR",
+              "potential": 64,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Sammy Clingan",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 50,
+                "pas": 70,
+                "dri": 67,
+                "def": 60,
+                "phy": 56
+              },
+              "age": 40,
+              "nationality": "NIR",
+              "potential": 64,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Findlay Curtis",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 77,
+                "sho": 64,
+                "pas": 68,
+                "dri": 77,
+                "def": 44,
+                "phy": 60
+              },
+              "age": 20,
+              "nationality": "SCO",
+              "potential": 67,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Jordan Jones",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 61,
+                "pas": 65,
+                "dri": 73,
+                "def": 42,
+                "phy": 55
+              },
+              "age": 32,
+              "nationality": "NIR",
+              "potential": 65,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Fraser Murray",
+              "positions": [
+                "LW",
+                "LW"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 53,
+                "pas": 68,
+                "dri": 68,
+                "def": 54,
+                "phy": 61
+              },
+              "age": 27,
+              "nationality": "SCO",
+              "potential": 65,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Mitch Pinnock",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 60,
+                "pas": 64,
+                "dri": 72,
+                "def": 42,
+                "phy": 55
+              },
+              "age": 32,
+              "nationality": "ENG",
+              "potential": 64,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Harry Bunn",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 64,
+                "sho": 60,
+                "pas": 64,
+                "dri": 72,
+                "def": 42,
+                "phy": 54
+              },
+              "age": 34,
+              "nationality": "ENG",
+              "potential": 64,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Dom Thomas",
+              "positions": [
+                "LW",
+                "LW"
+              ],
+              "attrs": {
+                "pac": 64,
+                "sho": 52,
+                "pas": 67,
+                "dri": 67,
+                "def": 54,
+                "phy": 57
+              },
+              "age": 30,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Deji Sotona",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 71,
+                "sho": 59,
+                "pas": 63,
+                "dri": 71,
+                "def": 41,
+                "phy": 55
+              },
+              "age": 24,
+              "nationality": "IRL",
+              "potential": 63,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Greg Kiltie",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 59,
+                "pas": 63,
+                "dri": 71,
+                "def": 41,
+                "phy": 54
+              },
+              "age": 29,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Tyreece John-Jules",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 73,
+                "sho": 79,
+                "pas": 61,
+                "dri": 71,
+                "def": 40,
+                "phy": 73
+              },
+              "age": 25,
+              "nationality": "ENG",
+              "potential": 68,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Bobby Wales",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 69,
+                "sho": 75,
+                "pas": 58,
+                "dri": 67,
+                "def": 37,
+                "phy": 69
+              },
+              "age": 21,
+              "nationality": "SCO",
+              "potential": 65,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Nicke Kabamba",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 62,
+                "sho": 75,
+                "pas": 58,
+                "dri": 67,
+                "def": 37,
+                "phy": 69
+              },
+              "age": 33,
+              "nationality": "COD",
+              "potential": 65,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Bruce Anderson",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 73,
+                "pas": 56,
+                "dri": 65,
+                "def": 36,
+                "phy": 64
+              },
+              "age": 28,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Falkirk FC",
+          "short": "FAL",
+          "colors": [
+            "#e30613",
+            "#ffffff"
+          ],
+          "rep": 55,
+          "stadium": "The Falkirk Stadium",
+          "players": [
+            {
+              "name": "Jamie Sneddon",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 39,
+                "sho": 20,
+                "pas": 46,
+                "dri": 41,
+                "def": 65,
+                "phy": 66
+              },
+              "age": 29,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Scott Bain",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 31,
+                "sho": 20,
+                "pas": 41,
+                "dri": 36,
+                "def": 57,
+                "phy": 55
+              },
+              "age": 35,
+              "nationality": "SCO",
+              "potential": 56,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Lewis Neilson",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 49,
+                "pas": 57,
+                "dri": 51,
+                "def": 77,
+                "phy": 79
+              },
+              "age": 23,
+              "nationality": "SCO",
+              "potential": 67,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Coll Donaldson",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 53,
+                "sho": 31,
+                "pas": 54,
+                "dri": 49,
+                "def": 73,
+                "phy": 77
+              },
+              "age": 31,
+              "nationality": "SCO",
+              "potential": 65,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Ryan Edwards",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 50,
+                "sho": 30,
+                "pas": 53,
+                "dri": 48,
+                "def": 71,
+                "phy": 76
+              },
+              "age": 33,
+              "nationality": "ENG",
+              "potential": 63,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Sean Mackie",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 36,
+                "pas": 61,
+                "dri": 61,
+                "def": 66,
+                "phy": 63
+              },
+              "age": 28,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Leon McCann",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 41
+              },
+              "age": 26,
+              "nationality": "SCO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Sam Hart",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 30,
+              "nationality": "ENG",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Filip Lissah",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 44
+              },
+              "age": 22,
+              "nationality": "CZE",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Keelan Adams",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 25,
+              "nationality": "SCO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Brad Spencer",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 54,
+                "sho": 40,
+                "pas": 65,
+                "dri": 59,
+                "def": 67,
+                "phy": 64
+              },
+              "age": 30,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Scott Arfield",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 53,
+                "sho": 60,
+                "pas": 72,
+                "dri": 69,
+                "def": 62,
+                "phy": 60
+              },
+              "age": 38,
+              "nationality": "CAN",
+              "potential": 66,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Dylan Tait",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 62,
+                "sho": 50,
+                "pas": 70,
+                "dri": 67,
+                "def": 60,
+                "phy": 62
+              },
+              "age": 25,
+              "nationality": "SCO",
+              "potential": 64,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Aidan Nesbitt",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 57,
+                "pas": 69,
+                "dri": 69,
+                "def": 47,
+                "phy": 55
+              },
+              "age": 29,
+              "nationality": "SCO",
+              "potential": 62,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Gary Oliver",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 54,
+                "sho": 54,
+                "pas": 65,
+                "dri": 65,
+                "def": 44,
+                "phy": 52
+              },
+              "age": 31,
+              "nationality": "SCO",
+              "potential": 59,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Finn Yeats",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 22,
+              "nationality": "SCO",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Flynn McCafferty",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 39
+              },
+              "age": 19,
+              "nationality": "SCO",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Ethan Ross",
+              "positions": [
+                "LW",
+                "LW"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 51,
+                "pas": 65,
+                "dri": 65,
+                "def": 52,
+                "phy": 56
+              },
+              "age": 25,
+              "nationality": "SCO",
+              "potential": 62,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Calvin Miller",
+              "positions": [
+                "LW",
+                "LW"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 49,
+                "pas": 63,
+                "dri": 63,
+                "def": 50,
+                "phy": 56
+              },
+              "age": 29,
+              "nationality": "SCO",
+              "potential": 60,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ethan Williams",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 21,
+              "nationality": "ENG",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ben Broggio",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 19,
+              "nationality": "ENG",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Rhys Walker",
+              "positions": [
+                "LW",
+                "LW"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 35,
+                "pas": 45,
+                "dri": 45,
+                "def": 36,
+                "phy": 40
+              },
+              "age": 20,
+              "nationality": "SCO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Kyrell Wilson",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 22,
+              "nationality": "ENG",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Alfie Agyeman",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 26,
+              "nationality": "GHA",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Brian Graham",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 55,
+                "sho": 73,
+                "pas": 56,
+                "dri": 65,
+                "def": 36,
+                "phy": 63
+              },
+              "age": 39,
+              "nationality": "SCO",
+              "potential": 63,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Ben Parkinson",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 72,
+                "pas": 55,
+                "dri": 64,
+                "def": 36,
+                "phy": 66
+              },
+              "age": 21,
+              "nationality": "ENG",
+              "potential": 62,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Ross MacIver",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 66,
+                "pas": 51,
+                "dri": 59,
+                "def": 33,
+                "phy": 62
+              },
+              "age": 27,
+              "nationality": "SCO",
+              "potential": 58,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Louie Marsh",
+              "positions": [
+                "ST",
+                "AM"
+              ],
+              "attrs": {
+                "pac": 58,
+                "sho": 58,
+                "pas": 56,
+                "dri": 60,
+                "def": 35,
+                "phy": 50
+              },
+              "age": 22,
+              "nationality": "ENG",
+              "potential": 56,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Trey Samuel-Ogunsuyi",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 20,
+              "nationality": "BEL",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Barney Stewart",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 22,
+              "nationality": "SCO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

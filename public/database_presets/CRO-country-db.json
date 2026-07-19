@@ -1,0 +1,5572 @@
+{
+  "schema": "fl-country-db@2",
+  "code": "CRO",
+  "name": "Croatia",
+  "nat": "CRO",
+  "homeShare": 0.6,
+  "divisions": [
+    {
+      "id": "CRO1",
+      "name": "HNL",
+      "tier": 1,
+      "clubs": [
+        {
+          "name": "GNK Dinamo Zagreb",
+          "short": "GNK",
+          "colors": [
+            "#e30613",
+            "#ffffff"
+          ],
+          "rep": 66,
+          "stadium": "Maksimir",
+          "players": [
+            {
+              "name": "Scott McKenna",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 47,
+                "pas": 66,
+                "dri": 60,
+                "def": 90,
+                "phy": 95
+              },
+              "age": 30,
+              "nationality": "SCO",
+              "potential": 77,
+              "archetypeId": "stopper",
+              "traits": [
+                "marshal",
+                "leader"
+              ]
+            },
+            {
+              "name": "Raúl Torrente",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 35,
+                "pas": 62,
+                "dri": 56,
+                "def": 84,
+                "phy": 90
+              },
+              "age": 25,
+              "nationality": "ESP",
+              "potential": 75,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Samy Mmaee",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 40,
+                "pas": 62,
+                "dri": 55,
+                "def": 83,
+                "phy": 87
+              },
+              "age": 30,
+              "nationality": "MAR",
+              "potential": 72,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Kévin Théophile-Catherine",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 50,
+                "sho": 31,
+                "pas": 55,
+                "dri": 50,
+                "def": 75,
+                "phy": 72
+              },
+              "age": 37,
+              "nationality": "MTQ",
+              "potential": 66,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Marko Zebic",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 38,
+                "pas": 46,
+                "dri": 42,
+                "def": 63,
+                "phy": 64
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 56,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Bartol Franjic",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 75,
+                "sho": 54,
+                "pas": 69,
+                "dri": 69,
+                "def": 75,
+                "phy": 74
+              },
+              "age": 27,
+              "nationality": "CRO",
+              "potential": 71,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Matteo Pérez Vinlöf",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 71,
+                "sho": 55,
+                "pas": 64,
+                "dri": 64,
+                "def": 70,
+                "phy": 66
+              },
+              "age": 21,
+              "nationality": "SWE",
+              "potential": 67,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Jan Oliveras",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 62,
+                "sho": 34,
+                "pas": 56,
+                "dri": 56,
+                "def": 61,
+                "phy": 56
+              },
+              "age": 22,
+              "nationality": "ESP",
+              "potential": 59,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Ronaël Pierre-Gabriel",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 77,
+                "sho": 43,
+                "pas": 73,
+                "dri": 73,
+                "def": 79,
+                "phy": 74
+              },
+              "age": 28,
+              "nationality": "FRA",
+              "potential": 75,
+              "archetypeId": "wing_back"
+            },
+            {
+              "name": "Stefan Ristovski",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 68,
+                "sho": 51,
+                "pas": 70,
+                "dri": 70,
+                "def": 76,
+                "phy": 71
+              },
+              "age": 34,
+              "nationality": "MKD",
+              "potential": 72,
+              "archetypeId": "def_fullback",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Sadegh Moharrami",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 56,
+                "sho": 45,
+                "pas": 54,
+                "dri": 54,
+                "def": 59,
+                "phy": 55
+              },
+              "age": 30,
+              "nationality": "IRN",
+              "potential": 57,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Paul Tabinas",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 46,
+                "pas": 53,
+                "dri": 53,
+                "def": 58,
+                "phy": 56
+              },
+              "age": 24,
+              "nationality": "PHI",
+              "potential": 56,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Moris Valincic",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 24,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Noa Mikic",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 38,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 19,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Ismaël Bennacer",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 70,
+                "sho": 59,
+                "pas": 81,
+                "dri": 75,
+                "def": 85,
+                "phy": 81
+              },
+              "age": 29,
+              "nationality": "ALG",
+              "potential": 78,
+              "archetypeId": "deep_playmaker",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Dejan Ljubicic",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 48,
+                "pas": 78,
+                "dri": 72,
+                "def": 82,
+                "phy": 82
+              },
+              "age": 29,
+              "nationality": "AUT",
+              "potential": 75,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Josip Misic",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 47,
+                "pas": 77,
+                "dri": 71,
+                "def": 81,
+                "phy": 80
+              },
+              "age": 32,
+              "nationality": "CRO",
+              "potential": 74,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Arijan Ademi",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 52,
+                "pas": 58,
+                "dri": 53,
+                "def": 60,
+                "phy": 58
+              },
+              "age": 35,
+              "nationality": "MKD",
+              "potential": 57,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Gonzalo Villar",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 69,
+                "sho": 59,
+                "pas": 82,
+                "dri": 78,
+                "def": 70,
+                "phy": 74
+              },
+              "age": 28,
+              "nationality": "ESP",
+              "potential": 74,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Miha Zajc",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 62,
+                "sho": 66,
+                "pas": 78,
+                "dri": 74,
+                "def": 67,
+                "phy": 68
+              },
+              "age": 32,
+              "nationality": "SVN",
+              "potential": 70,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Robert Mudrazija",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 61,
+                "pas": 73,
+                "dri": 73,
+                "def": 50,
+                "phy": 59
+              },
+              "age": 29,
+              "nationality": "CRO",
+              "potential": 66,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Gabriel Vidovic",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 83,
+                "sho": 67,
+                "pas": 74,
+                "dri": 83,
+                "def": 48,
+                "phy": 65
+              },
+              "age": 23,
+              "nationality": "CRO",
+              "potential": 74,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Cardoso Varela",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 58,
+                "pas": 56,
+                "dri": 63,
+                "def": 36,
+                "phy": 47
+              },
+              "age": 18,
+              "nationality": "POR",
+              "potential": 56,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Arbër Hoxha",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 55,
+                "pas": 56,
+                "dri": 63,
+                "def": 36,
+                "phy": 50
+              },
+              "age": 28,
+              "nationality": "ALB",
+              "potential": 56,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Patrik Horvat",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 18,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Mateo Lisica",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 23,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Fran Topic",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 55,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 39
+              },
+              "age": 22,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Dion Beljo",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 81,
+                "sho": 87,
+                "pas": 67,
+                "dri": 77,
+                "def": 43,
+                "phy": 84
+              },
+              "age": 24,
+              "nationality": "CRO",
+              "potential": 76,
+              "archetypeId": "poacher",
+              "traits": [
+                "clinical"
+              ]
+            },
+            {
+              "name": "Mounsef Bakrar",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 26,
+              "nationality": "ALG",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Leo Rimac",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 20,
+              "nationality": "SVN",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "HNK Hajduk Split",
+          "short": "HNK",
+          "colors": [
+            "#00a398",
+            "#ffffff"
+          ],
+          "rep": 65,
+          "stadium": "Poljud",
+          "players": [
+            {
+              "name": "Ivica Ivusic",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 23,
+                "pas": 55,
+                "dri": 48,
+                "def": 76,
+                "phy": 81
+              },
+              "age": 31,
+              "nationality": "CRO",
+              "potential": 73,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Lovre Kalinic",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 39,
+                "sho": 30,
+                "pas": 51,
+                "dri": 45,
+                "def": 72,
+                "phy": 73
+              },
+              "age": 36,
+              "nationality": "CRO",
+              "potential": 69,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Ivan Lucic",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 40,
+                "sho": 21,
+                "pas": 50,
+                "dri": 44,
+                "def": 70,
+                "phy": 73
+              },
+              "age": 31,
+              "nationality": "AUT",
+              "potential": 67,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Edgar González",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 35,
+                "pas": 62,
+                "dri": 56,
+                "def": 84,
+                "phy": 90
+              },
+              "age": 29,
+              "nationality": "ESP",
+              "potential": 73,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Zvonimir Sarlija",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 33,
+                "pas": 59,
+                "dri": 53,
+                "def": 80,
+                "phy": 84
+              },
+              "age": 30,
+              "nationality": "CRO",
+              "potential": 70,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Dario Melnjak",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 70,
+                "sho": 42,
+                "pas": 71,
+                "dri": 71,
+                "def": 77,
+                "phy": 71
+              },
+              "age": 34,
+              "nationality": "CRO",
+              "potential": 72,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Ismaël Diallo",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 72,
+                "sho": 41,
+                "pas": 69,
+                "dri": 69,
+                "def": 75,
+                "phy": 71
+              },
+              "age": 29,
+              "nationality": "CIV",
+              "potential": 71,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Elvis Letaj",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 23,
+              "nationality": "KVX",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Simun Hrgovic",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 38,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 22,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Mateo Cupic",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 18,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Luka Hodak",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Niko Djolonga",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 22,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Filip Krovinovic",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 60,
+                "pas": 78,
+                "dri": 72,
+                "def": 82,
+                "phy": 78
+              },
+              "age": 31,
+              "nationality": "CRO",
+              "potential": 75,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Hugo Guillamón",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 46,
+                "pas": 74,
+                "dri": 68,
+                "def": 78,
+                "phy": 75
+              },
+              "age": 26,
+              "nationality": "ESP",
+              "potential": 73,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Adrion Pajaziti",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 55,
+                "sho": 38,
+                "pas": 62,
+                "dri": 57,
+                "def": 64,
+                "phy": 63
+              },
+              "age": 24,
+              "nationality": "ALB",
+              "potential": 60,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Niko Sigur",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 51,
+                "sho": 50,
+                "pas": 57,
+                "dri": 52,
+                "def": 59,
+                "phy": 58
+              },
+              "age": 23,
+              "nationality": "CAN",
+              "potential": 56,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Ivan Rakitic",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 67,
+                "pas": 83,
+                "dri": 79,
+                "def": 71,
+                "phy": 70
+              },
+              "age": 38,
+              "nationality": "CRO",
+              "potential": 74,
+              "archetypeId": "playmaker",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Yassine Benrahou",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 72,
+                "sho": 69,
+                "pas": 83,
+                "dri": 83,
+                "def": 56,
+                "phy": 65
+              },
+              "age": 27,
+              "nationality": "MAR",
+              "potential": 74,
+              "archetypeId": "adv_playmaker"
+            },
+            {
+              "name": "Madzid Sosic",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 24,
+              "nationality": "BIH",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Rokas Pukstas",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 39
+              },
+              "age": 22,
+              "nationality": "USA",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Ante Rebić",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 75,
+                "sho": 66,
+                "pas": 74,
+                "dri": 83,
+                "def": 48,
+                "phy": 65
+              },
+              "age": 33,
+              "nationality": "CRO",
+              "potential": 72,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Leon Dajaku",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 77,
+                "sho": 65,
+                "pas": 69,
+                "dri": 78,
+                "def": 45,
+                "phy": 60
+              },
+              "age": 25,
+              "nationality": "GER",
+              "potential": 68,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Lovre Loncar",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Michele Sego",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 26,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Iker Almena",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 81,
+                "sho": 68,
+                "pas": 72,
+                "dri": 81,
+                "def": 47,
+                "phy": 62
+              },
+              "age": 22,
+              "nationality": "ESP",
+              "potential": 72,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Abdoulie Sanyang",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 77,
+                "sho": 62,
+                "pas": 70,
+                "dri": 79,
+                "def": 45,
+                "phy": 60
+              },
+              "age": 27,
+              "nationality": "GAM",
+              "potential": 69,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Roko Brajkovic",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 21,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Bruno Durdov",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 19,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Marko Livaja",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 75,
+                "sho": 83,
+                "pas": 70,
+                "dri": 80,
+                "def": 45,
+                "phy": 82
+              },
+              "age": 33,
+              "nationality": "CRO",
+              "potential": 76,
+              "archetypeId": "target_man"
+            },
+            {
+              "name": "Peter Nnaemeka Ugwuodo",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 20,
+              "nationality": "NGA",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "HNK Gorica",
+          "short": "HNG",
+          "colors": [
+            "#004225",
+            "#ffffff"
+          ],
+          "rep": 56,
+          "stadium": "SRC Velika Gorica",
+          "players": [
+            {
+              "name": "Davor Matijas",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 40,
+                "sho": 20,
+                "pas": 46,
+                "dri": 41,
+                "def": 65,
+                "phy": 67
+              },
+              "age": 27,
+              "nationality": "CRO",
+              "potential": 63,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Slavko Bralic",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 52,
+                "sho": 31,
+                "pas": 55,
+                "dri": 50,
+                "def": 75,
+                "phy": 77
+              },
+              "age": 34,
+              "nationality": "CRO",
+              "potential": 66,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Jakov Filipovic",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 52,
+                "sho": 31,
+                "pas": 55,
+                "dri": 50,
+                "def": 75,
+                "phy": 77
+              },
+              "age": 34,
+              "nationality": "CRO",
+              "potential": 66,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Matthew Steenvoorden",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 51,
+                "sho": 31,
+                "pas": 54,
+                "dri": 49,
+                "def": 73,
+                "phy": 75
+              },
+              "age": 34,
+              "nationality": "NED",
+              "potential": 65,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Mateo Les",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 50,
+                "sho": 27,
+                "pas": 48,
+                "dri": 43,
+                "def": 65,
+                "phy": 68
+              },
+              "age": 26,
+              "nationality": "CRO",
+              "potential": 58,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Marijan Cabraja",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 39,
+                "pas": 64,
+                "dri": 64,
+                "def": 70,
+                "phy": 67
+              },
+              "age": 29,
+              "nationality": "CRO",
+              "potential": 67,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Ante Susak",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Elvir Durakovic",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 44
+              },
+              "age": 26,
+              "nationality": "BIH",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Mateo Basic",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 28,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Zan Trontelj",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 72,
+                "sho": 40,
+                "pas": 66,
+                "dri": 66,
+                "def": 72,
+                "phy": 68
+              },
+              "age": 26,
+              "nationality": "SVN",
+              "potential": 68,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Djuro-Giulio Djekic",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 21,
+              "nationality": "SRB",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Valentino Majstorovic",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 41
+              },
+              "age": 31,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Damjan Pavlovic",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 40,
+                "pas": 66,
+                "dri": 60,
+                "def": 68,
+                "phy": 67
+              },
+              "age": 25,
+              "nationality": "SRB",
+              "potential": 64,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Tibor Halilovic",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 54,
+                "pas": 76,
+                "dri": 72,
+                "def": 65,
+                "phy": 66
+              },
+              "age": 31,
+              "nationality": "CRO",
+              "potential": 68,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Domagoj Pavicic",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 58,
+                "sho": 53,
+                "pas": 74,
+                "dri": 70,
+                "def": 63,
+                "phy": 65
+              },
+              "age": 32,
+              "nationality": "CRO",
+              "potential": 67,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Ognjen Bakic",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 53,
+                "sho": 47,
+                "pas": 61,
+                "dri": 58,
+                "def": 52,
+                "phy": 54
+              },
+              "age": 24,
+              "nationality": "MNE",
+              "potential": 56,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Ivan Fiolic",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 64,
+                "sho": 63,
+                "pas": 76,
+                "dri": 76,
+                "def": 52,
+                "phy": 61
+              },
+              "age": 30,
+              "nationality": "CRO",
+              "potential": 68,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Meritan Shabani",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 58,
+                "pas": 70,
+                "dri": 70,
+                "def": 48,
+                "phy": 58
+              },
+              "age": 27,
+              "nationality": "GER",
+              "potential": 63,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Jurica Prsir",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 45,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 39
+              },
+              "age": 26,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Arona Fall",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 22,
+              "nationality": "SEN",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Théo Epailly",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 27,
+              "nationality": "FRA",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Mésaque Djú",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 71,
+                "sho": 65,
+                "pas": 65,
+                "dri": 73,
+                "def": 42,
+                "phy": 57
+              },
+              "age": 27,
+              "nationality": "POR",
+              "potential": 65,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Luka Vrzic",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Martin Slogar",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 26,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Marko Kolar",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 72,
+                "pas": 55,
+                "dri": 64,
+                "def": 36,
+                "phy": 64
+              },
+              "age": 31,
+              "nationality": "CRO",
+              "potential": 62,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Vanja Pelko",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 24,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Toni Majic",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Filip Cuic",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 23,
+              "nationality": "BIH",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Medin Gashi",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 20,
+              "nationality": "KVX",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Wisdom Aondowase Sule",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 23,
+              "nationality": "NGA",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "NK Istra 1961",
+          "short": "NK",
+          "colors": [
+            "#034694",
+            "#ffffff"
+          ],
+          "rep": 54,
+          "stadium": "Aldo Drosina",
+          "players": [
+            {
+              "name": "Marijan Coric",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 33,
+                "sho": 20,
+                "pas": 41,
+                "dri": 36,
+                "def": 57,
+                "phy": 61
+              },
+              "age": 31,
+              "nationality": "CRO",
+              "potential": 56,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Luka Bogdan",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 55,
+                "sho": 32,
+                "pas": 56,
+                "dri": 50,
+                "def": 76,
+                "phy": 82
+              },
+              "age": 30,
+              "nationality": "CRO",
+              "potential": 67,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Dario Maresic",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 57,
+                "sho": 45,
+                "pas": 55,
+                "dri": 50,
+                "def": 75,
+                "phy": 77
+              },
+              "age": 27,
+              "nationality": "AUT",
+              "potential": 66,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Albert Malaj",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 20,
+              "nationality": "ALB",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Niko Sepic",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Irfan Ramic",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 22,
+              "nationality": "BIH",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Alejandro Jay",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 24,
+              "nationality": "ESP",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Filip Taraba",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 20,
+              "nationality": "BIH",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Diego Rossi",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 21,
+              "nationality": "PUR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Rene Hrvatin",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 20,
+              "nationality": "SVN",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Kristijan Gojani",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 19,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Josip Radosevic",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 45,
+                "pas": 74,
+                "dri": 68,
+                "def": 77,
+                "phy": 74
+              },
+              "age": 32,
+              "nationality": "CRO",
+              "potential": 71,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Leo Stulac",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 44,
+                "pas": 72,
+                "dri": 66,
+                "def": 74,
+                "phy": 71
+              },
+              "age": 32,
+              "nationality": "SVN",
+              "potential": 69,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "André Poko",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 57,
+                "sho": 54,
+                "pas": 72,
+                "dri": 66,
+                "def": 74,
+                "phy": 69
+              },
+              "age": 34,
+              "nationality": "GAB",
+              "potential": 69,
+              "archetypeId": "anchor",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Stjepan Loncar",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 45,
+                "pas": 70,
+                "dri": 64,
+                "def": 72,
+                "phy": 73
+              },
+              "age": 30,
+              "nationality": "BIH",
+              "potential": 67,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Logi Hrafn Róbertsson",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 51,
+                "sho": 43,
+                "pas": 57,
+                "dri": 52,
+                "def": 59,
+                "phy": 60
+              },
+              "age": 22,
+              "nationality": "ISL",
+              "potential": 56,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Vinko Rozic",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 23,
+              "nationality": "BIH",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Nik Skafar Zuzic",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 56,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 36
+              },
+              "age": 17,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Silvio Gorican",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 26,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Emil Frederiksen",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 76,
+                "sho": 64,
+                "pas": 68,
+                "dri": 77,
+                "def": 44,
+                "phy": 58
+              },
+              "age": 26,
+              "nationality": "DEN",
+              "potential": 67,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Dominik Celija",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Smail Prevljak",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 69,
+                "sho": 78,
+                "pas": 63,
+                "dri": 73,
+                "def": 41,
+                "phy": 76
+              },
+              "age": 31,
+              "nationality": "BIH",
+              "potential": 70,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Saydou Bangura",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 24,
+              "nationality": "NED",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Hamza Jaganjac",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 22,
+              "nationality": "BIH",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Elias Filet",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 24,
+              "nationality": "FRA",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Lorenzo Travaglia",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 44
+              },
+              "age": 22,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Allen Obando",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 20,
+              "nationality": "ECU",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Charles Adah Agada",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 44
+              },
+              "age": 20,
+              "nationality": "NGA",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Salim Fago Lawal",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 24,
+              "nationality": "NGA",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Stipe Ukich",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 20,
+              "nationality": "NZL",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "NK Lokomotiva Zagreb",
+          "short": "NKL",
+          "colors": [
+            "#132257",
+            "#ffffff"
+          ],
+          "rep": 52,
+          "stadium": "Kranjceviceva",
+          "players": [
+            {
+              "name": "Josip Posavec",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 38,
+                "sho": 35,
+                "pas": 46,
+                "dri": 41,
+                "def": 65,
+                "phy": 67
+              },
+              "age": 30,
+              "nationality": "CRO",
+              "potential": 63,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Denis Kolinger",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 53,
+                "sho": 31,
+                "pas": 55,
+                "dri": 50,
+                "def": 75,
+                "phy": 80
+              },
+              "age": 33,
+              "nationality": "CRO",
+              "potential": 66,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Dimitrije Kamenovic",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 72,
+                "sho": 54,
+                "pas": 66,
+                "dri": 66,
+                "def": 72,
+                "phy": 71
+              },
+              "age": 26,
+              "nationality": "SRB",
+              "potential": 68,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Marko Pajac",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 39,
+                "pas": 65,
+                "dri": 65,
+                "def": 71,
+                "phy": 67
+              },
+              "age": 33,
+              "nationality": "CRO",
+              "potential": 67,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Marin Leovac",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 32,
+                "pas": 53,
+                "dri": 53,
+                "def": 58,
+                "phy": 51
+              },
+              "age": 38,
+              "nationality": "CRO",
+              "potential": 56,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Fran Zilinski",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 23,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Luka Dajcer",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 25,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Filip Markanovic",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 22,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Ante Utrobicic",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 45
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Roko Pavlovic",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Noa Godec",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 39,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 19,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Marko Vesovic",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 49,
+                "pas": 63,
+                "dri": 63,
+                "def": 69,
+                "phy": 63
+              },
+              "age": 35,
+              "nationality": "MNE",
+              "potential": 66,
+              "archetypeId": "def_fullback",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Mario Situm",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 37,
+                "pas": 63,
+                "dri": 63,
+                "def": 68,
+                "phy": 62
+              },
+              "age": 34,
+              "nationality": "CRO",
+              "potential": 65,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Mody Boune",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 24,
+              "nationality": "FRA",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Ivor Ribar",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 24,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Franjo Posavac",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 24,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Petar Zvonimir Kostelac",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 18,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Gedion Zelalem",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 54,
+                "sho": 39,
+                "pas": 64,
+                "dri": 59,
+                "def": 66,
+                "phy": 65
+              },
+              "age": 29,
+              "nationality": "USA",
+              "potential": 62,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Aleksandar Trajkovski",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 69,
+                "pas": 66,
+                "dri": 75,
+                "def": 43,
+                "phy": 56
+              },
+              "age": 34,
+              "nationality": "MKD",
+              "potential": 66,
+              "archetypeId": "inverted_winger",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Dusan Vukovic",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 39
+              },
+              "age": 24,
+              "nationality": "MNE",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Mirko Susak",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 22,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Denis Busnja",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 26,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Oliver Heidarsson",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 25,
+              "nationality": "ISL",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "David Virgili",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 36
+              },
+              "age": 28,
+              "nationality": "ESP",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Komnen Andric",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 69,
+                "sho": 80,
+                "pas": 62,
+                "dri": 72,
+                "def": 40,
+                "phy": 76
+              },
+              "age": 31,
+              "nationality": "SRB",
+              "potential": 69,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Balsa Toskovic",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 23,
+              "nationality": "MNE",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Bartol Kardum",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Carlo Matekovic",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 23,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Aleks Stojakovic",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 48
+              },
+              "age": 22,
+              "nationality": "SVN",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Noel Djurkovic",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "HNK Rijeka",
+          "short": "HNR",
+          "colors": [
+            "#6c1d45",
+            "#ffffff"
+          ],
+          "rep": 52,
+          "stadium": "Stadion Rujevica",
+          "players": [
+            {
+              "name": "Jovan Manev",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 48,
+                "pas": 56,
+                "dri": 50,
+                "def": 76,
+                "phy": 79
+              },
+              "age": 25,
+              "nationality": "MKD",
+              "potential": 67,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Noel Bodetic",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 22,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Mladen Devetak",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 27,
+              "nationality": "SRB",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Justas Lasickas",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 62,
+                "sho": 48,
+                "pas": 59,
+                "dri": 59,
+                "def": 64,
+                "phy": 60
+              },
+              "age": 29,
+              "nationality": "LTU",
+              "potential": 61,
+              "archetypeId": "def_fullback",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Ante Orec",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 25,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Téo Barišić",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 44
+              },
+              "age": 22,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Viktor Vesligaj",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 41
+              },
+              "age": 17,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Tiago Dantas",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 71,
+                "sho": 61,
+                "pas": 82,
+                "dri": 78,
+                "def": 70,
+                "phy": 70
+              },
+              "age": 26,
+              "nationality": "POR",
+              "potential": 74,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Emmanuel Banda",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 56,
+                "pas": 76,
+                "dri": 72,
+                "def": 65,
+                "phy": 67
+              },
+              "age": 29,
+              "nationality": "ZAM",
+              "potential": 68,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Samuele Vignato",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 76,
+                "sho": 77,
+                "pas": 84,
+                "dri": 84,
+                "def": 57,
+                "phy": 66
+              },
+              "age": 22,
+              "nationality": "ITA",
+              "potential": 77,
+              "archetypeId": "adv_playmaker",
+              "traits": [
+                "dead_ball"
+              ]
+            },
+            {
+              "name": "Amer Gojak",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 66,
+                "pas": 78,
+                "dri": 78,
+                "def": 53,
+                "phy": 65
+              },
+              "age": 29,
+              "nationality": "BIH",
+              "potential": 70,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Merveil Ndockyt",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 57,
+                "pas": 70,
+                "dri": 70,
+                "def": 48,
+                "phy": 54
+              },
+              "age": 28,
+              "nationality": "CGO",
+              "potential": 63,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Niko Jankovic",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 40
+              },
+              "age": 25,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Toni Fruk",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 25,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Dominik Yankov",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 42,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 39
+              },
+              "age": 26,
+              "nationality": "BUL",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Tornike Morchiladze",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 48,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 36
+              },
+              "age": 25,
+              "nationality": "GEO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Gabriel Rukavina",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 23,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Dimitri Legbo",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 25,
+              "nationality": "CIV",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Luka Menalo",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 52,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 30,
+              "nationality": "BIH",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Omar Sijaric",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 25,
+              "nationality": "MNE",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Matej Momcilovski",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 22,
+              "nationality": "MKD",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Simun Butic",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Dominik Thaqi",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 19,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Goran Grulovic",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 36
+              },
+              "age": 17,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Bruno Bogojevic",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 28,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Daniel Adu-Adjei",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 72,
+                "sho": 78,
+                "pas": 60,
+                "dri": 70,
+                "def": 39,
+                "phy": 71
+              },
+              "age": 21,
+              "nationality": "ENG",
+              "potential": 67,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Duje Cop",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 53,
+                "sho": 65,
+                "pas": 52,
+                "dri": 60,
+                "def": 34,
+                "phy": 59
+              },
+              "age": 36,
+              "nationality": "CRO",
+              "potential": 59,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Ante Matej Juric",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 24,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Cherno Saho",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 22,
+              "nationality": "GAM",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Alasana Samateh",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 20,
+              "nationality": "GAM",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "NK Osijek",
+          "short": "NKO",
+          "colors": [
+            "#034694",
+            "#ffffff"
+          ],
+          "rep": 52,
+          "stadium": "Opus Arena",
+          "players": [
+            {
+              "name": "Mattia Del Favero",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 38,
+                "sho": 20,
+                "pas": 45,
+                "dri": 40,
+                "def": 63,
+                "phy": 65
+              },
+              "age": 28,
+              "nationality": "ITA",
+              "potential": 61,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Alessandro Tuia",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 31,
+                "pas": 54,
+                "dri": 49,
+                "def": 73,
+                "phy": 72
+              },
+              "age": 36,
+              "nationality": "ITA",
+              "potential": 65,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Styopa Mkrtchyan",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 36,
+                "pas": 46,
+                "dri": 42,
+                "def": 63,
+                "phy": 67
+              },
+              "age": 23,
+              "nationality": "ARM",
+              "potential": 56,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "David Colina",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 71,
+                "sho": 44,
+                "pas": 65,
+                "dri": 65,
+                "def": 71,
+                "phy": 66
+              },
+              "age": 26,
+              "nationality": "CRO",
+              "potential": 67,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Borna Barisic",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 50,
+                "pas": 64,
+                "dri": 64,
+                "def": 70,
+                "phy": 66
+              },
+              "age": 34,
+              "nationality": "CRO",
+              "potential": 67,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Roko Jurisic",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 25,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Ivan Cvijanovic",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 44
+              },
+              "age": 23,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "David Kalem",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 18,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Luka Posavec",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 41
+              },
+              "age": 17,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Renan Guedes",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 28,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Fran Karacic",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 42,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 44
+              },
+              "age": 30,
+              "nationality": "AUS",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Oleksandr Petrusenko",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 43,
+                "pas": 71,
+                "dri": 65,
+                "def": 73,
+                "phy": 72
+              },
+              "age": 28,
+              "nationality": "UKR",
+              "potential": 68,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Stanislav Shopov",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 60,
+                "pas": 72,
+                "dri": 72,
+                "def": 49,
+                "phy": 58
+              },
+              "age": 24,
+              "nationality": "BUL",
+              "potential": 65,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Simun Mikolcic",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 39
+              },
+              "age": 22,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Hernâni",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 59,
+                "pas": 62,
+                "dri": 70,
+                "def": 40,
+                "phy": 52
+              },
+              "age": 35,
+              "nationality": "POR",
+              "potential": 62,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Nail Omerovic",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 24,
+              "nationality": "BIH",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Andrej Micic",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 36
+              },
+              "age": 19,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ricuenio Kewal",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 24,
+              "nationality": "NED",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Dominik Babic",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Domagoj Bukvic",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 46,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 22,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Filip Zivkovic",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Arnel Jakupovic",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 68,
+                "sho": 77,
+                "pas": 60,
+                "dri": 69,
+                "def": 39,
+                "phy": 72
+              },
+              "age": 28,
+              "nationality": "AUT",
+              "potential": 67,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Kemal Ademi",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 76,
+                "pas": 59,
+                "dri": 68,
+                "def": 38,
+                "phy": 74
+              },
+              "age": 30,
+              "nationality": "SUI",
+              "potential": 66,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Justice Ohajunwa",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 25,
+              "nationality": "NGA",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Marino Zeravica",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Anton Matkovic",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Ivan Baric",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 61,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Jakov Dedic",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 63,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 17,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Yannick Toure",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 26,
+              "nationality": "SUI",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Ramón Miérez",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 29,
+              "nationality": "ARG",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "HNK Vukovar 1991",
+          "short": "HNV",
+          "colors": [
+            "#fdb913",
+            "#ffffff"
+          ],
+          "rep": 51,
+          "stadium": "Gradski Stadion u Borovu naselju",
+          "players": [
+            {
+              "name": "Matej Markovic",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 38,
+                "sho": 20,
+                "pas": 46,
+                "dri": 41,
+                "def": 65,
+                "phy": 68
+              },
+              "age": 30,
+              "nationality": "CRO",
+              "potential": 63,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Josip Elez",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 55,
+                "sho": 32,
+                "pas": 58,
+                "dri": 52,
+                "def": 78,
+                "phy": 81
+              },
+              "age": 32,
+              "nationality": "CRO",
+              "potential": 68,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Kerim Calhanoglu",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 70,
+                "sho": 38,
+                "pas": 63,
+                "dri": 63,
+                "def": 69,
+                "phy": 66
+              },
+              "age": 24,
+              "nationality": "GER",
+              "potential": 66,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Kristijan Cabrajic",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 22,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Halid Sabanovic",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 69,
+                "sho": 38,
+                "pas": 63,
+                "dri": 63,
+                "def": 69,
+                "phy": 66
+              },
+              "age": 27,
+              "nationality": "BIH",
+              "potential": 66,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Mario Ticinovic",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 56,
+                "sho": 38,
+                "pas": 58,
+                "dri": 58,
+                "def": 63,
+                "phy": 56
+              },
+              "age": 35,
+              "nationality": "CRO",
+              "potential": 60,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Roko Perkovic",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 21,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Kristijan Pavicic",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 27,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Eniss Shabani",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 55,
+                "sho": 38,
+                "pas": 62,
+                "dri": 57,
+                "def": 64,
+                "phy": 63
+              },
+              "age": 23,
+              "nationality": "ALB",
+              "potential": 60,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Samuel Koeberlé",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 54,
+                "sho": 37,
+                "pas": 60,
+                "dri": 55,
+                "def": 62,
+                "phy": 61
+              },
+              "age": 22,
+              "nationality": "FRA",
+              "potential": 59,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Vito Caic",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 40,
+                "sho": 27,
+                "pas": 44,
+                "dri": 41,
+                "def": 46,
+                "phy": 45
+              },
+              "age": 21,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Ivan Ljubicic",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 40,
+                "sho": 27,
+                "pas": 44,
+                "dri": 41,
+                "def": 46,
+                "phy": 45
+              },
+              "age": 21,
+              "nationality": "GER",
+              "potential": 45,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Daniel Vinkovic",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 42
+              },
+              "age": 18,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Dino Jergovic",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 43
+              },
+              "age": 19,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Leoni Gastaldelo",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 39
+              },
+              "age": 23,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Lovre Kulusic",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 41
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Robin González",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 42,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 39
+              },
+              "age": 28,
+              "nationality": "COL",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Josip Spoljaric",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 54,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 39
+              },
+              "age": 30,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Pocholo Bugas",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 43,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 25,
+              "nationality": "PHI",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Raí",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 39
+              },
+              "age": 22,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Alen Jurilj",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 39
+              },
+              "age": 30,
+              "nationality": "BIH",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Rafael Camacho",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 78,
+                "sho": 66,
+                "pas": 70,
+                "dri": 79,
+                "def": 45,
+                "phy": 60
+              },
+              "age": 26,
+              "nationality": "POR",
+              "potential": 69,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Lovro Banovec",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 25,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Törles Knöll",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 76,
+                "pas": 59,
+                "dri": 68,
+                "def": 38,
+                "phy": 70
+              },
+              "age": 29,
+              "nationality": "GER",
+              "potential": 66,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Tyrone Tormin",
+              "positions": [
+                "ST",
+                "AM"
+              ],
+              "attrs": {
+                "pac": 58,
+                "sho": 58,
+                "pas": 56,
+                "dri": 60,
+                "def": 35,
+                "phy": 50
+              },
+              "age": 25,
+              "nationality": "FRA",
+              "potential": 56,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Keyendrah Simmonds",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 25,
+              "nationality": "ENG",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Lun Boncina",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 24,
+              "nationality": "SVN",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Luka Klanac",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 21,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Niko Pajvancic",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 18,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Jakov Puljic",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 33,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "NK Varazdin",
+          "short": "NKV",
+          "colors": [
+            "#004225",
+            "#ffffff"
+          ],
+          "rep": 45,
+          "stadium": "Gradski stadion Andelko Herjavec",
+          "players": [
+            {
+              "name": "Ivan Nekic",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 32,
+                "pas": 57,
+                "dri": 51,
+                "def": 77,
+                "phy": 80
+              },
+              "age": 26,
+              "nationality": "CRO",
+              "potential": 67,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Mateo Barac",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 55,
+                "sho": 32,
+                "pas": 57,
+                "dri": 51,
+                "def": 77,
+                "phy": 82
+              },
+              "age": 32,
+              "nationality": "CRO",
+              "potential": 67,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Lamine Ba",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 40,
+                "pas": 47,
+                "dri": 42,
+                "def": 64,
+                "phy": 67
+              },
+              "age": 29,
+              "nationality": "MTN",
+              "potential": 57,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Gregor Sikosek",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 64,
+                "sho": 41,
+                "pas": 63,
+                "dri": 63,
+                "def": 69,
+                "phy": 64
+              },
+              "age": 32,
+              "nationality": "SVN",
+              "potential": 66,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Domagoj Begonja",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 44
+              },
+              "age": 21,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Enes Alic",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 27,
+              "nationality": "BIH",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Petar Bockaj",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 30,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Antonio Borsic",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 42,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 31,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Luka Posinkovic",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 23,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Vane Jovanov",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 43,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 28,
+              "nationality": "MKD",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Frane Maglica",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 44
+              },
+              "age": 29,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "David Puclin",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 54,
+                "sho": 42,
+                "pas": 69,
+                "dri": 63,
+                "def": 71,
+                "phy": 67
+              },
+              "age": 34,
+              "nationality": "CRO",
+              "potential": 67,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Jaime Sierra",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 53,
+                "sho": 38,
+                "pas": 62,
+                "dri": 57,
+                "def": 64,
+                "phy": 62
+              },
+              "age": 28,
+              "nationality": "ESP",
+              "potential": 60,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Filipe Jose Quissequel",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 42
+              },
+              "age": 18,
+              "nationality": "ANG",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Ante Coric",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 58,
+                "pas": 70,
+                "dri": 70,
+                "def": 48,
+                "phy": 56
+              },
+              "age": 29,
+              "nationality": "CRO",
+              "potential": 63,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Aleksa Latkovic",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 39
+              },
+              "age": 26,
+              "nationality": "MNE",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Mario Cuic",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 40
+              },
+              "age": 25,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Luka Mamic",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 40
+              },
+              "age": 24,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Jurica Poldrugac",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 39
+              },
+              "age": 29,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Thierry Nevers",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 39
+              },
+              "age": 24,
+              "nationality": "ENG",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ivan Canjuga",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 21,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Matej Vuk",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 26,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Iuri Tavares",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 39
+              },
+              "age": 25,
+              "nationality": "CPV",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Atdhe Mazari",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 25,
+              "nationality": "ALB",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Rüfat Abdullazada",
+              "positions": [
+                "RW",
+                "RW"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 51,
+                "pas": 45,
+                "dri": 45,
+                "def": 36,
+                "phy": 39
+              },
+              "age": 26,
+              "nationality": "AZE",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Mate Antunovic",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 22,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Niko Domjanic",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 23,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Stipe Juric",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 28,
+              "nationality": "BIH",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Marko Dabro",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 29,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Ivan Mamut",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 29,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Slaven Belupo Koprivnica",
+          "short": "SLA",
+          "colors": [
+            "#004225",
+            "#ffffff"
+          ],
+          "rep": 44,
+          "stadium": "Gradski Stadion Ivan Kusek Apas",
+          "players": [
+            {
+              "name": "Dominik Kovacic",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 53,
+                "sho": 31,
+                "pas": 55,
+                "dri": 50,
+                "def": 75,
+                "phy": 78
+              },
+              "age": 33,
+              "nationality": "CRO",
+              "potential": 66,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Leonard Zuta",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 39,
+                "pas": 60,
+                "dri": 60,
+                "def": 65,
+                "phy": 61
+              },
+              "age": 34,
+              "nationality": "MKD",
+              "potential": 62,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Antonio Jakir",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 23,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Erik Ridjan",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 44
+              },
+              "age": 21,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Filip Kruselj",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 21,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Luka Curkovic",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 21,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Karlo Isasegi",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 26,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Mateo Barac",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 44
+              },
+              "age": 26,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Ljuban Crepulja",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 56,
+                "sho": 43,
+                "pas": 70,
+                "dri": 64,
+                "def": 72,
+                "phy": 69
+              },
+              "age": 33,
+              "nationality": "CRO",
+              "potential": 67,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Leon Bosnjak",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 40,
+                "sho": 27,
+                "pas": 44,
+                "dri": 41,
+                "def": 46,
+                "phy": 44
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Mihail Caimacov",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 58,
+                "pas": 71,
+                "dri": 68,
+                "def": 61,
+                "phy": 65
+              },
+              "age": 28,
+              "nationality": "MDA",
+              "potential": 65,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Marko Ascic",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 43
+              },
+              "age": 19,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Jan Katic",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 43
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Michael Agbekpornu",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 40,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 44
+              },
+              "age": 28,
+              "nationality": "GHA",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Adrian Liber",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 37
+              },
+              "age": 26,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Ivan Cubelic",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 39
+              },
+              "age": 23,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Filip Mazar",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 39
+              },
+              "age": 21,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Adriano Jagusic",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 51,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 21,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Andro Sokac",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 39
+              },
+              "age": 19,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Leon Geci",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 18,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Gabrijel Sivalec",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 36
+              },
+              "age": 18,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Alen Grgic",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 32,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Josip Mitrovic",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 77,
+                "sho": 65,
+                "pas": 69,
+                "dri": 78,
+                "def": 45,
+                "phy": 59
+              },
+              "age": 26,
+              "nationality": "CRO",
+              "potential": 68,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Igor Lepinjica",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 27,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ilija Nestorovski",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 72,
+                "pas": 58,
+                "dri": 67,
+                "def": 37,
+                "phy": 65
+              },
+              "age": 36,
+              "nationality": "MKD",
+              "potential": 65,
+              "archetypeId": "poacher",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Frano Vlasic",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 44
+              },
+              "age": 20,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Ernis Qestaj",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 20,
+              "nationality": "KVX",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Losika Ratshukudu",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 42
+              },
+              "age": 20,
+              "nationality": "BOT",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Andrija Filipovic",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 29,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Ivan Bozic",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 29,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

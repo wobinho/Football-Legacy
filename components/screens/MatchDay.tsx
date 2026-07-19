@@ -133,7 +133,6 @@ export default function MatchDayScreen() {
       applyHalftimeTactic(state, isHome ? "home" : "away", halfTactic);
       userTeam.tactic = { ...userTeam.tactic, ...halfTactic };
     }
-    const before = state.events.length;
     playSecondHalf(state);
     const all = state.events.slice();
     setPhase("second");
@@ -314,7 +313,7 @@ function PostMatch({ result, fixture, onDone }: { result: MatchResult; fixture: 
             {best && (
               <div className="mt-3 border-t border-line pt-3 text-sm">
                 <span className="text-[11px] uppercase tracking-widest text-faint">Player of the match </span>
-                <button className="gold-text ml-1 font-semibold hover:underline" onClick={() => viewPlayer(best.p.id)}>
+                <button className="gold-text ml-1 font-semibold transition-[filter] hover:brightness-125" onClick={() => viewPlayer(best.p.id)}>
                   {best.p.name}
                 </button>
                 <span className="display ml-2 tnum">{best.rating.toFixed(1)}</span>

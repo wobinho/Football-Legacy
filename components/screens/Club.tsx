@@ -10,7 +10,7 @@ import { clubAllTimeRecords } from "@/lib/recordbook";
 import { academyGraduates } from "@/lib/academy";
 import { SPONSOR_SLOTS } from "@/lib/sponsors";
 import { formatMoney } from "@/lib/value";
-import { Card, GhostButton, GoldButton, Section, Tabs } from "../ui";
+import { Card, GhostButton, GoldButton, Section, Tabs, UpgradeCard } from "../ui";
 
 // v7: staff moved to Development → Staff, so the Club page no longer has a Staff tab.
 type Tab = "finances" | "income" | "investments" | "history" | "save";
@@ -155,7 +155,7 @@ function IncomeTab() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-x-6 gap-y-2 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">
       {facilities.map((f) => {
         const nextCost = facilityNextCost(game, game.userTeamId, f.key, TUNING);
         const maxed = nextCost === null;
@@ -163,75 +163,28 @@ function IncomeTab() {
         const afterUpgrade = (f.level + 1) * f.perLevel;
         const canAfford = nextCost !== null && team.budget >= nextCost;
         return (
-          <Section
+          <UpgradeCard
             key={f.key}
             title={f.title}
-            right={
-              <span className="text-xs text-faint">
-                Level {f.level} / {TUNING.facilityMaxLevel}
-              </span>
+            icon={f.icon}
+            accent={f.accent}
+            level={f.level}
+            maxLevel={TUNING.facilityMaxLevel}
+            blurb={f.blurb}
+            effectNow={`+${formatMoney(current)}/wk`}
+            effectNext={`+${formatMoney(afterUpgrade)}/wk`}
+            cost={maxed ? "—" : formatMoney(nextCost!)}
+            maxed={maxed}
+            canAfford={canAfford}
+            note={
+              maxed
+                ? "Fully upgraded."
+                : canAfford
+                  ? `Pays for itself in about ${Math.ceil(nextCost! / f.perLevel)} weeks.`
+                  : "Not enough budget yet — sell players or climb the table."
             }
-          >
-            <Card
-              className="p-4"
-              style={{ borderLeft: `3px solid ${f.accent}`, background: `linear-gradient(to right, ${f.accent}0d, transparent 45%)` }}
-            >
-              <div className="flex flex-wrap items-center gap-4">
-                <div
-                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border text-2xl"
-                  style={{ borderColor: `${f.accent}80`, background: `${f.accent}14` }}
-                >
-                  {f.icon}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] leading-relaxed text-dim">{f.blurb}</p>
-                  {/* level pips */}
-                  <div className="mt-2 flex gap-1">
-                    {Array.from({ length: TUNING.facilityMaxLevel }).map((_, i) => (
-                      <span
-                        key={i}
-                        className={`h-1.5 flex-1 rounded-full ${i < f.level ? "gold-grad" : "bg-line"}`}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-3 border-t border-line/60 pt-3 text-sm sm:grid-cols-3">
-                <div>
-                  <div className="text-[10px] uppercase tracking-widest text-faint">Current income</div>
-                  <div className="display tnum font-semibold text-win">+{formatMoney(current)}/wk</div>
-                </div>
-                {!maxed && (
-                  <div>
-                    <div className="text-[10px] uppercase tracking-widest text-faint">After upgrade</div>
-                    <div className="display tnum font-semibold text-win">+{formatMoney(afterUpgrade)}/wk</div>
-                  </div>
-                )}
-                <div>
-                  <div className="text-[10px] uppercase tracking-widest text-faint">Upgrade cost</div>
-                  <div className="display tnum font-semibold">{maxed ? "—" : formatMoney(nextCost!)}</div>
-                </div>
-              </div>
-
-              <div className="mt-3 flex items-center justify-between">
-                <span className="text-[11px] text-faint">
-                  {maxed
-                    ? "Fully upgraded."
-                    : canAfford
-                      ? `Pays for itself in about ${Math.ceil(nextCost! / f.perLevel)} weeks.`
-                      : "Not enough budget yet — sell players or climb the table."}
-                </span>
-                {maxed ? (
-                  <span className="display rounded-md border border-gold-lo/50 px-3 py-1.5 text-xs font-semibold text-gold">MAX</span>
-                ) : (
-                  <GoldButton onClick={() => upgrade(f.key)} disabled={!canAfford} className="!py-1.5 text-xs">
-                    UPGRADE
-                  </GoldButton>
-                )}
-              </div>
-            </Card>
-          </Section>
+            onUpgrade={() => upgrade(f.key)}
+          />
         );
       })}
       </div>
@@ -514,20 +467,24 @@ function GraduatesLedger() {
   );
 }
 
-function RecordList({ rows, unit }: { rows: { name: string; value: number }[]; onView: (id: string) => void; unit: string }) {
+function RecordList({ rows, onView, unit }: { rows: { id: string; name: string; value: number }[]; onView: (id: string) => void; unit: string }) {
   if (!rows.length) return <div className="text-sm text-faint">No records yet.</div>;
   return (
     <Card className="p-2">
       {rows.map((r, i) => (
-        <div key={i} className="flex items-center justify-between px-2 py-1 text-sm">
-          <span>
+        <button
+          key={r.id}
+          onClick={() => onView(r.id)}
+          className="flex w-full items-center justify-between rounded px-2 py-1 text-left text-sm hover:bg-hover"
+        >
+          <span className="min-w-0 truncate">
             <span className="mr-2 tnum text-faint">{i + 1}</span>
             {r.name}
           </span>
           <span className="display tnum font-semibold">
             {r.value} <span className="text-[10px] font-normal text-faint">{unit}</span>
           </span>
-        </div>
+        </button>
       ))}
     </Card>
   );

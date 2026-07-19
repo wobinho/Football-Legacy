@@ -219,6 +219,10 @@ export interface Team {
    * One-time upgrades in the Scouting Department Upgrades panel. Optional for old
    * saves (default 0). */
   academySquadLevel?: number;
+  /** Focus-slots facility (v8): raises how many prospects can be flagged as
+   * focus at once (max = u21FocusBase + level, capped at u21FocusMax). One-time
+   * upgrades in the Academy Upgrades tab. Optional for old saves (default 0). */
+  focusSlotLevel?: number;
   /** Academy squad (§18, v4): uncapped, ages 15–21, outside the senior cap.
    * `playerIds` stays senior-only so cap/selection/wage logic is untouched.
    * Only the user's club carries a populated academy roster. */

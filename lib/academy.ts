@@ -185,7 +185,11 @@ function rollIntakeProspect(
   const team = userTeam(state);
   const level = team.academyLevel ?? 0;
   const age = randInt(rng, cfg.intakeAgeMin, cfg.intakeAgeMax);
-  let overall = cfg.intakeOverallBase + (age - cfg.intakeAgeMin) * 2 + randNormal(rng) * cfg.intakeOverallSpread * 0.5;
+  // Base overall follows an age band (v8): younger classes arrive rawer, e.g.
+  // 15yo → 50-70, 12yo → 20-40. Not a hard cap — the prodigy branch below can
+  // still push a gem's base overall above the band.
+  const bandCenter = cfg.intakeOverallAtMinAge + (age - cfg.intakeAgeMin) * cfg.intakeOverallPerYear;
+  let overall = bandCenter + randRange(rng, -cfg.intakeOverallBandHalf, cfg.intakeOverallBandHalf);
   // Rare prodigy: request a much higher raw overall so generatePlayer's prodigy
   // branch produces a genuinely high-rated teenager (the ~80-rated 17yo gem).
   // Golden-generation members carry an elevated prodigy chance. We set prodigy
@@ -308,6 +312,39 @@ export function aiIntake(state: GameState, cfg: TuningConfig, rngSeed: number) {
 
 // ── U21 league sim (§18) ──────────────────────────────────────────────────
 
+// The U21s play 7-a-side. The user's side is locked out of the league until the
+// academy can field a full seven: at least one goalkeeper and six outfielders
+// (loanees are away, so they don't count toward eligibility).
+export const U21_SIDE_SIZE = 7;
+export const U21_MIN_GK = 1;
+export const U21_MIN_OUTFIELD = 6;
+
+/** Non-loan academy players split into keepers and outfielders — the pool the
+ * U21 side is drawn from and the basis for the lock check. */
+function u21Pool(state: GameState): { gks: PlayerBio[]; outfield: PlayerBio[] } {
+  const avail = academyPlayers(state).filter((p) => !p.loan);
+  return {
+    gks: avail.filter((p) => p.positions[0] === "GK"),
+    outfield: avail.filter((p) => p.positions[0] !== "GK"),
+  };
+}
+
+/** Whether the academy can field a legal 7-a-side U21 side (≥1 GK, ≥6 outfield).
+ * While false the U21 league is locked — no rounds are resolved. */
+export function u21Eligible(state: GameState): boolean {
+  const { gks, outfield } = u21Pool(state);
+  return gks.length >= U21_MIN_GK && outfield.length >= U21_MIN_OUTFIELD;
+}
+
+/** How many more players of each kind the academy still needs to unlock the U21s. */
+export function u21Shortfall(state: GameState): { gk: number; outfield: number } {
+  const { gks, outfield } = u21Pool(state);
+  return {
+    gk: Math.max(0, U21_MIN_GK - gks.length),
+    outfield: Math.max(0, U21_MIN_OUTFIELD - outfield.length),
+  };
+}
+
 /** Circle-method pairings for a 12-team double round-robin. Team 0 = user. */
 function roundPairings(round: number): [number, number][] {
   const n = 12;
@@ -322,39 +359,48 @@ function roundPairings(round: number): [number, number][] {
   });
 }
 
-/** Current XI the youth coach fields. If the user has tagged a U21 matchday
- * squad, only tagged players are eligible (focus still starts first); otherwise
- * it auto-picks focus prospects first, then the best of the rest. Loanees are
- * away; missing bodies count as empty shirts. */
-function u21Eleven(state: GameState): PlayerBio[] {
+/** The 7-a-side side the youth coach fields (one keeper + six outfielders). If
+ * the user has tagged a U21 matchday squad, only tagged players are eligible
+ * (focus still starts first); otherwise it auto-picks focus prospects first,
+ * then the best of the rest. Loanees are away; missing bodies count as empty
+ * shirts. A keeper is always slotted first when one is available. */
+function u21Seven(state: GameState): PlayerBio[] {
   const focus = new Set(state.academy.focusIds);
   const tagged = new Set(state.academy.u21Squad ?? []);
   let avail = academyPlayers(state).filter((p) => !p.loan);
   if (tagged.size > 0) avail = avail.filter((p) => tagged.has(p.id) || focus.has(p.id));
-  return avail
-    .sort((a, b) => (focus.has(b.id) ? 1 : 0) - (focus.has(a.id) ? 1 : 0) || b.overall - a.overall)
-    .slice(0, 11);
+  const rank = (a: PlayerBio, b: PlayerBio) =>
+    (focus.has(b.id) ? 1 : 0) - (focus.has(a.id) ? 1 : 0) || b.overall - a.overall;
+  const gks = avail.filter((p) => p.positions[0] === "GK").sort(rank);
+  const outfield = avail.filter((p) => p.positions[0] !== "GK").sort(rank);
+  const side: PlayerBio[] = [];
+  if (gks.length > 0) side.push(gks[0]); // one keeper leads the side
+  for (const p of outfield) {
+    if (side.length >= U21_SIDE_SIZE) break;
+    side.push(p);
+  }
+  return side.slice(0, U21_SIDE_SIZE);
 }
 
 export function userU21Strength(state: GameState, cfg: TuningConfig): number {
-  const eleven = u21Eleven(state);
-  const total = eleven.reduce((s, p) => s + p.overall, 0) + (11 - eleven.length) * 30;
-  return total / 11 + youthCoachStars(state) * cfg.u21CoachStrengthPerStar;
+  const side = u21Seven(state);
+  const total = side.reduce((s, p) => s + p.overall, 0) + (U21_SIDE_SIZE - side.length) * 30;
+  return total / U21_SIDE_SIZE + youthCoachStars(state) * cfg.u21CoachStrengthPerStar;
 }
 
 /** Projected U21 role for an academy player — how many minutes they'll get.
  * The youth coach fields focus prospects first, then the best of the rest, so
- * this is the same logic the sim uses (u21Eleven). Loanees are away entirely. */
+ * this is the same logic the sim uses (u21Seven). Loanees are away entirely. */
 export type U21Role = "Starter" | "Rotation" | "Bench" | "On loan";
 export function u21RoleFor(state: GameState, playerId: string): U21Role {
   const p = state.players[playerId];
   if (!p) return "Bench";
   if (p.loan) return "On loan";
-  const eleven = u21Eleven(state);
-  const idx = eleven.findIndex((x) => x.id === playerId);
+  const side = u21Seven(state);
+  const idx = side.findIndex((x) => x.id === playerId);
   if (idx === -1) return "Bench";
-  // focus prospects + the top of the XI are nailed-on starters; the tail rotates
-  if (state.academy.focusIds.includes(playerId) || idx < 8) return "Starter";
+  // focus prospects + the top of the side are nailed-on starters; the tail rotates
+  if (state.academy.focusIds.includes(playerId) || idx < 5) return "Starter";
   return "Rotation";
 }
 
@@ -391,8 +437,15 @@ function resolveU21Round(state: GameState, cfg: TuningConfig, round: number) {
   const u21 = state.academy.u21;
   const rng = mulberry32(deriveSeed(state.seed, `u21:${state.season}:r${round}`));
   const strengthOf = (idx: number) => (idx === 0 ? userU21Strength(state, cfg) : u21.opponents[idx - 1].strength);
+  // The user's fixtures only count while the academy can field a legal seven.
+  // While locked, their matches are skipped (no result, no youth minutes) —
+  // the rest of the league plays on around the empty slot.
+  const eligible = u21Eligible(state);
 
   for (const [homeIdx, awayIdx] of roundPairings(round)) {
+    const userMatch = homeIdx === 0 || awayIdx === 0;
+    if (userMatch && !eligible) continue; // U21 league locked for the user
+
     const sh = strengthOf(homeIdx) + 2; // small youth home edge
     const sa = strengthOf(awayIdx);
     const share = Math.pow(sh, 2.2) / (Math.pow(sh, 2.2) + Math.pow(sa, 2.2));
@@ -400,12 +453,12 @@ function resolveU21Round(state: GameState, cfg: TuningConfig, round: number) {
     const ag = randPoisson(rng, cfg.u21GoalsPerMatch * (1 - share));
     applyU21Score(u21, homeIdx, awayIdx, hg, ag);
 
-    if (homeIdx !== 0 && awayIdx !== 0) continue;
+    if (!userMatch) continue;
 
-    // the user's match: credit minutes, goals and ratings to the XI
+    // the user's match: credit minutes, goals and ratings to the side
     const home = homeIdx === 0;
     const [gf, ga] = home ? [hg, ag] : [ag, hg];
-    const eleven = u21Eleven(state);
+    const eleven = u21Seven(state);
     const scorers: string[] = [];
     const outfield = eleven.filter((p) => p.positions[0] !== "GK");
     for (let g = 0; g < gf && outfield.length; g++) {
@@ -450,7 +503,14 @@ export function toggleU21Squad(state: GameState, playerId: string): string | nul
   return null;
 }
 
-/** Flag/unflag a focus prospect (≤3): guaranteed U21 starts + coach attention. */
+/** How many focus prospects the user may flag: base slots + the Focus Slots
+ * facility level, capped at the absolute u21FocusMax. */
+export function focusSlots(state: GameState, cfg: TuningConfig): number {
+  const level = userTeam(state).focusSlotLevel ?? 0;
+  return Math.min(cfg.u21FocusMax, cfg.u21FocusBase + level);
+}
+
+/** Flag/unflag a focus prospect (up to focusSlots): guaranteed U21 starts + coach attention. */
 export function toggleFocus(state: GameState, playerId: string, cfg: TuningConfig): string | null {
   const ac = state.academy;
   if (ac.focusIds.includes(playerId)) {
@@ -458,7 +518,8 @@ export function toggleFocus(state: GameState, playerId: string, cfg: TuningConfi
     return null;
   }
   if (!(userTeam(state).academyPlayerIds ?? []).includes(playerId)) return "Only academy players can be focus prospects.";
-  if (ac.focusIds.length >= cfg.u21FocusMax) return `You can only focus on ${cfg.u21FocusMax} prospects at a time.`;
+  const cap = focusSlots(state, cfg);
+  if (ac.focusIds.length >= cap) return `You can only focus on ${cap} prospects at a time — upgrade Focus Slots for more.`;
   ac.focusIds.push(playerId);
   return null;
 }
@@ -772,7 +833,7 @@ export function weeklyLoanTick(state: GameState, cfg: TuningConfig) {
 }
 
 /** Mid-season loan check-in, sent when the winter window opens. */
-export function loanMidseasonReports(state: GameState, cfg: TuningConfig) {
+export function loanMidseasonReports(state: GameState) {
   for (const p of userLoanees(state)) {
     const dest = state.teams[p.loan!.toClubId];
     const ys = p.youthStats;

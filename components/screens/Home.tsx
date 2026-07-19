@@ -5,6 +5,7 @@
 import { useGame } from "@/store/gameStore";
 import { formatDay, formatDayShort } from "@/lib/calendar";
 import { computeTable } from "@/lib/season";
+import type { Fixture } from "@/lib/types";
 import { Card, Crest, Section, GhostButton } from "../ui";
 import Calendar from "../Calendar";
 
@@ -12,12 +13,18 @@ export default function HomeScreen() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const markRead = useGame((s) => s.markRead);
+  const markAllRead = useGame((s) => s.markAllRead);
   const setScreen = useGame((s) => s.setScreen);
 
   const team = game.teams[game.userTeamId];
-  const next = game.fixtures
-    .filter((f) => !f.played && (f.homeId === game.userTeamId || f.awayId === game.userTeamId))
-    .sort((a, b) => a.day - b.day)[0];
+  const mine = game.fixtures.filter((f) => f.homeId === game.userTeamId || f.awayId === game.userTeamId);
+  const next = mine.filter((f) => !f.played).sort((a, b) => a.day - b.day)[0];
+  const lastFive = mine
+    .filter((f) => f.played)
+    .sort((a, b) => b.day - a.day)
+    .slice(0, 5)
+    .reverse();
+  const unread = game.inbox.filter((i) => !i.read).length;
 
   const league = game.leagues[team.leagueId];
   const table = computeTable(game.fixtures, league.id, league.teamIds);
@@ -27,16 +34,31 @@ export default function HomeScreen() {
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
       <div className="xl:col-span-2">
-        <Section title="Inbox">
+        <Section
+          title="Inbox"
+          right={
+            unread > 1 ? (
+              <button onClick={markAllRead} className="text-xs text-faint transition-colors hover:text-dim">
+                Mark all read ({unread})
+              </button>
+            ) : undefined
+          }
+        >
           <div className="space-y-2">
-            {game.inbox.length === 0 && <div className="text-sm text-faint">Nothing yet. Hit Continue to start the season.</div>}
+            {game.inbox.length === 0 && (
+              <Card className="border-dashed p-6 text-center text-sm text-faint">
+                Nothing yet — club news, offers and reports land here.
+                <div className="mt-1">Hit <span className="display text-gold">CONTINUE ▸</span> to start the season.</div>
+              </Card>
+            )}
             {game.inbox.slice(0, 30).map((item) => (
               <Card key={item.id} className={`p-3 ${item.read ? "opacity-60" : ""}`}>
-                <button className="w-full text-left" onClick={() => markRead(item.id)}>
+                <button className="w-full text-left" onClick={() => markRead(item.id)} title={item.read ? undefined : "Mark as read"}>
                   <div className="flex items-baseline justify-between gap-3">
-                    <span className={`text-sm font-semibold ${!item.read ? "text-ink" : "text-dim"}`}>
-                      {item.type === "offer" && <span className="gold-text mr-1.5">◈</span>}
-                      {item.title}
+                    <span className={`flex min-w-0 items-baseline gap-1.5 text-sm font-semibold ${!item.read ? "text-ink" : "text-dim"}`}>
+                      {!item.read && <span className="h-1.5 w-1.5 shrink-0 self-center rounded-full bg-gold" aria-label="Unread" />}
+                      {item.type === "offer" && <span className="gold-text">◈</span>}
+                      <span className="min-w-0">{item.title}</span>
                     </span>
                     <span className="shrink-0 text-[11px] tnum text-faint">{formatDayShort(item.day)}</span>
                   </div>
@@ -83,25 +105,28 @@ export default function HomeScreen() {
           )}
         </Section>
 
-        <Section title={league.name}>
+        <Section
+          title={league.name}
+          right={lastFive.length > 0 ? <FormGuide fixtures={lastFive} userTeamId={game.userTeamId} /> : undefined}
+        >
           <Card className="overflow-hidden">
             <table className="w-full text-sm">
               <tbody>
                 {slice.map((row) => {
                   const t = game.teams[row.teamId];
                   const pos = table.indexOf(row) + 1;
-                  const mine = row.teamId === game.userTeamId;
+                  const mineRow = row.teamId === game.userTeamId;
                   return (
-                    <tr key={row.teamId} className={`border-b border-line last:border-0 ${mine ? "bg-hover" : ""}`}>
+                    <tr key={row.teamId} className={`border-b border-line last:border-0 ${mineRow ? "bg-hover" : ""}`}>
                       <td className="w-8 py-1.5 pl-3 tnum text-faint">{pos}</td>
                       <td className="py-1.5">
-                        <span className={`flex items-center gap-2 ${mine ? "font-semibold" : ""}`}>
+                        <span className={`flex items-center gap-2 ${mineRow ? "font-semibold" : ""}`}>
                           <Crest colors={t.colors} short={t.short} size={18} />
                           <span className="truncate">{t.short}</span>
                         </span>
                       </td>
                       <td className="w-10 py-1.5 text-center tnum text-dim">{row.played}</td>
-                      <td className={`w-12 py-1.5 pr-3 text-right tnum font-semibold ${mine ? "gold-text" : ""}`}>{row.points}</td>
+                      <td className={`w-12 py-1.5 pr-3 text-right tnum font-semibold ${mineRow ? "gold-text" : ""}`}>{row.points}</td>
                     </tr>
                   );
                 })}
@@ -126,5 +151,32 @@ export default function HomeScreen() {
         </Section>
       </div>
     </div>
+  );
+}
+
+/** Last five results as W/D/L chips, oldest → newest. */
+function FormGuide({ fixtures, userTeamId }: { fixtures: Fixture[]; userTeamId: string }) {
+  const game = useGame((s) => s.game)!;
+  return (
+    <span className="flex items-center gap-1" title="Form, last 5 (oldest → newest)">
+      {fixtures.map((f) => {
+        const isHome = f.homeId === userTeamId;
+        const gf = isHome ? f.homeGoals! : f.awayGoals!;
+        const ga = isHome ? f.awayGoals! : f.homeGoals!;
+        const opp = game.teams[isHome ? f.awayId : f.homeId];
+        const letter = gf > ga ? "W" : gf < ga ? "L" : "D";
+        const cls =
+          letter === "W" ? "bg-win/15 text-win" : letter === "L" ? "bg-loss/15 text-loss" : "bg-line/40 text-dim";
+        return (
+          <span
+            key={f.id}
+            className={`display flex h-4 w-4 items-center justify-center rounded-sm text-[9px] font-bold ${cls}`}
+            title={`${gf}–${ga} ${isHome ? "vs" : "at"} ${opp?.short ?? "?"}`}
+          >
+            {letter}
+          </span>
+        );
+      })}
+    </span>
   );
 }

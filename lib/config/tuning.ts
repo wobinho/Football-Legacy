@@ -217,12 +217,18 @@ export interface TuningConfig {
   scoutNetworkUpgradeCost: number[]; // one-time cost to reach each level
 
   // Academy squad-size facility (v7): raises how many prospects the academy can
-  // hold at once. Bought from the Scouting Department Upgrades panel. Cap =
+  // hold at once. Bought from the Academy Upgrades tab. Cap =
   // academySquadSizeBase + level*academySquadSizePerLevel.
   academySquadSizeBase: number; // prospects the academy holds at level 0
   academySquadSizePerLevel: number; // + per upgrade level
   academySquadMaxLevel: number;
   academySquadUpgradeCost: number[]; // one-time cost to reach each level
+
+  // Focus-slots facility (v8): raises how many prospects can be flagged as focus
+  // at once. Bought from the Academy Upgrades tab. Slots = u21FocusBase + level,
+  // never exceeding u21FocusMax (the absolute cap).
+  focusSlotMaxLevel: number; // levels available; each level is +1 focus slot
+  focusSlotUpgradeCost: number[]; // one-time cost to reach each level
 
   // Transfers (§10 — interim rules pending design session)
   valueCurve: { base: number; exponent: number }; // value ≈ base * exp(exponent*overall)
@@ -255,7 +261,14 @@ export interface TuningConfig {
   intakeClassPerLevel: number; // + per academy level (rounded)
   intakeAgeMin: number;
   intakeAgeMax: number;
-  intakeOverallBase: number; // raw ability center of a new class
+  // Base overall band per intake age (v8): the class arrives younger and rawer.
+  // A prospect's base overall centres on intakeOverallAtMinAge + (age-min)*slope
+  // and spans ±intakeOverallBandHalf around it, e.g. 15yo → 50-70, 12yo → 20-40.
+  // Not a hard cap — a prodigy roll can still push base overall above the band.
+  intakeOverallAtMinAge: number; // band centre at intakeAgeMin
+  intakeOverallPerYear: number; // + per year of age
+  intakeOverallBandHalf: number; // half-width of the band
+  intakeOverallBase: number; // raw ability center of a new class (legacy, scouted path)
   intakeOverallSpread: number;
   intakePotentialBase: number; // potential distribution center at level 0
   intakePotentialPerLevel: number; // + per academy level
@@ -278,7 +291,8 @@ export interface TuningConfig {
 
   // U21 league (12 teams, double round-robin, statistical)
   u21MinutesWeight: number; // youth minute worth vs a senior minute (development)
-  u21FocusMax: number; // focus prospects the user may flag
+  u21FocusBase: number; // focus slots at focusSlotLevel 0
+  u21FocusMax: number; // absolute cap on focus slots (fully upgraded)
   u21FocusGrowthBonus: number; // extra growth multiplier for focus prospects
   u21SquadGrowthBonus: number; // extra growth multiplier for players tagged into the U21 squad
   u21GoalsPerMatch: number; // youth football is looser than the senior game
@@ -429,15 +443,15 @@ export const TUNING: TuningConfig = {
   cupWinBonus: 10_000_000,
 
   facilityMaxLevel: 5,
-  stadiumUpgradeCost: [4_000_000, 9_000_000, 18_000_000, 32_000_000, 55_000_000],
+  stadiumUpgradeCost: [9_000_000, 21_000_000, 42_000_000, 74_000_000, 125_000_000],
   stadiumIncomePerLevel: 90_000,
-  commercialUpgradeCost: [3_000_000, 7_000_000, 14_000_000, 26_000_000, 45_000_000],
+  commercialUpgradeCost: [7_000_000, 16_000_000, 32_000_000, 58_000_000, 100_000_000],
   commercialIncomePerLevel: 70_000,
-  mediaUpgradeCost: [2_000_000, 5_000_000, 11_000_000, 20_000_000, 34_000_000],
+  mediaUpgradeCost: [5_000_000, 12_000_000, 25_000_000, 45_000_000, 76_000_000],
   mediaIncomePerLevel: 55_000,
-  hospitalityUpgradeCost: [3_500_000, 8_000_000, 15_000_000, 27_000_000, 46_000_000],
+  hospitalityUpgradeCost: [8_000_000, 18_000_000, 35_000_000, 62_000_000, 105_000_000],
   hospitalityIncomePerLevel: 75_000,
-  retailUpgradeCost: [2_500_000, 6_000_000, 12_000_000, 22_000_000, 38_000_000],
+  retailUpgradeCost: [6_000_000, 14_000_000, 28_000_000, 50_000_000, 85_000_000],
   retailIncomePerLevel: 60_000,
 
   staffRefreshDays: 2,
@@ -468,14 +482,17 @@ export const TUNING: TuningConfig = {
   contractRejectRatio: 0.8,
   contractVeteranAge: 32,
 
-  scoutNetworkMaxLevel: 3, // base 2 + 3 levels → up to 5 scouts on assignment
+  scoutNetworkMaxLevel: 5, // base 2 + 5 levels → up to 7 scouts on assignment
   scoutNetworkBase: 2,
-  scoutNetworkUpgradeCost: [3_500_000, 7_000_000, 12_000_000],
+  scoutNetworkUpgradeCost: [3_500_000, 7_000_000, 12_000_000, 18_000_000, 25_000_000],
 
   academySquadSizeBase: 12, // base 12 + 4 levels × 3 → up to 24 prospects
   academySquadSizePerLevel: 3,
   academySquadMaxLevel: 4,
   academySquadUpgradeCost: [2_000_000, 4_500_000, 8_000_000, 13_000_000],
+
+  focusSlotMaxLevel: 7, // base 3 + 7 levels → up to 10 focus slots
+  focusSlotUpgradeCost: [1_500_000, 3_000_000, 5_000_000, 7_500_000, 10_500_000, 14_000_000, 18_000_000],
 
   valueCurve: { base: 12_000, exponent: 0.104 },
   youthPotentialValueBoost: 1.8,
@@ -501,6 +518,9 @@ export const TUNING: TuningConfig = {
   intakeClassPerLevel: 0.5,
   intakeAgeMin: 12,
   intakeAgeMax: 17,
+  intakeOverallAtMinAge: 30, // 12yo band centre → 20-40; +10/yr → 15yo centre 60 (50-70)
+  intakeOverallPerYear: 10,
+  intakeOverallBandHalf: 10,
   intakeOverallBase: 50,
   intakeOverallSpread: 6,
   intakePotentialBase: 60,
@@ -522,7 +542,8 @@ export const TUNING: TuningConfig = {
   starScaleMax: 92,
 
   u21MinutesWeight: 0.6,
-  u21FocusMax: 3,
+  u21FocusBase: 3,
+  u21FocusMax: 10,
   u21FocusGrowthBonus: 0.1,
   u21SquadGrowthBonus: 0.06,
   u21GoalsPerMatch: 3.2,

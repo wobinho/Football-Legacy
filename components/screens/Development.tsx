@@ -14,12 +14,18 @@ import { devPhase, seasonGrowthEstimate, seasonAttrFocus } from "@/lib/developme
 import { trainingNextCost, type TrainingFacility } from "@/lib/economy";
 import { formatMoney } from "@/lib/value";
 import { plansForPosition, resolveTrainingPlan, type TrainingPlanDef } from "@/lib/config/training";
-import { Card, Flag, GhostButton, GoldButton, Ovr, PosBadge, Section, Tabs } from "../ui";
+import { Card, Flag, GhostButton, Ovr, PosBadge, Tabs, UpgradeCard } from "../ui";
 import StaffPanel from "./StaffPanel";
 
 const ATTR_LABELS: [keyof PlayerBio["attrs"], string][] = [
   ["pac", "PAC"], ["sho", "SHO"], ["pas", "PAS"], ["dri", "DRI"], ["def", "DEF"], ["phy", "PHY"],
 ];
+
+// Shared grid template for the Training Plans header + rows. The last track is a
+// fixed width so the training-focus dropdown is the same size across every
+// position (plan names differ per position) and its header lines up above it.
+// The dropdown track narrows on phones so the row still fits a small screen.
+const PLAN_GRID = "grid-cols-[2rem_1fr_2rem_2.5rem_8rem] sm:grid-cols-[2.25rem_1fr_2.5rem_3rem_11rem]";
 
 type Tab = "plans" | "facilities" | "staff";
 
@@ -71,12 +77,12 @@ function TrainingPlansTab() {
   return (
     <div className="space-y-5">
       <Card className="divide-y divide-line/50">
-        <div className="grid grid-cols-[auto_1fr_auto_auto_auto] items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-faint">
+        <div className={`grid ${PLAN_GRID} items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-faint`}>
           <span>Pos</span>
           <span>Player</span>
           <span className="text-center">Age</span>
           <span className="text-center">OVR</span>
-          <span className="text-right">Training focus</span>
+          <span className="text-center">Training focus</span>
         </div>
         {squad.map((p) => {
           const plan = resolveTrainingPlan(p.trainingPlan, p.positions[0]);
@@ -92,15 +98,15 @@ function TrainingPlansTab() {
 
           return (
             <div key={p.id}>
-              <div className="grid grid-cols-[auto_1fr_auto_auto_auto] items-center gap-3 px-4 py-2.5">
+              <div className={`grid ${PLAN_GRID} items-center gap-3 px-4 py-2.5`}>
                 <PosBadge pos={p.positions[0]} />
                 <button
                   onClick={() => setOpen(isOpen ? null : p.id)}
-                  className="flex min-w-0 items-center gap-2 text-left"
+                  className="group flex min-w-0 items-center gap-2 text-left"
                 >
                   <span className={`shrink-0 text-[10px] text-faint transition-transform ${isOpen ? "rotate-90" : ""}`}>▶</span>
                   <Flag nat={p.nationality} size={12} />
-                  <span className="truncate font-medium hover:underline">{p.name}</span>
+                  <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
                   {!growing && <span className="text-[10px] text-faint">· settled</span>}
                   {last && last.toOverall !== last.fromOverall && (
                     <span className={`text-[11px] tnum ${last.toOverall > last.fromOverall ? "text-win" : "text-loss"}`}>
@@ -116,7 +122,7 @@ function TrainingPlansTab() {
                   <select
                     value={plan.id}
                     onChange={(e) => setPlan(p.id, e.target.value)}
-                    className="rounded-md border border-line bg-raised px-2 py-1.5 text-sm text-ink focus:border-gold focus:outline-none"
+                    className="w-full truncate rounded-md border border-line bg-raised px-2 py-1.5 text-sm text-ink focus:border-gold focus:outline-none"
                     title={plan.blurb}
                   >
                     {options.map((o) => (
@@ -271,6 +277,7 @@ function FacilitiesTab() {
     key: TrainingFacility;
     title: string;
     icon: string;
+    accent: string; // per-upgrade accent so the cards read as bounded modules
     level: number;
     maxLevel: number;
     influence: string;
@@ -281,6 +288,7 @@ function FacilitiesTab() {
       key: "training",
       title: "Training Centre",
       icon: "🎯",
+      accent: "#d9a441", // gold
       level: team.trainingLevel ?? 0,
       maxLevel: TUNING.trainingFacilityMaxLevel,
       influence:
@@ -292,6 +300,7 @@ function FacilitiesTab() {
       key: "medical",
       title: "Medical Centre",
       icon: "➕",
+      accent: "#4fb8b8", // teal
       level: team.medicalLevel ?? 0,
       maxLevel: TUNING.trainingFacilityMaxLevel,
       influence:
@@ -303,6 +312,7 @@ function FacilitiesTab() {
       key: "academy",
       title: "Youth Academy",
       icon: "🌱",
+      accent: "#5fbf8a", // green
       level: team.academyLevel ?? 0,
       maxLevel: TUNING.academyMaxLevel,
       influence:
@@ -316,63 +326,28 @@ function FacilitiesTab() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-x-6 gap-y-2 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">
       {facilities.map((f) => {
         const nextCost = trainingNextCost(game, game.userTeamId, f.key, TUNING);
         const maxed = nextCost === null;
         const canAfford = nextCost !== null && team.budget >= nextCost;
         return (
-          <Section
+          <UpgradeCard
             key={f.key}
             title={f.title}
-            right={<span className="text-xs text-faint">Level {f.level} / {f.maxLevel}</span>}
-          >
-            <Card className="p-4">
-              <div className="flex flex-wrap items-center gap-4">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-line bg-raised text-2xl">
-                  {f.icon}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] leading-relaxed text-dim">{f.influence}</p>
-                  <div className="mt-2 flex gap-1">
-                    {Array.from({ length: f.maxLevel }).map((_, i) => (
-                      <span key={i} className={`h-1.5 flex-1 rounded-full ${i < f.level ? "gold-grad" : "bg-line"}`} />
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-3 border-t border-line/60 pt-3 text-sm sm:grid-cols-3">
-                <div>
-                  <div className="text-[10px] uppercase tracking-widest text-faint">Current effect</div>
-                  <div className="display font-semibold text-win">{f.effectNow}</div>
-                </div>
-                {!maxed && (
-                  <div>
-                    <div className="text-[10px] uppercase tracking-widest text-faint">After upgrade</div>
-                    <div className="display font-semibold text-win">{f.effectNext}</div>
-                  </div>
-                )}
-                <div>
-                  <div className="text-[10px] uppercase tracking-widest text-faint">Upgrade cost</div>
-                  <div className="display tnum font-semibold">{maxed ? "—" : formatMoney(nextCost!)}</div>
-                </div>
-              </div>
-
-              <div className="mt-3 flex items-center justify-between">
-                <span className="text-[11px] text-faint">
-                  {maxed ? "Fully upgraded." : canAfford ? "A long-term investment in your squad." : "Not enough budget yet."}
-                </span>
-                {maxed ? (
-                  <span className="display rounded-md border border-gold-lo/50 px-3 py-1.5 text-xs font-semibold text-gold">MAX</span>
-                ) : (
-                  <GoldButton onClick={() => upgradeTraining(f.key)} disabled={!canAfford} className="!py-1.5 text-xs">
-                    UPGRADE
-                  </GoldButton>
-                )}
-              </div>
-            </Card>
-          </Section>
+            icon={f.icon}
+            accent={f.accent}
+            level={f.level}
+            maxLevel={f.maxLevel}
+            blurb={f.influence}
+            effectNow={f.effectNow}
+            effectNext={f.effectNext}
+            cost={maxed ? "—" : formatMoney(nextCost!)}
+            maxed={maxed}
+            canAfford={canAfford}
+            note={maxed ? "Fully upgraded." : canAfford ? "A long-term investment in your squad." : "Not enough budget yet."}
+            onUpgrade={() => upgradeTraining(f.key)}
+          />
         );
       })}
       </div>

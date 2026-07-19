@@ -38,7 +38,7 @@ export default function CompetitionScreen() {
   return (
     <OpenTeam.Provider value={setTeamCard}>
       <div>
-        <Tabs tabs={tabs as never} active={tab as never} onChange={(t) => setTab(t)} />
+        <Tabs<string> tabs={tabs} active={tab} onChange={setTab} />
         {tab === "CUP" ? <CupView /> : game.leagues[tab]?.playable ? <LeagueView leagueId={tab} /> : <SimLeagueView leagueId={tab} />}
       </div>
       {teamCard && <TeamCard teamId={teamCard} onClose={() => setTeamCard(null)} />}

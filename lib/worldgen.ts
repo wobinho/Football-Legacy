@@ -448,11 +448,7 @@ export function generateWorld(opts: NewGameOptions): GameState {
   const fixtures = playableDivisionIds.flatMap((id, idx) =>
     generateLeagueFixtures(id, leagues[id].teamIds, schedule.leagueRoundDays, seed + idx)
   );
-  const cup = initCup(
-    playableDivisionIds.flatMap((id) => leagues[id].teamIds),
-    teams,
-    deriveSeed(seed, "cup:1")
-  );
+  const cup = initCup(playableDivisionIds.flatMap((id) => leagues[id].teamIds));
 
   const state: GameState = {
     schemaVersion: SCHEMA_VERSION,

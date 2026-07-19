@@ -1,7 +1,7 @@
 // Season Manager (§ module map): fixture generation (double round-robin),
 // league tables, promotion/relegation, and the knockout cup.
 
-import type { CupState, Fixture, GameState, TableRow, Team } from "./types";
+import type { CupState, Fixture, GameState, TableRow } from "./types";
 import { mulberry32, deriveSeed, shuffle } from "./rng";
 
 let fixtureCounter = 0;
@@ -85,7 +85,7 @@ export function computeTable(fixtures: Fixture[], leagueId: string, teamIds: str
 
 export const CUP_ROUND_NAMES = ["First Round", "Second Round", "Third Round", "Quarter-Final", "Semi-Final", "Final"];
 
-export function initCup(teamIds: string[], teams: Record<string, Team>, seed: number): CupState {
+export function initCup(teamIds: string[]): CupState {
   return {
     aliveTeamIds: teamIds.slice(),
     currentRound: 0,
@@ -103,15 +103,13 @@ export function drawCupRound(
   const rng = mulberry32(deriveSeed(seed, `cupdraw:${state.season}:${roundIndex}`));
   const day = state.schedule.cupRoundDays[roundIndex];
   let entrants: string[];
-  let byes: string[] = [];
 
   if (roundIndex === 0) {
-    // 16 lowest-reputation clubs contest round one
+    // 16 lowest-reputation clubs contest round one; the rest get a bye
     const sorted = state.cup.aliveTeamIds
       .slice()
       .sort((a, b) => state.teams[a].reputation - state.teams[b].reputation);
     entrants = shuffle(rng, sorted.slice(0, 16));
-    byes = sorted.slice(16);
   } else {
     entrants = shuffle(rng, state.cup.aliveTeamIds);
   }

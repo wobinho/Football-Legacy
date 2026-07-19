@@ -145,7 +145,7 @@ export function refreshSponsorOffers(state: GameState, cfg: TuningConfig) {
 }
 
 /** Accept an offer: it becomes a signed deal, its slot's other offers clear. */
-export function acceptSponsor(state: GameState, offerId: string, cfg: TuningConfig): string | null {
+export function acceptSponsor(state: GameState, offerId: string): string | null {
   const team = state.teams[state.userTeamId];
   const offer = team.sponsorOffers?.find((o) => o.id === offerId);
   if (!offer) return "That offer is no longer on the table.";

@@ -217,7 +217,7 @@ type SetPiece = "penalty" | "freekick" | "corner" | null;
 
 /** Roll whether a chance is a set piece. Penalties are rare; free-kicks and
  * corners are more common and route the ball to the designated taker. */
-function rollSetPiece(rng: RNG, side: SideState, cfg: TuningConfig): SetPiece {
+function rollSetPiece(rng: RNG, cfg: TuningConfig): SetPiece {
   const r = rng();
   if (r < cfg.penaltyChance) return "penalty";
   if (r < cfg.penaltyChance + cfg.freeKickChance) return "freekick";
@@ -393,7 +393,7 @@ function playSegment(state: MatchState) {
     const squash = 1 / (1 + Math.exp(-cfg.chanceQualitySlope * (q - cfg.chanceQualityCenter)));
     // is this a set piece? penalties are rare & high-conversion; free-kicks /
     // corners are a normal chance but route the ball to the designated taker.
-    const setPiece = rollSetPiece(rng, c.side, cfg);
+    const setPiece = rollSetPiece(rng, cfg);
     let pGoal = cfg.goalProbFloor + (cfg.goalProbCeil - cfg.goalProbFloor) * squash;
     // the opponent's back line (Wall) makes goals harder to come by
     pGoal *= c.opp.concedeMult;

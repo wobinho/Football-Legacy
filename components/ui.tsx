@@ -249,6 +249,118 @@ export function ArchetypeIcon({ archetypeId, size = 14 }: { archetypeId?: string
   );
 }
 
+/**
+ * The one canonical "upgrade" container, shared by every upgrade surface —
+ * Club → Income, Development → Facilities, and Academy → Upgrades — so they all
+ * read as the same object. An optional `accent` hex tints the left border, icon
+ * chip and level pips; without it the card uses the neutral gold treatment.
+ *
+ * Layout (uniform across pages): title + level header, an icon chip beside the
+ * blurb with level pips, a current / after-upgrade / cost row, then a footer
+ * note and the UPGRADE (or MAX) action.
+ */
+export function UpgradeCard({
+  title,
+  icon,
+  level,
+  maxLevel,
+  blurb,
+  accent,
+  effectNow,
+  effectNext,
+  cost,
+  maxed,
+  canAfford,
+  note,
+  onUpgrade,
+}: {
+  title: string;
+  icon: string;
+  level: number;
+  maxLevel: number;
+  blurb: string;
+  accent?: string;
+  effectNow: React.ReactNode;
+  effectNext: React.ReactNode;
+  cost: React.ReactNode;
+  maxed: boolean;
+  canAfford: boolean;
+  note?: React.ReactNode;
+  onUpgrade: () => void;
+}) {
+  const pipOn = accent ?? "var(--color-gold-hi)";
+  return (
+    <section>
+      <div className="mb-1 flex items-end justify-between">
+        <h2 className="display text-lg font-semibold" style={accent ? { color: accent } : undefined}>
+          {title}
+        </h2>
+        <span className="text-xs text-faint tnum">
+          Level {level} / {maxLevel}
+        </span>
+      </div>
+      <div className="gold-thread mb-3 w-full" />
+      <Card
+        className="p-4"
+        style={
+          accent
+            ? { borderLeft: `3px solid ${accent}`, background: `linear-gradient(to right, ${accent}0d, transparent 45%)` }
+            : undefined
+        }
+      >
+        <div className="flex flex-wrap items-center gap-4">
+          <div
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border text-2xl"
+            style={accent ? { borderColor: `${accent}80`, background: `${accent}14` } : { borderColor: "var(--color-line)", background: "var(--color-raised)" }}
+          >
+            {icon}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] leading-relaxed text-dim">{blurb}</p>
+            <div className="mt-2 flex gap-1">
+              {Array.from({ length: maxLevel }).map((_, i) => (
+                <span
+                  key={i}
+                  className={`h-1.5 flex-1 rounded-full ${i < level ? (accent ? "" : "gold-grad") : "bg-line"}`}
+                  style={accent && i < level ? { background: pipOn } : undefined}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-3 border-t border-line/60 pt-3 text-sm sm:grid-cols-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-faint">Current effect</div>
+            <div className="display font-semibold text-win">{effectNow}</div>
+          </div>
+          {!maxed && (
+            <div>
+              <div className="text-[10px] uppercase tracking-widest text-faint">After upgrade</div>
+              <div className="display font-semibold text-win">{effectNext}</div>
+            </div>
+          )}
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-faint">Upgrade cost</div>
+            <div className="display tnum font-semibold">{maxed ? "—" : cost}</div>
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[11px] text-faint">{note}</span>
+          {maxed ? (
+            <span className="display rounded-md border border-gold-lo/50 px-3 py-1.5 text-xs font-semibold text-gold">MAX</span>
+          ) : (
+            <GoldButton onClick={onUpgrade} disabled={!canAfford} className="!py-1.5 text-xs">
+              UPGRADE
+            </GoldButton>
+          )}
+        </div>
+      </Card>
+    </section>
+  );
+}
+
 /** Primary action — the one gold object on screen. */
 export function GoldButton({
   children,

@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { useGame } from "@/store/gameStore";
 import { getArchetype } from "@/lib/config/archetypes";
-import { POS_LABELS, posColors, posGroup, POS_GROUP_COLORS } from "@/lib/config/positions";
+import { POS_LABELS, posColors } from "@/lib/config/positions";
 import { formatMoney } from "@/lib/value";
 import { yearsLeft } from "@/lib/contracts";
 import { plansForPosition, resolveTrainingPlan } from "@/lib/config/training";
@@ -47,8 +47,6 @@ export default function PlayerProfileModal() {
   const career = game.careers[p.id];
   const avgRating = p.stats.apps ? (p.stats.ratingSum / p.stats.apps).toFixed(2) : "—";
   const primaryColor = posColors(p.positions[0]);
-  const groupColor = POS_GROUP_COLORS[posGroup(p.positions[0])];
-  void groupColor;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 sm:p-8" onClick={close}>

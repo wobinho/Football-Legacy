@@ -1,0 +1,6670 @@
+{
+  "schema": "fl-country-db@2",
+  "code": "KOR",
+  "name": "Korea, South",
+  "nat": "KOR",
+  "homeShare": 0.6,
+  "divisions": [
+    {
+      "id": "KOR1",
+      "name": "K League 1",
+      "tier": 1,
+      "clubs": [
+        {
+          "name": "Ulsan Hyundai Football Club",
+          "short": "ULS",
+          "colors": [
+            "#fdb913",
+            "#ffffff"
+          ],
+          "rep": 53,
+          "stadium": "Ulsan Munsu Football Stadium",
+          "players": [
+            {
+              "name": "Hyeon-woo Jo",
+              "positions": [
+                "GK"
+              ],
+              "attrs": {
+                "pac": 33,
+                "sho": 34,
+                "pas": 43,
+                "dri": 38,
+                "def": 60,
+                "phy": 60
+              },
+              "age": 35,
+              "nationality": "KOR",
+              "potential": 59,
+              "archetypeId": "shot_stopper"
+            },
+            {
+              "name": "Young-gwon Kim",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 51,
+                "sho": 47,
+                "pas": 56,
+                "dri": 50,
+                "def": 76,
+                "phy": 75
+              },
+              "age": 36,
+              "nationality": "KOR",
+              "potential": 67,
+              "archetypeId": "stopper",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Thomas Oude Kotte",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 52,
+                "sho": 30,
+                "pas": 53,
+                "dri": 48,
+                "def": 71,
+                "phy": 75
+              },
+              "age": 30,
+              "nationality": "NED",
+              "potential": 63,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Seung-hyun Jung",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 40,
+                "pas": 46,
+                "dri": 42,
+                "def": 63,
+                "phy": 65
+              },
+              "age": 32,
+              "nationality": "KOR",
+              "potential": 56,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Hyun-taek Cho",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 25,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Sang-woo Kang",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 41
+              },
+              "age": 33,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Sang-min Sim",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 40
+              },
+              "age": 33,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Kang-min Choi",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Jong-gyu Yoon",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 28,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Woo-young Jung",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 50,
+                "pas": 64,
+                "dri": 59,
+                "def": 66,
+                "phy": 63
+              },
+              "age": 37,
+              "nationality": "KOR",
+              "potential": 62,
+              "archetypeId": "anchor",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Woo-jin Park",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 40,
+                "sho": 27,
+                "pas": 44,
+                "dri": 41,
+                "def": 46,
+                "phy": 46
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Min-seo Jo",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 43
+              },
+              "age": 21,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Min-hyuk Lee",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 42
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Darijan Bojanic",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 38,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 43
+              },
+              "age": 32,
+              "nationality": "SWE",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Gyu-sung Lee",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 38,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 41
+              },
+              "age": 32,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Giorgi Arabidze",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 61,
+                "pas": 73,
+                "dri": 73,
+                "def": 50,
+                "phy": 58
+              },
+              "age": 28,
+              "nationality": "GEO",
+              "potential": 66,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Min-woo Kim",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 52,
+                "pas": 61,
+                "dri": 61,
+                "def": 42,
+                "phy": 46
+              },
+              "age": 36,
+              "nationality": "KOR",
+              "potential": 56,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "In-woo Back",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 39
+              },
+              "age": 20,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Jin-hyun Lee",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 29,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Dong-gyeong Lee",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 53,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 29,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Benji Michel",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 73,
+                "sho": 64,
+                "pas": 68,
+                "dri": 77,
+                "def": 44,
+                "phy": 59
+              },
+              "age": 29,
+              "nationality": "USA",
+              "potential": 67,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Il-lok Yun",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 64,
+                "pas": 68,
+                "dri": 77,
+                "def": 44,
+                "phy": 57
+              },
+              "age": 34,
+              "nationality": "KOR",
+              "potential": 67,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Pedrinho",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 24,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Si-young Jang",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Marcão",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 69,
+                "sho": 81,
+                "pas": 63,
+                "dri": 73,
+                "def": 41,
+                "phy": 78
+              },
+              "age": 32,
+              "nationality": "BRA",
+              "potential": 70,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Yago Cariello",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 69,
+                "sho": 76,
+                "pas": 59,
+                "dri": 68,
+                "def": 38,
+                "phy": 71
+              },
+              "age": 27,
+              "nationality": "BRA",
+              "potential": 66,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Yool Heo",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 25,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Jae-sang Jeong",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Erick Farias",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 44
+              },
+              "age": 30,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Hui-gyun Lee",
+              "positions": [
+                "ST",
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 45,
+                "pas": 43,
+                "dri": 47,
+                "def": 27,
+                "phy": 38
+              },
+              "age": 28,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Football Club Seoul",
+          "short": "FOO",
+          "colors": [
+            "#000000",
+            "#ffffff"
+          ],
+          "rep": 48,
+          "stadium": "Seoul World Cup Stadium",
+          "players": [
+            {
+              "name": "Yazan Al-Arab",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 51,
+                "sho": 43,
+                "pas": 52,
+                "dri": 47,
+                "def": 70,
+                "phy": 73
+              },
+              "age": 30,
+              "nationality": "JOR",
+              "potential": 62,
+              "archetypeId": "stopper",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Seong-hun Park",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 38,
+                "sho": 20,
+                "pas": 36,
+                "dri": 32,
+                "def": 49,
+                "phy": 50
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Hyeon-deok Kim",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 38,
+                "sho": 20,
+                "pas": 36,
+                "dri": 32,
+                "def": 49,
+                "phy": 51
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Jee-won Kim",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 38,
+                "sho": 20,
+                "pas": 36,
+                "dri": 32,
+                "def": 49,
+                "phy": 51
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Juan Antonio Ros",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 36,
+                "sho": 20,
+                "pas": 36,
+                "dri": 32,
+                "def": 49,
+                "phy": 51
+              },
+              "age": 30,
+              "nationality": "ESP",
+              "potential": 45,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Sang-min Lee",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 36,
+                "sho": 38,
+                "pas": 36,
+                "dri": 32,
+                "def": 49,
+                "phy": 51
+              },
+              "age": 29,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Han-do Lee",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 35,
+                "sho": 20,
+                "pas": 36,
+                "dri": 32,
+                "def": 49,
+                "phy": 50
+              },
+              "age": 32,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Jin-su Kim",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 63,
+                "sho": 49,
+                "pas": 64,
+                "dri": 64,
+                "def": 70,
+                "phy": 64
+              },
+              "age": 34,
+              "nationality": "KOR",
+              "potential": 67,
+              "archetypeId": "def_fullback",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Jae-min Ahn",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Jun Choi",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 27,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Soo-il Park",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 30,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Do-yoon Hwang",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 40,
+                "sho": 27,
+                "pas": 44,
+                "dri": 41,
+                "def": 46,
+                "phy": 44
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Hrvoje Babec",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 39,
+                "sho": 27,
+                "pas": 44,
+                "dri": 41,
+                "def": 46,
+                "phy": 46
+              },
+              "age": 27,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Jae-moon Ryu",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 36,
+                "sho": 34,
+                "pas": 44,
+                "dri": 41,
+                "def": 46,
+                "phy": 45
+              },
+              "age": 33,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Pil-gwan Ko",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 42
+              },
+              "age": 20,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Jeong-beom Son",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 43
+              },
+              "age": 19,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Seung-mo Lee",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 40,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 43
+              },
+              "age": 28,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Aleksandar Palocevic",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 62,
+                "sho": 63,
+                "pas": 76,
+                "dri": 76,
+                "def": 52,
+                "phy": 61
+              },
+              "age": 33,
+              "nationality": "SRB",
+              "potential": 68,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Jang Han-gyeol Park",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Anderson Oliveira",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 71,
+                "sho": 61,
+                "pas": 65,
+                "dri": 73,
+                "def": 42,
+                "phy": 55
+              },
+              "age": 28,
+              "nationality": "BRA",
+              "potential": 65,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Seon-min Moon",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 55,
+                "sho": 55,
+                "pas": 56,
+                "dri": 63,
+                "def": 36,
+                "phy": 46
+              },
+              "age": 34,
+              "nationality": "KOR",
+              "potential": 56,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Seloh Samuel Gbato",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 20,
+              "nationality": "CIV",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Hyeon-woo Jeong",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Min-kyu Song",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 46,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 27,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Seong-jin Kang",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Seung-won Jeong",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 29,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Patryk Klimala",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 76,
+                "sho": 85,
+                "pas": 65,
+                "dri": 75,
+                "def": 42,
+                "phy": 78
+              },
+              "age": 28,
+              "nationality": "POL",
+              "potential": 73,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Leonardo Ruiz",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 75,
+                "pas": 58,
+                "dri": 67,
+                "def": 37,
+                "phy": 70
+              },
+              "age": 30,
+              "nationality": "COL",
+              "potential": 65,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Seong-hoon Cheon",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 64,
+                "sho": 69,
+                "pas": 54,
+                "dri": 62,
+                "def": 35,
+                "phy": 66
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 60,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Young-wook Cho",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 27,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Jeonbuk Hyundai Motors",
+          "short": "JEO",
+          "colors": [
+            "#034694",
+            "#ffffff"
+          ],
+          "rep": 48,
+          "stadium": "Jeonju World Cup Stadium",
+          "players": [
+            {
+              "name": "Ji-su Park",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 56,
+                "sho": 38,
+                "pas": 58,
+                "dri": 52,
+                "def": 78,
+                "phy": 81
+              },
+              "age": 32,
+              "nationality": "KOR",
+              "potential": 68,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Jeong-hyeok Seo",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 20,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Woo-jin Choi",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Jun-yeong Kim",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Tae-hyeon Kim",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 30,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Tae-hwan Kim",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 51,
+                "sho": 37,
+                "pas": 54,
+                "dri": 54,
+                "def": 59,
+                "phy": 52
+              },
+              "age": 37,
+              "nationality": "KOR",
+              "potential": 57,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Seung-jun Hwang",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 21,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Chang-woo Park",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "João Gamboa",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 59,
+                "sho": 43,
+                "pas": 70,
+                "dri": 64,
+                "def": 72,
+                "phy": 73
+              },
+              "age": 30,
+              "nationality": "POR",
+              "potential": 67,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Jin-gyu Kim",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 50,
+                "sho": 55,
+                "pas": 61,
+                "dri": 58,
+                "def": 52,
+                "phy": 54
+              },
+              "age": 29,
+              "nationality": "KOR",
+              "potential": 56,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Jun-hwi Lim",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 42
+              },
+              "age": 21,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Hee-byeok Kwak",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 43
+              },
+              "age": 21,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Jun-hyuk Moon",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 42
+              },
+              "age": 21,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Hyeon-jong Kang",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 44
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Ju-hyeong Kim",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 44
+              },
+              "age": 19,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Du-hyun Kim",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 43
+              },
+              "age": 19,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Tae-ho Jin",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 37
+              },
+              "age": 20,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Ye-geon Kim",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 49,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 36
+              },
+              "age": 18,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Hyun-seok Yoon",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Seung-woo Lee",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 73,
+                "sho": 59,
+                "pas": 68,
+                "dri": 77,
+                "def": 44,
+                "phy": 58
+              },
+              "age": 29,
+              "nationality": "KOR",
+              "potential": 67,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Chang-hoon Kim",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 36
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Seung-sub Kim",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 30,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Patrick Twumasi",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 70,
+                "sho": 65,
+                "pas": 69,
+                "dri": 78,
+                "def": 45,
+                "phy": 59
+              },
+              "age": 32,
+              "nationality": "GHA",
+              "potential": 68,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Dong-jun Lee",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 70,
+                "sho": 62,
+                "pas": 66,
+                "dri": 75,
+                "def": 43,
+                "phy": 56
+              },
+              "age": 29,
+              "nationality": "KOR",
+              "potential": 66,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Seung-min Um",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ju-yeong Park",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 39
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Gytis Paulauskas",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 68,
+                "sho": 67,
+                "pas": 58,
+                "dri": 67,
+                "def": 37,
+                "phy": 72
+              },
+              "age": 27,
+              "nationality": "LTU",
+              "potential": 65,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Sang-woon Jeong",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Andrea Compagno",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 48
+              },
+              "age": 30,
+              "nationality": "ITA",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Bruno Mota",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 48
+              },
+              "age": 30,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Jeju SK Football Club",
+          "short": "JEJ",
+          "colors": [
+            "#132257",
+            "#ffffff"
+          ],
+          "rep": 42,
+          "stadium": "Jeju World Cup Stadium",
+          "players": [
+            {
+              "name": "Tobias Figueiredo",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 58,
+                "sho": 48,
+                "pas": 60,
+                "dri": 54,
+                "def": 81,
+                "phy": 84
+              },
+              "age": 32,
+              "nationality": "POR",
+              "potential": 71,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Julien Célestine",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 56,
+                "sho": 32,
+                "pas": 56,
+                "dri": 50,
+                "def": 76,
+                "phy": 80
+              },
+              "age": 29,
+              "nationality": "FRA",
+              "potential": 67,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Ryun-sung Kim",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "In-jung Jo",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 21,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "In-soo Yu",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 42,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 32,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Min-jae Park",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 21,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Ji-woon Kim",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 20,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Jung-min Kim",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 57,
+                "sho": 47,
+                "pas": 66,
+                "dri": 63,
+                "def": 57,
+                "phy": 60
+              },
+              "age": 27,
+              "nationality": "KOR",
+              "potential": 60,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Dong-hwi Kang",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 43
+              },
+              "age": 19,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Seung-jae Yoo",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 42
+              },
+              "age": 18,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Jae-hyeok Oh",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 41
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Jae-min Kim",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 42
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Jin-ho Kim",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 42
+              },
+              "age": 20,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Tae-hee Nam",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 52,
+                "sho": 59,
+                "pas": 66,
+                "dri": 66,
+                "def": 45,
+                "phy": 50
+              },
+              "age": 35,
+              "nationality": "KOR",
+              "potential": 60,
+              "archetypeId": "playmaker",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Sun-ho Kwon",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Sang-wook Ji",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Hyeon-woo Kim",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 27,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Chang-jun Park",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 30,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Chang-hoon Kwon",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 71,
+                "sho": 72,
+                "pas": 69,
+                "dri": 78,
+                "def": 45,
+                "phy": 58
+              },
+              "age": 32,
+              "nationality": "KOR",
+              "potential": 68,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Jun-ha Kim",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 21,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Byung-wook Choi",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 21,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Denílson",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 36
+              },
+              "age": 26,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Emerson Negueba",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 26,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Sang-eun Shin",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 39
+              },
+              "age": 27,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ju-gong Kim",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 30,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Shin-jin Kim",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 25,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Min-jae Kang",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Yuri Tanque",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 28,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Dong-jin Park",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 42,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 32,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Tiago Alves",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 44
+              },
+              "age": 34,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Gwangju Football Club",
+          "short": "GWA",
+          "colors": [
+            "#d71920",
+            "#ffffff"
+          ],
+          "rep": 41,
+          "stadium": "Gwangju World Cup Stadium",
+          "players": [
+            {
+              "name": "Seok-hwan Jang",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Min-ki Lee",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 41
+              },
+              "age": 33,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Jin-woo Bae",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Jin-ho Kim",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Seung-un Ha",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 28,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Won-jae Park",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 42,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 41
+              },
+              "age": 32,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Se-jong Ju",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 50,
+                "pas": 62,
+                "dri": 59,
+                "def": 53,
+                "phy": 52
+              },
+              "age": 36,
+              "nationality": "KOR",
+              "potential": 57,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Woo-jin Kim",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 42
+              },
+              "age": 21,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Ha-jong Oh",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 41
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Je-ho Yu",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 42
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Ho-yeon Jung",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 42
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Min-seo Moon",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 42
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Yong-jun Hong",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Ji-hun Joung",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Hyeok-joo An",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Sung-hyun Park",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 35
+              },
+              "age": 17,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Sung-yun Kwon",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 25,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ji-yong Jeong",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 28,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Emir Saitoski",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 23,
+              "nationality": "SVN",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Adriel Ba Loua",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 36
+              },
+              "age": 30,
+              "nationality": "CIV",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Han-gil Kim",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 31,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Beka Mikeltadze",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 69,
+                "sho": 78,
+                "pas": 60,
+                "dri": 70,
+                "def": 39,
+                "phy": 72
+              },
+              "age": 29,
+              "nationality": "GEO",
+              "potential": 67,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "John Iredale",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 69,
+                "sho": 76,
+                "pas": 59,
+                "dri": 68,
+                "def": 38,
+                "phy": 71
+              },
+              "age": 27,
+              "nationality": "AUS",
+              "potential": 66,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "In-hyeok Park",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 64,
+                "sho": 75,
+                "pas": 58,
+                "dri": 67,
+                "def": 37,
+                "phy": 70
+              },
+              "age": 31,
+              "nationality": "KOR",
+              "potential": 65,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Hólmbert Aron Fridjónsson",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 73,
+                "pas": 56,
+                "dri": 65,
+                "def": 36,
+                "phy": 69
+              },
+              "age": 33,
+              "nationality": "ISL",
+              "potential": 63,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Gabriel Tigrão",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 25,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Jae-hwan Lee",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 20,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Yun-ho Kim",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 19,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Reis",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 43
+              },
+              "age": 34,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Chang-moo Shin",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 42
+              },
+              "age": 34,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Football Club Anyang",
+          "short": "FOOT",
+          "colors": [
+            "#ffd700",
+            "#ffffff"
+          ],
+          "rep": 40,
+          "stadium": "Anyang Sports Complex Stadium",
+          "players": [
+            {
+              "name": "Kyung-won Kwon",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 43,
+                "pas": 48,
+                "dri": 43,
+                "def": 65,
+                "phy": 66
+              },
+              "age": 34,
+              "nationality": "KOR",
+              "potential": 58,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Yong-jik Ri",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 41,
+                "pas": 46,
+                "dri": 42,
+                "def": 63,
+                "phy": 63
+              },
+              "age": 35,
+              "nationality": "PRK",
+              "potential": 56,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Bo-min Jeon",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Dong-jin Kim",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 44,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 41
+              },
+              "age": 34,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Min-ho Kim",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Tae-hee Lee",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 40,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 34,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Jun-yeon Jeong",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 39,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 40
+              },
+              "age": 37,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Branislav Knezevic",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 56,
+                "sho": 46,
+                "pas": 64,
+                "dri": 61,
+                "def": 55,
+                "phy": 59
+              },
+              "age": 24,
+              "nationality": "SRB",
+              "potential": 59,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Min-hyeok Lim",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 51,
+                "sho": 55,
+                "pas": 62,
+                "dri": 59,
+                "def": 53,
+                "phy": 53
+              },
+              "age": 29,
+              "nationality": "KOR",
+              "potential": 57,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Jae-hyeon Kim",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 43
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Gang Kim",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 42
+              },
+              "age": 19,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Ji-wan Kang",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 43
+              },
+              "age": 19,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Gyu-hyeon Choe",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 42
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Bo-kyung Kim",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 58,
+                "sho": 64,
+                "pas": 75,
+                "dri": 75,
+                "def": 51,
+                "phy": 57
+              },
+              "age": 37,
+              "nationality": "KOR",
+              "potential": 67,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Jung-woo Jang",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Hyeong-jun Oh",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 39
+              },
+              "age": 19,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Matheus Oliveira",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 29,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Yago César",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 67,
+                "sho": 59,
+                "pas": 63,
+                "dri": 71,
+                "def": 41,
+                "phy": 53
+              },
+              "age": 29,
+              "nationality": "BRA",
+              "potential": 63,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Seong-woo Moon",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Jeong-hun Park",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Airton Moisés",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 27,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Geon-joo Choi",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 27,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ivan Jukic",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 30,
+              "nationality": "BIH",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "York Rafael",
+              "positions": [
+                "LW",
+                "LW"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 40,
+                "pas": 45,
+                "dri": 45,
+                "def": 36,
+                "phy": 39
+              },
+              "age": 27,
+              "nationality": "RWA",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Sung-bum Choi",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 25,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Hyun-woo Chae",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ji-hun Kang",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 30,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Dong-hyun Lee",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 48
+              },
+              "age": 21,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Breno Herculano",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 27,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Un Kim",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 42,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 32,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Foundation Coorperation Hana Financial Group Inc. Football Club",
+          "short": "FOU",
+          "colors": [
+            "#ffd700",
+            "#ffffff"
+          ],
+          "rep": 40,
+          "stadium": "Daejeon World Cup Stadium",
+          "players": [
+            {
+              "name": "Anton Kryvotsiuk",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 50,
+                "sho": 40,
+                "pas": 49,
+                "dri": 44,
+                "def": 66,
+                "phy": 69
+              },
+              "age": 28,
+              "nationality": "AZE",
+              "potential": 59,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Young-jae Seo",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 64,
+                "sho": 37,
+                "pas": 63,
+                "dri": 63,
+                "def": 68,
+                "phy": 65
+              },
+              "age": 31,
+              "nationality": "KOR",
+              "potential": 65,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Kyu-hyun Park",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 25,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Do-yeon Kim",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 46,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 18,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Jin-ya Kim",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 43,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 28,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Myung-jae Lee",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 33,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 33,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Moon-hwan Kim",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 56,
+                "sho": 41,
+                "pas": 55,
+                "dri": 55,
+                "def": 60,
+                "phy": 55
+              },
+              "age": 31,
+              "nationality": "KOR",
+              "potential": 58,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Yun-sung Kang",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 35,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 29,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Bobsin",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 61,
+                "sho": 43,
+                "pas": 70,
+                "dri": 64,
+                "def": 72,
+                "phy": 72
+              },
+              "age": 27,
+              "nationality": "BRA",
+              "potential": 67,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Hun-min Koo",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 40
+              },
+              "age": 17,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Bong-soo Kim",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 42
+              },
+              "age": 27,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Min-woo Kim",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 43
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Han-seo Kim",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 41
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Jun-gyu Lee",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 41
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Byung-chan Park",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 51,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 41
+              },
+              "age": 18,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Woo-bin Jung",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 25,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Hernandes",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 27,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Gustav Ludwigson",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 33,
+              "nationality": "SWE",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "João Victor",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 70,
+                "sho": 60,
+                "pas": 64,
+                "dri": 72,
+                "def": 42,
+                "phy": 56
+              },
+              "age": 27,
+              "nationality": "BRA",
+              "potential": 64,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ji-ho Kim",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 17,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Seon-yu Lee",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 25,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Won-sang Um",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 36
+              },
+              "age": 28,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Kelvin",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 29,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Hyeon-ug Kim",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 35
+              },
+              "age": 31,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Jae-hee Jeong",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 36
+              },
+              "age": 32,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Hyeon-oh Kim",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 19,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Jin-su Seo",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Kang-hyun Yu",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 30,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Diogo Oliveira",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 48
+              },
+              "age": 30,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Masatoshi Ishida",
+              "positions": [
+                "ST",
+                "AM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 45,
+                "pas": 43,
+                "dri": 47,
+                "def": 27,
+                "phy": 40
+              },
+              "age": 31,
+              "nationality": "JPN",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Incheon United Football Club",
+          "short": "INC",
+          "colors": [
+            "#034694",
+            "#ffffff"
+          ],
+          "rep": 39,
+          "stadium": "Incheon Football Stadium",
+          "players": [
+            {
+              "name": "Kyung-sub Park",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 38,
+                "sho": 20,
+                "pas": 36,
+                "dri": 32,
+                "def": 49,
+                "phy": 51
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Gun-hee Kim",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 38,
+                "sho": 20,
+                "pas": 36,
+                "dri": 32,
+                "def": 49,
+                "phy": 52
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Jung-min Go",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 38,
+                "sho": 20,
+                "pas": 36,
+                "dri": 32,
+                "def": 49,
+                "phy": 51
+              },
+              "age": 19,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Young-hun Kang",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 37,
+                "sho": 20,
+                "pas": 36,
+                "dri": 32,
+                "def": 49,
+                "phy": 51
+              },
+              "age": 28,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Tae-wook Jeong",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 36,
+                "sho": 20,
+                "pas": 36,
+                "dri": 32,
+                "def": 49,
+                "phy": 52
+              },
+              "age": 29,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Juan Ibiza",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 35,
+                "sho": 20,
+                "pas": 36,
+                "dri": 32,
+                "def": 49,
+                "phy": 51
+              },
+              "age": 31,
+              "nationality": "ESP",
+              "potential": 45,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Seung-won Yeo",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Ju-yong Lee",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 34,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Seung-gu Choi",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 21,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Myung-soon Kim",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Sang-ki Lee",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 30,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Ji-hwan Mun",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 36,
+                "sho": 27,
+                "pas": 44,
+                "dri": 41,
+                "def": 46,
+                "phy": 45
+              },
+              "age": 32,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Iker Undabarrena",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 60,
+                "sho": 53,
+                "pas": 75,
+                "dri": 71,
+                "def": 64,
+                "phy": 67
+              },
+              "age": 31,
+              "nationality": "ESP",
+              "potential": 67,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Jun-seop Lee",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 42
+              },
+              "age": 19,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Jae-min Seo",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 42
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Young-whan Kim",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 42
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Myung-joo Lee",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 35,
+                "sho": 44,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 39
+              },
+              "age": 36,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Junyeop",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 25,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Hu-seong Oh",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 42,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 27,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Won-jin Jung",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 39,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 32,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Gerso",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 66,
+                "sho": 64,
+                "pas": 68,
+                "dri": 77,
+                "def": 44,
+                "phy": 55
+              },
+              "age": 35,
+              "nationality": "GNB",
+              "potential": 67,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Dong-ryul Lee",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Chi-in Jeong",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 29,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Chung-yong Lee",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 62,
+                "sho": 63,
+                "pas": 66,
+                "dri": 75,
+                "def": 43,
+                "phy": 54
+              },
+              "age": 38,
+              "nationality": "KOR",
+              "potential": 66,
+              "archetypeId": "inverted_winger",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Seung-ho Park",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Seong-min Kim",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 36
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Stefan Mugosa",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 57,
+                "sho": 71,
+                "pas": 54,
+                "dri": 63,
+                "def": 35,
+                "phy": 64
+              },
+              "age": 34,
+              "nationality": "MNE",
+              "potential": 61,
+              "archetypeId": "poacher",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Ho-min Park",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 25,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Min-gyu Baek",
+              "positions": [
+                "ST",
+                "AM"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 45,
+                "pas": 43,
+                "dri": 47,
+                "def": 27,
+                "phy": 40
+              },
+              "age": 21,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Morgan Ferrier",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 42,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 32,
+              "nationality": "GUY",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Gangwon Football Club",
+          "short": "GAN",
+          "colors": [
+            "#6c1d45",
+            "#ffffff"
+          ],
+          "rep": 39,
+          "stadium": "Gangneung High1 Arena",
+          "players": [
+            {
+              "name": "Chul Hong",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 53,
+                "sho": 45,
+                "pas": 56,
+                "dri": 56,
+                "def": 61,
+                "phy": 54
+              },
+              "age": 36,
+              "nationality": "KOR",
+              "potential": 59,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Jun-seok Song",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 25,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Ki-wan Sung",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Hyo-bin Lee",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 19,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Jae-hyuck Choi",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 41
+              },
+              "age": 17,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Joon-hyuck Kang",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 27,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "You-hyeon Lee",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 29,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "In-jeung Jung",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 42
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Won-woo Cho",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 42
+              },
+              "age": 21,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Tae-hyeok Kim",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 42
+              },
+              "age": 20,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Young-jun Goh",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 37
+              },
+              "age": 25,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Yun-gu Kang",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Seung-won Lee",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Mario Cuze",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 77,
+                "sho": 66,
+                "pas": 70,
+                "dri": 79,
+                "def": 45,
+                "phy": 63
+              },
+              "age": 27,
+              "nationality": "CRO",
+              "potential": 69,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Romário Baldé",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 70,
+                "sho": 62,
+                "pas": 66,
+                "dri": 75,
+                "def": 43,
+                "phy": 58
+              },
+              "age": 30,
+              "nationality": "GNB",
+              "potential": 66,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Jesse Sekidika",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 70,
+                "sho": 62,
+                "pas": 66,
+                "dri": 75,
+                "def": 43,
+                "phy": 57
+              },
+              "age": 30,
+              "nationality": "NGA",
+              "potential": 66,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Jin-hyuk Cho",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Bon-cheul Goo",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 27,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Jeong-hoon Choi",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 27,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Dae-won Kim",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 29,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Do-hyun Kim",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ji-ho Lee",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Hyeong-jin Kim",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 20,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Jae-hyeon Mo",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 30,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Byeong-chan Choe",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 30,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Abdallah Hleihel",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 26,
+              "nationality": "ISR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Sang-hyeok Park",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Byung-heon Yoo",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 44
+              },
+              "age": 20,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Jun-seo Jin",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 21,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Franko Kovacevic",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 27,
+              "nationality": "CRO",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Football Club Pohang Steelers",
+          "short": "FOP",
+          "colors": [
+            "#0057b8",
+            "#ffffff"
+          ],
+          "rep": 37,
+          "stadium": "Pohang Steelyard",
+          "players": [
+            {
+              "name": "Dong-hyeop Lee",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Jeong-won Eo",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 27,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Ye-sung Kim",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 41
+              },
+              "age": 30,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Min-jun Kang",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 41
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Chang-woo Lee",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 20,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Sung-yueng Ki",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 52,
+                "sho": 56,
+                "pas": 70,
+                "dri": 64,
+                "def": 72,
+                "phy": 69
+              },
+              "age": 37,
+              "nationality": "KOR",
+              "potential": 67,
+              "archetypeId": "anchor",
+              "traits": [
+                "leader"
+              ]
+            },
+            {
+              "name": "Seung-won Baek",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 41
+              },
+              "age": 20,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Young-jun Cho",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 42
+              },
+              "age": 19,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Beom-jun Kim",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 41
+              },
+              "age": 19,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Jae-hun Cho",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 39
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Soo-ah Lee",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 21,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Hyeon-je Kang",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 39
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "In-sung Kim",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 64,
+                "sho": 63,
+                "pas": 67,
+                "dri": 76,
+                "def": 43,
+                "phy": 55
+              },
+              "age": 37,
+              "nationality": "KOR",
+              "potential": 67,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Hyeong-woo Park",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Seung-beom Son",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Kyu-min Lee",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 21,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Heon-jae Lee",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 20,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Sung-dong Paik",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 42,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 35
+              },
+              "age": 35,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Yong-hak Kim",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 73,
+                "sho": 61,
+                "pas": 65,
+                "dri": 73,
+                "def": 42,
+                "phy": 55
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 65,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Su-been Park",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 21,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Jae-hwan Hwang",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 36
+              },
+              "age": 25,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Beom-su Kim",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Juninho Rocha",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 36
+              },
+              "age": 29,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Han-min Jung",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Jae-joon An",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 25,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Jakob Tranziska",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 25,
+              "nationality": "GER",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Sang-hyeok Cho",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Myung-jun Kim",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 20,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Ho-jae Lee",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Jorge Teixeira",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 27,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Bucheon Football Club 1995",
+          "short": "BUC",
+          "colors": [
+            "#1b458f",
+            "#ffffff"
+          ],
+          "rep": 37,
+          "stadium": "Bucheon Sports Complex",
+          "players": [
+            {
+              "name": "Patrick William",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 57,
+                "sho": 32,
+                "pas": 57,
+                "dri": 51,
+                "def": 77,
+                "phy": 80
+              },
+              "age": 29,
+              "nationality": "BRA",
+              "potential": 67,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Sung-wook Hong",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 38,
+                "sho": 20,
+                "pas": 36,
+                "dri": 32,
+                "def": 49,
+                "phy": 51
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Jong-min Kim",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 38,
+                "sho": 20,
+                "pas": 36,
+                "dri": 32,
+                "def": 49,
+                "phy": 52
+              },
+              "age": 25,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Sang-hyeok Lee",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 38,
+                "sho": 20,
+                "pas": 36,
+                "dri": 32,
+                "def": 49,
+                "phy": 50
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Jae-won Lee",
+              "positions": [
+                "CB"
+              ],
+              "attrs": {
+                "pac": 38,
+                "sho": 20,
+                "pas": 36,
+                "dri": 32,
+                "def": 49,
+                "phy": 51
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "stopper"
+            },
+            {
+              "name": "Seung-hyun Yu",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Jae-won Shin",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 28,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Bong-hun Yeo",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 42,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 32,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Tae-hyun An",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 41
+              },
+              "age": 33,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Seong-jun Jo",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 40,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 40
+              },
+              "age": 36,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Sang-jun Kim",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 40,
+                "sho": 27,
+                "pas": 44,
+                "dri": 41,
+                "def": 46,
+                "phy": 46
+              },
+              "age": 25,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Ho-jin Jeong",
+              "positions": [
+                "DM"
+              ],
+              "attrs": {
+                "pac": 39,
+                "sho": 27,
+                "pas": 44,
+                "dri": 41,
+                "def": 46,
+                "phy": 45
+              },
+              "age": 27,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "anchor"
+            },
+            {
+              "name": "Chung-hyun Lee",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 42
+              },
+              "age": 19,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Dam Uh",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 44
+              },
+              "age": 20,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Ye-geon Sung",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 34,
+                "pas": 43,
+                "dri": 43,
+                "def": 38,
+                "phy": 43
+              },
+              "age": 21,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Jae-woo Kang",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 42
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Kazuki Takahashi",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 39,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 42
+              },
+              "age": 30,
+              "nationality": "JPN",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Jeong-in Park",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 39
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Shin Seong",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Dong-hyun Kim",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Rodrigo Bassani",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 29,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Galego",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 65,
+                "sho": 58,
+                "pas": 61,
+                "dri": 69,
+                "def": 40,
+                "phy": 53
+              },
+              "age": 29,
+              "nationality": "BRA",
+              "potential": 61,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Kyu-min Kim",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 36
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Seung-bin Kim",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Eui-hyeong Lee",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 28,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Thiaguinho Santos",
+              "positions": [
+                "LW",
+                "LW"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 35,
+                "pas": 45,
+                "dri": 45,
+                "def": 36,
+                "phy": 38
+              },
+              "age": 27,
+              "nationality": "BRA",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ji-ho Han",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 35
+              },
+              "age": 38,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Min-jun Kim",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Vitor Gabriel",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 71,
+                "sho": 78,
+                "pas": 60,
+                "dri": 70,
+                "def": 39,
+                "phy": 73
+              },
+              "age": 26,
+              "nationality": "BRA",
+              "potential": 67,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "John Montaño",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 29,
+              "nationality": "COL",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        },
+        {
+          "name": "Gimcheon Sangmu Football Club",
+          "short": "GIM",
+          "colors": [
+            "#ffd700",
+            "#ffffff"
+          ],
+          "rep": 34,
+          "stadium": "Gimcheon Sports Complex",
+          "players": [
+            {
+              "name": "Jin-seong Park",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 25,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Ye-hoon Choi",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Seo-jin Kim",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Min-seo Park",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Cheol-woo Park",
+              "positions": [
+                "LB"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 42
+              },
+              "age": 29,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Tae-hwan Kim",
+              "positions": [
+                "RB"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 25,
+                "pas": 41,
+                "dri": 41,
+                "def": 45,
+                "phy": 43
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "def_fullback"
+            },
+            {
+              "name": "Kyeong-hyeon Min",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 41
+              },
+              "age": 25,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Se-jin Park",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 41
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Tae-joon Park",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 40,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 42
+              },
+              "age": 27,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Yi-seok Kim",
+              "positions": [
+                "CM"
+              ],
+              "attrs": {
+                "pac": 40,
+                "sho": 34,
+                "pas": 47,
+                "dri": 45,
+                "def": 41,
+                "phy": 42
+              },
+              "age": 28,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "deep_playmaker"
+            },
+            {
+              "name": "Kyung-ho Roh",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Sang-heon Lee",
+              "positions": [
+                "AM"
+              ],
+              "attrs": {
+                "pac": 41,
+                "sho": 40,
+                "pas": 48,
+                "dri": 48,
+                "def": 32,
+                "phy": 38
+              },
+              "age": 28,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "playmaker"
+            },
+            {
+              "name": "Gi-yun Choi",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Yun-sang Hong",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Byung-kwan Jeon",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Ju-hyeok Kang",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 20,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Jae-seok Yoon",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 23,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "In-gyun Kim",
+              "positions": [
+                "LW"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 28,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Yong-hui Park",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 38
+              },
+              "age": 24,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Joo-chan Kim",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 49,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 22,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Sang-hun Chu",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 48,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 36
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Jae-hyun Go",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 47,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 27,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "In-pyo Oh",
+              "positions": [
+                "RW"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 41,
+                "pas": 43,
+                "dri": 49,
+                "def": 28,
+                "phy": 37
+              },
+              "age": 29,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Si-hoo Hong",
+              "positions": [
+                "RW",
+                "RW"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 35,
+                "pas": 45,
+                "dri": 45,
+                "def": 36,
+                "phy": 39
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "inverted_winger"
+            },
+            {
+              "name": "Jae-min Jung",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 46,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 25,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Chan Kim",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 45,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 47
+              },
+              "age": 26,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Gun-hee Lee",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 28,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Min-geu Kang",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 44,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 46
+              },
+              "age": 28,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Kyeong-jun Kim",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 30,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            },
+            {
+              "name": "Ki-jong Won",
+              "positions": [
+                "ST"
+              ],
+              "attrs": {
+                "pac": 43,
+                "sho": 50,
+                "pas": 38,
+                "dri": 44,
+                "def": 25,
+                "phy": 45
+              },
+              "age": 31,
+              "nationality": "KOR",
+              "potential": 45,
+              "archetypeId": "poacher"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

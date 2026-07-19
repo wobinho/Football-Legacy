@@ -126,9 +126,9 @@ export function trackBiggestWin(state: GameState, homeName: string, awayName: st
 /** All-time club records computed from careers on demand (no extra store). */
 export function clubAllTimeRecords(state: GameState, teamId: string) {
   const teamName = state.teams[teamId].name;
-  const totals = new Map<string, { name: string; apps: number; goals: number }>();
+  const totals = new Map<string, { id: string; name: string; apps: number; goals: number }>();
   const add = (playerId: string, name: string, apps: number, goals: number) => {
-    const t = totals.get(playerId) ?? { name, apps: 0, goals: 0 };
+    const t = totals.get(playerId) ?? { id: playerId, name, apps: 0, goals: 0 };
     t.apps += apps;
     t.goals += goals;
     totals.set(playerId, t);

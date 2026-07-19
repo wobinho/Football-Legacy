@@ -6,7 +6,7 @@
 // what gives each player their own persistent save space.
 
 import { useEffect, useState } from "react";
-import { verifyKey, storedKey, rememberKey, type GameKey } from "@/lib/auth";
+import { verifyKey, storedKey, rememberKey } from "@/lib/auth";
 import { setCloudOwner } from "@/lib/cloud";
 import { GoldButton } from "./ui";
 
@@ -14,7 +14,6 @@ type Phase = "checking" | "locked" | "unlocked";
 
 export default function KeyGate({ children }: { children: React.ReactNode }) {
   const [phase, setPhase] = useState<Phase>("checking");
-  const [gameKey, setGameKey] = useState<GameKey | null>(null);
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -23,7 +22,6 @@ export default function KeyGate({ children }: { children: React.ReactNode }) {
     const saved = storedKey();
     if (saved) {
       setCloudOwner(saved.id);
-      setGameKey(saved);
       setPhase("unlocked");
     } else {
       setPhase("locked");
@@ -35,7 +33,6 @@ export default function KeyGate({ children }: { children: React.ReactNode }) {
     if (res.ok) {
       rememberKey(res.gameKey);
       setCloudOwner(res.gameKey.id);
-      setGameKey(res.gameKey);
       setError(null);
       setPhase("unlocked");
     } else {
