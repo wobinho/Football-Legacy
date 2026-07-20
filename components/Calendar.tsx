@@ -8,6 +8,7 @@ import { useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { Fixture } from "@/lib/types";
 import { dayMonth, monthGrid, monthLabel, dayOfMonth, formatDay } from "@/lib/calendar";
+import { isSeasonComplete } from "@/lib/gameloop";
 import { Crest } from "./ui";
 
 const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
@@ -17,6 +18,7 @@ export default function Calendar() {
   useGame((s) => s.rev);
   const simulateToDay = useGame((s) => s.simulateToDay);
   const onMatchday = game.pendingMatchFixtureId !== null;
+  const seasonOver = isSeasonComplete(game);
 
   // fixtures involving the user, keyed by day
   const byDay = useMemo(() => {
@@ -82,7 +84,7 @@ export default function Calendar() {
           const isToday = day === game.currentDay;
           const isPast = day < game.currentDay;
           const fixture = byDay.get(day);
-          const canSim = day > game.currentDay && day <= game.schedule.seasonEndDay && !onMatchday;
+          const canSim = day > game.currentDay && day <= game.schedule.seasonEndDay && !onMatchday && !seasonOver;
 
           let cell = "border-line/40 text-faint";
           if (isToday) cell = "border-gold-lo bg-hover text-ink ring-1 ring-gold-lo";
@@ -155,6 +157,12 @@ export default function Calendar() {
       {onMatchday && (
         <div className="mt-2 rounded border border-gold-lo/50 bg-raised p-2 text-[11px] text-gold">
           Play your match first — head to Match Day before simulating ahead.
+        </div>
+      )}
+
+      {!onMatchday && seasonOver && (
+        <div className="mt-2 rounded border border-gold-lo/50 bg-raised p-2 text-[11px] text-gold">
+          Season complete — every match has been played. Press END SEASON to close it out.
         </div>
       )}
 

@@ -4,9 +4,9 @@
 // potential, the background U21 league, the scouting pipeline, and loans —
 // all the "grow your own" decisions in one place.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useGame } from "@/store/gameStore";
-import type { Pos, PlayerBio, ScoutPosGroup, ScoutRegion } from "@/lib/types";
+import type { Pos, PlayerBio, ScoutPosGroup, ScoutRegion, U21Opponent } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
 import { ARCHETYPES, getArchetype } from "@/lib/config/archetypes";
 import {
@@ -15,14 +15,21 @@ import {
   potentialView,
   scoutCapacity,
   u21Eligible,
+  u21OpponentByName,
+  u21OpponentProspects,
+  u21ProspectQuote,
+  u21RegistrationDaysLeft,
+  u21RegistrationOpen,
+  u21Registered,
   u21Shortfall,
   U21_SIDE_SIZE,
   U21_MIN_GK,
   U21_MIN_OUTFIELD,
 } from "@/lib/academy";
+import { POS_GROUP_COLORS, POS_LABELS, POS_ORDER, posGroup } from "@/lib/config/positions";
 import { academySquadCap, trainingNextCost } from "@/lib/economy";
 import { plansForPosition, resolveTrainingPlan } from "@/lib/config/training";
-import { SCOUT_REGIONS } from "@/lib/config/scouting";
+import { SCOUT_WORLD, locateTarget, scoutRegion } from "@/lib/config/scouting";
 import {
   expectedReportSize,
   idleScouts,
@@ -148,14 +155,6 @@ function ScoutDepartmentPanel() {
         </span>
       }
     >
-      <p className="mb-3 max-w-3xl text-[13px] leading-relaxed text-dim">
-        Every scout carries two ratings. <b className="text-ink">Experience</b> decides how many prospects come back in a
-        report — from a single name up to seven. <b className="text-ink">Judgement</b> decides how good they are: the tier
-        each find lands in, from Bronze up to the rare <span style={{ color: TIER_COLOR.platinum }}>Platinum</span> wonderkid.
-        You can employ {cap} scout{cap === 1 ? "" : "s"} — raise that with <b className="text-ink">Max Scouts</b> on the
-        Upgrades tab — and each one can be out on one assignment at a time.
-      </p>
-
       {/* employed scouts */}
       {roster.length === 0 ? (
         <Card className="mb-4 p-4 text-sm text-dim">
@@ -544,7 +543,7 @@ function SquadTab() {
                 />
                 <ConfirmButton
                   label="Release"
-                  confirmLabel="Sure?"
+                  confirmLabel="Release?"
                   tone="danger"
                   onConfirm={() => release(p.id)}
                   className="display !rounded !px-2 !py-1 !text-[11px] tracking-wide"
@@ -593,53 +592,84 @@ function TextBtn({
 
 // ── U21 league ────────────────────────────────────────────────────────────
 
-/** Consolidated U21 matchday-squad picker: tag academy players into the squad
- * that gets fielded in the U21 league (like a lineup, but no tactics). When no
- * one is tagged the coach auto-selects (focus first, then the best available). */
-function U21SquadPicker() {
+/** Registration panel (v18): pick exactly seven prospects (≥1 GK) and submit
+ * them before the deadline. Miss it and the entry is forfeited to another club,
+ * so the deadline is the loudest thing on the panel. Once submitted the seven
+ * are locked for that competition — they are the only players eligible. */
+function U21RegistrationPanel() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const viewPlayer = useGame((s) => s.viewPlayer);
-  const toggleU21 = useGame((s) => s.academyToggleU21Squad);
+  const register = useGame((s) => s.academyRegisterU21);
 
-  const squad = new Set(game.academy.u21Squad ?? []);
+  const u21 = game.academy.u21;
+  const done = u21Registered(game);
+  const open = u21RegistrationOpen(game);
+  const daysLeft = u21RegistrationDaysLeft(game);
   const focus = new Set(game.academy.focusIds);
+
+  // Locked-in seven get shown as-is; while the window is open this is a draft
+  // the user is assembling, so it lives in local state until submitted.
+  const [draft, setDraft] = useState<string[]>(() => u21.registered ?? []);
+  useEffect(() => setDraft(u21.registered ?? []), [u21.registered, u21.half]);
+
   const players = academyPlayers(game)
     .filter((p) => !p.loan)
     .sort((a, b) => {
-      // tagged first, then focus, then overall
-      const ta = squad.has(a.id) ? 1 : 0;
-      const tb = squad.has(b.id) ? 1 : 0;
-      if (ta !== tb) return tb - ta;
-      const fa = focus.has(a.id) ? 1 : 0;
-      const fb = focus.has(b.id) ? 1 : 0;
-      return fb - fa || b.overall - a.overall;
+      const da = draft.includes(a.id) ? 1 : 0;
+      const db = draft.includes(b.id) ? 1 : 0;
+      if (da !== db) return db - da;
+      return (focus.has(b.id) ? 1 : 0) - (focus.has(a.id) ? 1 : 0) || b.overall - a.overall;
     });
-  const tagged = players.filter((p) => squad.has(p.id)).length;
+
+  const hasGk = draft.some((id) => game.players[id]?.positions[0] === "GK");
+  const complete = draft.length === TUNING.u21RegistrationSize && hasGk;
+
+  const toggle = (id: string) =>
+    setDraft((d) =>
+      d.includes(id) ? d.filter((x) => x !== id) : d.length >= TUNING.u21RegistrationSize ? d : [...d, id]
+    );
+
+  if (u21.forfeited) {
+    return (
+      <Card className="border-loss/40 p-4">
+        <div className="display text-sm font-bold text-loss">Entry Forfeited</div>
+        <p className="mt-1 text-[13px] leading-relaxed text-dim">
+          No squad was registered in time, so <span className="text-ink">{u21.replacedBy}</span> took our place in this
+          competition. Our prospects sit it out — watch for the next registration window.
+        </p>
+      </Card>
+    );
+  }
 
   return (
     <Section
-      title={`U21 Matchday Squad · ${U21_SIDE_SIZE}-a-side`}
+      title={`U21 Registration · pick ${TUNING.u21RegistrationSize}`}
       right={
-        <span className="text-xs text-faint">
-          {tagged > 0 ? (
-            <>
-              <span className="tnum text-ink">{tagged}</span> tagged
-            </>
-          ) : (
-            "auto-selected"
-          )}
-        </span>
+        done ? (
+          <span className="text-xs text-win">registered ✓</span>
+        ) : daysLeft !== null ? (
+          <span className={`text-xs ${daysLeft <= 3 ? "text-loss" : "text-faint"}`}>
+            <span className="tnum">{daysLeft}</span>d to register
+          </span>
+        ) : (
+          <span className="text-xs text-loss">window closed</span>
+        )
       }
     >
       <Card className="p-3">
+        <p className="mb-2 px-1 text-[11px] leading-snug text-faint">
+          {done
+            ? "These seven are your registered squad for this competition — only they can play in it."
+            : `Submit ${TUNING.u21RegistrationSize} prospects (at least one goalkeeper) before the deadline, or our place goes to another club.`}
+        </p>
         {players.length === 0 ? (
-          <div className="px-1 py-3 text-sm text-faint">No academy players available. Loanees can&apos;t play in the U21s.</div>
+          <div className="px-1 py-3 text-sm text-faint">No academy players available. Loanees can&apos;t be registered.</div>
         ) : (
           <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
             {players.map((p) => {
-              const on = squad.has(p.id);
-              const isFocus = focus.has(p.id);
+              const on = draft.includes(p.id);
+              const locked = done || !open;
               return (
                 <div
                   key={p.id}
@@ -652,15 +682,16 @@ function U21SquadPicker() {
                     <span className="flex items-center gap-1.5">
                       <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
                       <span className="tnum text-[11px] text-faint">{p.age}y</span>
-                      {isFocus && <span className="display text-[9px] font-semibold text-gold">★</span>}
+                      {focus.has(p.id) && <span className="display text-[9px] font-semibold text-gold">★</span>}
                     </span>
                   </button>
                   <Ovr value={p.overall} size="sm" />
                   <button
-                    onClick={() => toggleU21(p.id)}
+                    disabled={locked}
+                    onClick={() => toggle(p.id)}
                     className={`display w-16 rounded px-2 py-1 text-[11px] font-semibold tracking-wide ${
                       on ? "gold-grad text-black" : "border border-line text-faint hover:text-dim"
-                    }`}
+                    } ${locked ? "cursor-not-allowed opacity-60" : ""}`}
                   >
                     {on ? "IN ✓" : "Add"}
                   </button>
@@ -669,18 +700,88 @@ function U21SquadPicker() {
             })}
           </div>
         )}
-        {tagged > 0 && (
-          <div className="mt-2 text-right">
-            <button
-              onClick={() => (game.academy.u21Squad ?? []).slice().forEach((id) => toggleU21(id))}
-              className="text-[11px] text-faint hover:text-dim"
-            >
-              Clear squad (back to auto-select)
-            </button>
+        {!done && open && (
+          <div className="mt-3 flex items-center justify-between gap-3 border-t border-line/60 pt-3">
+            <span className="text-[11px] text-faint">
+              <span className={`tnum ${complete ? "text-win" : "text-ink"}`}>{draft.length}</span>/
+              {TUNING.u21RegistrationSize} selected
+              {!hasGk && draft.length > 0 && <span className="ml-1 text-loss">· needs a goalkeeper</span>}
+            </span>
+            <GoldButton disabled={!complete} onClick={() => register(draft)} className="!px-4 !py-1.5 text-xs">
+              Register Squad
+            </GoldButton>
           </div>
         )}
       </Card>
     </Section>
+  );
+}
+
+/** Rival prospect list (v18): the seven a U21 side registered, and what it would
+ * take to prise one away. Opened by clicking that club in the U21 table. */
+function U21ProspectsModal({ opp, onClose }: { opp: U21Opponent; onClose: () => void }) {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const viewPlayer = useGame((s) => s.viewPlayer);
+  const sign = useGame((s) => s.academySignU21Prospect);
+  const prospects = u21OpponentProspects(game, opp);
+  const budget = game.teams[game.userTeamId].budget;
+
+  return (
+    <Modal onClose={onClose} title={`${opp.name} · registered prospects`}>
+      <p className="mb-3 text-[12px] leading-relaxed text-dim">
+        {opp.sellStance === "unwilling"
+          ? "This club has no interest in selling any of its prospects."
+          : opp.sellStance === "premium"
+          ? "This club will deal, but only at a premium — they know exactly what they have."
+          : "This club is open to business at the right price."}
+      </p>
+      <div className="space-y-1.5">
+        {prospects.length === 0 && (
+          <div className="px-1 py-4 text-sm text-faint">No registered prospects on file for this side.</div>
+        )}
+        {prospects.map((p) => {
+          const quote = u21ProspectQuote(game, opp, p, TUNING);
+          const view = potentialView(game, p, TUNING);
+          const afford = quote.price !== null && quote.price <= budget;
+          return (
+            <div key={p.id} className="rounded-md border border-line bg-raised px-3 py-2">
+              <div className="flex items-center gap-2">
+                <PosBadge pos={p.positions[0]} />
+                <button onClick={() => viewPlayer(p.id)} className="group min-w-0 flex-1 truncate text-left text-sm">
+                  <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
+                  <span className="ml-1.5 tnum text-[11px] text-faint">{p.age}y</span>
+                  {p.u21Tier && (
+                    <span className="ml-1.5 display text-[9px] uppercase tracking-widest text-gold">{p.u21Tier}</span>
+                  )}
+                </button>
+                <StarRange lo={view.loStars} hi={view.hiStars} />
+                <Ovr value={p.overall} size="sm" />
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-2 border-t border-line/50 pt-2">
+                <span className="text-[11px] text-faint">
+                  {quote.price === null ? (
+                    <span className="text-loss">Not for sale</span>
+                  ) : (
+                    <>
+                      Asking <span className="display text-[13px] font-semibold text-ink">{formatMoney(quote.price)}</span>
+                      {!afford && <span className="ml-1 text-loss">· over budget</span>}
+                    </>
+                  )}
+                </span>
+                <GhostButton
+                  disabled={quote.price === null || !afford}
+                  onClick={() => sign(p.id)}
+                  className="!px-3 !py-1 text-xs"
+                >
+                  Make Approach
+                </GhostButton>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Modal>
   );
 }
 
@@ -727,13 +828,20 @@ function U21Tab() {
     .sort((a, b) => (b.youthStats!.goals - a.youthStats!.goals) || b.youthStats!.ratingSum / b.youthStats!.apps - a.youthStats!.ratingSum / a.youthStats!.apps);
 
   const eligible = u21Eligible(game);
+  // Clicking a rival in the table opens its registered seven — the youth
+  // scouting entry point (v18).
+  const [scouting, setScouting] = useState<U21Opponent | null>(null);
 
   return (
     <div className="space-y-6">
       {!eligible && <U21LockedBanner />}
-      <U21SquadPicker />
+      <U21RegistrationPanel />
+      {scouting && <U21ProspectsModal opp={scouting} onClose={() => setScouting(null)} />}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <Section title="U21 Table" right={<span className="text-xs text-faint">round {u21.roundsPlayed} of {u21.matchDays.length}</span>}>
+      <Section
+        title={`U21 Table · competition ${(u21.half ?? 0) + 1} of ${TUNING.u21CompetitionsPerSeason}`}
+        right={<span className="text-xs text-faint">round {u21.roundsPlayed} of {u21.matchDays.length}</span>}
+      >
         <Card>
           <div className="grid grid-cols-[auto_1fr_repeat(5,2.2rem)] gap-1 px-3 py-1.5 text-[10px] uppercase tracking-widest text-faint">
             <span className="w-5">#</span>
@@ -744,27 +852,44 @@ function U21Tab() {
             <span className="text-center">GD</span>
             <span className="text-center">Pts</span>
           </div>
-          {u21.table.map((r, i) => (
-            <div
-              key={r.name}
-              className={`grid grid-cols-[auto_1fr_repeat(5,2.2rem)] items-center gap-1 border-t border-line/40 px-3 py-1.5 text-sm ${
-                r.isUser ? "bg-hover font-semibold" : ""
-              }`}
-            >
-              <span className="w-5 tnum text-xs text-faint">{i + 1}</span>
-              <span className={`truncate ${r.isUser ? "gold-text" : ""}`}>{r.name}</span>
-              <span className="text-center tnum">{r.played}</span>
-              <span className="text-center tnum">{r.gf}</span>
-              <span className="text-center tnum">{r.ga}</span>
-              <span className="text-center tnum">{r.gf - r.ga}</span>
-              <span className="text-center tnum font-semibold">{r.points}</span>
-            </div>
-          ))}
+          {u21.table.map((r, i) => {
+            const opp = r.isUser ? null : u21OpponentByName(game, r.name);
+            const scoutable = !!opp && (opp.prospectIds?.length ?? 0) > 0;
+            return (
+              <div
+                key={r.name}
+                onClick={() => scoutable && setScouting(opp)}
+                role={scoutable ? "button" : undefined}
+                tabIndex={scoutable ? 0 : undefined}
+                onKeyDown={(e) => {
+                  if (scoutable && (e.key === "Enter" || e.key === " ")) {
+                    e.preventDefault();
+                    setScouting(opp);
+                  }
+                }}
+                className={`grid grid-cols-[auto_1fr_repeat(5,2.2rem)] items-center gap-1 border-t border-line/40 px-3 py-1.5 text-sm ${
+                  r.isUser ? "bg-hover font-semibold" : ""
+                } ${scoutable ? "cursor-pointer hover:bg-hover" : ""}`}
+              >
+                <span className="w-5 tnum text-xs text-faint">{i + 1}</span>
+                <span className={`truncate ${r.isUser ? "gold-text" : scoutable ? "hover:text-gold" : ""}`}>
+                  {r.name}
+                </span>
+                <span className="text-center tnum">{r.played}</span>
+                <span className="text-center tnum">{r.gf}</span>
+                <span className="text-center tnum">{r.ga}</span>
+                <span className="text-center tnum">{r.gf - r.ga}</span>
+                <span className="text-center tnum font-semibold">{r.points}</span>
+              </div>
+            );
+          })}
         </Card>
         <p className="mt-2 text-[11px] leading-snug text-faint">
-          The U21s play {U21_SIDE_SIZE}-a-side, automatically — a midweek fixture every week or so. Your best prospects
-          (focus first) start every match; U21 minutes feed development at {Math.round(TUNING.u21MinutesWeight * 100)}% of
-          senior weight.
+          The U21s play {U21_SIDE_SIZE}-a-side, automatically — a fixture every week or so, across{" "}
+          {TUNING.u21CompetitionsPerSeason} competitions of {TUNING.u21RoundsPerCompetition} rounds each season. Only your{" "}
+          {TUNING.u21RegistrationSize} registered prospects can play; U21 minutes feed development at{" "}
+          {Math.round(TUNING.u21MinutesWeight * 100)}% of senior weight.{" "}
+          <span className="text-dim">Click a rival to scout the prospects they registered.</span>
         </p>
       </Section>
 
@@ -816,21 +941,39 @@ function U21Tab() {
 
 // ── Scouting ──────────────────────────────────────────────────────────────
 
-const POS_OPTIONS: { id: ScoutPosGroup; label: string }[] = [
+/** Position briefs offered when sending a scout. The broad groups come first,
+ * then every specific position (v17) — without those, a right back or right
+ * winger could not be requested at all: "Defenders" rolled across CB/LB/RB and
+ * "Attackers" across LW/RW/ST, so the flank you wanted was left to chance. */
+const POS_OPTIONS: { id: ScoutPosGroup; label: string; group?: string }[] = [
   { id: "ANY", label: "Any position" },
   { id: "GK", label: "Goalkeepers" },
-  { id: "DEF", label: "Defenders" },
-  { id: "MID", label: "Midfielders" },
-  { id: "ATT", label: "Attackers" },
+  { id: "DEF", label: "Defenders (any)" },
+  { id: "MID", label: "Midfielders (any)" },
+  { id: "ATT", label: "Attackers (any)" },
+  ...POS_ORDER.filter((p) => p !== "GK").map((p) => ({
+    id: p as ScoutPosGroup,
+    label: POS_LABELS[p],
+    group: POS_GROUP_COLORS[posGroup(p)].label,
+  })),
 ];
 
-// Which positions each scouting group covers (mirrors POS_GROUPS in lib/academy).
+// Which positions each brief covers (mirrors POS_GROUPS in lib/academy).
 const GROUP_POSITIONS: Record<ScoutPosGroup, Pos[]> = {
   GK: ["GK"],
   DEF: ["CB", "LB", "RB"],
   MID: ["DM", "CM", "AM"],
   ATT: ["LW", "RW", "ST"],
   ANY: ["GK", "CB", "LB", "RB", "DM", "CM", "AM", "LW", "RW", "ST"],
+  CB: ["CB"],
+  LB: ["LB"],
+  RB: ["RB"],
+  DM: ["DM"],
+  CM: ["CM"],
+  AM: ["AM"],
+  LW: ["LW"],
+  RW: ["RW"],
+  ST: ["ST"],
 };
 
 /** Archetypes a scout can be briefed to look for within a position group. */
@@ -839,7 +982,8 @@ function archetypesForGroup(group: ScoutPosGroup) {
   return ARCHETYPES.filter((a) => a.positions.some((p) => positions.has(p)));
 }
 
-const posGroupLabel = (id: ScoutPosGroup) => POS_OPTIONS.find((o) => o.id === id)?.label ?? id;
+const posGroupLabel = (id: ScoutPosGroup) =>
+  POS_OPTIONS.find((o) => o.id === id)?.label ?? POS_LABELS[id as Pos] ?? id;
 
 function ScoutingTab() {
   const game = useGame((s) => s.game)!;
@@ -894,8 +1038,8 @@ function ScoutingTab() {
                     <div key={a.id} className="flex flex-wrap items-center gap-2 rounded border border-line bg-raised px-3 py-2">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-1.5 text-sm">
-                          <Flag nat={SCOUT_REGIONS.find((r) => r.id === a.region)?.nats[0] ?? "ENG"} size={12} />
-                          <span className="font-medium">{SCOUT_REGIONS.find((r) => r.id === a.region)?.label ?? a.region}</span>
+                          <Flag nat={scoutRegion(a.region).nats[0] ?? "ENG"} size={12} />
+                          <span className="font-medium">{scoutRegion(a.region).label}</span>
                           <span className="text-faint">·</span>
                           <span className="text-dim">{posGroupLabel(a.positions)}</span>
                         </div>
@@ -986,7 +1130,7 @@ function ScoutingTab() {
                       <span className="tnum text-xs text-faint">age {p.age}</span>
                       {r.region && (
                         <span className="display rounded-sm border border-line px-1 text-[9px] font-semibold text-faint">
-                          {SCOUT_REGIONS.find((x) => x.id === r.region)?.short ?? r.region}
+                          {scoutRegion(r.region).short}
                         </span>
                       )}
                       {r.tier && (
@@ -1016,7 +1160,6 @@ function ScoutingTab() {
                     })()}
                     {" · click the name for full stats before you sign"}
                   </div>
-                  <p className="mt-2 text-[13px] italic leading-relaxed text-dim">&ldquo;{r.note}&rdquo;</p>
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-3">
                     <span className="text-xs text-faint">
                       <span className="display text-sm font-semibold text-win">Free</span> · youth terms · trail cold in{" "}
@@ -1051,6 +1194,102 @@ function ScoutingTab() {
   );
 }
 
+/**
+ * Where to send the scout (v17): continent → region → country, narrowing at each
+ * step. Replaces a single flat dropdown that only offered ten countries, and
+ * makes the whole scoutable world reachable — Asia → East Asia → Japan.
+ *
+ * Each level can also be taken as the brief itself: stopping at "Asia" scouts
+ * the whole continent, stopping at "East Asia" scouts that region. Country rows
+ * show their flag before the name.
+ */
+function RegionPicker({ region, onChange }: { region: ScoutRegion; onChange: (r: ScoutRegion) => void }) {
+  // Open the picker wherever the current target lives, so re-opening it with a
+  // country already chosen doesn't dump you back at the top of the tree.
+  const located = locateTarget(region);
+  const [continentId, setContinentId] = useState<string>(
+    located?.continent ?? (SCOUT_WORLD.find((c) => c.id === region) ? region : "Europe")
+  );
+  const [regionId, setRegionId] = useState<string>(located?.region ?? "");
+
+  const continent = SCOUT_WORLD.find((c) => c.id === continentId) ?? SCOUT_WORLD[0];
+  const subRegion = continent.regions.find((r) => r.id === regionId) ?? null;
+
+  const chip = (active: boolean) =>
+    `rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors ${
+      active ? "border-gold bg-hover text-ink" : "border-line bg-raised text-dim hover:border-faint hover:text-ink"
+    }`;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] uppercase tracking-widest text-faint">Where to scout</span>
+        <span className="text-[11px] text-dim">
+          Brief: <span className="text-gold">{scoutRegion(region).label}</span>
+        </span>
+      </div>
+
+      {/* 1 — continent */}
+      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+        {SCOUT_WORLD.map((c) => (
+          <button
+            key={c.id}
+            onClick={() => {
+              setContinentId(c.id);
+              setRegionId("");
+              onChange(c.id); // the continent itself is a valid brief
+            }}
+            className={chip(continentId === c.id)}
+          >
+            {c.label}
+          </button>
+        ))}
+        <button onClick={() => onChange("World")} className={chip(region === "World")}>
+          Worldwide
+        </button>
+      </div>
+
+      {/* 2 — region within the continent */}
+      <div>
+        <div className="mb-1 text-[10px] uppercase tracking-widest text-faint">{continent.label} — region</div>
+        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+          {continent.regions.map((r) => (
+            <button
+              key={r.id}
+              onClick={() => {
+                setRegionId(r.id);
+                // A single-country region has no broader target of its own, so
+                // selecting it is the same as selecting that country.
+                onChange(r.countries.length > 1 ? r.id : r.countries[0].id);
+              }}
+              className={chip(regionId === r.id)}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 3 — country within the region */}
+      {subRegion && (
+        <div>
+          <div className="mb-1 text-[10px] uppercase tracking-widest text-faint">{subRegion.label} — country</div>
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+            {subRegion.countries.map((c) => (
+              <button key={c.id} onClick={() => onChange(c.id)} className={chip(region === c.id)}>
+                <span className="flex items-center gap-1.5">
+                  <Flag nat={c.id} size={11} />
+                  <span className="min-w-0 truncate">{c.label}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Lock-in send-scout flow (§18 v7): choose region, position group and an optional
  * archetype focus, then confirm. The brief is fixed once the scout is out — recall
  * and re-send to change it. */
@@ -1059,11 +1298,12 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
   const addScout = useGame((s) => s.academyAddScout);
   const free = idleScouts(game);
   const [scoutId, setScoutId] = useState<string>(free[0]?.id ?? "");
-  const [region, setRegion] = useState<ScoutRegion>("England");
+  const [region, setRegion] = useState<ScoutRegion>("ENG");
   const [positions, setPositions] = useState<ScoutPosGroup>("ANY");
   const [archetypes, setArchetypes] = useState<string[]>([]);
 
   const archOptions = archetypesForGroup(positions);
+  const briefPositions = new Set(GROUP_POSITIONS[positions] ?? []);
   // Drop any selected archetype that isn't valid for the current position group.
   const validArchIds = new Set(archOptions.map((a) => a.id));
   const selected = archetypes.filter((id) => validArchIds.has(id));
@@ -1116,20 +1356,7 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
           </div>
         </div>
 
-        <div>
-          <div className="mb-1 text-[10px] uppercase tracking-widest text-faint">Country / region</div>
-          <select
-            value={region}
-            onChange={(e) => setRegion(e.target.value as ScoutRegion)}
-            className="w-full rounded border border-line bg-raised px-2 py-2 text-sm"
-          >
-            {SCOUT_REGIONS.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        <RegionPicker region={region} onChange={setRegion} />
 
         <div>
           <div className="mb-1 text-[10px] uppercase tracking-widest text-faint">Position focus</div>
@@ -1141,10 +1368,20 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
             }}
             className="w-full rounded border border-line bg-raised px-2 py-2 text-sm"
           >
-            {POS_OPTIONS.map((o) => (
+            {POS_OPTIONS.filter((o) => !o.group).map((o) => (
               <option key={o.id} value={o.id}>
                 {o.label}
               </option>
+            ))}
+            {/* Specific positions, grouped by line so RB/RW are easy to find. */}
+            {["Defender", "Midfielder", "Attacker"].map((group) => (
+              <optgroup key={group} label={group}>
+                {POS_OPTIONS.filter((o) => o.group === group).map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </div>
@@ -1173,7 +1410,11 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
                     on ? "border-gold-lo/60 bg-hover text-gold" : "border-line bg-raised text-dim hover:border-faint hover:text-ink"
                   }`}
                 >
-                  <PosBadge pos={a.positions[0]} />
+                  {/* Badge the position this brief will actually return, not the
+                      archetype's first — a wing-back covers LB and RB, and
+                      always showing LB made an RB brief look like the wrong
+                      side. */}
+                  <PosBadge pos={a.positions.find((p) => briefPositions.has(p)) ?? a.positions[0]} />
                   <span className="min-w-0 flex-1 truncate font-medium">{a.name}</span>
                   {on && <span className="display text-[10px] font-bold">✓</span>}
                 </button>

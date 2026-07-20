@@ -4,8 +4,8 @@
 import type { GameState, Pos, Team } from "./types";
 import type { TuningConfig } from "./config/tuning";
 import { computeTable } from "./season";
-import { squadWageBill } from "./value";
-import { userStaffWages } from "./staff";
+import { squadWageBill, playerWage } from "./value";
+import { userStaffWages, STAFF_SLOT_MAP } from "./staff";
 import { sponsorWeeklyIncome } from "./sponsors";
 
 export interface WeeklyBreakdown {
@@ -20,7 +20,7 @@ export interface WeeklyBreakdown {
   net: number;
 }
 
-/** Weekly income from a club's revenue-facility levels (v6: five facilities). */
+/** Weekly income from a club's revenue-facility levels (v21: eight facilities). */
 export function facilityIncome(state: GameState, teamId: string, cfg: TuningConfig): number {
   const team = state.teams[teamId];
   const stadium = (team.stadiumLevel ?? 0) * cfg.stadiumIncomePerLevel;
@@ -28,7 +28,10 @@ export function facilityIncome(state: GameState, teamId: string, cfg: TuningConf
   const media = (team.mediaLevel ?? 0) * cfg.mediaIncomePerLevel;
   const hospitality = (team.hospitalityLevel ?? 0) * cfg.hospitalityIncomePerLevel;
   const retail = (team.retailLevel ?? 0) * cfg.retailIncomePerLevel;
-  return stadium + commercial + media + hospitality + retail;
+  const membership = (team.membershipLevel ?? 0) * cfg.membershipIncomePerLevel;
+  const events = (team.eventsLevel ?? 0) * cfg.eventsIncomePerLevel;
+  const academyPartner = (team.academyPartnerLevel ?? 0) * cfg.academyPartnerIncomePerLevel;
+  return stadium + commercial + media + hospitality + retail + membership + events + academyPartner;
 }
 
 export function weeklyBreakdown(state: GameState, teamId: string, cfg: TuningConfig): WeeklyBreakdown {
@@ -45,7 +48,10 @@ export function weeklyBreakdown(state: GameState, teamId: string, cfg: TuningCon
   }
   const gateIncome = Math.round(team.reputation * cfg.gateIncomePerReputation);
   const facilities = facilityIncome(state, teamId, cfg);
-  const sponsorIncome = teamId === state.userTeamId ? sponsorWeeklyIncome(state, teamId) : 0;
+  // v19: AI clubs earn commercial money too — sponsorWeeklyIncome resolves to
+  // their abstract portfolio figure. Their budgets have to be funded by
+  // something legible if the market is to make sense.
+  const sponsorIncome = sponsorWeeklyIncome(state, teamId);
   const players = team.playerIds.map((id) => state.players[id]).filter(Boolean);
   const wageBill = squadWageBill(players, cfg);
   const staffWages = teamId === state.userTeamId ? userStaffWages(state) : 0;
@@ -64,7 +70,100 @@ export function weeklyBreakdown(state: GameState, teamId: string, cfg: TuningCon
   };
 }
 
-export type Facility = "stadium" | "commercial" | "media" | "hospitality" | "retail";
+// ── Line-item detail (v21) ────────────────────────────────────────────────
+// Every figure on the Finances page can show its working. The arithmetic lives
+// here rather than in the React tree so the page only ever renders numbers the
+// economy module already agrees with — the same rule the rest of lib/ follows.
+
+/** One contributing row behind a headline figure. */
+export interface BreakdownItem {
+  label: string;
+  /** Signed the same way as the parent line (income positive, cost negative). */
+  amount: number;
+  /** The sum's shape, where that's the clearer explanation ("12 × £4k"). */
+  detail?: string;
+}
+
+/** The players behind the wage bill, dearest first. */
+export function wageBillItems(state: GameState, teamId: string, cfg: TuningConfig): BreakdownItem[] {
+  const team = state.teams[teamId];
+  return team.playerIds
+    .map((id) => state.players[id])
+    .filter(Boolean)
+    .map((p) => ({
+      label: p.name,
+      amount: -(p.contract?.wage ?? playerWage(p.overall, cfg)),
+      detail: p.contract
+        ? `${p.positions[0]} · ${p.overall} ovr · through S${p.contract.expirySeason}`
+        : `${p.positions[0]} · ${p.overall} ovr · no contract`,
+    }))
+    .sort((a, b) => a.amount - b.amount);
+}
+
+/** Every wage `userStaffWages` sums: the appointed staff and the scout roster. */
+export function staffWageItems(state: GameState): BreakdownItem[] {
+  const team = state.teams[state.userTeamId];
+  const appointments: BreakdownItem[] = Object.values(team.staff ?? {})
+    .filter((m): m is NonNullable<typeof m> => !!m)
+    .map((m) => ({
+      label: m.name,
+      amount: -m.wage,
+      detail: `${STAFF_SLOT_MAP[m.slot]?.title ?? m.slot} · ${m.stars}★`,
+    }));
+  const scouts: BreakdownItem[] = (team.scouts ?? []).map((sc) => ({
+    label: sc.name,
+    amount: -sc.wage,
+    detail: `Scout · ${sc.experience}★ exp · ${sc.judgement}★ judgement`,
+  }));
+  return [...appointments, ...scouts].sort((a, b) => a.amount - b.amount);
+}
+
+/** The facilities behind the facility income line, level by level. */
+export function facilityIncomeItems(state: GameState, teamId: string, cfg: TuningConfig): BreakdownItem[] {
+  const team = state.teams[teamId];
+  const rows: { label: string; level: number; perLevel: number }[] = [
+    { label: "Stadium", level: team.stadiumLevel ?? 0, perLevel: cfg.stadiumIncomePerLevel },
+    { label: "Commercial", level: team.commercialLevel ?? 0, perLevel: cfg.commercialIncomePerLevel },
+    { label: "Media & Streaming", level: team.mediaLevel ?? 0, perLevel: cfg.mediaIncomePerLevel },
+    { label: "Hospitality", level: team.hospitalityLevel ?? 0, perLevel: cfg.hospitalityIncomePerLevel },
+    { label: "Retail", level: team.retailLevel ?? 0, perLevel: cfg.retailIncomePerLevel },
+    { label: "Membership", level: team.membershipLevel ?? 0, perLevel: cfg.membershipIncomePerLevel },
+    { label: "Events & Conferences", level: team.eventsLevel ?? 0, perLevel: cfg.eventsIncomePerLevel },
+    { label: "Academy Partnerships", level: team.academyPartnerLevel ?? 0, perLevel: cfg.academyPartnerIncomePerLevel },
+  ];
+  return rows
+    .filter((r) => r.level > 0)
+    .map((r) => ({
+      label: r.label,
+      amount: r.level * r.perLevel,
+      detail: `level ${r.level} × ${r.perLevel.toLocaleString("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 })}/level`,
+    }))
+    .sort((a, b) => b.amount - a.amount);
+}
+
+/** The signed minor deals behind the sponsor income line. */
+export function sponsorIncomeItems(state: GameState, teamId: string): BreakdownItem[] {
+  const deals = state.teams[teamId].sponsors ?? [];
+  return deals
+    .filter((d) => d.kind === "minor" && d.weeklyAmount > 0)
+    .map((d) => ({
+      label: d.brand,
+      amount: d.weeklyAmount,
+      detail: `runs through S${d.expirySeason}`,
+    }))
+    .sort((a, b) => b.amount - a.amount);
+}
+
+export type Facility =
+  | "stadium"
+  | "commercial"
+  | "media"
+  | "hospitality"
+  | "retail"
+  // v21
+  | "membership"
+  | "events"
+  | "academyPartner";
 
 const FACILITY_LEVEL: Record<Facility, keyof GameState["teams"][string]> = {
   stadium: "stadiumLevel",
@@ -72,6 +171,9 @@ const FACILITY_LEVEL: Record<Facility, keyof GameState["teams"][string]> = {
   media: "mediaLevel",
   hospitality: "hospitalityLevel",
   retail: "retailLevel",
+  membership: "membershipLevel",
+  events: "eventsLevel",
+  academyPartner: "academyPartnerLevel",
 };
 
 const FACILITY_COST_KEY: Record<Facility, keyof TuningConfig> = {
@@ -80,6 +182,9 @@ const FACILITY_COST_KEY: Record<Facility, keyof TuningConfig> = {
   media: "mediaUpgradeCost",
   hospitality: "hospitalityUpgradeCost",
   retail: "retailUpgradeCost",
+  membership: "membershipUpgradeCost",
+  events: "eventsUpgradeCost",
+  academyPartner: "academyPartnerUpgradeCost",
 };
 
 function facilityLevelOf(state: GameState, teamId: string, facility: Facility): number {

@@ -291,6 +291,75 @@ export function saleCandidates(state: GameState, team: Team, cfg: TuningConfig):
 export function buyBudgetFor(state: GameState, team: Team, p: PlayerBio, cfg: TuningConfig): number {
   const profile = STANCE_PROFILE[stanceOf(state, team, cfg)];
   const willing = p.value * profile.buyPremium;
-  // Never commit more than a share of the war chest to one player.
-  return Math.min(willing, team.budget * cfg.aiMaxBudgetSharePerDeal);
+  // Never commit more than a share of the war chest to one player, and never
+  // spend down to nothing — a reserve is always held back (v19).
+  const spendable = spendableBudget(state, team, cfg);
+  return Math.min(willing, spendable * cfg.aiMaxBudgetSharePerDeal);
+}
+
+// ── Club finances (v19) ───────────────────────────────────────────────────
+// AI clubs used to buy against their raw budget number, which let a club spend
+// itself to zero and left the market untethered from the economy. These helpers
+// make a club's means the real constraint: it keeps a cash reserve, it must be
+// able to cover its wage bill, and it banks what it earns from selling.
+
+/** This club's weekly wage bill. */
+export function wageBill(state: GameState, team: Team): number {
+  return team.playerIds
+    .map((id) => state.players[id])
+    .filter((p) => p && !p.retired)
+    .reduce((n, p) => n + (p.contract?.wage ?? 0), 0);
+}
+
+/**
+ * The part of a club's budget it is actually willing to spend. A club always
+ * holds back a reserve (`aiBudgetReserveRatio`) plus enough cash to cover the
+ * wage bill for `aiWageReserveWeeks` — so a signing can never leave it unable
+ * to pay the players it already has.
+ */
+export function spendableBudget(state: GameState, team: Team, cfg: TuningConfig): number {
+  const reserve = team.budget * cfg.aiBudgetReserveRatio;
+  const wageCushion = wageBill(state, team) * cfg.aiWageReserveWeeks;
+  return Math.max(0, team.budget - reserve - wageCushion);
+}
+
+/** A club below its wage cushion is in trouble and must raise cash: it sells at
+ * a discount and won't buy at all until the books are back in order. */
+export function isDistressed(state: GameState, team: Team, cfg: TuningConfig): boolean {
+  return team.budget < wageBill(state, team) * cfg.aiWageReserveWeeks;
+}
+
+/**
+ * Can this club afford to add a player at `fee` on `wage` a week? Both halves
+ * matter — a free transfer on wages the club can't service is just as ruinous
+ * as an unaffordable fee, and this is what stops AI squads inflating without
+ * limit (v19).
+ */
+export function canAfford(
+  state: GameState,
+  team: Team,
+  fee: number,
+  weeklyWage: number,
+  cfg: TuningConfig
+): boolean {
+  if (isDistressed(state, team, cfg)) return false;
+  if (fee > spendableBudget(state, team, cfg)) return false;
+  // Wage discipline: the bill after signing must stay within a share of income.
+  const income = weeklyIncomeEstimate(state, team, cfg);
+  const billAfter = wageBill(state, team) + weeklyWage;
+  return billAfter <= income * cfg.aiMaxWageToIncomeRatio;
+}
+
+/**
+ * A club's weekly income, for wage-affordability tests. Deliberately a light
+ * estimate rather than a call into the economy module: it needs only the stable
+ *, recurring lines (broadcast, gate, commercial), and keeping it here avoids a
+ * circular import between the AI and economy layers.
+ */
+export function weeklyIncomeEstimate(state: GameState, team: Team, cfg: TuningConfig): number {
+  const league = state.leagues[team.leagueId];
+  const tv = cfg.weeklyIncomeByTier[(league?.tier ?? 2) - 1] ?? cfg.weeklyIncomeByTier[cfg.weeklyIncomeByTier.length - 1] ?? 0;
+  const gate = team.reputation * cfg.gateIncomePerReputation;
+  const commercial = team.commercialIncome ?? 0;
+  return tv + gate + commercial;
 }

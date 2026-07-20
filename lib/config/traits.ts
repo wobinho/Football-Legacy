@@ -161,13 +161,137 @@ export const TRAITS: Trait[] = [
     influence: [{ label: "Youngsters at the club", detail: "+10% development speed" }],
     effects: { mentorBonus: 0.1 },
   },
+
+  // ── v19 additions ────────────────────────────────────────────────────────
+  // Every one reuses the existing numeric effect hooks, so the engine needs no
+  // new branches — a trait is still nothing but a bag of multipliers.
+
+  // Match-defining
+  {
+    id: "target", name: "Aerial Threat", group: "match", eligible: "any",
+    desc: "Dominant in the air — a constant menace from crosses and set pieces.",
+    influence: [{ label: "From crosses & set pieces", detail: "+15% chance to be the scorer" }],
+    effects: { scorerMult: 1.15 },
+  },
+  {
+    id: "long_shot", name: "Long-Range Threat", group: "match", eligible: "any",
+    desc: "Will shoot from anywhere — and hits the target often enough to justify it.",
+    influence: [{ label: "Shooting", detail: "+12% chance to be the scorer" }],
+    effects: { scorerMult: 1.12 },
+  },
+  {
+    id: "crosser", name: "Pinpoint Crosser", group: "match", eligible: "any",
+    desc: "Delivers from wide areas with real precision — the assist machine of a flank attack.",
+    influence: [{ label: "Creating chances", detail: "+25% chance to grab the assist" }],
+    effects: { assistMult: 1.25 },
+  },
+  {
+    id: "dribbler", name: "Dribbler", group: "match", eligible: "any",
+    desc: "Takes his man on every time and creates something out of nothing.",
+    influence: [
+      { label: "Creating chances", detail: "+15% assist weight" },
+      { label: "In front of goal", detail: "+8% scorer weight" },
+    ],
+    effects: { assistMult: 1.15, scorerMult: 1.08 },
+  },
+  {
+    id: "sweeper", name: "Sweeper", group: "match", eligible: "gk",
+    desc: "Reads danger early and snuffs out attacks before they become chances.",
+    influence: [{ label: "While on the pitch", detail: "opponents convert 8% fewer chances" }],
+    effects: { concedeMult: 0.92 },
+  },
+
+  // Mental
+  {
+    id: "big_game", name: "Big-Game Player", group: "mental", eligible: "any",
+    desc: "Saves his very best for the occasions that matter.",
+    influence: [{ label: "Last 15 minutes", detail: "+6% match rating" }],
+    effects: { clutchMult: 1.06 },
+  },
+  {
+    id: "temperamental", name: "Temperamental", group: "mental", eligible: "any",
+    desc: "Mercurial — capable of anything, but the highs and lows come in waves.",
+    influence: [
+      { label: "Form", detail: "swings amplified by ~40%" },
+      { label: "In front of goal", detail: "+10% scorer weight" },
+    ],
+    effects: { formStability: 1.4, scorerMult: 1.1 },
+  },
+  {
+    id: "professional", name: "Consummate Professional", group: "mental", eligible: "any",
+    desc: "Never a bad day at the office, and the youngsters watch how he works.",
+    influence: [
+      { label: "Form", detail: "swings dampened by ~35%" },
+      { label: "Youngsters at the club", detail: "+6% development speed" },
+    ],
+    effects: { formStability: 0.35, mentorBonus: 0.06 },
+  },
+
+  // Physical
+  {
+    id: "pace_merchant", name: "Blistering Pace", group: "physical", eligible: "any",
+    desc: "Frightening acceleration — defenders simply cannot live with him in a foot race.",
+    influence: [
+      { label: "In front of goal", detail: "+10% scorer weight" },
+      { label: "Stamina", detail: "tires 8% faster" },
+    ],
+    effects: { scorerMult: 1.1, fitnessDrainMult: 1.08 },
+  },
+  {
+    id: "iron_man", name: "Iron Man", group: "physical", eligible: "any",
+    desc: "Built to last — barely tires and keeps playing long after others fade.",
+    influence: [
+      { label: "Stamina", detail: "tires 22% slower" },
+      { label: "Aging", detail: "slower decline" },
+    ],
+    effects: { fitnessDrainMult: 0.78, longevityBonus: 0.12 },
+  },
+  {
+    id: "enforcer", name: "Enforcer", group: "physical", eligible: "def",
+    desc: "Nobody enjoys playing against him — he makes the whole back line harder to break down.",
+    influence: [{ label: "While on the pitch", detail: "opponents convert 7% fewer chances" }],
+    effects: { concedeMult: 0.93 },
+  },
+  {
+    id: "injury_prone", name: "Glass Ankles", group: "physical", eligible: "any",
+    desc: "Wonderful when fit — the trouble is keeping him that way.",
+    influence: [{ label: "Stamina", detail: "tires 25% faster" }],
+    effects: { fitnessDrainMult: 1.25 },
+  },
+
+  // Off-pitch / development
+  {
+    id: "fan_favourite", name: "Fan Favourite", group: "off-pitch", eligible: "any",
+    desc: "Adored on the terraces — lifts the mood around the club and shifts plenty of shirts.",
+    influence: [
+      { label: "Sponsorships", detail: "lifts every offer the club receives" },
+      { label: "Whole XI (passive)", detail: "+0.5% match rating" },
+    ],
+    effects: { marketabilityBonus: 0.09, teamBuffMult: 1.005 },
+  },
+  {
+    id: "global_icon", name: "Global Icon", group: "off-pitch", eligible: "any",
+    desc: "A worldwide name — sponsors queue up for the association.",
+    influence: [{ label: "Sponsorships", detail: "substantially lifts every offer" }],
+    effects: { marketabilityBonus: 0.22 },
+  },
+  {
+    id: "prodigy", name: "Natural Talent", group: "development", eligible: "any",
+    desc: "Everything comes easily to him — he improves faster than anyone around him.",
+    influence: [{ label: "Youngsters at the club", detail: "+8% development speed" }],
+    effects: { mentorBonus: 0.08 },
+  },
 ];
 
 export const TRAIT_MAP: Record<string, Trait> = Object.fromEntries(TRAITS.map((t) => [t.id, t]));
 
 /** Trait ids that are no longer part of the pool (v7). Migration scrubs these
- * from existing players so nothing dangles. */
-export const RETIRED_TRAIT_IDS = ["poacher", "wall", "big_game", "livewire"];
+ * from existing players so nothing dangles.
+ *
+ * Note `big_game` is NOT listed here any more: v19 reintroduces it as a real
+ * trait, so scrubbing it would strip a trait the pool now defines. Anything
+ * listed here must stay absent from TRAITS. */
+export const RETIRED_TRAIT_IDS = ["poacher", "wall", "livewire"];
 
 /** All trait ids that carry a given effect hook — small helper for the systems
  * that scan the squad (economy sponsors, development rollover) so they never

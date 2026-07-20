@@ -8,11 +8,13 @@ import type { PlayerBio, Pos } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
 import { getArchetype } from "@/lib/config/archetypes";
 import { POS_ORDER } from "@/lib/config/positions";
-import { askPrice } from "@/lib/transfers";
-import { wageDemand, maxLengthFor } from "@/lib/contracts";
+import { askPrice, negotiationStateOf } from "@/lib/transfers";
+import { seasonGrowth } from "@/lib/development";
+import { wageDemandWithClause, maxLengthFor, evaluateOffer } from "@/lib/contracts";
 import { transferWindowState } from "@/lib/calendar";
 import { formatMoney } from "@/lib/value";
 import { ArchetypeIcon, Card, ConfirmButton, Crest, Flag, GhostButton, GoldButton, Modal, Money, MoneyInput, Ovr, PosBadge, Tabs } from "../ui";
+import ReleaseClauseField from "./ReleaseClauseField";
 
 type Tab = "search" | "offers" | "listed" | "free";
 
@@ -81,7 +83,7 @@ function PlayerRowButton({ p, right, onClick }: { p: PlayerBio; right: React.Rea
           )}
         </div>
       </div>
-      <Ovr value={p.overall} size="sm" />
+      <Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />
       {right}
     </button>
   );
@@ -164,19 +166,37 @@ function BidModal({ p, onClose }: { p: PlayerBio; onClose: () => void }) {
   const bid = useGame((s) => s.bid);
   const viewPlayer = useGame((s) => s.viewPlayer);
   const showToast = useGame((s) => s.showToast);
+  // A free agent belongs to nobody, so there is no fee to agree and no selling
+  // club to haggle with (v21) — the whole deal is the contract.
+  const isFreeAgent = !p.clubId;
   const ask = askPrice(game, p, TUNING);
-  const demand = wageDemand(game, p, TUNING);
   const maxYears = maxLengthFor(p, TUNING);
-  const [fee, setFee] = useState(ask);
-  const [wage, setWage] = useState(demand);
+  const [fee, setFee] = useState(isFreeAgent ? 0 : ask);
   const [years, setYears] = useState(Math.min(TUNING.contractRenewYearsDefault, maxYears));
+  const [clause, setClause] = useState<number | null>(null);
+  const demand = wageDemandWithClause(game, p, clause ?? undefined, TUNING);
+  const [wage, setWage] = useState(demand);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [counter, setCounter] = useState<number | null>(null);
 
   const submit = (amount: number) => {
-    const out = bid(p.id, amount, { wage, years });
+    const terms = { wage, years, releaseClause: clause ?? undefined };
+    // The player has to agree to the contract before the clubs settle the fee —
+    // otherwise a signing could complete on terms he'd have refused.
+    const verdict = evaluateOffer(game, p, wage, years, TUNING, clause ?? undefined);
+    if (verdict.kind !== "accepted") {
+      setFeedback(verdict.message);
+      setCounter(null);
+      if (verdict.kind === "countered") setWage(verdict.wage);
+      return;
+    }
+    const out = bid(p.id, amount, terms);
     if (out.kind === "accepted") {
-      showToast(`${p.name} joins for ${formatMoney(amount)} on ${formatMoney(wage)}/wk!`);
+      showToast(
+        isFreeAgent
+          ? `${p.name} signs on a free — ${formatMoney(wage)}/wk!`
+          : `${p.name} joins for ${formatMoney(amount)} on ${formatMoney(wage)}/wk!`
+      );
       onClose();
     } else if (out.kind === "countered") {
       setCounter(out.counterFee);
@@ -188,10 +208,10 @@ function BidModal({ p, onClose }: { p: PlayerBio; onClose: () => void }) {
   };
 
   const budget = game.teams[game.userTeamId].budget;
-  const overBudget = fee > budget;
+  const overBudget = !isFreeAgent && fee > budget;
 
   return (
-    <Modal title={`Bid for ${p.name}`} onClose={onClose}>
+    <Modal title={isFreeAgent ? `Sign ${p.name}` : `Bid for ${p.name}`} onClose={onClose}>
       <div className="mb-3 flex items-center justify-between text-sm text-dim">
         <span>
           {getArchetype(p.archetypeId).name} · {p.age}y · <Ovr value={p.overall} size="sm" />
@@ -207,30 +227,53 @@ function BidModal({ p, onClose }: { p: PlayerBio; onClose: () => void }) {
         <Money value={budget} className="display font-semibold text-ink" />
       </div>
 
-      <div className="mb-1 flex items-baseline justify-between text-[11px] uppercase tracking-widest text-faint">
-        <span>Transfer fee</span>
-        <span className="tnum text-dim">{formatMoney(fee)}</span>
-      </div>
-      <div className="flex gap-2">
-        <span className="relative flex flex-1 items-center">
-          <span className="pointer-events-none absolute left-3 text-dim">£</span>
-          <MoneyInput
-            value={fee}
-            onChange={setFee}
-            min={0}
-            className="w-full rounded-md border border-line bg-raised py-2 pl-7 pr-3 tnum focus:border-gold focus:outline-none"
-          />
-        </span>
-        <GoldButton onClick={() => submit(fee)}>BID</GoldButton>
-      </div>
-      <div className="mt-2 flex justify-between text-xs text-faint">
-        <span>Market value {formatMoney(p.value)}</span>
-        <button className="hover:text-dim" onClick={() => setFee(ask)}>Suggested: {formatMoney(ask)}</button>
-      </div>
-      {overBudget && (
-        <div className="mt-1.5 text-[11px] text-loss">
-          This fee is {formatMoney(fee - budget)} over your available budget.
+      {isFreeAgent ? (
+        // No fee field at all — presenting one would imply a negotiation that
+        // doesn't exist and invite the user to offer money to nobody.
+        <div className="flex items-center gap-3 rounded-md border border-win/40 bg-win/[0.07] px-3 py-2.5">
+          <span className="text-lg">✓</span>
+          <div className="text-[13px] leading-relaxed text-dim">
+            <span className="display font-semibold text-win">No transfer fee.</span> {p.name} is out of contract —
+            agree personal terms and he&apos;s yours.
+          </div>
         </div>
+      ) : (
+        <>
+          <div className="mb-1 flex items-baseline justify-between text-[11px] uppercase tracking-widest text-faint">
+            <span>Transfer fee</span>
+            <span className="tnum text-dim">{formatMoney(fee)}</span>
+          </div>
+          <div className="flex gap-2">
+            <span className="relative flex flex-1 items-center">
+              <span className="pointer-events-none absolute left-3 text-dim">£</span>
+              <MoneyInput
+                value={fee}
+                onChange={setFee}
+                min={0}
+                className="w-full rounded-md border border-line bg-raised py-2 pl-7 pr-3 tnum focus:border-gold focus:outline-none"
+              />
+            </span>
+          </div>
+          <div className="mt-2 flex justify-between text-xs text-faint">
+            <span>Market value {formatMoney(p.value)}</span>
+            <button className="hover:text-dim" onClick={() => setFee(ask)}>
+              {p.contract?.releaseClause ? "Release clause" : "Suggested"}: {formatMoney(ask)}
+            </button>
+          </div>
+          {/* A clause on the target's deal is the single most useful fact here:
+              it's a fixed price his club cannot refuse. */}
+          {p.contract?.releaseClause && (
+            <div className="mt-1.5 rounded-md border border-gold-lo/40 bg-gold-lo/[0.08] px-3 py-1.5 text-[11px] text-dim">
+              He has a <span className="text-gold">{formatMoney(p.contract.releaseClause)}</span> release clause — meet
+              it and {game.teams[p.clubId!].name} have no say.
+            </div>
+          )}
+          {overBudget && (
+            <div className="mt-1.5 text-[11px] text-loss">
+              This fee is {formatMoney(fee - budget)} over your available budget.
+            </div>
+          )}
+        </>
       )}
 
       {/* Contract terms (§10 v5) — agreed as part of the signing. */}
@@ -266,6 +309,18 @@ function BidModal({ p, onClose }: { p: PlayerBio; onClose: () => void }) {
         </div>
       </div>
 
+      <ReleaseClauseField
+        p={p}
+        clause={clause}
+        onChange={(next) => {
+          setClause(next);
+          // The demand moves with the clause, so keep the wage field on the new
+          // number unless the user has deliberately typed something else.
+          const before = wageDemandWithClause(game, p, clause ?? undefined, TUNING);
+          if (wage === before) setWage(wageDemandWithClause(game, p, next ?? undefined, TUNING));
+        }}
+      />
+
       {feedback && (
         <div className="mt-3 rounded-md border border-line bg-raised p-3 text-sm text-dim">
           {feedback}
@@ -276,6 +331,12 @@ function BidModal({ p, onClose }: { p: PlayerBio; onClose: () => void }) {
           )}
         </div>
       )}
+
+      <div className="mt-4 flex justify-end border-t border-line/60 pt-3">
+        <GoldButton onClick={() => submit(fee)}>
+          {isFreeAgent ? `SIGN ON ${formatMoney(wage)}/WK` : "BID"}
+        </GoldButton>
+      </div>
     </Modal>
   );
 }
@@ -321,9 +382,52 @@ function OffersTab() {
   );
 }
 
+/**
+ * The buyer's patience for one negotiation (v19).
+ *
+ * Patience is rolled per deal, so this bar is genuinely different every time —
+ * a club desperate for the player haggles far longer than a lukewarm one. Each
+ * counter spends patience in proportion to how far past the buyer's limit the
+ * ask sits, which is why a single greedy demand can empty a bar that three
+ * measured ones barely dented.
+ */
+function PatienceBar({ offerId, buyerName }: { offerId: string; buyerName: string }) {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const st = negotiationStateOf(game, offerId, TUNING);
+  if (!st) return null;
+
+  const pct = Math.round(st.ratio * 100);
+  const tone = st.ratio > 0.6 ? "bg-win" : st.ratio > 0.3 ? "bg-[var(--color-gold)]" : "bg-loss";
+  const mood =
+    st.ratio > 0.6 ? "Happy to talk" : st.ratio > 0.3 ? "Getting frustrated" : "About to walk away";
+
+  return (
+    <div className="mb-3">
+      <div className="mb-1 flex items-baseline justify-between text-[11px]">
+        <span className="uppercase tracking-widest text-faint">{buyerName}&apos;s patience</span>
+        <span className={st.ratio > 0.3 ? "text-dim" : "text-loss"}>{mood}</span>
+      </div>
+      <div
+        className="h-2 overflow-hidden rounded-full bg-line"
+        role="progressbar"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={`${buyerName} patience remaining`}
+      >
+        <div className={`h-full transition-all duration-300 ${tone}`} style={{ width: `${pct}%` }} />
+      </div>
+      <div className="mt-1 text-[10px] text-faint">
+        Every counter costs patience — asking far more than they can afford costs a great deal more.
+      </div>
+    </div>
+  );
+}
+
 /** EA-FC-style negotiation over an incoming offer: accept the fee on the table,
  * name a counter and let the buyer's AI decide, or reject. The buyer can counter
- * back a few times before its patience runs out. */
+ * back until its (per-deal, dynamic) patience runs out. */
 function NegotiateModal({ offerId, onClose }: { offerId: string; onClose: () => void }) {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
@@ -364,9 +468,12 @@ function NegotiateModal({ offerId, onClose }: { offerId: string; onClose: () => 
   const doCounter = () => {
     const out = respondOffer(offer.id, "counter", ask);
     if (out.kind === "countered") {
-      // Buyer raised their offer — surface it and pre-fill the next ask above it.
+      // The buyer came back with what it CAN do. Pre-fill the next ask only
+      // slightly above that — their reply is close to their real limit, so a
+      // small nudge is the move that might still land, and the user can always
+      // type something bolder if they want to gamble the patience.
       setNote(out.message);
-      setAsk(Math.round((out.counterFee * 1.12) / 100_000) * 100_000);
+      setAsk(Math.round((out.counterFee * 1.06) / 100_000) * 100_000);
     } else if (out.kind === "accepted") {
       setNote(out.message);
       setTimeout(onClose, 1000);
@@ -395,10 +502,14 @@ function NegotiateModal({ offerId, onClose }: { offerId: string; onClose: () => 
       </div>
       <div className="mb-3 flex justify-between text-xs text-faint">
         <span>Market value {formatMoney(p.value)}</span>
-        <span>
-          Talks: round {round}/{TUNING.negotiationMaxRounds}
-        </span>
+        <span>Talks: round {round}</span>
       </div>
+
+      {/* Buyer patience (v19) — every deal has its own, so the bar tells the user
+          how much room THIS negotiation has left rather than counting rounds
+          against a fixed limit. An unreasonable ask drains it far faster than a
+          measured one. */}
+      <PatienceBar offerId={offerId} buyerName={buyer.name} />
 
       <div className="mb-1 flex items-baseline justify-between text-[11px] uppercase tracking-widest text-faint">
         <span>Your counter (ask)</span>

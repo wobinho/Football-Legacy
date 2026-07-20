@@ -10,16 +10,24 @@ import { isMonday, formatDayShort, buildSeasonSchedule, seasonYearLabel } from "
 import { buildSideInput, pickLineup, headCoachMult } from "./selection";
 import { simulateMatch } from "./engine/match";
 import { generateLeagueFixtures, drawCupRound, applyPromotionRelegation, initCup } from "./season";
-import { dailyRecovery, applyMatchFatigue, nudgeForm, applySeasonDevelopment, mentorGrowthBonus } from "./development";
+import {
+  dailyRecovery,
+  applyMatchFatigue,
+  nudgeForm,
+  applySeasonDevelopment,
+  mentorGrowthBonus,
+  weeklyProgressTick,
+} from "./development";
 import { weeklyEconomyTick, applySeasonPrizes, facilityGrowthMult } from "./economy";
 import { aiWeeklyTransferTick, refreshValues } from "./transfers";
+import { activePlayers, pruneRetired } from "./archive";
 import { refreshClubStances } from "./ai/strategy";
 import { rolloverContracts, ensureContracts } from "./contracts";
 import { resolveSimLeagues } from "./simresolver";
 import { buildSeasonSummary, trackBiggestWin } from "./recordbook";
 import { generateStaffMarket, staffMarketTick } from "./staff";
 import { scoutMarketTick } from "./scouts";
-import { refreshSponsorOffers, rolloverSponsors } from "./sponsors";
+import { refreshAiCommercial, refreshSponsorOffers, rolloverSponsors } from "./sponsors";
 import { getFormation } from "./config/formations";
 import {
   runIntakeDay,
@@ -176,6 +184,15 @@ function advanceDay(state: GameState): StopReason | null {
         "Weekly expenses now exceed income and the budget has gone negative. The board expects you to balance the books — sell players, trim the wage bill, or climb the table to raise income."
       );
     }
+    // In-season progression (v19): ratings drift week to week off minutes and
+    // performance, so a breakout campaign is visible while it happens rather
+    // than only at the summer rollover.
+    weeklyProgressTick(
+      state,
+      cfg,
+      mulberry32(deriveSeed(state.seed, `progress:${state.season}:${day}`)),
+      (p) => facilityGrowthMult(state, state.userTeamId, p, cfg)
+    );
     const offerLanded = aiWeeklyTransferTick(state, cfg);
     if (offerLanded) return { kind: "offer" };
   }
@@ -224,15 +241,22 @@ function advanceDay(state: GameState): StopReason | null {
   }
   maybeSettleCup(state);
 
-  if (day >= sched.seasonEndDay) {
-    runSeasonRollover(state);
-    return { kind: "seasonEnd" };
-  }
+  // The season ends *at* this day — park here and let the player press END
+  // SEASON. Rolling over inline would silently rebuild the world (new fixtures,
+  // currentDay back to Jul 1) under a player who only asked to advance a day.
+  if (day >= sched.seasonEndDay) return { kind: "seasonEnd" };
   return null;
+}
+
+/** True once the calendar has reached season end — the Continue button becomes
+ * END SEASON and the day can no longer advance until the rollover is taken. */
+export function isSeasonComplete(state: GameState): boolean {
+  return state.currentDay >= state.schedule.seasonEndDay;
 }
 
 /** The Continue button: fast-forward to the next meaningful day. */
 export function advanceUntilEvent(state: GameState): StopReason {
+  if (isSeasonComplete(state)) return { kind: "seasonEnd" };
   for (let i = 0; i < 420; i++) {
     const stop = advanceDay(state);
     if (stop) return stop;
@@ -245,6 +269,7 @@ export function advanceUntilEvent(state: GameState): StopReason {
  * `idle` — the day was quiet but time still moved. Reuses all the per-day
  * machinery so nothing important (a transfer window, an intake) can be skipped. */
 export function advanceOneDay(state: GameState): StopReason {
+  if (isSeasonComplete(state)) return { kind: "seasonEnd" };
   return advanceDay(state) ?? { kind: "idle" };
 }
 
@@ -256,8 +281,13 @@ export function advanceOneDay(state: GameState): StopReason {
  * past a safety bound. `targetDay` is inclusive of that day's fixtures.
  */
 export function advanceToDay(state: GameState, targetDay: number): StopReason {
+  if (isSeasonComplete(state)) return { kind: "seasonEnd" };
+  // Never sim across the season boundary: the rollover rebuilds fixtures and
+  // resets currentDay, so anything past this day belongs to a different world.
+  // The player takes that step deliberately via END SEASON.
+  const limit = Math.min(targetDay, state.schedule.seasonEndDay);
   let guard = 0;
-  while (state.currentDay < targetDay && guard++ < 420) {
+  while (state.currentDay < limit && guard++ < 420) {
     const stop = advanceDay(state);
     if (!stop) continue;
     if (stop.kind === "matchday") {
@@ -274,7 +304,7 @@ export function advanceToDay(state: GameState, targetDay: number): StopReason {
       return stop;
     }
   }
-  return { kind: "idle" };
+  return isSeasonComplete(state) ? { kind: "seasonEnd" } : { kind: "idle" };
 }
 
 /** Simulate the user's fixture headlessly using their saved (or auto-filled) lineup. */
@@ -290,18 +320,18 @@ function autoPlayUserFixture(state: GameState, fixture: Fixture) {
   applyMatchResult(state, fixture, result);
 }
 
-/** Called by the UI after the user's match result has been applied. */
+/** Called by the UI after the user's match result has been applied. Never rolls
+ * the season over on its own — if this was the final day, the loop parks and the
+ * player takes the rollover explicitly with END SEASON. */
 export function afterUserMatch(state: GameState) {
   state.pendingMatchFixtureId = null;
   maybeSettleCup(state);
-  if (state.currentDay >= state.schedule.seasonEndDay) runSeasonRollover(state);
 }
 
 // ── Season rollover (§3 off-season, §13 compression) ─────────────────────
 
 function appendCareerRows(state: GameState) {
-  for (const p of Object.values(state.players)) {
-    if (p.retired) continue;
+  for (const p of activePlayers(state)) {
     if (p.stats.apps === 0 && !p.clubId) {
       p.stats = { apps: 0, goals: 0, assists: 0, ratingSum: 0, minutes: 0 };
       continue;
@@ -384,8 +414,7 @@ export function runSeasonRollover(state: GameState) {
   // every young teammate's growth. Summed across the senior squad + academy.
   const userMentorBonus = mentorGrowthBonus(state, state.userTeamId);
   const retiredNotable: string[] = [];
-  for (const p of Object.values(state.players)) {
-    if (p.retired) continue;
+  for (const p of activePlayers(state)) {
     const isUser = p.clubId === state.userTeamId;
     const inAcademy = academySet.has(p.id);
     // Keepers get the Goalkeeping Coach's attention on top of the base coach.
@@ -408,12 +437,25 @@ export function runSeasonRollover(state: GameState) {
     p.youthStats = undefined;
     p.fitness = 100;
     p.form = 1.0;
+    // Baseline for the season's running +X/-X growth badge (v19). Stamped after
+    // this summer's development has been applied, so the delta the UI shows is
+    // strictly what the player gains or loses during the season now beginning.
+    p.seasonStartOverall = p.overall;
   }
   if (retiredNotable.length) {
     pushInbox(state, "news", "End of an era", `Retiring this summer: ${retiredNotable.slice(0, 6).join(", ")}.`);
   }
 
+  // Long-save housekeeping (§13, v21). Runs after the season summary, this
+  // season's career rows and the development pass — so everything it compacts
+  // has already been read by everything that still needed it.
+  pruneRetired(state);
+
   refreshValues(state, cfg);
+  // Re-price every AI club's commercial portfolio for the new season and pay
+  // out its investment windfall (v19), BEFORE stances are set — a club's war
+  // chest is part of the evidence it judges its own ambitions against.
+  refreshAiCommercial(state, cfg);
   // Set each club's stance for the summer window while the season just played is
   // still readable in the fixtures — it's the evidence they judge themselves on
   // (§10). The winter window re-evaluates against the live table.

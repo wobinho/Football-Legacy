@@ -56,12 +56,15 @@ await page.waitForSelector("text=U21 Table");
 await page.waitForTimeout(300);
 await page.screenshot({ path: shot("m04-academy-u21.png"), fullPage: true });
 
+// Scouting tab = assignments + reports. The scout ROSTER (hiring, "Scouting
+// Department") lives on the Staff tab, so assert each against its own tab.
 await page.click('button:has-text("Scouting")');
-await page.waitForSelector("text=Scouting Department");
+await page.waitForSelector("text=Scouts on Assignment");
 await page.waitForTimeout(300);
 await page.screenshot({ path: shot("m05-academy-scouting.png"), fullPage: true });
 
 await page.click('button:has-text("Staff")');
+await page.waitForSelector("text=Scouting Department");
 await page.waitForTimeout(400);
 await page.screenshot({ path: shot("m06-academy-staff.png"), fullPage: true });
 
@@ -73,7 +76,7 @@ await page.screenshot({ path: shot("m07-academy-upgrades.png"), fullPage: true }
 // hire a scout (two-step confirm) and send them out, to exercise the dense
 // scouting layouts: assignment rows + the send-a-scout modal
 await page.click('button:has-text("Staff")');
-await page.waitForSelector("text=Scouts available to appoint");
+await page.waitForSelector("text=Available to appoint");
 await page.locator('button:has-text("Appoint")').last().click();
 await page.locator('button:has-text("Confirm?")').first().click();
 await page.waitForTimeout(400);

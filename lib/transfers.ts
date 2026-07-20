@@ -13,6 +13,7 @@ import { mulberry32, deriveSeed, pickWeighted, uid } from "./rng";
 import { playerValue } from "./value";
 import { grantDefaultContract, makeContract } from "./contracts";
 import { assignKitNumber, clearKitNumber } from "./kitnumbers";
+import { activePlayers } from "./archive";
 import type { RNG } from "./rng";
 import {
   STANCE_PROFILE,
@@ -21,7 +22,11 @@ import {
   targetScore,
   saleCandidates,
   buyBudgetFor,
+  canAfford,
+  isDistressed,
+  spendableBudget,
 } from "./ai/strategy";
+import { wageDemand } from "./contracts";
 
 export function windowOpen(state: GameState): boolean {
   return transferWindowState(state.currentDay, state.schedule).open;
@@ -37,6 +42,10 @@ function isKeyPlayer(state: GameState, p: PlayerBio): boolean {
 }
 
 export function askPrice(state: GameState, p: PlayerBio, cfg: TuningConfig): number {
+  // A release clause overrides the selling club entirely (v21) — that's the
+  // whole point of one. Whatever the club would have asked, this is the number.
+  if (p.contract?.releaseClause) return p.contract.releaseClause;
+
   let mult = cfg.aiAcceptThreshold;
   if (isKeyPlayer(state, p)) mult *= cfg.aiKeyPlayerPremium;
   if (p.age <= 22 && p.potential - p.overall >= 6) mult *= 1.2;
@@ -68,7 +77,7 @@ export function completeTransfer(
   playerId: string,
   toClubId: string | null,
   fee: number,
-  terms?: { wage: number; years: number }
+  terms?: { wage: number; years: number; releaseClause?: number }
 ) {
   const p = state.players[playerId];
   const fromClubId = p.clubId;
@@ -89,7 +98,7 @@ export function completeTransfer(
     const to = state.teams[toClubId];
     to.playerIds.push(playerId);
     to.budget -= fee;
-    if (terms) p.contract = makeContract(state, terms.wage, terms.years);
+    if (terms) p.contract = makeContract(state, terms.wage, terms.years, terms.releaseClause);
     else grantDefaultContract(state, p, TUNING);
   } else {
     p.contract = undefined; // released to free agency
@@ -148,21 +157,25 @@ export function userBid(
   playerId: string,
   fee: number,
   cfg: TuningConfig,
-  terms?: { wage: number; years: number }
+  terms?: { wage: number; years: number; releaseClause?: number }
 ): BidOutcome {
   const p = state.players[playerId];
   const user = state.teams[state.userTeamId];
   if (!windowOpen(state)) return { kind: "error", reason: "The transfer window is closed." };
   if (p.clubId === state.userTeamId) return { kind: "error", reason: "Already your player." };
-  // No senior squad cap for the user (v14) — the wage bill is the constraint on
-  // hoarding, not an arbitrary slot count. AI clubs still respect cfg.squadCap.
-  if (fee > user.budget) return { kind: "error", reason: "That bid exceeds your budget." };
 
-  // free agent: signs for the (zero) signing fee
+  // Free agent (v21): there is no selling club and so no fee to negotiate — the
+  // deal is the contract. The fee argument is ignored rather than validated, so
+  // a free signing can never be blocked by a budget check on money nobody is
+  // being paid.
   if (!p.clubId) {
     completeTransfer(state, playerId, state.userTeamId, cfg.freeAgentSigningFee, terms);
     return { kind: "accepted" };
   }
+
+  // No senior squad cap for the user (v14) — the wage bill is the constraint on
+  // hoarding, not an arbitrary slot count. AI clubs still respect cfg.squadCap.
+  if (fee > user.budget) return { kind: "error", reason: "That bid exceeds your budget." };
 
   const ask = askPrice(state, p, cfg);
   if (fee >= ask) {
@@ -185,6 +198,61 @@ function buyerCeilingFor(state: GameState, offer: TransferOffer, p: PlayerBio, c
   const base = p.value * cfg.negotiationBuyerCeilingMult * (0.9 + rng() * 0.3);
   const ceiling = Math.max(offer.fee, Math.round(base / 100_000) * 100_000);
   return Math.min(ceiling, buyer.budget);
+}
+
+/**
+ * How much patience a buyer brings to THIS negotiation (v19).
+ *
+ * Rolled per offer rather than read from a global constant, so every deal has
+ * its own temperament: a club that badly needs the player, or one with money to
+ * spare, will haggle for far longer than a lukewarm suitor. The value is seeded
+ * off the offer id so it's deterministic (no reload scumming) and stable across
+ * a save/load in the middle of talks.
+ */
+function rollPatience(state: GameState, offer: TransferOffer, p: PlayerBio, cfg: TuningConfig): number {
+  const rng = mulberry32(deriveSeed(state.seed, `patience:${offer.id}`));
+  const span = cfg.negotiationPatienceMax - cfg.negotiationPatienceMin;
+  let patience = cfg.negotiationPatienceMin + rng() * span;
+  // A buyer who bid well over market value has already shown its hand — it wants
+  // this player and will put up with more haggling to get him.
+  const keenness = p.value > 0 ? offer.fee / p.value : 1;
+  if (keenness > 1.2) patience *= 1.15;
+  else if (keenness < 0.9) patience *= 0.85;
+  return Math.round(patience);
+}
+
+/** Ensure an offer carries its negotiation state (ceiling + patience). Offers
+ * created before v19, or by paths that don't seed it, are filled in lazily. */
+function ensureNegotiationState(state: GameState, offer: TransferOffer, p: PlayerBio, cfg: TuningConfig) {
+  offer.buyerCeiling ??= buyerCeilingFor(state, offer, p, cfg);
+  offer.patienceMax ??= rollPatience(state, offer, p, cfg);
+  offer.patience ??= offer.patienceMax;
+}
+
+/** Live negotiation state for the UI (v19): the patience bar and the round
+ * counter, without exposing the buyer's hidden ceiling. */
+export interface NegotiationState {
+  patience: number;
+  patienceMax: number;
+  /** 0..1 — what the bar fills to. */
+  ratio: number;
+  round: number;
+}
+
+/** Read (and lazily seed) an offer's negotiation state for display. */
+export function negotiationStateOf(
+  state: GameState,
+  offerId: string,
+  cfg: TuningConfig
+): NegotiationState | null {
+  const offer = state.offers.find((o) => o.id === offerId);
+  if (!offer) return null;
+  const p = state.players[offer.playerId];
+  if (!p) return null;
+  ensureNegotiationState(state, offer, p, cfg);
+  const max = offer.patienceMax ?? 1;
+  const patience = Math.max(0, offer.patience ?? 0);
+  return { patience, patienceMax: max, ratio: Math.max(0, Math.min(1, patience / max)), round: offer.negotiationRound ?? 0 };
 }
 
 export type OfferResponse =
@@ -228,7 +296,8 @@ export function respondToOffer(
 
   // ── counter ───────────────────────────────────────────────────────────────
   const want = Math.max(0, Math.round((amount ?? offer.fee) / 100_000) * 100_000);
-  const ceiling = (offer.buyerCeiling ??= buyerCeilingFor(state, offer, p, cfg));
+  ensureNegotiationState(state, offer, p, cfg);
+  const ceiling = offer.buyerCeiling!;
   const round = (offer.negotiationRound = (offer.negotiationRound ?? 0) + 1);
   const rng = mulberry32(deriveSeed(state.seed, `counter:${offer.id}:${round}`));
 
@@ -248,9 +317,16 @@ export function respondToOffer(
     return { kind: "accepted", fee: want, message: `${buyer.name} met your valuation — ${p.name} sold for ${fmtFee(want)}.` };
   }
 
-  // Over the ceiling. Walk if it's absurd, or patience has run out.
+  // ── Over the ceiling: spend patience proportional to how greedy the ask is ──
+  // A modest overreach costs the base amount; asking double the ceiling burns a
+  // whole negotiation's worth at once. This is what makes the bar meaningful —
+  // it's not a round counter, it's a measure of how hard you've pushed.
+  const overshoot = ceiling > 0 ? (want - ceiling) / ceiling : 1;
+  const cost = cfg.negotiationPatienceCostBase + overshoot * cfg.negotiationPatienceCostPerOvershoot;
+  offer.patience = Math.max(0, (offer.patience ?? 0) - cost);
+
   const walksOnPrice = want > ceiling * cfg.negotiationWalkAwayOver;
-  const outOfPatience = round >= cfg.negotiationMaxRounds;
+  const outOfPatience = offer.patience <= 0 || round >= cfg.negotiationMaxRounds;
   if (walksOnPrice || outOfPatience) {
     offer.status = "withdrawn";
     const why = walksOnPrice
@@ -259,15 +335,30 @@ export function respondToOffer(
     return { kind: "withdrawn", message: why };
   }
 
-  // Otherwise counter back: split the gap between their current offer and the
-  // player's ask, edging toward the ceiling, with a little noise.
-  const midpoint = offer.fee + (Math.min(want, ceiling) - offer.fee) * (0.55 + rng() * 0.25);
-  const counterBack = Math.min(ceiling, Math.max(offer.fee, Math.round(midpoint / 100_000) * 100_000));
+  // They still want him, but can't do your number — so they come back with what
+  // they CAN do (v19). Rather than a token nudge toward the midpoint, the reply
+  // is a genuine proposal near their real limit, which is the thing that makes
+  // countering feel like a conversation: you learn where the money actually is.
+  const bestAndFinal = ceiling * cfg.negotiationBestAndFinalShare;
+  const stepped = offer.fee + (bestAndFinal - offer.fee) * (cfg.negotiationCounterStep + rng() * 0.2);
+  const counterBack = Math.min(
+    ceiling,
+    Math.max(offer.fee, Math.round(Math.max(stepped, bestAndFinal * 0.9) / 100_000) * 100_000)
+  );
   offer.fee = counterBack; // the offer on the table rises
+
+  // Tell the user how the room feels, so the bar isn't the only signal.
+  const ratio = (offer.patience ?? 0) / (offer.patienceMax || 1);
+  const mood =
+    ratio > 0.6
+      ? "They're still keen to do business."
+      : ratio > 0.3
+        ? "They're getting frustrated."
+        : "This is as far as they'll go — push again and they walk.";
   return {
     kind: "countered",
     counterFee: counterBack,
-    message: `${buyer.name} came back with ${fmtFee(counterBack)} for ${p.name}.`,
+    message: `${buyer.name} can't reach ${fmtFee(want)}, but came back with ${fmtFee(counterBack)} for ${p.name}. ${mood}`,
   };
 }
 
@@ -310,7 +401,10 @@ export function aiWeeklyTransferTick(state: GameState, cfg: TuningConfig): boole
             (t) =>
               t.id !== state.userTeamId &&
               state.leagues[t.leagueId]?.playable &&
-              t.budget > p.value &&
+              // Only clubs that can genuinely fund the deal bid (v19) — fee out
+              // of spendable cash and the wages out of income. An offer the
+              // buyer could never honour is noise on the user's screen.
+              canAfford(state, t, p.value, wageDemand(state, p, cfg), cfg) &&
               t.reputation >= state.teams[state.userTeamId].reputation - 25
           )
           .map((t) => {
@@ -320,7 +414,39 @@ export function aiWeeklyTransferTick(state: GameState, cfg: TuningConfig): boole
           .filter((x): x is { team: (typeof state.teams)[string]; score: number } => !!x && x.score > 0);
         if (interested.length) {
           const buyer = pickWeighted(rng, interested, (x) => x.score).team;
-          const fee = Math.round((p.value * (state.transferList.includes(p.id) ? 0.95 + rng() * 0.2 : 1.0 + rng() * 0.35)) / 100_000) * 100_000;
+
+          // Release clause (v21): if this buyer can cover the clause, it simply
+          // pays it — there is nothing for the user to negotiate, which is the
+          // risk they accepted when they agreed the term. It lands as news and
+          // an inbox note rather than an offer, because it isn't a decision.
+          const clause = p.contract?.releaseClause;
+          if (clause && spendableBudget(state, buyer, cfg) >= clause) {
+            completeTransfer(state, p.id, buyer.id, clause);
+            state.news.unshift(`${buyer.name} trigger ${p.name}'s ${fmtFee(clause)} release clause.`);
+            state.inbox.unshift({
+              id: uid("inb"),
+              day: state.currentDay,
+              season: state.season,
+              type: "offer",
+              title: `${p.name} leaves — release clause triggered`,
+              body:
+                `${buyer.name} have paid the ${fmtFee(clause)} release clause in ${p.name}'s contract. ` +
+                `The clause is binding, so the transfer is already done — the fee has been credited to your budget.`,
+              read: false,
+            });
+            interrupt = true;
+            break;
+          }
+
+          const raw = p.value * (state.transferList.includes(p.id) ? 0.95 + rng() * 0.2 : 1.0 + rng() * 0.35);
+          // Never open above what the club can actually fund — the roll can land
+          // well over market value, and a bid it couldn't honour is a bad-faith
+          // offer the negotiation would then have to walk back.
+          const fee = Math.min(
+            Math.round(raw / 100_000) * 100_000,
+            Math.round(spendableBudget(state, buyer, cfg) / 100_000) * 100_000
+          );
+          if (fee <= 0) continue;
           const offer: TransferOffer = {
             id: uid("off"),
             day: state.currentDay,
@@ -333,7 +459,7 @@ export function aiWeeklyTransferTick(state: GameState, cfg: TuningConfig): boole
             deadlineDay: state.currentDay + 7,
             negotiationRound: 0,
           };
-          offer.buyerCeiling = buyerCeilingFor(state, offer, p, cfg);
+          ensureNegotiationState(state, offer, p, cfg);
           state.offers.push(offer);
           state.inbox.unshift({
             id: uid("inb"),
@@ -383,6 +509,10 @@ function aiSquadBuilding(state: GameState, rng: RNG, cfg: TuningConfig) {
   for (let i = 0; i < attempts; i++) {
     const buyer = pickWeighted(rng, clubs, (t) => STANCE_PROFILE[stanceOf(state, t, cfg)].activity);
     if (buyer.playerIds.length >= cfg.squadCap) continue;
+    // A club that can't cover its own wages doesn't go shopping (v19). It will
+    // still appear below as a willing seller — that's how it digs itself out.
+    if (isDistressed(state, buyer, cfg)) continue;
+    if (spendableBudget(state, buyer, cfg) <= 0) continue;
 
     const needs = squadNeeds(state, buyer, cfg);
     if (!needs.length) continue;
@@ -391,18 +521,22 @@ function aiSquadBuilding(state: GameState, rng: RNG, cfg: TuningConfig) {
 
     // Shop the rest of the world (never the user's squad — those go through the
     // formal offer path so the user always gets to decide).
-    let best: { player: PlayerBio; score: number } | null = null;
+    let best: { player: PlayerBio; score: number; price: number } | null = null;
     for (const seller of clubs) {
       if (seller.id === buyer.id) continue;
       const sellerProfile = STANCE_PROFILE[stanceOf(state, seller, cfg)];
+      // A club that can't pay its wages sells at a discount to raise cash fast.
+      const distressDiscount = isDistressed(state, seller, cfg) ? cfg.aiDistressSellDiscount : 1;
       for (const p of saleCandidates(state, seller, cfg)) {
         if (p.loan) continue;
         const score = targetScore(state, buyer, need, p, cfg);
         if (score <= 0) continue;
-        // Can the buyer actually afford the seller's price?
-        const price = Math.round((p.value * cfg.aiAcceptThreshold * sellerProfile.sellAsk) / 100_000) * 100_000;
-        if (price > buyBudgetFor(state, buyer, p, cfg) || price > buyer.budget) continue;
-        if (!best || score > best.score) best = { player: p, score };
+        // Can the buyer actually afford the seller's price — fee AND wages (v19)?
+        const price =
+          Math.round((p.value * cfg.aiAcceptThreshold * sellerProfile.sellAsk * distressDiscount) / 100_000) * 100_000;
+        if (price > buyBudgetFor(state, buyer, p, cfg)) continue;
+        if (!canAfford(state, buyer, price, wageDemand(state, p, cfg), cfg)) continue;
+        if (!best || score > best.score) best = { player: p, score, price };
       }
     }
     if (!best) continue;
@@ -410,11 +544,12 @@ function aiSquadBuilding(state: GameState, rng: RNG, cfg: TuningConfig) {
     const target = best.player;
     const seller = state.teams[target.clubId!];
     if (!seller) continue;
-    const sellerProfile = STANCE_PROFILE[stanceOf(state, seller, cfg)];
     // A club won't strip itself below a workable squad.
     if (seller.playerIds.length <= cfg.matchdaySquad) continue;
 
-    const fee = Math.round((target.value * cfg.aiAcceptThreshold * sellerProfile.sellAsk) / 100_000) * 100_000;
+    // The price the affordability check was made against — recomputing it here
+    // could drift from what was validated and let a club overspend.
+    const fee = best.price;
     completeTransfer(state, target.id, buyer.id, fee);
     const why = STANCE_PROFILE[stanceOf(state, buyer, cfg)].label;
     state.news.unshift(
@@ -425,7 +560,7 @@ function aiSquadBuilding(state: GameState, rng: RNG, cfg: TuningConfig) {
 
 /** Refresh values after aging or window openings. */
 export function refreshValues(state: GameState, cfg: TuningConfig) {
-  for (const p of Object.values(state.players)) {
-    if (!p.retired) p.value = playerValue(p, cfg);
+  for (const p of activePlayers(state)) {
+    p.value = playerValue(p, cfg);
   }
 }

@@ -10,9 +10,10 @@ import { getArchetype } from "@/lib/config/archetypes";
 import { POS_LABELS, posColors } from "@/lib/config/positions";
 import { formatHeight, formatMoney } from "@/lib/value";
 import { yearsLeft } from "@/lib/contracts";
+import { seasonGrowth } from "@/lib/development";
 import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan } from "@/lib/config/training";
 import { MAX_KIT_NUMBER, MIN_KIT_NUMBER, squadNumbersFor } from "@/lib/kitnumbers";
-import { ArchetypeIcon, AttrGrid, Card, ConfirmButton, Crest, Flag, FitnessBar, FormChip, GhostButton, GoldButton, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip } from "../ui";
+import { ArchetypeIcon, AttrGrid, Card, ConfirmButton, Crest, Flag, FitnessBar, FormChip, GhostButton, GoldButton, GrowthBadge, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip } from "../ui";
 import ContractModal from "./ContractModal";
 
 export default function PlayerProfileModal() {
@@ -62,10 +63,17 @@ export default function PlayerProfileModal() {
         {/* header card */}
         <div className="mb-5 flex flex-wrap items-center gap-5 rounded-lg border border-line bg-raised p-5">
           <div
-            className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg"
+            className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-lg"
             style={{ background: `${primaryColor.bg}22`, border: `1px solid ${primaryColor.bg}` }}
           >
             <Ovr value={p.overall} size="lg" />
+            {/* This season's movement, tucked under the rating so the big number
+                stays the focus (v19). */}
+            {seasonGrowth(p) !== 0 && (
+              <span className="absolute -bottom-2 rounded-sm border border-line bg-surface px-1">
+                <GrowthBadge delta={seasonGrowth(p)} size="sm" />
+              </span>
+            )}
           </div>
           <div className="min-w-0 flex-1">
             <div className="display flex items-center gap-2.5 text-2xl font-bold leading-tight">

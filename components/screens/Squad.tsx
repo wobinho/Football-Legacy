@@ -8,6 +8,7 @@ import type { PlayerBio } from "@/lib/types";
 import { getArchetype } from "@/lib/config/archetypes";
 import { POS_ORDER } from "@/lib/config/positions";
 import { yearsLeft } from "@/lib/contracts";
+import { seasonGrowth } from "@/lib/development";
 import { formatMoney } from "@/lib/value";
 import { ArchetypeIcon, FitnessBar, Flag, FormChip, Money, Ovr, PosBadge, Section } from "../ui";
 
@@ -115,7 +116,7 @@ export default function SquadScreen() {
                   </span>
                 </td>
                 <td className="px-2 py-2 text-center">
-                  <Ovr value={p.overall} size="sm" />
+                  <Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />
                 </td>
                 <td className="px-2 py-2">
                   <FitnessBar value={p.fitness} />

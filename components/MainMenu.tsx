@@ -13,8 +13,8 @@ import {
   validateCountryDB,
   type CountryDatabase,
 } from "@/lib/database";
-import { teamIdFor } from "@/lib/worldgen";
-import { DEFAULT_TIER_NAMES } from "@/lib/config/divisions";
+import { divisionSeed, teamIdFor } from "@/lib/worldgen";
+import { DEFAULT_TIER_NAMES, MAX_DIVISION_DEPTH, generateDivisionClubs } from "@/lib/config/divisions";
 import { storedKey } from "@/lib/auth";
 import { NAME_POOLS } from "@/lib/config/names";
 import { overallFromAttrs } from "@/lib/config/positions";
@@ -160,9 +160,12 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
   const [saveName, setSaveName] = useState("My Legacy");
   const [playableCountry, setPlayableCountry] = useState<string>("ENG");
   const [clubIndex, setClubIndex] = useState<number | null>(null);
-  // How many tiers the playable country runs (v12). Tiers beyond what its
-  // database authors are generated procedurally.
-  const [divisionDepth, setDivisionDepth] = useState<number>(2);
+  // Which tier of the playable ladder you start in (v17, 1-based). You may begin
+  // in a lower division and work your way up.
+  const [startTier, setStartTier] = useState<number>(1);
+  // How many tiers EACH included country runs (v17), keyed by country code.
+  // Tiers beyond what a country's database authors are generated procedurally.
+  const [divisionDepths, setDivisionDepths] = useState<Record<string, number>>({ ENG: 2 });
   // Optional user-chosen league names, keyed by tier. Blank = keep the default.
   const [divisionNames, setDivisionNames] = useState<Record<number, string>>({});
   // other countries to include as sim-only (view/shopping). Default: the other
@@ -188,6 +191,10 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
     () => Array.from(new Set([playableCountry, ...viewCountries])),
     [playableCountry, viewCountries]
   );
+
+  /** A country's chosen depth, defaulting to what its database authors. */
+  const depthFor = (code: string, authoredCount: number) => divisionDepths[code] ?? authoredCount;
+  const setDepth = (code: string, depth: number) => setDivisionDepths((m) => ({ ...m, [code]: depth }));
 
   const choiceFor = (code: string): DbChoice => dbChoices[code] ?? initialChoice();
 
@@ -246,15 +253,65 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
     return db;
   };
 
-  // The playable country's top division clubs, honoring its chosen database and
-  // the created club. Null while a preset is still loading (the club grid shows
-  // a spinner state then). `originalTopDiv` (pre-replacement) feeds the
-  // create-a-club modal's "club to replace" list.
+  /** The explicit per-country databases worldgen will receive — anything but an
+   * untouched engine default. Shared by the preview seed and `start()` so the
+   * clubs previewed below are exactly the clubs the world is built with. */
+  const resolveCountryDBs = (): Record<string, CountryDatabase> => {
+    const out: Record<string, CountryDatabase> = {};
+    for (const code of includedCodes) {
+      const db = effectiveDbFor(code);
+      if (!db) continue;
+      const modified =
+        (code === playableCountry && customClub !== null) || customPlayers.some((p) => p.country === code);
+      if (choiceFor(code).source !== "default" || defaultNeedsPreset(code) || modified) out[code] = db;
+    }
+    return out;
+  };
+
+  // The seed generated divisions are built from. Club-independent by design, so
+  // picking a club out of a generated tier never reshuffles that tier.
+  const previewSeed = divisionSeed({
+    playableCountry,
+    viewCountries: viewCountries.filter((c) => c !== playableCountry),
+    countryDBs: resolveCountryDBs(),
+  });
+
+  // The playable country's clubs, honoring its chosen database and the created
+  // club. Null while a preset is still loading (the club grid shows a spinner
+  // state then). `originalTopDiv` (pre-replacement) feeds the create-a-club
+  // modal's "club to replace" list.
   const basePlayableDb = dbForChoice(playableCountry);
   const originalTopDiv = basePlayableDb ? [...basePlayableDb.divisions].sort((a, b) => a.tier - b.tier)[0] : null;
   const playableDb = effectiveDbFor(playableCountry);
-  const topDiv = playableDb ? [...playableDb.divisions].sort((a, b) => a.tier - b.tier)[0] : null;
-  const clubs = topDiv?.clubs ?? [];
+  const authoredDivs = useMemo(
+    () => (playableDb ? [...playableDb.divisions].sort((a, b) => a.tier - b.tier) : []),
+    [playableDb]
+  );
+  const playableDepth = depthFor(playableCountry, authoredDivs.length);
+
+  // The full ladder the world will actually build (v17): the tiers the database
+  // authors, plus any deeper tiers generated exactly as worldgen generates them,
+  // so the club list you pick from IS the club list you'll get. Generated tiers
+  // key off the same preview seed for stability while the form is open.
+  const previewLadder = useMemo(() => {
+    const authored = authoredDivs.slice(0, playableDepth);
+    if (!playableDb) return authored;
+    const exclude = new Set(authoredDivs.flatMap((d) => d.clubs.map((c) => c.name)));
+    const out = [...authored];
+    for (let tier = authoredDivs.length + 1; tier <= playableDepth; tier++) {
+      out.push({
+        id: `${playableCountry}${tier}`,
+        name: DEFAULT_TIER_NAMES[tier] ?? `Division ${tier}`,
+        tier,
+        clubs: generateDivisionClubs(previewSeed, playableCountry, tier, exclude),
+      });
+    }
+    return out;
+  }, [authoredDivs, playableDepth, playableCountry, playableDb, previewSeed]);
+
+  // The division you'll start in — clamped in case the depth shrank under you.
+  const startDiv = previewLadder[Math.min(startTier, previewLadder.length) - 1] ?? previewLadder[0] ?? null;
+  const clubs = startDiv?.clubs ?? [];
   const playableChoice = choiceFor(playableCountry);
   const playableLoading =
     !presetDbs[playableCountry] &&
@@ -264,28 +321,23 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
   const setChoice = (code: string, choice: DbChoice) => setDbChoices((m) => ({ ...m, [code]: choice }));
 
   const start = async () => {
-    if (clubIndex === null || !managerName.trim() || starting || !topDiv) return;
+    if (clubIndex === null || !managerName.trim() || starting || !startDiv) return;
     setStarting(true);
     await new Promise((r) => setTimeout(r, 30)); // let the button state paint
     // Anything but the untouched engine default must be passed as an explicit
     // DB — including a default modified by a created club or player, and the
     // preset-derived defaults (worldgen can't reconstruct those on its own).
-    const countryDBs: Record<string, CountryDatabase> = {};
-    for (const code of includedCodes) {
-      const db = effectiveDbFor(code);
-      if (!db) continue;
-      const modified =
-        (code === playableCountry && customClub !== null) || customPlayers.some((p) => p.country === code);
-      if (choiceFor(code).source !== "default" || defaultNeedsPreset(code) || modified) countryDBs[code] = db;
-    }
+    const countryDBs = resolveCountryDBs();
     await newGame({
       saveName: saveName.trim() || "My Legacy",
       managerName: managerName.trim(),
-      userTeamId: teamIdFor(topDiv.id, clubIndex),
+      // You manage in whichever tier you chose — not necessarily the top flight.
+      userTeamId: teamIdFor(startDiv.id, clubIndex),
       playableCountry,
       viewCountries: viewCountries.filter((c) => c !== playableCountry),
       countryDBs,
-      divisionDepth,
+      divisionDepths,
+      divisionDepth: playableDepth,
       // Only send names the user actually typed; blanks keep the defaults.
       divisionNames: Object.fromEntries(
         Object.entries(divisionNames)
@@ -321,8 +373,8 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
       <div>
         <span className="display text-xs font-semibold tracking-widest text-faint">COUNTRY TO MANAGE IN</span>
         <p className="mb-2 mt-0.5 text-[11px] text-faint">
-          You&apos;ll manage a club in this country&apos;s top division. Its lower division runs as a sim until you&apos;re
-          promoted or relegated between them.
+          You&apos;ll manage a club in this country. Pick how deep its pyramid runs below, then start in any tier of it —
+          including a lower division, if you fancy the climb.
         </p>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {COUNTRY_OPTIONS.map((c) => (
@@ -331,6 +383,7 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
               onClick={() => {
                 setPlayableCountry(c.code);
                 setClubIndex(null);
+                setStartTier(1);
                 setViewCountries((prev) => prev.filter((x) => x !== c.code));
                 // The created club belongs to the previous country's top division.
                 if (c.code !== playableCountry) setCustomClub(null);
@@ -361,12 +414,19 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
           can climb from the bottom or fall a long way.
         </p>
         <div className="flex flex-wrap gap-2">
-          {[1, 2, 3].map((d) => (
+          {Array.from({ length: MAX_DIVISION_DEPTH }, (_, i) => i + 1).map((d) => (
             <button
               key={d}
-              onClick={() => setDivisionDepth(d)}
+              onClick={() => {
+                setDepth(playableCountry, d);
+                // Starting below the new floor is impossible — clamp back up.
+                if (startTier > d) {
+                  setStartTier(d);
+                  setClubIndex(null);
+                }
+              }}
               className={`rounded-md border px-3 py-1.5 text-sm ${
-                divisionDepth === d ? "border-gold bg-hover text-ink" : "border-line text-faint hover:text-dim"
+                playableDepth === d ? "border-gold bg-hover text-ink" : "border-line text-faint hover:text-dim"
               }`}
             >
               {d} division{d === 1 ? "" : "s"}
@@ -374,7 +434,7 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
           ))}
         </div>
         <div className="mt-3 space-y-2">
-          {Array.from({ length: divisionDepth }, (_, i) => i + 1).map((tier) => {
+          {Array.from({ length: playableDepth }, (_, i) => i + 1).map((tier) => {
             const authored = [...(basePlayableDb?.divisions ?? [])].sort((a, b) => a.tier - b.tier)[tier - 1];
             const fallback = authored?.name ?? DEFAULT_TIER_NAMES[tier] ?? `Division ${tier}`;
             return (
@@ -400,14 +460,46 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
         <p className="mt-1.5 text-[11px] text-faint">Leave a name blank to use the default.</p>
       </div>
 
-      {/* Step 2: club within the top division — pick an existing club or create
-          your own (which replaces one of them). */}
+      {/* Step 1c: which tier you start in (v17). With a multi-division pyramid
+          you may begin anywhere on the ladder, not just the top flight. */}
+      {previewLadder.length > 1 && (
+        <div>
+          <span className="display text-xs font-semibold tracking-widest text-faint">DIVISION TO START IN</span>
+          <p className="mb-2 mt-0.5 text-[11px] text-faint">
+            Start lower down and earn your way up. Every division runs the real engine, so a promotion is a real
+            promotion.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {previewLadder.map((div, i) => (
+              <button
+                key={div.id}
+                onClick={() => {
+                  setStartTier(i + 1);
+                  setClubIndex(null); // club indices are per-division
+                  setCustomClub(null); // a created club replaces a top-flight side
+                }}
+                className={`rounded-md border px-3 py-1.5 text-sm ${
+                  startTier === i + 1 ? "border-gold bg-hover text-ink" : "border-line text-faint hover:text-dim"
+                }`}
+              >
+                {div.name}
+                <span className="ml-1.5 text-[10px] text-faint">tier {i + 1}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Step 2: club within the chosen division — pick an existing club or
+          create your own (which replaces one of them). */}
       <div>
         <div className="flex items-center justify-between">
           <span className="display text-xs font-semibold tracking-widest text-faint">
-            CHOOSE YOUR CLUB — {topDiv?.name ?? ""}
+            CHOOSE YOUR CLUB — {startDiv?.name ?? ""}
           </span>
-          {!customClub && !playableLoading && (
+          {/* Create-a-club replaces a top-flight side, so it only applies when
+              you're starting in tier 1. */}
+          {!customClub && !playableLoading && startTier === 1 && (
             <button onClick={() => setClubModalOpen(true)} className="text-[11px] text-gold hover:underline">
               ＋ Create your own club
             </button>
@@ -495,6 +587,41 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
             );
           })}
         </div>
+
+        {/* Per-country pyramid depth (v17): each included country runs its own
+            number of divisions — 2 in England, 3 in Germany, 1 in France. */}
+        {viewCountries.length > 0 && (
+          <div className="mt-3 space-y-1.5">
+            <p className="text-[11px] text-faint">
+              Divisions per country. Tiers beyond what a country&apos;s database ships are generated.
+            </p>
+            {viewCountries.map((code) => {
+              const db = dbForChoice(code);
+              const authoredCount = db?.divisions.length ?? 1;
+              const current = depthFor(code, authoredCount);
+              const name = OPTION_MAP[code]?.name ?? code;
+              return (
+                <div key={code} className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5">
+                  <CountryFlag country={name} size={12} />
+                  <span className="min-w-0 flex-1 truncate text-sm">{name}</span>
+                  <div className="flex items-center gap-1 rounded border border-line/70 p-0.5">
+                    {Array.from({ length: MAX_DIVISION_DEPTH }, (_, i) => i + 1).map((d) => (
+                      <button
+                        key={d}
+                        onClick={() => setDepth(code, d)}
+                        className={`rounded px-2 py-1 text-[11px] transition-colors ${
+                          current === d ? "bg-hover text-ink ring-1 ring-gold-lo/50" : "text-faint hover:text-dim"
+                        }`}
+                      >
+                        {d}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Step 4: per-country database (default, preset, or custom upload) */}

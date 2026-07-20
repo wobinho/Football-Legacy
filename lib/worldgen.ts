@@ -78,7 +78,7 @@ function pickNationality(rng: RNG, homeNat: string, homeShare: number): string {
  * *flat* inside a bracket, so a 14-year-old and a 16-year-old were treated as
  * equally capable.
  *
- * The curve is smooth and monotonic: a 12-year-old sits far below a 16-year-old,
+ * The curve is smooth and monotonic: a 14-year-old sits far below a 16-year-old,
  * who sits below an 18-year-old, who is close to (but not quite) a finished
  * adult. It reaches 1.0 at `maturityFullAge` and stays there, so nothing about
  * an adult's generation changes.
@@ -109,7 +109,7 @@ export function maturityAt(age: number, cfg: TuningConfig): number {
 function ageAdjustedOverall(rng: RNG, requested: number, age: number, cfg: TuningConfig): number {
   const maturity = maturityAt(age, cfg);
   if (maturity >= 1) return requested;
-  // Scale toward the quality floor rather than toward zero: even a raw 13-year-old
+  // Scale toward the quality floor rather than toward zero: even a raw 14-year-old
   // in a professional academy is a footballer, not a random body.
   const floor = cfg.minOverall;
   const scaled = floor + (requested - floor) * maturity;
@@ -240,6 +240,11 @@ export function generatePlayer(
     attrs,
     overall,
     potential,
+    // Baseline for the season's +X/-X growth badge (v19). Stamped at creation so
+    // a player generated mid-season (an intake kid, a scouted prospect) measures
+    // his movement from where he actually joined the world — and so season one
+    // of a new save shows growth rather than nothing until the first rollover.
+    seasonStartOverall: overall,
     fitness: 100,
     form: 1.0,
     clubId: null,
@@ -353,10 +358,20 @@ function generateSquad(
 }
 
 function randomTactic(rng: RNG): Tactic {
+  // The three classic styles stay the backbone of the league (listed twice), with
+  // the v19 hybrids appearing as the distinctive minority — so a Gegenpress or a
+  // Park-the-Bus side is a match-up worth noticing rather than the norm.
   return {
     formationId: pick(rng, FORMATIONS).id,
     mentality: pick(rng, ["Defensive", "Balanced", "Balanced", "Attacking"] as const),
-    style: pick(rng, ["Possession", "Counter", "Direct"] as const),
+    style: pick(rng, [
+      "Possession", "Possession",
+      "Counter", "Counter",
+      "Direct", "Direct",
+      "Gegenpress",
+      "ParkTheBus",
+      "WingPlay",
+    ] as const),
   };
 }
 
@@ -378,6 +393,11 @@ export interface NewGameOptions {
    * what the country's database authors are generated procedurally. Defaults to
    * whatever the database already provides (capped at MAX_DIVISION_DEPTH). */
   divisionDepth?: number;
+  /** Per-country division depth (v17), keyed by country code — e.g.
+   * `{ ENG: 2, GER: 3, FRA: 1 }`. Lets each included country run its own
+   * pyramid depth. The playable country's entry wins over `divisionDepth`;
+   * a country absent here keeps whatever its database authors. */
+  divisionDepths?: Record<string, number>;
   /** Optional user-chosen league names, indexed by tier (1-based) — e.g.
    * `{ 1: "My Premier League" }`. Any tier left out keeps the database's name
    * (tier 1) or the DEFAULT_TIER_NAMES entry (generated tiers). */
@@ -436,9 +456,38 @@ function resolveSeed(opts: NewGameOptions): number {
   return hashString(parts.join("|"));
 }
 
+/**
+ * The seed procedurally-generated DIVISIONS are built from (v17).
+ *
+ * This deliberately excludes the chosen club. The world seed keys off
+ * `userTeamId`, but a generated lower division must be pickable *before* the
+ * club is chosen — and choosing a club from it must not reshuffle the very list
+ * it was chosen from. Keying generated tiers off the country + included
+ * countries alone makes the setup preview and the built world produce identical
+ * clubs, while the rest of the world (squads, scouting) still varies per club.
+ */
+export function divisionSeed(opts: {
+  playableCountry: string;
+  viewCountries: string[];
+  countryDBs?: Record<string, CountryDatabase>;
+  seed?: number;
+}): number {
+  if (typeof opts.seed === "number") return opts.seed >>> 0;
+  const parts = [opts.playableCountry, [...opts.viewCountries].sort().join(",")];
+  if (opts.countryDBs) {
+    for (const code of Object.keys(opts.countryDBs).sort()) {
+      parts.push(`db:${code}:${hashString(JSON.stringify(opts.countryDBs[code]))}`);
+    }
+  }
+  return hashString(parts.join("|"));
+}
+
 /** Build a complete fresh GameState from the chosen country databases. */
 export function generateWorld(opts: NewGameOptions): GameState {
   const seed = resolveSeed(opts);
+  // Generated divisions key off a club-independent seed so the setup screen can
+  // preview the exact clubs the world will contain (see divisionSeed).
+  const divSeed = divisionSeed(opts);
   const cfg = TUNING;
   playerCounter = 0;
 
@@ -485,21 +534,33 @@ export function generateWorld(opts: NewGameOptions): GameState {
   const playDb = dbFor(opts, playCode);
   if (!playDb) throw new Error(`Unknown playable country "${playCode}".`);
 
-  // Resolve the division ladder (v12). The database supplies whatever tiers it
-  // authors; the requested depth beyond that is generated procedurally, so any
-  // country can run a 2- or 3-tier pyramid with working promotion/relegation.
-  const authored = [...playDb.divisions].sort((a, b) => a.tier - b.tier);
-  const depth = Math.max(1, Math.min(MAX_DIVISION_DEPTH, opts.divisionDepth ?? authored.length));
-  const ladder: CountryDatabase["divisions"] = authored.slice(0, depth);
-  const authoredNames = new Set(authored.flatMap((d) => d.clubs.map((c) => c.name)));
-  for (let tier = authored.length + 1; tier <= depth; tier++) {
-    ladder.push({
-      id: `${playCode}${tier}`,
-      name: DEFAULT_TIER_NAMES[tier] ?? `Division ${tier}`,
-      tier,
-      clubs: generateDivisionClubs(seed, playCode, tier, authoredNames),
-    });
-  }
+  // Resolve a country's division ladder (v12; per-country depth v17). The
+  // database supplies whatever tiers it authors; the requested depth beyond that
+  // is generated procedurally, so any country can run a 2- or 3-tier pyramid
+  // with working promotion/relegation.
+  const buildLadder = (db: CountryDatabase, code: string, depth: number): CountryDatabase["divisions"] => {
+    const authored = [...db.divisions].sort((a, b) => a.tier - b.tier);
+    const want = Math.max(1, Math.min(MAX_DIVISION_DEPTH, depth));
+    const ladder: CountryDatabase["divisions"] = authored.slice(0, want);
+    const authoredNames = new Set(authored.flatMap((d) => d.clubs.map((c) => c.name)));
+    for (let tier = authored.length + 1; tier <= want; tier++) {
+      ladder.push({
+        id: `${code}${tier}`,
+        name: DEFAULT_TIER_NAMES[tier] ?? `Division ${tier}`,
+        tier,
+        clubs: generateDivisionClubs(divSeed, code, tier, authoredNames),
+      });
+    }
+    return ladder;
+  };
+
+  /** The depth a country should run: its explicit per-country setting, else the
+   * legacy single `divisionDepth` for the playable country, else whatever the
+   * database authors. */
+  const depthFor = (db: CountryDatabase, code: string): number =>
+    opts.divisionDepths?.[code] ?? (code === playCode ? opts.divisionDepth ?? db.divisions.length : db.divisions.length);
+
+  const ladder = buildLadder(playDb, playCode, depthFor(playDb, playCode));
   // Apply any user-chosen league names over the resolved ladder.
   for (const div of ladder) {
     const custom = opts.divisionNames?.[div.tier]?.trim();
@@ -507,12 +568,17 @@ export function generateWorld(opts: NewGameOptions): GameState {
   }
   for (const div of ladder) makeDivision(playDb, div, true);
 
-  // View-only countries: sim leagues (shopping / atmosphere).
+  // View-only countries: sim leagues (shopping / atmosphere). These honour their
+  // own chosen depth too, so a save can run 3 tiers in Germany while France
+  // stays a single division.
+  const depths: Record<string, number> = { [playCode]: ladder.length };
   for (const code of opts.viewCountries) {
     if (code === playCode) continue;
     const db = dbFor(opts, code);
     if (!db) continue;
-    for (const div of db.divisions) makeDivision(db, div, false);
+    const simLadder = buildLadder(db, code, depthFor(db, code));
+    depths[code] = simLadder.length;
+    for (const div of simLadder) makeDivision(db, div, false);
   }
 
   // The playable country's division ladder, top-first (v12). A single-division
@@ -547,6 +613,7 @@ export function generateWorld(opts: NewGameOptions): GameState {
     userTeamId: opts.userTeamId,
     playableCountry: playCode,
     divisionIds,
+    divisionDepths: depths,
     season: 1,
     currentDay: schedule.seasonStartDay,
     players,

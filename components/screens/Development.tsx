@@ -10,7 +10,7 @@ import { useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { PlayerBio } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
-import { devPhase, seasonGrowthEstimate, seasonAttrFocus } from "@/lib/development";
+import { devPhase, seasonGrowth, seasonGrowthEstimate, seasonAttrFocus } from "@/lib/development";
 import { trainingNextCost, type TrainingFacility } from "@/lib/economy";
 import { formatMoney } from "@/lib/value";
 import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan, type TrainingPlanDef } from "@/lib/config/training";
@@ -159,7 +159,7 @@ function TrainingPlansTab() {
                 </button>
                 <span className="text-center tnum text-sm text-dim">{p.age}</span>
                 <span className="flex items-center justify-center">
-                  <Ovr value={p.overall} size="sm" />
+                  <Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />
                 </span>
                 <span className="flex items-center justify-end gap-1.5">
                   {/* A dot marks the focus that would improve this player most,

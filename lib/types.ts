@@ -2,12 +2,25 @@
 // Single source of truth for all game data shapes. Schema-versioned so the
 // save/export format doubles as the modding format (GAME_DESIGN.md §2, §13).
 
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 20;
 
 export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "AM" | "LW" | "RW" | "ST";
 
 export type Mentality = "Defensive" | "Balanced" | "Attacking";
-export type Style = "Possession" | "Counter" | "Direct";
+
+/** Playing style (v19: expanded from three to six).
+ *
+ * The original trio (Possession / Counter / Direct) are the "pure" styles and
+ * still form the rock-paper-scissors core of the hidden counter matrix. The
+ * three added styles are hybrids that lean on a specific instruction package:
+ *
+ *   Gegenpress — Counter's aggression turned into sustained high pressing.
+ *   ParkTheBus — an extreme Defensive shell that concedes the ball by design.
+ *   WingPlay   — Direct football routed through the flanks rather than the middle.
+ *
+ * Every style is a pure table lookup (archetype synergy, counter matrix, and the
+ * v19 styleShape table) — the engine never branches on a style by name. */
+export type Style = "Possession" | "Counter" | "Direct" | "Gegenpress" | "ParkTheBus" | "WingPlay";
 
 // Extended tactic instructions (§6, expanded). All presets — no sliders. Every
 // axis feeds the engine through the tuning table; the Tactics screen explains
@@ -16,7 +29,10 @@ export type Tempo = "Slow" | "Standard" | "High";
 export type Width = "Narrow" | "Standard" | "Wide";
 export type Press = "Low" | "Medium" | "High";
 export type DefLine = "Deep" | "Standard" | "High";
-export type Focus = "Left" | "Central" | "Right" | "Mixed";
+/** Attacking focus. "Wide" (v19) emphasises BOTH flanks equally rather than
+ * picking a side — the same goal-involvement bias Left/Right give their own
+ * flank, applied to left and right together. */
+export type Focus = "Left" | "Central" | "Right" | "Wide" | "Mixed";
 
 export interface Tactic {
   formationId: string;
@@ -70,10 +86,19 @@ export interface PlayerBio {
   /** Per-season development log — how overall & potential moved each summer.
    * Powers the Development page's growth history. Newest last. Optional (v2). */
   devLog?: DevLogEntry[];
+  /** Overall this player started the current season on (v19). The UI subtracts
+   * it from the live `overall` to show the running +X/-X a player has gained or
+   * lost this season. Stamped for everyone at the season rollover (and when a
+   * player is first created), so it always reflects THIS season only. */
+  seasonStartOverall?: number;
   /** Youth Academy (§18, v4). The club whose academy this player came through
    * (joined at ≤18 via intake or a youth signing). Permanent — the Academy DNA
    * ledger and graduate news are built from this. */
   academyClubId?: string;
+  /** Quality tier this player was rolled at as a registered U21 prospect (v18).
+   * Set on rival prospects so youth scouting can price and badge them; the elite
+   * tiers are what make a kid genuinely hard to buy. */
+  u21Tier?: ProspectTier;
   /** Current-season U21-league + loan stats. Raw (unweighted); the rollover
    * folds them into development at the §18 minute weights. Optional (v4). */
   youthStats?: SeasonPlayerStats;
@@ -100,6 +125,11 @@ export interface Contract {
    * rollover that ends this season. */
   expirySeason: number;
   signedSeason: number; // season the current deal was agreed
+  /** Optional release clause (v21): a fixed fee any club may pay to trigger an
+   * automatic sale, bypassing the selling club's ask price. Undefined = none.
+   * The player discounts his wage demand for accepting one — a cheaper deal in
+   * exchange for a guaranteed exit route. */
+  releaseClause?: number;
 }
 
 /** A player out on a season loan (§18). The player stays on the owning club's
@@ -275,6 +305,13 @@ export interface Team {
   mediaLevel?: number;
   hospitalityLevel?: number;
   retailLevel?: number;
+  /** Three further revenue streams (v21), same pattern again:
+   *   membershipLevel     → supporters' club & season-ticket scheme
+   *   eventsLevel         → concerts & conferences hosted at the ground
+   *   academyPartnerLevel → feeder-club & community partnerships */
+  membershipLevel?: number;
+  eventsLevel?: number;
+  academyPartnerLevel?: number;
   /** On-pitch responsibilities (v6, captain + set-piece takers). */
   assignments?: TeamAssignments;
   /** Active season-long sponsorship deals (v6). Only the user's club fills
@@ -287,12 +324,48 @@ export interface Team {
    * an offer lapses or is rejected, so a slot the user passed on goes quiet for
    * a while instead of re-offering the next day. Keyed by SponsorSlot. */
   sponsorCooldowns?: Partial<Record<SponsorSlot, number>>;
+  /** An AI club's abstract weekly commercial income (v19).
+   *
+   * AI clubs don't run the interactive offer/slot machinery — that would be a
+   * lot of hidden bookkeeping for something the user never sees. Instead each
+   * gets a single derived figure standing in for its whole sponsorship
+   * portfolio, scaled by reputation and division exactly as the user's offers
+   * are, so a big club out-earns a small one commercially and can back that up
+   * in the market. Recomputed at each season rollover. */
+  commercialIncome?: number;
+  /** Lump-sum investment income an AI club banked this season (v19). Paid at the
+   * rollover as the AI-side equivalent of the user's major deals, so big clubs
+   * periodically get a war chest rather than only a smooth weekly trickle. */
+  lastInvestmentWindfall?: number;
 }
 
 // ── Sponsors / investments (v6, Club → Income) ────────────────────────────
 
-/** A sponsorship category. Each club may hold at most one deal per slot. */
-export type SponsorSlot = "shirt" | "sleeve" | "apparel" | "boot" | "stadium";
+/** A sponsorship category (v19: widened from five slots to eleven).
+ *
+ * Slots are no longer a flat list with an artificial "one major at a time" cap.
+ * They now mirror how a real club's commercial portfolio is actually shaped:
+ * the landmark deals (shirt front, kit manufacturer, stadium naming) are genuine
+ * majors that each occupy their own exclusive slot, while the long tail of
+ * smaller partnerships (sleeve, training kit, regional partners…) are minors
+ * that a club can stack several of at once.
+ *
+ * Capacity per slot is data — see SPONSOR_SLOTS in lib/sponsors.ts, where each
+ * slot declares how many concurrent deals it supports. */
+export type SponsorSlot =
+  // ── Majors: the landmark, lump-sum deals ──
+  | "shirt" // front-of-shirt — the single biggest commercial asset
+  | "apparel" // kit manufacturer
+  | "stadium" // naming rights
+  | "backOfShirt" // back-of-shirt, above the number
+  // ── Minors: the steady weekly partnerships ──
+  | "sleeve"
+  | "shorts"
+  | "trainingKit"
+  | "boot"
+  | "regional" // regional partners — several may run at once
+  | "beverage"
+  | "automotive";
 
 /** Two investment shapes (v7):
  *  - "major": a one-time lump sum (`upfront`) paid on signing, running for
@@ -441,6 +514,15 @@ export interface TransferOffer {
   /** How many counter rounds the user has spent. The buyer's patience is finite;
    * push too hard and they walk. */
   negotiationRound?: number;
+  /** Total patience this buyer brought to THIS negotiation (v19), rolled per
+   * deal rather than a global constant. A club desperate for the player, or one
+   * with money to burn, will haggle for longer than a lukewarm suitor — so the
+   * bar the user sees is genuinely different every time. */
+  patienceMax?: number;
+  /** Patience remaining, 0..patienceMax. Each counter costs patience, and an
+   * unreasonable ask costs far more than a modest one — so how hard you push
+   * matters as much as how often. At 0 the buyer walks. */
+  patience?: number;
 }
 
 export interface StaffCandidate {
@@ -523,23 +605,23 @@ export interface CupState {
 
 // ── Youth Academy (§18, v4) ───────────────────────────────────────────────
 
-export type ScoutPosGroup = "GK" | "DEF" | "MID" | "ATT" | "ANY";
+/** A scout's position brief: a broad group, or (v17) one specific position.
+ *
+ * Groups alone could not express "find me a right back" — DEF rolled uniformly
+ * across CB/LB/RB, so the flank you actually wanted was a one-in-three chance
+ * and RB/RW were effectively unrequestable. Every `Pos` is now a valid brief,
+ * and lib/academy's POS_GROUPS maps each one to the positions it may return. */
+export type ScoutPosGroup = "GK" | "DEF" | "MID" | "ATT" | "ANY" | Pos;
 
-/** Scouting targets (v5): specific countries plus a couple of broad regions,
- * EA-FC style. Each maps to a nationality pool in lib/config/scouting.ts. */
-export type ScoutRegion =
-  | "England"
-  | "Spain"
-  | "Italy"
-  | "Germany"
-  | "France"
-  | "Brazil"
-  | "Argentina"
-  | "Netherlands"
-  | "Sweden"
-  | "Nigeria"
-  | "Europe"
-  | "World";
+/** A scouting target (v17): a country (by 3-letter nationality code), a
+ * sub-region ("EastAsia"), a continent ("Europe"), or "World".
+ *
+ * This was a closed union of ten country names through v16, which capped
+ * scouting at the countries the engine simulates. The targets are now derived
+ * from the SCOUT_WORLD tree in lib/config/scouting.ts, so the id is an open
+ * string and that tree is the single source of truth for what's scoutable.
+ * Unknown ids resolve to Worldwide rather than throwing. */
+export type ScoutRegion = string;
 
 /** A scout on the club's books (v14). Scouts are no longer a single staff slot
  * with one star rating — the club employs a roster of them, and each carries two
@@ -569,11 +651,14 @@ export interface ScoutCandidate extends Scout {
   availableDay?: number;
 }
 
-/** Prospect quality tiers (v14). A scout's judgement rolls one of these per
- * find; the tier fixes the band the prospect's overall and potential land in.
- * Platinum is the wonderkid tier — rare, and only realistically reachable with
- * a high-judgement scout. Bands live in tuning (PROSPECT_TIERS). */
-export type ProspectTier = "bronze" | "silver" | "gold" | "platinum";
+/** Prospect quality tiers (v14; diamond added v17). A scout's judgement rolls
+ * one of these per find; the tier fixes the band the prospect's overall and
+ * potential land in. Platinum is the wonderkid tier — rare, and only
+ * realistically reachable with a high-judgement scout. DIAMOND sits above it as
+ * the generational talent: roughly 10× rarer than platinum at every judgement
+ * rating, so most saves never see one. Bands live in tuning
+ * (prospectTierBands). */
+export type ProspectTier = "bronze" | "silver" | "gold" | "platinum" | "diamond";
 
 /** One scout out on assignment (v5). Each scout the club can field (capacity
  * grows with the Scouting Network facility) may be pointed at a country and a
@@ -605,7 +690,9 @@ export interface ProspectReport {
   id: string;
   player: PlayerBio;
   fee: number;
-  note: string;
+  /** Legacy scout flavour line (v18 removed it from the report card). Kept
+   * optional so pre-v18 saves still parse; nothing reads it. */
+  note?: string;
   day: number;
   expiresDay: number;
   /** Which region the scout found them in (v5, for display). */
@@ -623,12 +710,29 @@ export interface ProspectReport {
   scoutId?: string;
 }
 
-/** One abstract U21 opponent: a strength number wearing a parent club's name.
- * Never a roster (§4 sim-league performance rule applies to youth football). */
+/** How a club treats offers for its own registered prospects (v18). The stance
+ * is rolled per club per competition and drives the asking price youth scouting
+ * has to beat — see `lib/config/tuning.ts` u21SellStance*. */
+export type U21SellStance = "willing" | "premium" | "unwilling";
+
+/** One U21 opponent: a strength number wearing a parent club's name, plus the
+ * seven prospects it registered for the competition (v18).
+ *
+ * The §4 sim-league performance rule still holds for the world at large — this
+ * is a bounded exception: only the 11 sides in the user's own U21 league carry
+ * rosters, and only the 7 registered names each, because youth scouting needs
+ * something real to look at. Their prospects are stored in `state.players` like
+ * anyone else so the profile screen, valuation and transfer code all just work. */
 export interface U21Opponent {
   name: string;
   short: string;
   strength: number;
+  /** Parent club id — the side is that club's U21 team. */
+  clubId?: string;
+  /** The 7 prospects registered for this competition (ids into state.players). */
+  prospectIds?: string[];
+  /** This club's stance on selling its registered prospects, rolled per competition. */
+  sellStance?: U21SellStance;
 }
 
 export interface U21TableRow {
@@ -653,14 +757,29 @@ export interface U21Result {
   scorers: string[];
 }
 
-/** The academy's U21 league season (§18): 12 teams, double round-robin,
- * one midweek match a week, resolved statistically with zero interaction. */
+/** One running of the U21 league (§18 v18): 12 teams, double round-robin over 22
+ * rounds, resolved statistically with zero interaction. Two of these run per
+ * season — the first kicking off a month after the senior season, the second
+ * once the first has finished — each with its own registration window. */
 export interface U21Season {
-  opponents: U21Opponent[]; // 11 abstract sides; the user U21s are team 0
+  /** Which running this is within the season: 0 = first, 1 = second (v18). */
+  half?: number;
+  opponents: U21Opponent[]; // 11 sides; the user U21s are team 0
   matchDays: number[]; // 22 midweek days
   roundsPlayed: number;
   table: U21TableRow[];
   results: U21Result[]; // user matches only
+  /** Last day the user may register a side. Registration closes the day before
+   * the first round; miss it and the entry is forfeited (v18). */
+  registrationDay?: number;
+  /** The 7 academy players the user registered for this competition. Empty until
+   * they submit; the U21 side is drawn only from these once set (v18). */
+  registered?: string[];
+  /** Set when the user failed to register in time and a randomly drawn side took
+   * their place for this running. The league plays on; the user sits it out. */
+  forfeited?: boolean;
+  /** Name of the side that replaced the user after a forfeit, for the table. */
+  replacedBy?: string;
 }
 
 export interface AcademyState {
@@ -681,7 +800,14 @@ export interface AcademyState {
   reports: ProspectReport[];
   /** Legacy global cadence (v4); the live cadence is per-assignment. */
   nextReportDay: number;
+  /** The competition currently running (or the next one due). */
   u21: U21Season;
+  /** The season's second U21 competition, built at rollover alongside the first
+   * and swapped into `u21` when the first finishes (v18). */
+  u21Next?: U21Season;
+  /** Finished U21 competitions from this season, oldest first — kept so the
+   * first half's final table survives the swap (v18). */
+  u21History?: U21Season[];
   lastIntake: { season: number; playerIds: string[]; golden: boolean } | null;
 }
 
@@ -717,6 +843,12 @@ export interface GameState {
    * so index 0 is still the top flight and `divisionIds[1]` still reads as the
    * second tier wherever that was assumed. */
   divisionIds: string[];
+  /** How many divisions each included country runs (v17), keyed by country code
+   * — e.g. `{ ENG: 2, GER: 3, FRA: 1 }`. The user sets this per country at
+   * setup, so a save can run a deep English pyramid alongside a single-division
+   * France. The playable country's entry always matches `divisionIds.length`;
+   * view-only countries use theirs purely to size their generated ladder. */
+  divisionDepths?: Record<string, number>;
   season: number; // 1-based
   currentDay: number; // days since Jul 1 2025
   players: Record<string, PlayerBio>;

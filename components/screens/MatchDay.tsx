@@ -15,6 +15,7 @@ import {
   finalizeResult,
   type MatchState,
 } from "@/lib/engine/match";
+import { MENTALITY_OPTIONS, STYLE_OPTIONS, styleLabel } from "@/lib/config/formations";
 import { buildSideInput, headCoachMult } from "@/lib/selection";
 import { ensureUserLineup, matchSeed } from "@/lib/gameloop";
 import { Card, Crest, GhostButton, GoldButton, Section } from "../ui";
@@ -211,19 +212,19 @@ export default function MatchDayScreen() {
         <Card className="mb-5 p-4">
           <div className="display mb-2 text-sm font-semibold text-gold">HALF-TIME TEAM TALK</div>
           <div className="flex flex-wrap items-end gap-4">
-            {([["Mentality", ["Defensive", "Balanced", "Attacking"], halfTactic.mentality, (v: string) => setHalfTactic({ ...halfTactic, mentality: v as Mentality })],
-               ["Style", ["Possession", "Counter", "Direct"], halfTactic.style, (v: string) => setHalfTactic({ ...halfTactic, style: v as Style })]] as const).map(
+            {([["Mentality", MENTALITY_OPTIONS, halfTactic.mentality, (v: string) => setHalfTactic({ ...halfTactic, mentality: v as Mentality })],
+               ["Style", STYLE_OPTIONS, halfTactic.style, (v: string) => setHalfTactic({ ...halfTactic, style: v as Style })]] as const).map(
               ([label, opts, cur, apply]) => (
                 <div key={label}>
                   <div className="mb-1 text-[10px] uppercase tracking-widest text-faint">{label}</div>
-                  <div className="flex gap-1">
+                  <div className="flex flex-wrap gap-1">
                     {opts.map((o) => (
                       <button
                         key={o}
                         onClick={() => apply(o)}
                         className={`display rounded px-2.5 py-1 text-xs font-semibold ${cur === o ? "gold-grad text-black" : "border border-line text-dim"}`}
                       >
-                        {o}
+                        {label === "Style" ? styleLabel(o) : o}
                       </button>
                     ))}
                   </div>

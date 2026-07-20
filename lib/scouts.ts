@@ -217,14 +217,18 @@ export const TIER_LABEL: Record<ProspectTier, string> = {
   silver: "Silver",
   gold: "Gold",
   platinum: "Platinum",
+  diamond: "Diamond",
 };
 
-/** Tier accent colours, used by the report cards and the scout roster. */
+/** Tier accent colours, used by the report cards and the scout roster. Diamond
+ * gets a bright violet-white so a generational find is unmistakable next to
+ * platinum's cyan. */
 export const TIER_COLOR: Record<ProspectTier, string> = {
   bronze: "#b07a4a",
   silver: "#b9c0c8",
   gold: "#d9a441",
   platinum: "#7fe3e3",
+  diamond: "#c9a6ff",
 };
 
 /** Seed the department for a brand-new save: an empty roster and a shortlist. */

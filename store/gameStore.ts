@@ -7,7 +7,16 @@ import { create } from "zustand";
 import type { GameState, PlayerBio, ScreenId, Tactic } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
 import { generateWorld, type NewGameOptions } from "@/lib/worldgen";
-import { advanceUntilEvent, advanceOneDay, advanceToDay, applyMatchResult, afterUserMatch, type StopReason } from "@/lib/gameloop";
+import {
+  advanceUntilEvent,
+  advanceOneDay,
+  advanceToDay,
+  applyMatchResult,
+  afterUserMatch,
+  runSeasonRollover,
+  isSeasonComplete,
+  type StopReason,
+} from "@/lib/gameloop";
 import type { Fixture, MatchResult } from "@/lib/types";
 import { saveGame, loadGame, listSaves, deleteSave, exportSave, importSave, type SaveMeta } from "@/lib/save";
 import { cloudOwner } from "@/lib/cloud";
@@ -26,6 +35,8 @@ import {
   releaseFromAcademy,
   toggleFocus,
   toggleU21Squad,
+  registerU21Squad,
+  signU21Prospect,
   toggleLoanList,
   recallLoan,
   addScoutAssignment,
@@ -71,6 +82,8 @@ interface GameStore {
   continueGame: () => void;
   advanceDayOnce: () => void;
   simulateToDay: (targetDay: number) => void;
+  /** Take the season rollover (the END SEASON button). No-op mid-season. */
+  endSeason: () => void;
   applyUserResult: (fixture: Fixture, result: MatchResult) => void;
 
   setTrainingPlan: (playerId: string, planId: string) => void;
@@ -83,7 +96,7 @@ interface GameStore {
   setLineupSlot: (slotId: string, playerId: string | null) => void;
   clearLineup: () => void;
 
-  bid: (playerId: string, fee: number, terms?: { wage: number; years: number }) => BidOutcome;
+  bid: (playerId: string, fee: number, terms?: { wage: number; years: number; releaseClause?: number }) => BidOutcome;
   respondOffer: (offerId: string, response: "accept" | "reject" | "counter", amount?: number) => OfferResponse;
   toggleTransferList: (playerId: string) => void;
   hire: (candidateId: string) => void;
@@ -101,8 +114,8 @@ interface GameStore {
   setAssignment: (role: keyof TeamAssignments, playerId: string | null) => void;
 
   // Contracts (§10 v5)
-  negotiateContract: (playerId: string, wage: number, years: number) => OfferVerdict;
-  renewContract: (playerId: string, wage: number, years: number) => void;
+  negotiateContract: (playerId: string, wage: number, years: number, releaseClause?: number) => OfferVerdict;
+  renewContract: (playerId: string, wage: number, years: number, releaseClause?: number) => void;
 
   // Youth Academy (§18)
   academyPromote: (playerId: string) => void;
@@ -110,6 +123,8 @@ interface GameStore {
   academyRelease: (playerId: string) => void;
   academyToggleFocus: (playerId: string) => void;
   academyToggleU21Squad: (playerId: string) => void;
+  academyRegisterU21: (playerIds: string[]) => void;
+  academySignU21Prospect: (playerId: string) => void;
   academyToggleLoan: (playerId: string) => void;
   academyRecall: (playerId: string) => void;
   academyAddScout: (region: ScoutRegion, positions: ScoutPosGroup, archetypes?: string[], scoutId?: string) => void;
@@ -132,18 +147,67 @@ interface GameStore {
 // live reference and a "dirty" flag rather than snapshotting. A short debounce
 // coalesces rapid mutations; anything the browser could interrupt (tab hidden,
 // page unload) flushes immediately so a save is never a debounce window behind.
+//
+// Long-save cost (§13, v21): a save is tens of megabytes by season 100, and the
+// write path is the one place that whole graph is walked on the UI thread. Two
+// guards keep that off the critical path:
+//   • Writes never overlap. If a save is still in flight the next one is marked
+//     pending and runs after it, so a slow disk can't queue up a backlog of
+//     full-state writes that each cost more than the frame budget.
+//   • The debounce scales with how heavy the last write actually was, so a small
+//     early save stays snappy at 400ms while a huge late one backs off rather
+//     than re-serialising every 400ms mid-season.
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let dirtyGame: GameState | null = null;
+let saveInFlight = false;
+let savePending = false;
+/** The last game handed to a write — lets a departure force a cloud sync even
+ * when nothing is dirty. */
+let lastSavedGame: GameState | null = null;
+/** Wall-clock cost of the last completed write, used to pace the debounce. */
+let lastSaveMs = 0;
 
-function flushSave() {
+const SAVE_DEBOUNCE_MIN = 400;
+const SAVE_DEBOUNCE_MAX = 5_000;
+
+/** Back off proportionally to what a write costs: a save that takes 200ms is
+ * worth doing often; one that takes 2s is not worth doing every 400ms. */
+function saveDebounceMs(): number {
+  return Math.min(SAVE_DEBOUNCE_MAX, Math.max(SAVE_DEBOUNCE_MIN, lastSaveMs * 4));
+}
+
+function flushSave(flushCloud = false) {
   if (saveTimer) {
     clearTimeout(saveTimer);
     saveTimer = null;
   }
   const g = dirtyGame;
-  if (!g) return;
+  if (!g) {
+    // Nothing dirty, but a departure still wants the cloud copy current.
+    if (flushCloud && lastSavedGame) saveGame(lastSavedGame, true).catch(() => {});
+    return;
+  }
+  // A write is already running — let it finish and re-flush with whatever the
+  // state looks like then, rather than starting a second full-graph write.
+  if (saveInFlight) {
+    savePending = true;
+    return;
+  }
   dirtyGame = null;
-  saveGame(g).catch(() => {});
+  lastSavedGame = g;
+  saveInFlight = true;
+  const started = performance.now();
+  saveGame(g, flushCloud)
+    .catch(() => {})
+    .finally(() => {
+      lastSaveMs = performance.now() - started;
+      saveInFlight = false;
+      if (savePending) {
+        savePending = false;
+        dirtyGame = g;
+        flushSave();
+      }
+    });
 }
 
 function scheduleSave(g: GameState, immediate = false) {
@@ -153,17 +217,19 @@ function scheduleSave(g: GameState, immediate = false) {
     return;
   }
   if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(flushSave, 400);
+  saveTimer = setTimeout(flushSave, saveDebounceMs());
 }
 
 // Flush pending writes when the tab is backgrounded or closed — the debounce
 // window is exactly when saves were being lost on refresh/close before.
 if (typeof window !== "undefined") {
-  const flushNow = () => flushSave();
+  // Leaving the page is exactly when the cloud copy must be current — the next
+  // session could be on another device.
+  const flushNow = () => flushSave(true);
   window.addEventListener("pagehide", flushNow);
   window.addEventListener("beforeunload", flushNow);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") flushSave();
+    if (document.visibilityState === "hidden") flushSave(true);
   });
 }
 
@@ -246,7 +312,7 @@ export const useGame = create<GameStore>((set, get) => ({
   quitToMenu: () => {
     const g = get().game;
     dirtyGame = g; // flush any pending debounce for this game synchronously
-    flushSave();
+    flushSave(true); // leaving the save — make sure the cloud copy is current
     const owner = cloudOwner();
     if (owner) clearLastSave(owner); // don't auto-resume — the player asked for the menu
     set({ game: null, screen: "home", selectedPlayerId: null, lastStop: null });
@@ -304,12 +370,22 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   // Calendar "jump to this day" — force-sim (auto-plays user matches) to target.
+  // Clamps at the season end day; the rollover is taken via endSeason().
   simulateToDay: (targetDay) => {
     const g = get().game;
     if (!g || g.pendingMatchFixtureId) return;
     if (targetDay <= g.currentDay) return;
-    advanceToDay(g, targetDay);
-    set({ screen: "home", rev: get().rev + 1 });
+    const stop = advanceToDay(g, targetDay);
+    set({ lastStop: stop, screen: "home", rev: get().rev + 1 });
+    scheduleSave(g, true);
+  },
+
+  // END SEASON: the one place the rollover happens, always player-initiated.
+  endSeason: () => {
+    const g = get().game;
+    if (!g || g.pendingMatchFixtureId || !isSeasonComplete(g)) return;
+    runSeasonRollover(g);
+    set({ lastStop: null, screen: "home", rev: get().rev + 1 });
     scheduleSave(g, true);
   },
 
@@ -408,17 +484,17 @@ export const useGame = create<GameStore>((set, get) => ({
     return out;
   },
 
-  negotiateContract: (playerId, wage, years) => {
+  negotiateContract: (playerId, wage, years, releaseClause) => {
     const g = get().game;
     if (!g) return { kind: "rejected", wage, message: "No game." } as OfferVerdict;
-    return evaluateOffer(g, g.players[playerId], wage, years, TUNING);
+    return evaluateOffer(g, g.players[playerId], wage, years, TUNING, releaseClause);
   },
 
-  renewContract: (playerId, wage, years) => {
+  renewContract: (playerId, wage, years, releaseClause) => {
     const g = get().game;
     if (!g) return;
     const p = g.players[playerId];
-    applyContract(g, p, wage, years, TUNING);
+    applyContract(g, p, wage, years, TUNING, releaseClause);
     const len = p.contract ? p.contract.expirySeason - g.season + 1 : years;
     get().showToast(`${p.name} re-signed on a ${len}-year deal.`);
     get().bump(true);
@@ -590,6 +666,23 @@ export const useGame = create<GameStore>((set, get) => ({
     if (!g) return;
     const err = toggleU21Squad(g, playerId);
     if (err) get().showToast(err);
+    get().bump(true);
+  },
+
+  academyRegisterU21: (playerIds) => {
+    const g = get().game;
+    if (!g) return;
+    const err = registerU21Squad(g, playerIds, TUNING);
+    get().showToast(err ?? `Squad registered — ${playerIds.length} prospects submitted for the U21 competition.`);
+    get().bump(true);
+  },
+
+  academySignU21Prospect: (playerId) => {
+    const g = get().game;
+    if (!g) return;
+    const name = g.players[playerId]?.name ?? "The prospect";
+    const err = signU21Prospect(g, playerId, TUNING);
+    get().showToast(err ?? `${name} joins the academy.`);
     get().bump(true);
   },
 

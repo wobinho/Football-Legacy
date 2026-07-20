@@ -117,12 +117,41 @@ function upgradeIfNeeded(state: GameState): GameState {
 
 // ── Public API (local + cloud) ──────────────────────────────────────────────
 
-export async function saveGame(state: GameState): Promise<void> {
-  await localPut(state); // local cache is always written first (fast + offline)
-  if (await cloudEnabled()) {
+// Cloud writes are the expensive half of a save: IndexedDB takes the object by
+// structured clone, but the cloud body has to be JSON-serialised, which on a
+// season-100 save is tens of megabytes of string building on the UI thread.
+//
+// Local is the source of truth for *this* device and is always written, so the
+// cloud copy only has to be recent enough to move devices on — not identical
+// after every autosave. Syncing it on an interval (and on any explicit save)
+// keeps cross-device resume working while taking the serialisation cost off the
+// per-action path entirely.
+const CLOUD_SYNC_INTERVAL_MS = 60_000;
+let lastCloudSyncAt = 0;
+let cloudSyncInFlight = false;
+
+async function syncCloud(state: GameState, force: boolean): Promise<void> {
+  if (cloudSyncInFlight) return;
+  if (!force && Date.now() - lastCloudSyncAt < CLOUD_SYNC_INTERVAL_MS) return;
+  if (!(await cloudEnabled())) return;
+  cloudSyncInFlight = true;
+  try {
     // best-effort: a cloud hiccup must never lose the just-written local save
-    cloudSave(state).catch(() => {});
+    await cloudSave(state).catch(() => {});
+    lastCloudSyncAt = Date.now();
+  } finally {
+    cloudSyncInFlight = false;
   }
+}
+
+/**
+ * Autosave. Always writes local; syncs to the cloud at most once a minute.
+ * Pass `flushCloud` for the moments where the copy must be current no matter
+ * what — quitting to the menu, or the tab going away.
+ */
+export async function saveGame(state: GameState, flushCloud = false): Promise<void> {
+  await localPut(state); // local cache is always written first (fast + offline)
+  void syncCloud(state, flushCloud);
 }
 
 export async function loadGame(saveName: string): Promise<GameState | null> {

@@ -2,6 +2,7 @@
 
 // Home (§15.1): inbox, news ticker, next fixture, mini table — the spine.
 
+import { useState } from "react";
 import { useGame } from "@/store/gameStore";
 import { formatDay, formatDayShort } from "@/lib/calendar";
 import { computeTable } from "@/lib/season";
@@ -15,6 +16,8 @@ export default function HomeScreen() {
   const markRead = useGame((s) => s.markRead);
   const markAllRead = useGame((s) => s.markAllRead);
   const setScreen = useGame((s) => s.setScreen);
+  // One item open at a time — the inbox is a list of headlines you drill into.
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const team = game.teams[game.userTeamId];
   const mine = game.fixtures.filter((f) => f.homeId === game.userTeamId || f.awayId === game.userTeamId);
@@ -51,28 +54,50 @@ export default function HomeScreen() {
                 <div className="mt-1">Hit <span className="display text-gold">CONTINUE ▸</span> to start the season.</div>
               </Card>
             )}
-            {game.inbox.slice(0, 30).map((item) => (
-              <Card key={item.id} className={`p-3 ${item.read ? "opacity-60" : ""}`}>
-                <button className="w-full text-left" onClick={() => markRead(item.id)} title={item.read ? undefined : "Mark as read"}>
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className={`flex min-w-0 items-baseline gap-1.5 text-sm font-semibold ${!item.read ? "text-ink" : "text-dim"}`}>
-                      {!item.read && <span className="h-1.5 w-1.5 shrink-0 self-center rounded-full bg-gold" aria-label="Unread" />}
-                      {item.type === "offer" && <span className="gold-text">◈</span>}
-                      <span className="min-w-0">{item.title}</span>
-                    </span>
-                    <span className="shrink-0 text-[11px] tnum text-faint">{formatDayShort(item.day)}</span>
-                  </div>
-                  <p className="mt-1 text-[13px] leading-relaxed text-dim">{item.body}</p>
-                </button>
-                {item.offerId && game.offers.find((o) => o.id === item.offerId)?.status === "pending" && (
-                  <div className="mt-2">
-                    <GhostButton onClick={() => setScreen("transfers")} className="!py-1 text-xs">
-                      Respond in Transfers →
-                    </GhostButton>
-                  </div>
-                )}
-              </Card>
-            ))}
+            {game.inbox.slice(0, 30).map((item) => {
+              // Collapsed by default: the list reads as headlines, and opening
+              // one is the act that marks it read.
+              const open = expanded === item.id;
+              return (
+                <Card key={item.id} className={`p-3 ${item.read && !open ? "opacity-60" : ""}`}>
+                  <button
+                    className="w-full text-left"
+                    onClick={() => {
+                      setExpanded(open ? null : item.id);
+                      if (!open && !item.read) markRead(item.id);
+                    }}
+                    aria-expanded={open}
+                    title={open ? "Collapse" : "Read"}
+                  >
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className={`flex min-w-0 items-baseline gap-1.5 text-sm font-semibold ${!item.read ? "text-ink" : "text-dim"}`}>
+                        {!item.read && <span className="h-1.5 w-1.5 shrink-0 self-center rounded-full bg-gold" aria-label="Unread" />}
+                        {item.type === "offer" && <span className="gold-text">◈</span>}
+                        <span className="min-w-0">{item.title}</span>
+                      </span>
+                      <span className="flex shrink-0 items-baseline gap-2">
+                        <span className="text-[11px] tnum text-faint">{formatDayShort(item.day)}</span>
+                        <span className={`text-[10px] text-faint transition-transform ${open ? "rotate-90" : ""}`} aria-hidden>
+                          ▸
+                        </span>
+                      </span>
+                    </div>
+                  </button>
+                  {open && (
+                    <>
+                      <p className="mt-2 border-t border-line/60 pt-2 text-[13px] leading-relaxed text-dim">{item.body}</p>
+                      {item.offerId && game.offers.find((o) => o.id === item.offerId)?.status === "pending" && (
+                        <div className="mt-2">
+                          <GhostButton onClick={() => setScreen("transfers")} className="!py-1 text-xs">
+                            Respond in Transfers →
+                          </GhostButton>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </Card>
+              );
+            })}
           </div>
         </Section>
       </div>

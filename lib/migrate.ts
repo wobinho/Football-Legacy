@@ -9,13 +9,13 @@ import { buildSeasonSchedule } from "./calendar";
 import { initAcademyState } from "./academy";
 import { ensureContracts } from "./contracts";
 import { migrateOldRegion } from "./config/scouting";
-import { refreshSponsorOffers } from "./sponsors";
+import { aiCommercialIncome, refreshSponsorOffers } from "./sponsors";
 import { RETIRED_TRAIT_IDS, TRAIT_MAP } from "./config/traits";
 import { overallFromAttrs } from "./config/positions";
 import { getArchetype, DEFAULT_HEIGHT_CM } from "./config/archetypes";
 import { assignAllKitNumbers } from "./kitnumbers";
 import { trackBiggestWin } from "./recordbook";
-import { hashString, mulberry32, randNormal, uid } from "./rng";
+import { deriveSeed, hashString, mulberry32, pickWeighted, randNormal, uid } from "./rng";
 
 /**
  * v1 → v2: the position enum split FB → LB/RB and W → LW/RW. Old players stored
@@ -438,6 +438,22 @@ export function migrateSave(state: GameState): GameState {
     migrateV15toV16(state);
     state.schemaVersion = 16;
   }
+  if (state.schemaVersion < 17) {
+    migrateV16toV17(state);
+    state.schemaVersion = 17;
+  }
+  if (state.schemaVersion < 18) {
+    migrateV17toV18(state, TUNING);
+    state.schemaVersion = 18;
+  }
+  if (state.schemaVersion < 19) {
+    migrateV18toV19(state, TUNING);
+    state.schemaVersion = 19;
+  }
+  if (state.schemaVersion < 20) {
+    migrateV19toV20(state);
+    state.schemaVersion = 20;
+  }
   // future migrations chain here
   state.schemaVersion = SCHEMA_VERSION;
   return state;
@@ -458,6 +474,178 @@ function migrateV15toV16(state: GameState): void {
   for (const f of state.fixtures) {
     if (!f.played || typeof f.homeGoals !== "number" || typeof f.awayGoals !== "number") continue;
     trackBiggestWin(state, f, f.homeGoals, f.awayGoals);
+  }
+}
+
+/**
+ * v16 → v17: the Diamond prospect tier, per-country division depth, and the
+ * re-shaped youth growth curve.
+ *
+ * Nothing stored needs rewriting. Diamond only ever appears on prospects rolled
+ * from v17 onward, so existing reports keep their tier; the growth curve is
+ * computed fresh from tuning at every rollover, so old players simply develop on
+ * the corrected curve from the next summer. Per-country depth is backfilled from
+ * the save's existing single-country ladder in `divisionDepths` so promotion and
+ * relegation keep running exactly as before.
+ */
+function migrateV16toV17(state: GameState): void {
+  // The v12–v16 ladder was one country deep; record it per-country so the new
+  // multi-country structure reads the same world back.
+  state.divisionDepths ??= { [state.playableCountry]: state.divisionIds.length };
+
+  // Scout targets moved from full country names ("England") to the nationality
+  // codes the SCOUT_WORLD tree keys on ("ENG"). Remap live assignments, stored
+  // reports and the legacy single-scout focus so saved briefs keep pointing at
+  // the country they were aimed at.
+  for (const a of state.academy?.assignments ?? []) {
+    a.region = migrateOldRegion(a.region);
+  }
+  for (const r of state.academy?.reports ?? []) {
+    if (r.region) r.region = migrateOldRegion(r.region);
+  }
+  const focus = state.academy?.scoutFocus;
+  if (focus) focus.region = migrateOldRegion(focus.region);
+}
+
+/**
+ * v17 → v18: two U21 competitions a season with registration windows, rival U21
+ * prospect rosters, and the floor-based potential star scale.
+ *
+ * The in-flight competition is preserved exactly as it stands — rounds played,
+ * table and results all carry over — and is simply relabelled as the season's
+ * first running. What it lacks is the v18 furniture: a half index, a
+ * registration deadline, and rosters for the eleven rival sides. The deadline is
+ * backdated to before the current day and the existing squad is auto-registered,
+ * so a save mid-competition is never retroactively forfeited for missing a
+ * window that did not exist when it was played.
+ */
+function migrateV17toV18(state: GameState, cfg: typeof TUNING): void {
+  const ac = state.academy;
+  if (!ac?.u21) return;
+  const u21 = ac.u21;
+  u21.half ??= 0;
+  u21.registered ??= [];
+  ac.u21History ??= [];
+
+  // Grandfather the running competition: a deadline already in the past plus a
+  // registered seven means enforceU21Registration leaves it alone.
+  u21.registrationDay ??= (u21.matchDays[0] ?? state.currentDay) - cfg.u21RegistrationLeadDays;
+  if (u21.registered.length === 0) {
+    const team = state.teams[state.userTeamId];
+    const pool = (team?.academyPlayerIds ?? [])
+      .map((id) => state.players[id])
+      .filter((p) => p && !p.retired && !p.loan);
+    const gk = pool.find((p) => p.positions[0] === "GK");
+    const rest = pool.filter((p) => p !== gk).sort((a, b) => b.overall - a.overall);
+    const seven = [...(gk ? [gk] : []), ...rest].slice(0, cfg.u21RegistrationSize);
+    // Only a legal seven counts as registered; a short academy stays unregistered
+    // and will simply be prompted to register for the next competition.
+    if (seven.length === cfg.u21RegistrationSize && gk) u21.registered = seven.map((p) => p.id);
+    else u21.registrationDay = state.currentDay + cfg.u21RegistrationLeadDays;
+  }
+
+  // Rival sides predate rosters; rebuilding them is left to the next competition
+  // (buildU21Season fills them in). Existing opponents just gain a stance so any
+  // prospect list the UI does find is priceable.
+  const rng = mulberry32(deriveSeed(state.seed, `u21migrate:${state.season}`));
+  for (const o of u21.opponents ?? []) {
+    o.sellStance ??= pickWeighted(rng, ["willing", "premium", "unwilling"] as const, (s) => cfg.u21SellStanceWeights[s]);
+  }
+}
+
+/**
+ * v18 → v19: six playing styles, the Wide attacking focus, a widened sponsor
+ * portfolio, per-deal negotiation patience, AI commercial income, worldwide
+ * scouting, the in-season growth badge, Sponsor Marketability, and the
+ * game-wide minimum player age.
+ *
+ * Most of the new surface is additive and optional, so the work here is limited
+ * to the five places where an old save would otherwise read wrong:
+ *
+ *  0. The age floor. Saves made before it can hold 12- and 13-year-old academy
+ *     intakes. Rather than delete them — they may be prospects the user has
+ *     developed for seasons — each is aged up to the new minimum: the player
+ *     keeps his identity, contract and scouting history, and the maturity curve
+ *     simply reads him at the floor from here on. His current ability isn't
+ *     rewritten, so he arrives slightly raw for his age and grows out of it.
+ *  1. `seasonStartOverall` — the growth badge's baseline. Backfilled to each
+ *     player's CURRENT overall rather than left unset, so a migrated save opens
+ *     showing "no movement yet" instead of inventing a delta against a baseline
+ *     that was never recorded.
+ *  2. AI commercial income — priced immediately, since the market's affordability
+ *     checks now read it and a club with none would look broke and stop trading.
+ *  3. The `apparel` slot changed kind (minor → major). A deal signed under the
+ *     old rules keeps paying weekly for the rest of its term, because retroactively
+ *     converting it to a lump sum would either hand the user free money or
+ *     silently cancel income they had planned around.
+ *  4. Live negotiations get patience seeded so an offer mid-haggle doesn't jump
+ *     straight to "about to walk away".
+ *
+ * Styles and focus need no work: the new values only ever appear on tactics set
+ * from v19 onward, and the engine's style/focus lookups fall back to a neutral
+ * shape for anything it doesn't recognise. Sponsor Marketability needs nothing
+ * stored either — the star rating is derived from the live squad when read.
+ */
+function migrateV18toV19(state: GameState, cfg: TuningConfig): void {
+  for (const p of Object.values(state.players)) {
+    // 0. Age floor.
+    if (typeof p.age === "number" && p.age < cfg.intakeAgeMin) p.age = cfg.intakeAgeMin;
+    // 1. Growth-badge baseline.
+    p.seasonStartOverall ??= p.overall;
+  }
+
+  // 2. AI clubs get a commercial department. Priced now (not at the next
+  //    rollover) because canAfford() reads it the moment a window opens.
+  for (const team of Object.values(state.teams)) {
+    if (team.id === state.userTeamId) continue;
+    if (!state.leagues[team.leagueId]?.playable) continue;
+    team.commercialIncome ??= aiCommercialIncome(state, team.id, cfg);
+  }
+
+  // 3. Signed deals are deliberately left exactly as they are. A weekly-paying
+  //    `apparel` deal keeps paying weekly for the rest of its term even though
+  //    that slot is now a lump-sum major: the deal's own `kind`/`weeklyAmount`
+  //    drive the income maths, so it stays consistent, and the user keeps the
+  //    income they planned around. Only the next offer in that slot is a major.
+  //
+  //    Offers still on the table for a slot that changed kind are withdrawn rather
+  //    than reinterpreted: an offer card showing weekly money that would now be
+  //    signed as a lump sum is worse than no offer at all. The slot simply
+  //    regenerates on the next daily refresh.
+  const userTeam = state.teams[state.userTeamId];
+  if (userTeam?.sponsorOffers) {
+    userTeam.sponsorOffers = userTeam.sponsorOffers.filter((o) => {
+      const nowMajor = cfg.sponsorMajorSlots.includes(o.slot);
+      const wasMajor = o.kind === "major";
+      return nowMajor === wasMajor;
+    });
+  }
+
+  // 4. Seed patience on live negotiations so a mid-haggle offer reads sensibly.
+  for (const offer of state.offers) {
+    if (offer.status !== "pending") continue;
+    offer.patienceMax ??= cfg.negotiationPatienceMax;
+    // Charge for rounds already spent, so a user deep into talks doesn't get a
+    // full bar handed back to them.
+    const spent = (offer.negotiationRound ?? 0) * cfg.negotiationPatienceCostBase;
+    offer.patience ??= Math.max(cfg.negotiationPatienceCostBase, offer.patienceMax - spent);
+  }
+}
+
+/**
+ * v19 → v20: three new revenue facilities (membership, events, academy
+ * partnerships) and optional contract release clauses.
+ *
+ * Both are purely additive. The new facilities start at level 0, exactly as a
+ * new save would, so no existing club is handed income it never bought. Release
+ * clauses are absent on every existing contract, which is the correct reading —
+ * nobody agreed to one — and `askPrice` only consults the field when it's set.
+ */
+function migrateV19toV20(state: GameState): void {
+  for (const team of Object.values(state.teams)) {
+    team.membershipLevel ??= 0;
+    team.eventsLevel ??= 0;
+    team.academyPartnerLevel ??= 0;
   }
 }
 

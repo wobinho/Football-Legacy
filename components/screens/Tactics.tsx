@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { DefLine, Focus, Mentality, PlayerBio, Press, Style, TeamAssignments, Tempo, Width } from "@/lib/types";
-import { FORMATIONS, getFormation } from "@/lib/config/formations";
+import { FORMATIONS, getFormation, MENTALITY_OPTIONS, STYLE_OPTIONS, styleLabel } from "@/lib/config/formations";
 import { getArchetype } from "@/lib/config/archetypes";
 import { positionFit } from "@/lib/config/positions";
 import { TUNING } from "@/lib/config/tuning";
@@ -13,13 +13,13 @@ import { selectionScore } from "@/lib/selection";
 import { ensureUserLineup } from "@/lib/gameloop";
 import { Flag, GhostButton, Modal, Ovr, PlayerSelect, PosBadge, Section, TraitChip } from "../ui";
 
-const MENTALITIES: Mentality[] = ["Defensive", "Balanced", "Attacking"];
-const STYLES: Style[] = ["Possession", "Counter", "Direct"];
+const MENTALITIES = MENTALITY_OPTIONS;
+const STYLES = STYLE_OPTIONS;
 const TEMPOS: Tempo[] = ["Slow", "Standard", "High"];
 const WIDTHS: Width[] = ["Narrow", "Standard", "Wide"];
 const PRESSES: Press[] = ["Low", "Medium", "High"];
 const LINES: DefLine[] = ["Deep", "Standard", "High"];
-const FOCI: Focus[] = ["Left", "Central", "Right", "Mixed"];
+const FOCI: Focus[] = ["Left", "Central", "Right", "Wide", "Mixed"];
 
 // Plain-language "what this does" copy for every instruction. Shown under each
 // control so the user always knows how their choice bends the simulation. The
@@ -48,6 +48,9 @@ const OPTION_DETAIL: Record<string, string> = {
   Possession: "Patient build-up; rewards passers & playmakers.",
   Counter: "Soak and break; rewards pace & direct runners.",
   Direct: "Go forward fast; rewards target men & physical play.",
+  Gegenpress: "Win it back instantly, high up — dominant but exhausting.",
+  ParkTheBus: "A defensive shell: concede the ball, concede almost nothing else.",
+  WingPlay: "Attack through the flanks; goals come from wide areas.",
   Slow: "Fewer chances, less fatigue.",
   High: "More chances, more fatigue.",
   Narrow: "Overload the centre.",
@@ -59,6 +62,12 @@ const OPTION_DETAIL: Record<string, string> = {
   Central: "Attack through the middle.",
   Right: "Attack down the right.",
   Mixed: "No fixed bias.",
+};
+
+/** Focus needs its own copy for "Wide": the label is shared with the Width
+ * instruction, where it means something quite different. */
+const FOCUS_DETAIL: Partial<Record<Focus, string>> = {
+  Wide: "Both flanks equally — feeds two wingers, not one.",
 };
 
 // ── Numeric effect labels ──────────────────────────────────────────────────
@@ -86,11 +95,20 @@ function effectsFor(label: string, option: string): Effect[] {
       push("chances (both sides)", T.mentalityChanceMult[option as Mentality]);
       push("your defense", T.mentalityDefenseMult[option as Mentality]);
       break;
-    case "Style":
-      // Style has no flat team multiplier: it applies a per-player archetype
-      // synergy inside a ±cap band. Handled specially by EffectTags so the
-      // label reads as a two-sided range, not a straight bonus.
+    case "Style": {
+      // Beyond the per-player archetype synergy (handled specially by
+      // EffectTags), each style carries an intrinsic shape (v19) — this is what
+      // separates Gegenpress from Counter at the team level.
+      const shape = T.styleShape?.[option as Style];
+      if (shape) {
+        push("your midfield", shape.midfield);
+        push("your defense", shape.defense);
+        push("chances conceded", shape.oppChance);
+        push("fitness drain", shape.fitnessDrain);
+        if (shape.wideBias) out.push({ label: "wide goal involvement", mult: 1 + shape.wideBias });
+      }
       break;
+    }
     case "Tempo":
       push("chances (both sides)", T.tempoChanceMult[option as Tempo]);
       push("fitness drain", T.tempoFitnessDrainMult[option as Tempo]);
@@ -109,7 +127,10 @@ function effectsFor(label: string, option: string): Effect[] {
       push("chances conceded", T.lineOppChanceMult[option as DefLine]);
       break;
     case "Focus":
-      if (option !== "Mixed") {
+      if (option === "Wide") {
+        // Both flanks get the same lift a one-sided focus gives its own side.
+        out.push({ label: "left & right goal involvement", mult: 1 + T.focusFlankBias });
+      } else if (option !== "Mixed") {
         out.push({ label: `${option.toLowerCase()}-side goal involvement`, mult: 1 + T.focusFlankBias });
       }
       break;
@@ -174,8 +195,8 @@ function synergyOf(p: PlayerBio, style: Style): number {
 function SynergyDot({ p, style }: { p: PlayerBio; style: Style }) {
   const s = synergyOf(p, style);
   const pct = Math.round((s - 1) * 100);
-  if (pct > 2) return <span className="text-win" title={`+${pct}% in ${style}`}>▲</span>;
-  if (pct < -2) return <span className="text-loss" title={`${pct}% in ${style}`}>▼</span>;
+  if (pct > 2) return <span className="text-win" title={`+${pct}% in ${styleLabel(style)}`}>▲</span>;
+  if (pct < -2) return <span className="text-loss" title={`${pct}% in ${styleLabel(style)}`}>▼</span>;
   return <span className="text-faint" title="Neutral">•</span>;
 }
 
@@ -194,23 +215,31 @@ function Instruction<T extends string>({
   /** Style row only: the current XI's average synergy, as a percentage. */
   styleFit?: number;
 }) {
+  // Focus overrides the shared copy for "Wide" (Width uses the same word for a
+  // different idea); Style renders presentable names for its camel-case ids.
+  const detailFor = (o: string) =>
+    (label === "Focus" ? FOCUS_DETAIL[o as Focus] : undefined) ?? OPTION_DETAIL[o] ?? "";
+  const textFor = (o: string) => (label === "Style" ? styleLabel(o) : o);
+
   return (
     <div>
-      <div className="mb-1.5 flex items-baseline justify-between">
-        <span className="text-[11px] uppercase tracking-widest text-faint">{label}</span>
-        <span className="text-[10px] text-faint">{OPTION_DETAIL[current] ?? ""}</span>
+      <div className="mb-1.5 flex items-baseline justify-between gap-2">
+        <span className="shrink-0 text-[11px] uppercase tracking-widest text-faint">{label}</span>
+        <span className="text-right text-[10px] text-faint">{detailFor(current)}</span>
       </div>
-      <div className="flex gap-1.5">
+      {/* Wrap rather than a single row: Style now offers six options, which do
+          not fit side by side on a phone. */}
+      <div className="flex flex-wrap gap-1.5">
         {options.map((o) => (
           <button
             key={o}
             onClick={() => onPick(o)}
-            title={OPTION_DETAIL[o]}
-            className={`display flex-1 rounded px-2 py-1.5 text-xs font-semibold ${
+            title={detailFor(o)}
+            className={`display min-w-[5.5rem] flex-1 rounded px-2 py-1.5 text-xs font-semibold ${
               current === o ? "gold-grad text-black" : "border border-line text-dim hover:text-ink"
             }`}
           >
-            {o}
+            {textFor(o)}
           </button>
         ))}
       </div>
@@ -375,7 +404,7 @@ export default function TacticsScreen() {
               )}
             </div>
             <p className="text-[11px] leading-relaxed text-faint">
-              ▲▼ marks show each player&apos;s fit with <b className="text-dim">{tactic.style}</b>.
+              ▲▼ marks show each player&apos;s fit with <b className="text-dim">{styleLabel(tactic.style)}</b>.
             </p>
           </div>
         </Section>

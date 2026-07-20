@@ -10,8 +10,10 @@ design session before changing, `[FUTURE]` must not be built but must not be blo
 - `npm run build` — production build + typecheck
 - `npm run calibrate [n]` — match-engine calibration harness (targets: ~2.7 goals/match, ~45% home wins)
 - `npx tsx scripts/smoke.ts [seasons]` — headless multi-season simulation (loop/rollover/cup/transfer sanity)
+- `npx tsx scripts/perf.ts [seasons] [sampleEvery]` — long-save scaling harness: player/career growth, save size, serialisation and rollover cost, extrapolated to S100
 - `node scripts/ui-test.mjs` — end-to-end UI drive via headless Edge (dev server must be running)
 - `node scripts/ui-test-mobile.mjs` — same at a 390×844 phone viewport (Academy/Scouting focus)
+- `node scripts/ui-test-season.mjs` — plays a full season, then exercises the finances breakdowns and the season-review modal
 
 ## Architecture (mirrors GAME_DESIGN.md §2 module map)
 
@@ -24,6 +26,7 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
 - `lib/engine/match.ts` — pure seeded match engine, 6×15-min segments; `simulateMatch()` one-shot, or `createMatch/playFirstHalf/applyHalftimeTactic/playSecondHalf/finalizeResult` for the live view
 - `lib/gameloop.ts` — Continue-button orchestrator (`advanceUntilEvent`), season rollover
 - `lib/worldgen.ts`, `lib/season.ts`, `lib/simresolver.ts`, `lib/development.ts`, `lib/economy.ts`, `lib/transfers.ts`, `lib/staff.ts`, `lib/recordbook.ts`, `lib/save.ts` (IndexedDB), `lib/selection.ts` (XI picking), `lib/value.ts`, `lib/calendar.ts`, `lib/rng.ts` (mulberry32, derived seeds)
+- `lib/archive.ts` — long-save maintenance: `activePlayers()` (living-world iteration for the hot passes) and the rollover's `pruneRetired()` compaction. Full-world passes should use `activePlayers()`, never `Object.values(state.players)`, unless they genuinely need retirees.
 - `components/screens/` — the 8 screens (§15); `components/ui.tsx` — design primitives
 
 ## Rules that matter

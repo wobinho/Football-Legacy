@@ -4,11 +4,12 @@
 import type { GameState, SeasonSummary, PlayerBio } from "./types";
 import { computeTable } from "./season";
 import { seasonYearLabel } from "./calendar";
+import { activePlayers } from "./archive";
 
 function topScorerOf(state: GameState, leagueId: string): { playerId: string; name: string; teamName: string; goals: number } | null {
   let best: PlayerBio | null = null;
-  for (const p of Object.values(state.players)) {
-    if (!p.clubId || p.retired) continue;
+  for (const p of activePlayers(state)) {
+    if (!p.clubId) continue;
     if (state.teams[p.clubId]?.leagueId !== leagueId) continue;
     if (!best || p.stats.goals > best.stats.goals) best = p;
   }
@@ -24,8 +25,8 @@ function topScorerOf(state: GameState, leagueId: string): { playerId: string; na
 function bestRated(state: GameState, leagueId: string, maxAge?: number): PlayerBio | null {
   let best: PlayerBio | null = null;
   let bestScore = 0;
-  for (const p of Object.values(state.players)) {
-    if (!p.clubId || p.retired) continue;
+  for (const p of activePlayers(state)) {
+    if (!p.clubId) continue;
     if (state.teams[p.clubId]?.leagueId !== leagueId) continue;
     if (maxAge !== undefined && p.age > maxAge) continue;
     if (p.stats.apps < 15) continue;

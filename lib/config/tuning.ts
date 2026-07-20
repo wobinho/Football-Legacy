@@ -45,8 +45,26 @@ export interface TuningConfig {
   /** Defensive line height: trades defense solidity for chance suppression vs exposure. */
   lineDefenseMult: { Deep: number; Standard: number; High: number };
   lineOppChanceMult: { Deep: number; Standard: number; High: number };
-  /** Attacking focus biases scorer/assist weighting toward a flank or the centre. */
+  /** Attacking focus biases scorer/assist weighting toward a flank or the centre.
+   * "Wide" (v19) applies this same bias to BOTH flanks at once. */
   focusFlankBias: number; // extra scorer weight applied to the emphasised side (0..1)
+
+  // ── Style shapes (v19) ──
+  /** Each playing style carries an intrinsic shape beyond its per-archetype
+   * synergy: how much of the ball it wins, how exposed it leaves the back line,
+   * and what it costs in legs. This is what makes Gegenpress feel like pressing
+   * and Park the Bus feel like a shell, without the engine ever naming a style.
+   *
+   * Applied multiplicatively alongside the existing instruction multipliers:
+   *   midfield      → own midfield share (chance volume)
+   *   defense       → own defensive solidity
+   *   oppChance     → chances the OPPONENT generates (exposure)
+   *   fitnessDrain  → own fitness cost
+   *   wideBias      → extra scorer/assist weight for wide roles (flank routing) */
+  styleShape: Record<
+    Style,
+    { midfield: number; defense: number; oppChance: number; fitnessDrain: number; wideBias: number }
+  >;
 
   // ── Set pieces (v6, EA-FC-style assignments) ──
   penaltyChance: number; // chance a given chance is a penalty
@@ -128,6 +146,17 @@ export interface TuningConfig {
   // fading to 1× as overall approaches `growthCatchupBelow`.
   growthCatchupBelow: number; // overall below which the catch-up boost applies
   growthCatchupMult: number; // max growth multiplier at the quality floor
+  // Age → growth-rate curve (v17). Growth used to scale linearly with how far a
+  // player sat below growthEndAge, which made the YOUNGEST player the fastest
+  // developer — a 12-year-old projected +19 in a season. That is backwards:
+  // a pre-teen is physically nowhere near able to add a dozen overall in a year.
+  // The curve now PEAKS in the late teens (growthPeakAge) and falls away on both
+  // sides, so 16–19 is the breakout window and the very young improve slowly.
+  growthPeakAge: number; // age at which the growth multiplier is at its max
+  growthPeakMult: number; // multiplier at the peak age
+  growthYoungFalloffPerYear: number; // multiplier lost per year BELOW the peak
+  growthOldFalloffPerYear: number; // multiplier lost per year ABOVE the peak
+  growthAgeMultFloor: number; // the curve never drops below this
   retirementAgeMin: number;
   retirementAgeMax: number;
 
@@ -168,6 +197,15 @@ export interface TuningConfig {
   hospitalityIncomePerLevel: number; // corporate boxes & premium seating
   retailUpgradeCost: number[];
   retailIncomePerLevel: number; // megastore + online merchandising
+  // Three further revenue streams (v21). Same one-time-cost-per-level pattern —
+  // deliberately cheaper and lower-yielding than the landmark facilities so they
+  // read as the early-game ladder a smaller club can actually climb.
+  membershipUpgradeCost: number[];
+  membershipIncomePerLevel: number; // supporters' club & season-ticket scheme
+  eventsUpgradeCost: number[];
+  eventsIncomePerLevel: number; // concerts & conferences at the ground
+  academyPartnerUpgradeCost: number[];
+  academyPartnerIncomePerLevel: number; // feeder-club & community partnerships
 
   // Staff market (v6) — dismiss-to-refresh cadence.
   staffRefreshDays: number; // days until a dismissed slot's new crop arrives
@@ -179,6 +217,27 @@ export interface TuningConfig {
   sponsorSlotShare: Record<string, number>; // per-slot fraction of the shirt baseline
   sponsorTierMults: number[]; // offer tier multipliers (Regional/National/Global)
   sponsorMarketabilityFactor: number; // how strongly squad marketability lifts offers
+  /** ── Sponsor Marketability, the 1–5 star rating (v20) ──
+   *
+   * The raw marketability sum (weighted `marketabilityBonus` across the senior
+   * squad) is cut into stars here. `sponsorMarketabilityStarThresholds[i]` is
+   * the raw value at which the club reaches (i+2) stars — so a club below
+   * thresholds[0] is 1★ and one above the last is 5★. Everything the rating
+   * drives reads off these cuts, which keeps the star the user sees and the
+   * money the club banks the same quantity. Currently only players holding a
+   * trait with a `marketabilityBonus` (Marketable and friends) feed it. */
+  sponsorMarketabilityStarThresholds: number[];
+  /** Extra offer money per star above the first (0.25 = +25% per star). */
+  sponsorMarketabilityPerStar: number;
+  /** Extra tier pull per star above the first — how much more often a marketable
+   * club is shown National/Global brands rather than Regional ones. */
+  sponsorMarketabilityTierPull: number;
+  /** Extra concurrent live offers per star above the first: the "how many
+   * sponsors come calling" half of the feature. Rounded. */
+  sponsorMarketabilityOffersPerStar: number;
+  /** Fraction a slot's post-lapse cooldown shortens per star above the first, so
+   * suitors return quicker to a club brands actually want. Clamped at 80%. */
+  sponsorMarketabilityCooldownPerStar: number;
   sponsorLengthMin: number; // shortest deal offered (seasons)
   sponsorLengthMax: number; // longest deal offered
   sponsorOfferExpiryDays: number; // an unsigned offer expires after this many days
@@ -197,14 +256,33 @@ export interface TuningConfig {
   sponsorDeadlineDaysMinor: number; // days a minor offer stays on the table
   sponsorCooldownDaysMin: number; // shortest quiet spell after a lapsed/passed offer
   sponsorCooldownDaysMax: number; // longest quiet spell
-  /** Cap on concurrently-signed major deals. Majors pay a lump sum on signing,
-   * so without a cap the user can hold every major at once and re-sign short
-   * ones each season for repeated windfalls. Keeps the big money a choice. */
-  sponsorMaxActiveMajors: number;
   /** Minimum length for a major deal, in seasons. Enforced at offer generation
    * so a lump sum is always a multi-season commitment rather than a yearly
    * re-signable windfall. */
   sponsorMajorMinSeasons: number;
+  /** Per-slot concurrent-deal capacity (v19). Replaces the old global
+   * `sponsorMaxActiveMajors` cap: scarcity now lives in the slot table, where it
+   * makes football sense. A club has exactly one front-of-shirt sponsor and one
+   * kit manufacturer, but can carry several regional partners at once. Keyed by
+   * SponsorSlot; a slot absent here defaults to 1. */
+  sponsorSlotCapacity: Record<string, number>;
+  /** How many sponsor offers may sit on the table at once across all slots, so a
+   * club with a dozen open slots isn't buried in decisions each week. This is the
+   * BASE figure — Sponsor Marketability raises it (see below). */
+  sponsorMaxLiveOffers: number;
+
+  // AI club commercial income (v19). AI clubs don't run the offer machinery;
+  // each carries one derived weekly figure standing in for its whole portfolio.
+  /** Weekly £ per reputation point of abstract AI commercial income. */
+  aiCommercialPerReputation: number;
+  /** Multiplier on AI commercial income by division tier (index = tier-1). */
+  aiCommercialTierMult: number[];
+  /** Seeded ± variance band on an AI club's commercial income, so equally-sized
+   * clubs don't all bank identical money. */
+  aiCommercialVariance: number;
+  /** An AI club's seasonal lump-sum investment windfall, as a multiple of its
+   * weekly commercial income — the AI-side analogue of a major deal. */
+  aiInvestmentWindfallWeeks: number;
 
   // Training facilities (Player Development). One-time upgrade cost per level;
   // no weekly income — they speed development / recovery instead. Costs are a
@@ -255,6 +333,19 @@ export interface TuningConfig {
   /** Age at/above which players prefer shorter deals (won't sign long). */
   contractVeteranAge: number;
 
+  // ── Release clauses (v21) ────────────────────────────────────────────────
+  /** The lowest clause a player will entertain, as a multiple of his market
+   * value. Anything under this is an insult — he rejects the term outright. */
+  releaseClauseMinMult: number;
+  /** At/above this multiple of value the clause is so remote he stops caring,
+   * and it buys no wage discount at all. */
+  releaseClauseMaxMult: number;
+  /** The biggest wage discount a clause can buy, applied at the minimum
+   * multiple and tapering linearly to zero at the maximum. */
+  releaseClauseMaxWageDiscount: number;
+  /** The multiple of value the UI proposes when a clause is switched on. */
+  releaseClauseSuggestedMult: number;
+
   // Scouting network facility (v5): raises concurrent scout assignments. Bought
   // from the Scouting Department Upgrades panel (Academy → Scouting).
   scoutNetworkMaxLevel: number; // capacity = scoutNetworkBase + level
@@ -286,8 +377,27 @@ export interface TuningConfig {
   // the user can counter with any number; the AI accepts at/under the ceiling,
   // counters back toward the midpoint, or walks if pushed too far / too long.
   negotiationBuyerCeilingMult: number; // ceiling ≈ value * this (over the opening offer)
-  negotiationMaxRounds: number; // user counters allowed before patience runs out
+  negotiationMaxRounds: number; // legacy round cap (still the fallback bound)
   negotiationWalkAwayOver: number; // instant walk if a counter exceeds ceiling * this
+  // ── Negotiation patience (v19) ──
+  // Patience replaces the flat round counter with a per-deal budget the user can
+  // actually see. Every counter spends patience; a reasonable ask costs little,
+  // a greedy one costs a lot. At zero the buyer walks. Rolled per offer, so each
+  // negotiation genuinely has its own temperament.
+  negotiationPatienceMin: number; // lowest starting patience a buyer can roll
+  negotiationPatienceMax: number; // highest starting patience a buyer can roll
+  /** Patience spent by simply making a counter, before greed is priced in. */
+  negotiationPatienceCostBase: number;
+  /** Extra patience burned per 1.0× of ceiling the ask overshoots by. Asking
+   * just over the ceiling is cheap; asking double is ruinous. */
+  negotiationPatienceCostPerOvershoot: number;
+  /** A buyer who still has patience but can't meet the ask counters back. This
+   * is how far it moves from its current offer toward the ask (0..1). */
+  negotiationCounterStep: number;
+  /** When the user's ask is beyond reach, the buyer proposes what it CAN do —
+   * its counter lands at this fraction of its own hidden ceiling, so the reply
+   * is a genuine best-and-final rather than a token nudge. */
+  negotiationBestAndFinalShare: number;
 
   // ── Club AI strategy (§10) ──
   // A club's stance is re-evaluated when each window opens; these are the
@@ -307,6 +417,22 @@ export interface TuningConfig {
   aiMaxBudgetSharePerDeal: number; // most of its budget a club commits to one player
   // Market volume.
   aiDealsPerWeek: number; // base AI↔AI deals attempted each week a window is open
+
+  // ── AI financial discipline (v19) ──
+  // AI clubs must live within their means: a fee has to clear the budget with
+  // room left to run the club, and a seller banks the money it takes in.
+  /** Fraction of its budget an AI club must still hold AFTER a purchase — it
+   * never spends itself to zero on a signing. */
+  aiBudgetReserveRatio: number;
+  /** Weeks of wage bill an AI club keeps in reserve before it will buy at all.
+   * A club that can't cover its own wages doesn't go shopping. */
+  aiWageReserveWeeks: number;
+  /** A club under its wage reserve becomes a forced seller: it will accept this
+   * fraction of the normal asking price to raise cash quickly. */
+  aiDistressSellDiscount: number;
+  /** Most a club will let its wage bill grow, as a multiple of its weekly
+   * income — signings that blow this are refused regardless of the fee. */
+  aiMaxWageToIncomeRatio: number;
 
   /** AI squad size ceiling. The user's first team is uncapped (v14) — the wage
    * bill is what limits hoarding — so this only bounds AI roster building. */
@@ -350,8 +476,9 @@ export interface TuningConfig {
   fogMinWidth: number; // the range never gets tighter than this
   fogCoachStarReduction: number; // fraction of fog removed per youth-coach star (own players)
   fogScoutStarReduction: number; // fraction removed per scout star (everyone else's)
-  starScaleMin: number; // potential mapped to 1 star
-  starScaleMax: number; // potential mapped to 5 stars
+  starScaleMin: number; // bottom of the 1★ band (potential below this still reads 1★)
+  starScaleMax: number; // bottom of the 5★ band — a full five stars means "this or better"
+  starScalePerHalf: number; // potential points per half-star step
 
   // U21 league (12 teams, double round-robin, statistical)
   u21MinutesWeight: number; // youth minute worth vs a senior minute (development)
@@ -363,6 +490,28 @@ export interface TuningConfig {
   u21OppStrengthBase: number; // opponent strength = base + rep * perRep (+noise)
   u21OppStrengthPerRep: number;
   u21CoachStrengthPerStar: number; // youth-coach bonus to user U21 strength
+
+  // U21 competitions (v18): two runnings a season, each a 22-round double
+  // round-robin, each opened by a registration window the user must meet.
+  u21CompetitionsPerSeason: number;
+  u21RoundsPerCompetition: number;
+  u21FirstKickoffDays: number; // days after the senior season starts that competition 1 begins
+  u21RegistrationLeadDays: number; // registration opens this many days before kickoff
+  u21RoundIntervalDays: number; // days between U21 rounds
+  u21RegistrationSize: number; // players a club registers per competition
+
+  // Rival prospect trading (v18). Each U21 side rolls a stance on selling the
+  // seven it registered; the stance sets the multiplier on the asking price.
+  u21SellStanceWeights: { willing: number; premium: number; unwilling: number };
+  u21SellPricePremiumMult: number; // "sell it high" asking-price multiplier
+  u21SellPriceWillingMult: number; // an ordinary, fair-value ask
+  /** Extra multiplier applied on top of the stance for the elite tiers — a club
+   * does not let its platinum or diamond kid go at the going rate. */
+  u21SellPlatinumMult: number;
+  u21SellDiamondMult: number;
+  /** Chance a "willing"/"premium" club refuses outright anyway, rolled per
+   * approach — even a seller has kids it will not part with. */
+  u21SellRefusalChance: number;
 
   // Youth scouting (set a focus, reports arrive)
   scoutReportDaysBase: number; // days between reports at 1 star
@@ -459,10 +608,35 @@ export const TUNING: TuningConfig = {
   // Rock-paper-scissors, hidden. Counter beats Possession, Possession beats
   // Direct, Direct beats Counter. Diagonal (mirror) is neutral 1.0. Off-diagonal
   // edges sit at ±6% on ATTACK so a good read tilts a match without deciding it.
+  //
+  // v19 extends the matrix to six styles. The three hybrids inherit the logic of
+  // the pure style they descend from, with their own twists:
+  //   Gegenpress — smothers Possession harder than Counter does, but the space it
+  //                leaves is exactly what a Counter side wants.
+  //   ParkTheBus — frustrates Possession and Wing Play (bodies in the box), and
+  //                is prised open by patient Direct balls over the top.
+  //   WingPlay   — beats a narrow low block, struggles against Gegenpress, whose
+  //                press traps the ball on the touchline.
   styleCounter: {
-    Possession: { Possession: 1.0, Counter: 0.94, Direct: 1.06 },
-    Counter: { Possession: 1.06, Counter: 1.0, Direct: 0.94 },
-    Direct: { Possession: 0.94, Counter: 1.06, Direct: 1.0 },
+    Possession: { Possession: 1.0, Counter: 0.94, Direct: 1.06, Gegenpress: 0.92, ParkTheBus: 0.95, WingPlay: 1.03 },
+    Counter: { Possession: 1.06, Counter: 1.0, Direct: 0.94, Gegenpress: 1.08, ParkTheBus: 0.93, WingPlay: 1.02 },
+    Direct: { Possession: 0.94, Counter: 1.06, Direct: 1.0, Gegenpress: 1.02, ParkTheBus: 1.07, WingPlay: 0.98 },
+    Gegenpress: { Possession: 1.08, Counter: 0.92, Direct: 0.98, Gegenpress: 1.0, ParkTheBus: 0.96, WingPlay: 1.06 },
+    ParkTheBus: { Possession: 1.05, Counter: 1.02, Direct: 0.93, Gegenpress: 1.04, ParkTheBus: 1.0, WingPlay: 1.06 },
+    WingPlay: { Possession: 0.97, Counter: 0.98, Direct: 1.02, Gegenpress: 0.94, ParkTheBus: 0.94, WingPlay: 1.0 },
+  },
+  // Intrinsic shape of each style (v19). The pure three are near-neutral — their
+  // identity lives in archetype synergy — while the hybrids trade hard along
+  // their defining axis. Gegenpress buys the midfield with legs and exposure;
+  // Park the Bus concedes the ball for a wall; Wing Play routes goals to the
+  // flanks at a small cost through the middle.
+  styleShape: {
+    Possession: { midfield: 1.04, defense: 1.0, oppChance: 0.97, fitnessDrain: 0.98, wideBias: 0 },
+    Counter: { midfield: 0.94, defense: 1.03, oppChance: 1.0, fitnessDrain: 0.97, wideBias: 0 },
+    Direct: { midfield: 0.98, defense: 1.0, oppChance: 1.02, fitnessDrain: 1.0, wideBias: 0 },
+    Gegenpress: { midfield: 1.12, defense: 0.95, oppChance: 1.1, fitnessDrain: 1.18, wideBias: 0 },
+    ParkTheBus: { midfield: 0.82, defense: 1.16, oppChance: 0.84, fitnessDrain: 0.9, wideBias: 0 },
+    WingPlay: { midfield: 1.0, defense: 0.99, oppChance: 1.01, fitnessDrain: 1.04, wideBias: 0.45 },
   },
   // Attacking overloads a Defensive block but is caught out by a compact Balanced
   // shape; Defensive frustrates Attacking. Kept gentle (±4%).
@@ -487,13 +661,16 @@ export const TUNING: TuningConfig = {
 
   formNudgePerRatingPoint: 0.012,
 
-  // Maturity curve: 12yo ≈ 0.42 of eventual ability, 14 ≈ 0.55, 16 ≈ 0.71,
-  // 18 ≈ 0.86, 20 ≈ 0.97, finished at 21. Because it's a continuous curve rather
-  // than a bracketed cap, each extra year of age is worth something — a 16yo is
+  // Maturity curve: 14yo ≈ 0.42 of eventual ability, 16 ≈ 0.62, 18 ≈ 0.81,
+  // 20 ≈ 0.96, finished at 21. Because it's a continuous curve rather than a
+  // bracketed cap, each extra year of age is worth something — a 16yo is
   // meaningfully ahead of a 14yo of identical promise, which is the thing the
   // old age-locked model got wrong. ~3% roll "prodigy" and mature early, which
   // is where the genuine 80-rated 17-year-old comes from.
-  maturityStartAge: 12,
+  //
+  // 14 is the game-wide minimum player age (no player of any origin is younger),
+  // so the curve starts exactly there.
+  maturityStartAge: 14,
   maturityFullAge: 21,
   maturityFloor: 0.42,
   maturityCurve: 1.35,
@@ -518,6 +695,15 @@ export const TUNING: TuningConfig = {
   declinePerSeasonBase: 1.6,
   growthCatchupBelow: 60,
   growthCatchupMult: 1.8,
+  // Peaked age curve (v17). 17 is the breakout year at full strength; each year
+  // below that costs 0.16 (so a 14-year-old sits at 1.0 − 0.48 → 0.52 of a
+  // 17-year-old's rate) and each year above costs 0.09,
+  // easing growth out toward growthEndAge instead of cutting it off.
+  growthPeakAge: 17,
+  growthPeakMult: 1.35,
+  growthYoungFalloffPerYear: 0.16,
+  growthOldFalloffPerYear: 0.09,
+  growthAgeMultFloor: 0.35,
   retirementAgeMin: 34,
   retirementAgeMax: 37,
 
@@ -550,18 +736,51 @@ export const TUNING: TuningConfig = {
   hospitalityIncomePerLevel: 75_000,
   retailUpgradeCost: [6_000_000, 14_000_000, 28_000_000, 50_000_000, 85_000_000],
   retailIncomePerLevel: 60_000,
+  // Each pays back in roughly 60–75 weeks at level 1, in line with the five
+  // above, but at a low enough entry price to be a realistic first purchase.
+  membershipUpgradeCost: [2_500_000, 6_000_000, 13_000_000, 24_000_000, 42_000_000],
+  membershipIncomePerLevel: 35_000,
+  eventsUpgradeCost: [3_500_000, 8_500_000, 18_000_000, 33_000_000, 57_000_000],
+  eventsIncomePerLevel: 45_000,
+  academyPartnerUpgradeCost: [3_000_000, 7_000_000, 15_000_000, 28_000_000, 48_000_000],
+  academyPartnerIncomePerLevel: 40_000,
 
   staffRefreshDays: 2,
 
   sponsorBaseWeeklyByReputation: 5_200,
-  sponsorSlotShare: { shirt: 1.0, sleeve: 0.35, apparel: 0.6, boot: 0.4, stadium: 0.75 },
+  // Per-slot share of the front-of-shirt baseline. The majors sit at the top;
+  // the minor partnerships are deliberately small individually — their appeal is
+  // that you can hold several at once (v19).
+  sponsorSlotShare: {
+    shirt: 1.0,
+    apparel: 0.68,
+    stadium: 0.75,
+    backOfShirt: 0.42,
+    sleeve: 0.35,
+    shorts: 0.22,
+    trainingKit: 0.26,
+    boot: 0.3,
+    regional: 0.18,
+    beverage: 0.24,
+    automotive: 0.28,
+  },
   sponsorTierMults: [0.7, 1.0, 1.4], // Regional / National / Global
   sponsorMarketabilityFactor: 1.0,
+  // Star cuts. One marketable player contributes ~0.19 (Marketable, 0.14 × the
+  // ~1.35 overall weight); a Global Icon ~0.30; a Fan Favourite ~0.12. So the
+  // cuts read roughly as: one marketable name → 2★, two or three → 3★, a handful
+  // including a genuine icon → 4★, a squad of household names → 5★. A club with
+  // nobody marketable sits at 1★ and is still sponsorable, just locally.
+  sponsorMarketabilityStarThresholds: [0.18, 0.45, 0.85, 1.4],
+  sponsorMarketabilityPerStar: 0.22,
+  sponsorMarketabilityTierPull: 0.13,
+  sponsorMarketabilityOffersPerStar: 0.75,
+  sponsorMarketabilityCooldownPerStar: 0.12,
   sponsorLengthMin: 1,
   sponsorLengthMax: 4,
   sponsorOfferExpiryDays: 21,
   sponsorRefreshDays: 5,
-  sponsorMajorSlots: ["shirt", "stadium"],
+  sponsorMajorSlots: ["shirt", "apparel", "stadium", "backOfShirt"],
   sponsorMajorUpfrontMult: 1.15,
   sponsorMajorLengthMin: 2,
   sponsorMajorLengthMax: 4,
@@ -572,8 +791,32 @@ export const TUNING: TuningConfig = {
   sponsorDeadlineDaysMinor: 18,
   sponsorCooldownDaysMin: 14,
   sponsorCooldownDaysMax: 30,
-  sponsorMaxActiveMajors: 1,
   sponsorMajorMinSeasons: 2,
+  // Slot capacity (v19). The landmark assets are genuinely exclusive — one front
+  // of shirt, one kit maker, one stadium name — while the smaller partnerships
+  // scale: three regional partners is normal for a real club, as is a pair of
+  // beverage or automotive deals. This is where scarcity lives now, so there is
+  // no longer a blanket "one major at a time" rule; the constraint is that the
+  // big slots are each singular and the money in them is worth waiting for.
+  sponsorSlotCapacity: {
+    shirt: 1,
+    apparel: 1,
+    stadium: 1,
+    backOfShirt: 1,
+    sleeve: 1,
+    shorts: 1,
+    trainingKit: 2,
+    boot: 2,
+    regional: 3,
+    beverage: 2,
+    automotive: 2,
+  },
+  sponsorMaxLiveOffers: 4,
+
+  aiCommercialPerReputation: 3_100,
+  aiCommercialTierMult: [1.6, 1.0],
+  aiCommercialVariance: 0.18,
+  aiInvestmentWindfallWeeks: 26,
 
   // 10× the old costs (v15). Training infrastructure is now a genuine
   // long-horizon investment weighed against the transfer market, not a cheap
@@ -607,6 +850,12 @@ export const TUNING: TuningConfig = {
   contractAcceptRatio: 0.98,
   contractRejectRatio: 0.8,
   contractVeteranAge: 32,
+  // A clause at 1.5× value is a real escape hatch and earns the full 12% off the
+  // wage; by 4× it's priced out of reach and buys nothing.
+  releaseClauseMinMult: 1.5,
+  releaseClauseMaxMult: 4.0,
+  releaseClauseMaxWageDiscount: 0.12,
+  releaseClauseSuggestedMult: 2.5,
 
   scoutNetworkMaxLevel: 5, // base 2 + 5 levels → up to 7 scouts on assignment
   scoutNetworkBase: 2,
@@ -627,8 +876,19 @@ export const TUNING: TuningConfig = {
   aiBidChancePerWeek: 0.1,
   freeAgentSigningFee: 0,
   negotiationBuyerCeilingMult: 1.6,
-  negotiationMaxRounds: 3,
-  negotiationWalkAwayOver: 1.15,
+  negotiationMaxRounds: 6, // hard backstop; patience normally binds first
+  negotiationWalkAwayOver: 1.6,
+  // A patient buyer rolls ~100 and can absorb four or five sensible counters; an
+  // impatient one rolls ~55 and gives you two. Base cost 18 per counter, plus 90
+  // per full 1.0× of ceiling overshoot — so asking 20% over the ceiling costs
+  // ~36 patience, while asking double costs ~108 and ends most negotiations on
+  // the spot. That is the intended lesson: push, but read the room.
+  negotiationPatienceMin: 55,
+  negotiationPatienceMax: 110,
+  negotiationPatienceCostBase: 18,
+  negotiationPatienceCostPerOvershoot: 90,
+  negotiationCounterStep: 0.55,
+  negotiationBestAndFinalShare: 0.94,
 
   // Club AI strategy. Top ~25% of a league with no financial trouble reads as a
   // title push; a club two-tenths of a table below its reputation is
@@ -648,6 +908,15 @@ export const TUNING: TuningConfig = {
   aiMaxBudgetSharePerDeal: 0.45,
   aiDealsPerWeek: 2,
 
+  // Financial discipline (v19). A club keeps a fifth of its budget back after
+  // any signing and will not shop at all unless it holds eight weeks of wages.
+  // Below that it turns forced seller and takes 15% under the asking price to
+  // raise cash. Wage bills are capped at 70% of weekly income.
+  aiBudgetReserveRatio: 0.2,
+  aiWageReserveWeeks: 8,
+  aiDistressSellDiscount: 0.85,
+  aiMaxWageToIncomeRatio: 0.7,
+
   squadCap: 50,
   matchdaySquad: 18,
 
@@ -661,7 +930,7 @@ export const TUNING: TuningConfig = {
 
   intakeClassBase: 3,
   intakeClassPerLevel: 0.5,
-  intakeAgeMin: 12,
+  intakeAgeMin: 14,
   intakeAgeMax: 17,
   intakeOverallBase: 50,
   intakeOverallSpread: 6,
@@ -680,8 +949,13 @@ export const TUNING: TuningConfig = {
   fogMinWidth: 3,
   fogCoachStarReduction: 0.09,
   fogScoutStarReduction: 0.09,
+  // Star bands are read as floors, not midpoints: 5★ = 90+, 4.5★ = 85–89,
+  // 4★ = 80–84, 3.5★ = 75–79, and so on down to 1★ at 50 and below. Each
+  // half-star is a flat 5 potential points, so the scale is legible at a glance
+  // instead of needing the old rounded-midpoint arithmetic.
   starScaleMin: 50,
-  starScaleMax: 92,
+  starScaleMax: 90,
+  starScalePerHalf: 5,
 
   u21MinutesWeight: 0.6,
   u21FocusBase: 3,
@@ -692,6 +966,23 @@ export const TUNING: TuningConfig = {
   u21OppStrengthBase: 26,
   u21OppStrengthPerRep: 0.34,
   u21CoachStrengthPerStar: 0.8,
+
+  u21CompetitionsPerSeason: 2,
+  u21RoundsPerCompetition: 22,
+  u21FirstKickoffDays: 30, // a month after the senior season gets going
+  u21RegistrationLeadDays: 14,
+  u21RoundIntervalDays: 7,
+  u21RegistrationSize: 7,
+
+  // Most clubs will deal for the right money; a third want a premium; a quarter
+  // simply aren't selling. Elite prospects then multiply on top of that, which
+  // is what makes a platinum or diamond genuinely hard to prise away.
+  u21SellStanceWeights: { willing: 42, premium: 33, unwilling: 25 },
+  u21SellPricePremiumMult: 2.6,
+  u21SellPriceWillingMult: 1.35,
+  u21SellPlatinumMult: 1.8,
+  u21SellDiamondMult: 3.0,
+  u21SellRefusalChance: 0.12,
 
   scoutReportDaysBase: 40,
   scoutReportDaysPerStar: 5,
@@ -718,26 +1009,38 @@ export const TUNING: TuningConfig = {
     [4, 8, 15, 20, 20, 13, 20], // 4★ → 20%
     [2, 3, 6, 9, 12, 18, 50], // 5★ → 50%
   ],
-  // Judgement → prospect tier. Rows are weights over bronze/silver/gold/platinum.
-  // A poor judge mostly turns up bronze and hits platinum ~1% of the time; a
-  // 5★ judge finds a wonderkid roughly one report in ten.
+  // Judgement → prospect tier. Rows are weights over
+  // bronze/silver/gold/platinum/diamond. A poor judge mostly turns up bronze and
+  // hits platinum ~1% of the time; a 5★ judge finds a wonderkid roughly one
+  // report in ten.
+  //
+  // DIAMOND (v17) is the generational talent and is deliberately ~10× rarer than
+  // platinum in every row — the weights below are exactly platinum ÷ 10, so even
+  // a 5★ judge turns one up about once in a hundred finds. Rows are normalised
+  // at sample time, so these read as relative likelihoods.
   scoutTierByJudgement: [
-    [0, 0, 0, 0], // — unused
-    [64, 27, 8, 1], // 1★ →  1% platinum
-    [48, 34, 16, 2], // 2★ →  2%
-    [32, 38, 26, 4], // 3★ →  4%
-    [18, 36, 39, 7], // 4★ →  7%
-    [8, 30, 52, 10], // 5★ → 10%
+    [0, 0, 0, 0, 0], // — unused
+    [64, 27, 8, 1, 0.1], // 1★ →  1% platinum, 0.1% diamond
+    [48, 34, 16, 2, 0.2], // 2★ →  2% / 0.2%
+    [32, 38, 26, 4, 0.4], // 3★ →  4% / 0.4%
+    [18, 36, 39, 7, 0.7], // 4★ →  7% / 0.7%
+    [8, 30, 52, 10, 1.0], // 5★ → 10% / 1.0%
   ],
-  prospectTierOrder: ["bronze", "silver", "gold", "platinum"],
+  prospectTierOrder: ["bronze", "silver", "gold", "platinum", "diamond"],
   // Tier bands. Overall is what the kid can do now, potential the ceiling. The
   // bands overlap slightly so a tier is a strong signal, not a rigid bracket.
-  // Platinum reaches the absolute cap — that's the generational talent.
+  // Platinum reaches the absolute cap — that's the wonderkid. Diamond sits
+  // above it and pins the ceiling at the cap: a diamond is the once-a-career
+  // find, already senior-ready as a teenager.
+  // Bands are aligned to the star scale (starScaleMin/PerHalf) so a tier reads
+  // as a star range without arithmetic: bronze tops out at 3★, silver spans
+  // 3–3.5★, gold 3.5–4★, platinum 4.5–5★, and diamond is the full five.
   prospectTierBands: {
     bronze: { overall: [50, 58], potential: [62, 74] },
-    silver: { overall: [54, 64], potential: [73, 83] },
-    gold: { overall: [60, 71], potential: [82, 90] },
-    platinum: { overall: [68, 80], potential: [89, 97] },
+    silver: { overall: [54, 64], potential: [73, 84] },
+    gold: { overall: [60, 71], potential: [80, 89] },
+    platinum: { overall: [68, 80], potential: [85, 95] },
+    diamond: { overall: [74, 84], potential: [90, 97] },
   },
   fogJudgementStarReduction: 0.09,
   scoutWageBase: 3_000,

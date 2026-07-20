@@ -101,17 +101,33 @@ function TableCard({ rows, highlight, note }: { rows: TableRow[]; highlight?: st
   const openTeam = useContext(OpenTeam);
   return (
     <Card className="overflow-x-auto">
-      <table className="w-full min-w-[480px] text-sm">
+      {/* table-fixed (not auto) so the columns land in the SAME place in every
+          division. Under auto layout the widths are derived from content, so a
+          division with longer club names — or one that reaches position 10 —
+          shifted every stat column and the table visibly jumped when switching
+          tabs. Fixed layout + an explicit width per column makes the grid
+          identical across all of them; the club cell absorbs the slack. */}
+      <table className="w-full min-w-[480px] table-fixed text-sm">
+        <colgroup>
+          <col className="w-10" />
+          <col />
+          <col className="w-9" />
+          <col className="w-9" />
+          <col className="w-9" />
+          <col className="w-9" />
+          <col className="w-12" />
+          <col className="w-12" />
+        </colgroup>
         <thead>
           <tr className="border-b border-line text-[11px] uppercase tracking-widest text-faint">
             <th className="py-2 pl-3 text-left">#</th>
             <th className="py-2 text-left">Club</th>
-            <th className="w-9 py-2 text-center">P</th>
-            <th className="w-9 py-2 text-center">W</th>
-            <th className="w-9 py-2 text-center">D</th>
-            <th className="w-9 py-2 text-center">L</th>
-            <th className="w-12 py-2 text-center">GD</th>
-            <th className="w-12 py-2 pr-3 text-right">Pts</th>
+            <th className="py-2 text-center">P</th>
+            <th className="py-2 text-center">W</th>
+            <th className="py-2 text-center">D</th>
+            <th className="py-2 text-center">L</th>
+            <th className="py-2 text-center">GD</th>
+            <th className="py-2 pr-3 text-right">Pts</th>
           </tr>
         </thead>
         <tbody>
@@ -127,11 +143,11 @@ function TableCard({ rows, highlight, note }: { rows: TableRow[]; highlight?: st
                 title={`View ${t.name}`}
               >
                 <td className={`py-1.5 pl-3 tnum ${i === 0 ? "gold-text font-bold" : "text-faint"}`}>{i + 1}</td>
-                <td className="py-1.5">
-                  <span className={`flex items-center gap-2 ${mine ? "font-semibold" : ""}`}>
+                <td className="min-w-0 py-1.5">
+                  <span className={`flex min-w-0 items-center gap-2 ${mine ? "font-semibold" : ""}`}>
                     <Crest colors={t.colors} short={t.short} size={20} />
                     <span className="truncate">{t.name}</span>
-                    {flag && <span className="text-[10px] text-faint">{flag}</span>}
+                    {flag && <span className="shrink-0 text-[10px] text-faint">{flag}</span>}
                   </span>
                 </td>
                 <td className="py-1.5 text-center tnum text-dim">{row.played}</td>
@@ -252,11 +268,14 @@ function FixtureList({ fixtures }: { fixtures: import("@/lib/types").Fixture[] }
 
 function CupView() {
   const game = useGame((s) => s.game)!;
+  const [view, setView] = useState<"rounds" | "bracket">("rounds");
+
   const rounds = game.cup.roundNames.map((name, i) => ({
     name,
     day: game.schedule.cupRoundDays[i],
     fixtures: game.fixtures.filter((f) => f.competition === "CUP" && f.round === i + 1),
   }));
+
   return (
     <div className="space-y-6">
       {game.cup.winnerId && (
@@ -265,17 +284,140 @@ function CupView() {
           <div className="display gold-text mt-1 text-2xl font-bold">{game.teams[game.cup.winnerId].name}</div>
         </Card>
       )}
-      {rounds.map((r) => (
-        <Section key={r.name} title={`${r.name} — ${formatDayShort(r.day)}`}>
-          {r.fixtures.length ? (
-            <FixtureList fixtures={r.fixtures} />
-          ) : (
-            <div className="text-sm text-faint">
-              {game.cup.currentRound >= game.cup.roundNames.indexOf(r.name) ? "Draw made on the day." : "Awaiting earlier rounds."}
+
+      <div className="flex items-center justify-between">
+        <span className="display text-sm font-semibold">Cup</span>
+        <div className="flex overflow-hidden rounded-md border border-line">
+          {(["rounds", "bracket"] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`display px-3 py-1 text-[11px] font-semibold transition-colors ${
+                view === v ? "gold-grad text-black" : "text-faint hover:text-dim"
+              }`}
+            >
+              {v === "rounds" ? "ROUNDS" : "BRACKET"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {view === "bracket" ? (
+        <CupBracket rounds={rounds} />
+      ) : (
+        rounds.map((r) => (
+          <Section key={r.name} title={`${r.name} — ${formatDayShort(r.day)}`}>
+            {r.fixtures.length ? (
+              <FixtureList fixtures={r.fixtures} />
+            ) : (
+              <div className="text-sm text-faint">
+                {game.cup.currentRound >= game.cup.roundNames.indexOf(r.name) ? "Draw made on the day." : "Awaiting earlier rounds."}
+              </div>
+            )}
+          </Section>
+        ))
+      )}
+    </div>
+  );
+}
+
+// ── Cup bracket (v19) ─────────────────────────────────────────────────────
+// The knockout laid out as columns, one per round, so the path to the final is
+// readable at a glance.
+//
+// Mobile: a bracket is intrinsically wide, so rather than shrink it to
+// illegibility the columns keep a workable minimum width and the whole grid
+// scrolls horizontally inside its own container (the page itself never scrolls
+// sideways). Each round column is also a scroll-snap target, so on a phone you
+// swipe cleanly from round to round.
+
+interface BracketRound {
+  name: string;
+  day: number;
+  fixtures: Fixture[];
+}
+
+function CupBracket({ rounds }: { rounds: BracketRound[] }) {
+  const drawn = rounds.filter((r) => r.fixtures.length > 0);
+
+  if (!drawn.length) {
+    return (
+      <Card className="p-8 text-center text-sm text-faint">
+        <div className="display mb-2 text-lg text-dim">NO TIES YET</div>
+        The bracket fills in as each round is drawn.
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="overflow-x-auto p-3">
+      <div className="flex snap-x snap-mandatory gap-3">
+        {drawn.map((r) => (
+          <div key={r.name} className="min-w-[15rem] flex-1 shrink-0 snap-start">
+            <div className="mb-2 border-b border-line pb-1.5">
+              <div className="display text-[11px] font-semibold uppercase tracking-widest text-dim">{r.name}</div>
+              <div className="text-[10px] text-faint">{formatDayShort(r.day)}</div>
             </div>
-          )}
-        </Section>
-      ))}
+            {/* Ties are spread down the column so a round with few matches (the
+                final) sits centred against the fuller rounds beside it. */}
+            <div className="flex h-full flex-col justify-around gap-2">
+              {r.fixtures.map((f) => (
+                <BracketTie key={f.id} f={f} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      {drawn.length > 1 && (
+        <div className="mt-2 text-center text-[10px] text-faint sm:hidden">Swipe to see later rounds →</div>
+      )}
+    </Card>
+  );
+}
+
+/** One tie in the bracket: both sides stacked, winner highlighted. */
+function BracketTie({ f }: { f: Fixture }) {
+  const game = useGame((s) => s.game)!;
+  const openTeam = useContext(OpenTeam);
+
+  // A cup tie level after 90 is settled on penalties, so the winner is the
+  // shootout winner where there is one, otherwise whoever scored more.
+  const winnerId = !f.played
+    ? null
+    : f.shootoutWinnerId ?? (f.homeGoals! > f.awayGoals! ? f.homeId : f.awayGoals! > f.homeGoals! ? f.awayId : null);
+
+  const side = (teamId: string, goals: number | undefined) => {
+    const t = game.teams[teamId];
+    const won = winnerId === teamId;
+    const lost = f.played && winnerId !== null && !won;
+    const mine = teamId === game.userTeamId;
+    return (
+      <button
+        onClick={() => openTeam(teamId)}
+        className={`flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-[12px] transition-colors hover:bg-hover ${
+          lost ? "text-faint" : ""
+        } ${mine ? "bg-hover/40" : ""}`}
+        title={t.name}
+      >
+        <Crest colors={t.colors} short={t.short} size={16} />
+        <span className={`min-w-0 flex-1 truncate ${won ? "font-semibold text-ink" : ""} ${mine ? "font-semibold" : ""}`}>
+          {t.short}
+        </span>
+        {f.played && <span className={`display tnum ${won ? "gold-text font-bold" : ""}`}>{goals}</span>}
+      </button>
+    );
+  };
+
+  return (
+    <div className={`overflow-hidden rounded-md border ${winnerId ? "border-line" : "border-dashed border-line"}`}>
+      {side(f.homeId, f.homeGoals)}
+      <div className="h-px bg-line" />
+      {side(f.awayId, f.awayGoals)}
+      {f.shootoutWinnerId && (
+        <div className="border-t border-line bg-raised px-2 py-0.5 text-center text-[9px] text-faint">
+          {game.teams[f.shootoutWinnerId].short} on pens
+        </div>
+      )}
     </div>
   );
 }

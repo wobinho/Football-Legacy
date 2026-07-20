@@ -8,6 +8,7 @@ import { useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { ScreenId } from "@/lib/types";
 import { formatDay, seasonYearLabel, transferWindowState } from "@/lib/calendar";
+import { isSeasonComplete } from "@/lib/gameloop";
 import { CountryFlag, Crest, GoldButton, Money } from "./ui";
 import HomeScreen from "./screens/Home";
 import SquadScreen from "./screens/Squad";
@@ -39,6 +40,7 @@ export default function Shell() {
   const setScreen = useGame((s) => s.setScreen);
   const continueGame = useGame((s) => s.continueGame);
   const advanceDayOnce = useGame((s) => s.advanceDayOnce);
+  const endSeason = useGame((s) => s.endSeason);
   const quitToMenu = useGame((s) => s.quitToMenu);
   const logout = useGame((s) => s.logout);
   const [navOpen, setNavOpen] = useState(false);
@@ -49,6 +51,9 @@ export default function Shell() {
   const prospectReports = game.academy.reports.filter((r) => r.expiresDay > game.currentDay).length;
   const window = transferWindowState(game.currentDay, game.schedule);
   const onMatchday = game.pendingMatchFixtureId !== null;
+  // Season's last day reached: the calendar can't advance further until the
+  // player takes the rollover, so Continue becomes END SEASON.
+  const seasonOver = isSeasonComplete(game);
 
   const go = (id: ScreenId) => {
     setScreen(id);
@@ -166,6 +171,10 @@ export default function Shell() {
             {onMatchday ? (
               <GoldButton onClick={() => setScreen("matchday")} className="!px-3 !py-1.5 text-xs sm:!px-5 sm:!py-2 sm:text-sm">
                 MATCH DAY
+              </GoldButton>
+            ) : seasonOver ? (
+              <GoldButton onClick={endSeason} className="!px-3 !py-1.5 text-xs sm:!px-5 sm:!py-2 sm:text-sm">
+                END SEASON ▸
               </GoldButton>
             ) : (
               <div className="flex items-center gap-1.5 sm:gap-2">

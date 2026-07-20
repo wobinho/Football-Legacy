@@ -9,6 +9,7 @@ import type { Contract, GameState, PlayerBio } from "./types";
 import type { TuningConfig } from "./config/tuning";
 import { deriveSeed, mulberry32 } from "./rng";
 import { pushInboxItem } from "./inbox";
+import { activePlayers } from "./archive";
 
 /** The base weekly wage the wage curve implies for an ability level. */
 export function baseWage(overall: number, cfg: TuningConfig): number {
@@ -41,14 +42,61 @@ export function maxLengthFor(p: PlayerBio, cfg: TuningConfig): number {
 }
 
 /** Build a contract running `years` seasons from the current season. */
-export function makeContract(state: GameState, wage: number, years: number): Contract {
-  return { wage, expirySeason: state.season + Math.max(1, years) - 1, signedSeason: state.season };
+export function makeContract(state: GameState, wage: number, years: number, releaseClause?: number): Contract {
+  return {
+    wage,
+    expirySeason: state.season + Math.max(1, years) - 1,
+    signedSeason: state.season,
+    ...(releaseClause ? { releaseClause } : {}),
+  };
 }
 
 /** Seasons remaining on a contract, given the current season. */
 export function yearsLeft(state: GameState, p: PlayerBio): number {
   if (!p.contract) return 0;
   return Math.max(0, p.contract.expirySeason - state.season + 1);
+}
+
+// ── Release clauses (§10, v21) ────────────────────────────────────────────
+// A clause is a fixed fee that lets any club buy the player outright, ignoring
+// what his own club thinks he's worth. The player likes having one — it's an
+// exit route — so he'll shave his wage demand to get it. How much he shaves
+// depends on how reachable the number is: a clause near his market value is a
+// genuine escape hatch and is worth real money to him, one at four times value
+// is decoration and buys nothing.
+
+/** The lowest clause figure this player would accept, or the point above which
+ * a clause stops being worth anything to him. Both are multiples of value. */
+export function releaseClauseBounds(p: PlayerBio, cfg: TuningConfig): { min: number; max: number; suggested: number } {
+  const round = (n: number) => Math.max(100_000, Math.round(n / 100_000) * 100_000);
+  return {
+    min: round(p.value * cfg.releaseClauseMinMult),
+    max: round(p.value * cfg.releaseClauseMaxMult),
+    suggested: round(p.value * cfg.releaseClauseSuggestedMult),
+  };
+}
+
+/** The fraction a player knocks off his wage demand in exchange for a clause at
+ * `clause`. Full discount at the minimum acceptable figure, tapering linearly to
+ * nothing at the point the clause is too remote to matter. */
+export function releaseClauseWageDiscount(p: PlayerBio, clause: number | undefined, cfg: TuningConfig): number {
+  if (!clause) return 0;
+  const { min, max } = releaseClauseBounds(p, cfg);
+  if (clause < min || max <= min) return 0;
+  const reach = Math.min(1, (clause - min) / (max - min)); // 0 = right at the floor
+  return cfg.releaseClauseMaxWageDiscount * (1 - reach);
+}
+
+/** What this player demands per week given the clause on the table (if any). */
+export function wageDemandWithClause(
+  state: GameState,
+  p: PlayerBio,
+  clause: number | undefined,
+  cfg: TuningConfig
+): number {
+  const base = wageDemand(state, p, cfg);
+  const discounted = base * (1 - releaseClauseWageDiscount(p, clause, cfg));
+  return Math.max(500, Math.round(discounted / 100) * 100);
 }
 
 export interface OfferVerdict {
@@ -65,12 +113,26 @@ export function evaluateOffer(
   p: PlayerBio,
   wage: number,
   years: number,
-  cfg: TuningConfig
+  cfg: TuningConfig,
+  releaseClause?: number
 ): OfferVerdict {
-  const demand = wageDemand(state, p, cfg);
+  // A clause below what he'd ever accept is worse than none — he won't be tied
+  // to a number that lets anyone take him for a fraction of his worth.
+  if (releaseClause !== undefined) {
+    const { min } = releaseClauseBounds(p, cfg);
+    if (releaseClause < min) {
+      return {
+        kind: "rejected",
+        wage: wageDemand(state, p, cfg),
+        message: `${p.name} won't be bought out that cheaply — any release clause has to start around ${fmt(min)}.`,
+      };
+    }
+  }
+  const demand = wageDemandWithClause(state, p, releaseClause, cfg);
   const cappedYears = Math.min(years, maxLengthFor(p, cfg));
   if (wage >= demand * cfg.contractAcceptRatio) {
-    return { kind: "accepted", wage, message: `${p.name} accepts ${cappedYears}-year terms at ${fmt(wage)}/wk.` };
+    const clauseNote = releaseClause ? ` with a ${fmt(releaseClause)} release clause` : "";
+    return { kind: "accepted", wage, message: `${p.name} accepts ${cappedYears}-year terms at ${fmt(wage)}/wk${clauseNote}.` };
   }
   if (wage >= demand * cfg.contractRejectRatio) {
     return { kind: "countered", wage: demand, message: `${p.name} wants ${fmt(demand)}/wk to sign.` };
@@ -79,8 +141,15 @@ export function evaluateOffer(
 }
 
 /** Apply an accepted deal to a player already at the club (renewal) or joining. */
-export function applyContract(state: GameState, p: PlayerBio, wage: number, years: number, cfg: TuningConfig) {
-  p.contract = makeContract(state, wage, Math.min(years, maxLengthFor(p, cfg)));
+export function applyContract(
+  state: GameState,
+  p: PlayerBio,
+  wage: number,
+  years: number,
+  cfg: TuningConfig,
+  releaseClause?: number
+) {
+  p.contract = makeContract(state, wage, Math.min(years, maxLengthFor(p, cfg)), releaseClause);
 }
 
 /** Give a newly-signed player a default contract at their demand (used when a
@@ -98,8 +167,10 @@ export function grantDefaultContract(state: GameState, p: PlayerBio, cfg: Tuning
  * — real squads have a spread of contract situations. */
 export function ensureContracts(state: GameState, cfg: TuningConfig) {
   const userAcademy = new Set(state.teams[state.userTeamId].academyPlayerIds ?? []);
-  for (const p of Object.values(state.players)) {
-    if (p.retired || !p.clubId) {
+  // Retirees are handled by the rollover's prune pass, which clears their
+  // contracts as part of compacting them — so this only walks the living world.
+  for (const p of activePlayers(state)) {
+    if (!p.clubId) {
       p.contract = undefined;
       continue;
     }
@@ -127,8 +198,8 @@ export function rolloverContracts(state: GameState, cfg: TuningConfig): string[]
   const userId = state.userTeamId;
 
   const userAcademy = new Set(state.teams[userId].academyPlayerIds ?? []);
-  for (const p of Object.values(state.players)) {
-    if (p.retired || !p.clubId || !p.contract) continue;
+  for (const p of activePlayers(state)) {
+    if (!p.clubId || !p.contract) continue;
     // Academy players carry no wages and are governed by the §18 age-out rule,
     // not contract expiry — never release them here.
     if (userAcademy.has(p.id)) continue;

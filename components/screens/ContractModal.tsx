@@ -9,16 +9,23 @@ import { useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { PlayerBio } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
-import { wageDemand, maxLengthFor, yearsLeft } from "@/lib/contracts";
+import { wageDemandWithClause, maxLengthFor, yearsLeft } from "@/lib/contracts";
 import { formatMoney } from "@/lib/value";
 import { GhostButton, GoldButton, Modal, Ovr } from "../ui";
+import ReleaseClauseField from "./ReleaseClauseField";
 
 export default function ContractModal({ p, onClose }: { p: PlayerBio; onClose: () => void }) {
   const game = useGame((s) => s.game)!;
   const negotiate = useGame((s) => s.negotiateContract);
   const renew = useGame((s) => s.renewContract);
 
-  const demand = useMemo(() => wageDemand(game, p, TUNING), [game, p]);
+  // A renewal carries the existing clause forward by default — dropping one the
+  // player already has would quietly change his terms behind his back.
+  const [clause, setClause] = useState<number | null>(p.contract?.releaseClause ?? null);
+  const demand = useMemo(
+    () => wageDemandWithClause(game, p, clause ?? undefined, TUNING),
+    [game, p, clause]
+  );
   const maxYears = maxLengthFor(p, TUNING);
   const [wage, setWage] = useState(demand);
   const [years, setYears] = useState(Math.min(TUNING.contractRenewYearsDefault, maxYears));
@@ -28,9 +35,9 @@ export default function ContractModal({ p, onClose }: { p: PlayerBio; onClose: (
   const current = yearsLeft(game, p);
 
   const submit = () => {
-    const verdict = negotiate(p.id, wage, years);
+    const verdict = negotiate(p.id, wage, years, clause ?? undefined);
     if (verdict.kind === "accepted") {
-      renew(p.id, wage, years);
+      renew(p.id, wage, years, clause ?? undefined);
       onClose();
       return;
     }
@@ -98,6 +105,17 @@ export default function ContractModal({ p, onClose }: { p: PlayerBio; onClose: (
             Match demand
           </button>
         </div>
+
+        <ReleaseClauseField
+          p={p}
+          clause={clause}
+          onChange={(next) => {
+            // Keep the wage tracking his demand as the clause moves, unless the
+            // user has typed a figure of their own.
+            if (wage === demand) setWage(wageDemandWithClause(game, p, next ?? undefined, TUNING));
+            setClause(next);
+          }}
+        />
 
         {feedback && <div className="rounded-md border border-line bg-raised p-3 text-sm text-dim">{feedback}</div>}
 

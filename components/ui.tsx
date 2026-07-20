@@ -42,11 +42,51 @@ export function Card({
 }
 
 /** Overall rating in the condensed display face — tier-colored. */
-export function Ovr({ value, size = "md" }: { value: number; size?: "sm" | "md" | "lg" }) {
+export function Ovr({
+  value,
+  size = "md",
+  growth,
+}: {
+  value: number;
+  size?: "sm" | "md" | "lg";
+  /** This season's overall change (v19). Rendered as a small +X/-X beside the
+   * rating so a player's trajectory reads at a glance. Pass the player through
+   * `seasonGrowth()` rather than computing a delta by hand. */
+  growth?: number;
+}) {
   const color =
     value >= 80 ? "gold-text" : value >= 72 ? "text-ink" : value >= 62 ? "text-dim" : "text-faint";
   const sz = size === "lg" ? "text-4xl" : size === "sm" ? "text-base" : "text-xl";
-  return <span className={`display font-bold tnum ${sz} ${color}`}>{value}</span>;
+  const rating = <span className={`display font-bold tnum ${sz} ${color}`}>{value}</span>;
+  if (!growth) return rating;
+  return (
+    <span className="inline-flex items-baseline gap-1">
+      {rating}
+      <GrowthBadge delta={growth} size={size} />
+    </span>
+  );
+}
+
+/**
+ * A player's overall change so far this season (v19).
+ *
+ * Green for improvement, red for decline — deliberately understated so it reads
+ * as an annotation on the rating rather than competing with it. Nothing is shown
+ * for an unchanged player: a wall of "+0" is noise.
+ */
+export function GrowthBadge({ delta, size = "md" }: { delta: number; size?: "sm" | "md" | "lg" }) {
+  if (!delta) return null;
+  const up = delta > 0;
+  const sz = size === "lg" ? "text-sm" : size === "sm" ? "text-[9px]" : "text-[10px]";
+  return (
+    <span
+      className={`display font-bold tnum ${sz} ${up ? "text-win" : "text-loss"}`}
+      title={`${up ? "Gained" : "Lost"} ${Math.abs(delta)} overall this season`}
+    >
+      {up ? "+" : "−"}
+      {Math.abs(delta)}
+    </span>
+  );
 }
 
 export function Money({ value, className = "" }: { value: number; className?: string }) {
@@ -438,9 +478,11 @@ export function ConfirmButton({
     tone === "danger"
       ? "border-line bg-raised text-dim hover:border-loss/50 hover:text-loss"
       : "border-line bg-raised text-ink hover:border-faint hover:bg-hover";
+  // Armed danger is a SOLID red fill, not a tint: an armed destructive button
+  // has to be unmistakable at a glance, since the next click is irreversible.
   const armedCls =
     tone === "danger"
-      ? "border-loss/60 bg-loss/10 text-loss"
+      ? "border-loss bg-loss text-white"
       : "gold-grad border-transparent text-black";
   return (
     <button
@@ -463,11 +505,25 @@ export function ConfirmButton({
   );
 }
 
-export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+export function Modal({
+  title,
+  onClose,
+  children,
+  size = "md",
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  /** "lg" is for content that carries a data table — a league table at the
+   * default width wraps into unreadability. */
+  size?: "md" | "lg";
+}) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
       <div
-        className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-lg border border-line bg-surface p-5 shadow-2xl"
+        className={`max-h-[85vh] w-full overflow-y-auto rounded-lg border border-line bg-surface p-5 shadow-2xl ${
+          size === "lg" ? "max-w-3xl" : "max-w-lg"
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-1 flex items-center justify-between">

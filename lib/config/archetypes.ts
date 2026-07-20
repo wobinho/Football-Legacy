@@ -33,12 +33,43 @@ export interface Archetype {
 /** Fallback height band for any archetype that doesn't declare one. */
 export const DEFAULT_HEIGHT_CM: [number, number] = [180, 6];
 
+/** The three original styles, declared per archetype. The three v19 hybrids are
+ * derived from these rather than hand-authored per archetype — see `synergy()`. */
+type CoreSynergy = { Possession: number; Counter: number; Direct: number };
+
+/**
+ * Derive the full six-style synergy row from the three core styles (v19).
+ *
+ * A hybrid style is a blend of the pure styles it descends from, so an
+ * archetype's fit with it follows from fits the table already declares — which
+ * keeps the 20+ archetype rows readable and means adding a style never means
+ * editing every archetype:
+ *
+ *   Gegenpress — high-intensity Counter with the ball won higher up: mostly
+ *                Counter, part Possession.
+ *   ParkTheBus — Counter without the transition: Counter-leaning, but a defensive
+ *                shell suits grafters over creators, so Direct's physicality
+ *                counts too.
+ *   WingPlay   — Direct football down the channels: mostly Direct, part Possession.
+ */
+function synergy(core: CoreSynergy): Record<Style, number> {
+  const { Possession, Counter, Direct } = core;
+  return {
+    Possession,
+    Counter,
+    Direct,
+    Gegenpress: Counter * 0.65 + Possession * 0.35,
+    ParkTheBus: Counter * 0.6 + Direct * 0.4,
+    WingPlay: Direct * 0.6 + Possession * 0.4,
+  };
+}
+
 const A = (
   id: string, name: string, positions: Pos[], desc: string,
-  styleSynergy: Record<Style, number>,
+  core: CoreSynergy,
   scorerWeight: number, assistWeight: number, paceReliance: number,
   attrProfile: Attributes, goalFlavor: string[]
-): Archetype => ({ id, name, positions, desc, styleSynergy, scorerWeight, assistWeight, paceReliance, attrProfile, goalFlavor });
+): Archetype => ({ id, name, positions, desc, styleSynergy: synergy(core), scorerWeight, assistWeight, paceReliance, attrProfile, goalFlavor });
 
 export const ARCHETYPES: Archetype[] = [
   // ── Goalkeepers ──
@@ -151,6 +182,90 @@ export const ARCHETYPES: Archetype[] = [
     { pac: 0.85, sho: 1.0, pas: 0.75, dri: 0.9, def: 0.2, phy: 0.85 },
     ["{p} does it all himself — dropped deep, drove forward, finished!",
      "Unstoppable from {p}!"]),
+
+  // ── v19 additions ──────────────────────────────────────────────────────
+  // Broadens every position group so squads read with more variety, and gives
+  // the new styles archetypes that genuinely belong to them (a Libero for a
+  // possession side, a No-Nonsense Defender for a low block, a Raumdeuter for
+  // wing play). All still pure data — no engine branch knows these exist.
+
+  // Goalkeeper
+  A("commanding_keeper", "Commanding Keeper", ["GK"],
+    "A vocal presence who dominates his box, claims every cross, and organises the men in front of him.",
+    { Possession: 1.0, Counter: 1.01, Direct: 1.02 }, 0.01, 0.02, 0.15,
+    { pac: 0.55, sho: 0.3, pas: 0.7, dri: 0.45, def: 1.0, phy: 1.0 },
+    ["{p} comes up for the corner — and scores! Unbelievable!"]),
+
+  // Centre backs
+  A("libero", "Libero", ["CB", "DM"],
+    "A free defender who steps into midfield with the ball and dictates play from the back.",
+    { Possession: 1.09, Counter: 0.98, Direct: 0.92 }, 0.3, 0.45, 0.3,
+    { pac: 0.65, sho: 0.4, pas: 0.95, dri: 0.8, def: 0.95, phy: 0.8 },
+    ["{p} carries it out of defence and lashes it home!",
+     "The libero {p} arrives in the box like a forward!"]),
+  A("no_nonsense_def", "No-Nonsense Defender", ["CB"],
+    "Row Z is a valid pass. Wins everything in the air and clears his lines without a second thought.",
+    { Possession: 0.9, Counter: 1.04, Direct: 1.06 }, 0.3, 0.05, 0.15,
+    { pac: 0.5, sho: 0.25, pas: 0.35, dri: 0.3, def: 1.0, phy: 1.0 },
+    ["{p} bullets a header in from the set piece!"]),
+
+  // Full backs
+  A("inverted_fullback", "Inverted Full-Back", ["LB", "RB"],
+    "Tucks into midfield in possession, giving his side an extra body to build through the middle.",
+    { Possession: 1.08, Counter: 0.97, Direct: 0.93 }, 0.25, 0.75, 0.5,
+    { pac: 0.8, sho: 0.4, pas: 0.9, dri: 0.75, def: 0.8, phy: 0.75 },
+    ["{p} drifts inside and curls one in from the edge of the box!"]),
+
+  // Defensive / central midfield
+  A("ball_winner", "Ball-Winning Midfielder", ["DM", "CM"],
+    "A destroyer who hunts the ball down, snaps into tackles, and never stops running.",
+    { Possession: 0.97, Counter: 1.05, Direct: 1.03 }, 0.25, 0.4, 0.4,
+    { pac: 0.75, sho: 0.45, pas: 0.65, dri: 0.6, def: 0.95, phy: 0.95 },
+    ["{p} wins it high up the pitch and finishes the job himself!"]),
+  A("mezzala", "Mezzala", ["CM"],
+    "A wide-roaming central midfielder who drifts into the half-space and arrives in the box unmarked.",
+    { Possession: 1.05, Counter: 1.03, Direct: 0.98 }, 1.0, 1.0, 0.55,
+    { pac: 0.8, sho: 0.75, pas: 0.85, dri: 0.9, def: 0.5, phy: 0.7 },
+    ["{p} ghosts into the half-space and finishes with the outside of his boot!"]),
+  A("regista", "Regista", ["DM", "CM"],
+    "The deepest creator — dictates the game's rhythm and picks defences apart from in front of the back line.",
+    { Possession: 1.1, Counter: 0.96, Direct: 0.9 }, 0.3, 1.25, 0.15,
+    { pac: 0.5, sho: 0.6, pas: 1.0, dri: 0.8, def: 0.6, phy: 0.6 },
+    ["{p} steps forward and bends one in from 30 yards!"]),
+
+  // Attacking midfield
+  A("trequartista", "Trequartista", ["AM"],
+    "A free-roaming artist with no defensive duties — pure invention between the lines.",
+    { Possession: 1.1, Counter: 0.98, Direct: 0.9 }, 1.0, 1.55, 0.35,
+    { pac: 0.7, sho: 0.8, pas: 1.0, dri: 1.0, def: 0.15, phy: 0.45 },
+    ["A flash of genius from {p} — nobody else saw that!",
+     "{p} dinks it over the keeper with the outside of his foot!"]),
+
+  // Wingers
+  A("raumdeuter", "Raumdeuter", ["RW", "LW"],
+    "An instinctive space-interpreter who plays off the shoulder of the last man and arrives at the back post.",
+    { Possession: 1.0, Counter: 1.07, Direct: 1.04 }, 1.5, 0.7, 0.6,
+    { pac: 0.85, sho: 0.95, pas: 0.6, dri: 0.75, def: 0.2, phy: 0.6 },
+    ["{p} is completely unmarked at the back post — tap-in!",
+     "Nobody tracked the run of {p} — and he makes them pay!"]),
+  A("classic_winger", "Classic Winger", ["LW", "RW"],
+    "A touchline-hugging traditionalist who beats his man to the byline and whips in crosses all afternoon.",
+    { Possession: 0.98, Counter: 1.03, Direct: 1.07 }, 0.75, 1.5, 0.8,
+    { pac: 0.95, sho: 0.6, pas: 0.85, dri: 0.95, def: 0.25, phy: 0.6 },
+    ["{p} beats his man and finishes at the near post!"]),
+
+  // Strikers
+  A("false_nine", "False Nine", ["ST", "AM"],
+    "A striker who drops off the front line, drags centre backs out of position, and creates the space he then exploits.",
+    { Possession: 1.1, Counter: 1.0, Direct: 0.9 }, 1.4, 1.3, 0.4,
+    { pac: 0.75, sho: 0.85, pas: 0.95, dri: 0.95, def: 0.2, phy: 0.55 },
+    ["{p} drops deep, turns, and finishes from the edge of the box!"]),
+  A("pressing_forward", "Pressing Forward", ["ST"],
+    "The first line of defence — harries centre backs relentlessly and feeds on the mistakes he forces.",
+    { Possession: 1.0, Counter: 1.08, Direct: 1.03 }, 1.6, 0.7, 0.7,
+    { pac: 0.9, sho: 0.85, pas: 0.6, dri: 0.75, def: 0.45, phy: 0.9 },
+    ["{p} closes down the keeper, wins it, and rolls it in!",
+     "Relentless from {p} — he forced that mistake himself!"]),
 ];
 
 // Height bands per archetype (v15), applied onto the table above so the `A()`
@@ -174,6 +289,19 @@ const HEIGHT_BANDS: Record<string, [number, number]> = {
   poacher: [179, 5],
   target_man: [191, 4],
   complete_forward: [185, 5],
+  // v19 additions
+  commanding_keeper: [193, 4],
+  libero: [186, 4],
+  no_nonsense_def: [192, 4],
+  inverted_fullback: [179, 5],
+  ball_winner: [181, 5],
+  mezzala: [180, 5],
+  regista: [178, 5],
+  trequartista: [174, 5],
+  raumdeuter: [180, 5],
+  classic_winger: [176, 5],
+  false_nine: [178, 5],
+  pressing_forward: [183, 5],
 };
 
 for (const a of ARCHETYPES) {

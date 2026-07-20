@@ -124,11 +124,21 @@ function synergyMult(archetypeId: string, tactic: Tactic, cfg: TuningConfig): nu
   return Math.max(1 - cfg.synergyCap, Math.min(1 + cfg.synergyCap, raw));
 }
 
-/** In-match fitness drain rate for a side, scaled by tempo + press instructions. */
+/** The intrinsic shape of a side's chosen style (v19). A pure table lookup —
+ * an unknown style (an old save, a mod) falls back to a neutral shape rather
+ * than throwing, so the engine never has to know what styles exist. */
+const NEUTRAL_SHAPE = { midfield: 1, defense: 1, oppChance: 1, fitnessDrain: 1, wideBias: 0 };
+function styleShape(tactic: Tactic, cfg: TuningConfig) {
+  return cfg.styleShape?.[tactic.style] ?? NEUTRAL_SHAPE;
+}
+
+/** In-match fitness drain rate for a side, scaled by tempo + press instructions
+ * and the chosen style's own energy cost (v19). */
 function drainRateMult(side: SideState, cfg: TuningConfig): number {
   return (
     cfg.tempoFitnessDrainMult[resolveTempo(side.tactic)] *
-    cfg.pressFitnessDrainMult[resolvePress(side.tactic)]
+    cfg.pressFitnessDrainMult[resolvePress(side.tactic)] *
+    styleShape(side.tactic, cfg).fitnessDrain
   );
 }
 
@@ -197,6 +207,11 @@ function phaseStrengths(side: SideState, isHome: boolean, minute: number, cfg: T
   // territory; the hidden counter edge tilts attacking output.
   midfield *= cfg.pressMidfieldMult[resolvePress(side.tactic)];
   defense *= cfg.lineDefenseMult[resolveLine(side.tactic)];
+  // The style's own shape (v19): a pressing side wins more of the midfield, a
+  // low block trades that away for solidity.
+  const shape = styleShape(side.tactic, cfg);
+  midfield *= shape.midfield;
+  defense *= shape.defense;
   attack *= side.counterAttackMult;
   return { attack, midfield, defense, concedeMult };
 }
@@ -205,12 +220,23 @@ function activePlayers(side: SideState): OnPitch[] {
   return side.onPitch.filter((op) => op.leftMinute === null);
 }
 
-/** Attacking-focus multiplier for a slot: emphasised side/centre gets more of the ball. */
-function focusMult(focus: Focus, pos: Pos, cfg: TuningConfig): number {
-  if (focus === "Mixed") return 1;
+/** Attacking-focus multiplier for a slot: emphasised side/centre gets more of
+ * the ball. "Wide" (v19) emphasises BOTH flanks equally — a left winger and a
+ * right winger get the same lift a one-sided focus would give its own flank —
+ * so it is the choice for a side with threats on either touchline rather than
+ * one star to feed. The style's own wide bias (Wing Play) stacks on top. */
+function focusMult(focus: Focus, pos: Pos, tactic: Tactic, cfg: TuningConfig): number {
   const side = slotSide(pos);
-  const target = focus === "Central" ? "central" : focus === "Left" ? "left" : "right";
-  return side === target ? 1 + cfg.focusFlankBias : 1;
+  let mult = 1;
+  if (focus === "Wide") {
+    if (side !== "central") mult *= 1 + cfg.focusFlankBias;
+  } else if (focus !== "Mixed") {
+    const target = focus === "Central" ? "central" : focus === "Left" ? "left" : "right";
+    if (side === target) mult *= 1 + cfg.focusFlankBias;
+  }
+  const wideBias = styleShape(tactic, cfg).wideBias;
+  if (wideBias && side !== "central") mult *= 1 + wideBias;
+  return mult;
 }
 
 type SetPiece = "penalty" | "freekick" | "corner" | null;
@@ -238,7 +264,7 @@ function pickScorer(rng: RNG, side: SideState, cfg: TuningConfig, setPiece: SetP
   const scorer = pickWeighted(rng, active, (op) => {
     const arch = getArchetype(op.entry.player.archetypeId);
     let w = arch.scorerWeight * (0.25 + PHASE_WEIGHTS[op.entry.slotPos].attack) * op.entry.player.overall;
-    w *= focusMult(focus, op.entry.slotPos, cfg);
+    w *= focusMult(focus, op.entry.slotPos, side.tactic, cfg);
     for (const t of op.entry.player.traits) {
       const sm = TRAIT_MAP[t]?.effects.scorerMult;
       if (sm) w *= sm;
@@ -257,7 +283,11 @@ function pickScorer(rng: RNG, side: SideState, cfg: TuningConfig, setPiece: SetP
       assister = pickWeighted(rng, others, (op) => {
         const arch = getArchetype(op.entry.player.archetypeId);
         const w = PHASE_WEIGHTS[op.entry.slotPos];
-        let aw = arch.assistWeight * (0.2 + w.attack * 0.6 + w.midfield * 0.4) * op.entry.player.overall * focusMult(focus, op.entry.slotPos, cfg);
+        let aw =
+          arch.assistWeight *
+          (0.2 + w.attack * 0.6 + w.midfield * 0.4) *
+          op.entry.player.overall *
+          focusMult(focus, op.entry.slotPos, side.tactic, cfg);
         for (const t of op.entry.player.traits) {
           const am = TRAIT_MAP[t]?.effects.assistMult;
           if (am) aw *= am;
@@ -365,7 +395,9 @@ function playSegment(state: MatchState) {
   const tempoMult = (own: SideState, opp: SideState) =>
     (cfg.tempoChanceMult[resolveTempo(own.tactic)] + cfg.tempoChanceMult[resolveTempo(opp.tactic)]) / 2;
   const exposure = (opp: SideState) =>
-    cfg.pressOppChanceMult[resolvePress(opp.tactic)] * cfg.lineOppChanceMult[resolveLine(opp.tactic)];
+    cfg.pressOppChanceMult[resolvePress(opp.tactic)] *
+    cfg.lineOppChanceMult[resolveLine(opp.tactic)] *
+    styleShape(opp.tactic, cfg).oppChance;
 
   const perSegBase = cfg.baseChancesPerSegment;
   const homeLambda = perSegBase * homeShare * mentality(state.home, state.away) * tempoMult(state.home, state.away) * exposure(state.away);

@@ -13,7 +13,32 @@
 // The engine only ever reads `pos`; `label` is display text and MUST equal the
 // slot's `pos` so the two can never drift apart again.
 
-import type { Pos } from "../types";
+import type { Mentality, Pos, Style } from "../types";
+
+// ── Tactic option lists (v19) ─────────────────────────────────────────────
+// The canonical option sets and display names, so no screen re-declares them
+// (the Tactics screen and the half-time team talk both read these).
+
+export const MENTALITY_OPTIONS: Mentality[] = ["Defensive", "Balanced", "Attacking"];
+
+export const STYLE_OPTIONS: Style[] = [
+  "Possession",
+  "Counter",
+  "Direct",
+  "Gegenpress",
+  "ParkTheBus",
+  "WingPlay",
+];
+
+/** Display names for styles whose ids aren't presentable as-is. */
+const STYLE_LABEL: Partial<Record<Style, string>> = {
+  ParkTheBus: "Park the Bus",
+  WingPlay: "Wing Play",
+};
+
+export function styleLabel(s: string): string {
+  return STYLE_LABEL[s as Style] ?? s;
+}
 
 export interface FormationSlot {
   id: string;
