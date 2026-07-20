@@ -2,7 +2,7 @@
 // Every balance number lives here. Tuning never means editing engine code.
 // Adjust only via the calibration harness (npm run calibrate).
 
-import type { Mentality, Style } from "../types";
+import type { Mentality, ProspectTier, Style } from "../types";
 
 export interface TuningConfig {
   schemaVersion: number;
@@ -82,21 +82,25 @@ export interface TuningConfig {
   // Form
   formNudgePerRatingPoint: number; // form drift after each match
 
-  // Youth overall realism (§5, v9 balance). A young player's *current* overall is
-  // pulled toward an age-appropriate "soft cap" — most 17-year-olds land in the
-  // 50s–low-60s, not already an 88. But this is a SOFT cap, not a hard ceiling:
-  // a rare seeded "prodigy" roll lets a teenager keep most of a high requested
-  // overall, so once in a while a genuine 80-rated 17-year-old with a 90+ ceiling
-  // appears. Ability the soft cap trims is folded back into potential either way,
-  // so trimmed kids still read as high-ceiling prospects.
-  youthOverallCapBase: number; // soft-cap centre at youthOverallCapStartAge
-  youthOverallCapStartAge: number; // youngest age the soft cap applies from
-  youthOverallCapPerYear: number; // soft cap rises this much per year until it clears
-  youthOverallCapClearAge: number; // age at/after which no cap applies
-  youthProdigyChance: number; // per-young-player chance of an uncapped prodigy roll
-  youthProdigyKeepMin: number; // prodigy keeps at least this fraction of ability over the cap
-  youthProdigyKeepMax: number; // …up to this fraction (rest still becomes headroom)
-  youthSoftCapOvershoot: number; // ordinary youths may exceed the cap by up to this much (jitter)
+  // Age realism (§5, v15 balance). A young player's *current* ability is his
+  // eventual ability scaled by a smooth MATURITY curve, replacing the old
+  // bracketed soft cap. The curve is continuous and monotonic in age, so a
+  // 14-year-old is reliably weaker than a 16-year-old who is weaker than an
+  // 18-year-old — the bracketed cap treated whole age bands as identical and
+  // then jumped at the bracket edge.
+  maturityStartAge: number; // youngest age the curve is defined from
+  maturityFullAge: number; // age at which a player is physically finished (maturity = 1)
+  maturityFloor: number; // maturity at maturityStartAge (0..1)
+  maturityCurve: number; // >1 = most catching-up happens in the late teens
+  maturitySpread: number; // sd of per-player noise around the curve
+  youthProdigyChance: number; // per-young-player chance of an early-maturing prodigy
+  youthProdigyKeepMin: number; // prodigy closes at least this fraction of the maturity gap
+  youthProdigyKeepMax: number; // …up to this fraction
+
+  // Height (v15). Rolled from the archetype's band; the youngest prospects are
+  // still short of their adult frame. Display-only — the engine never reads it.
+  heightFullAge: number; // age at which a player has reached adult height
+  heightPerYoungYear: number; // fraction of adult height missing per year below it
 
   // Youth potential band (balance): growing players are given a hidden ceiling
   // in a high, well-spread band so almost every prospect is worth developing but
@@ -186,12 +190,53 @@ export interface TuningConfig {
   sponsorMajorUpfrontMult: number; // incentive multiplier on the equivalent-weekly lump
   sponsorMajorLengthMin: number; // shortest major deal (seasons)
   sponsorMajorLengthMax: number; // longest major deal (seasons)
+  // Investment deadlines & slot discipline (v11). An offer is a real decision:
+  // it sits on the table for a short, visible window and is gone if not signed,
+  // after which the slot goes quiet for a cooldown before a new suitor appears.
+  sponsorDeadlineDaysMajor: number; // days a major offer stays on the table
+  sponsorDeadlineDaysMinor: number; // days a minor offer stays on the table
+  sponsorCooldownDaysMin: number; // shortest quiet spell after a lapsed/passed offer
+  sponsorCooldownDaysMax: number; // longest quiet spell
+  /** Cap on concurrently-signed major deals. Majors pay a lump sum on signing,
+   * so without a cap the user can hold every major at once and re-sign short
+   * ones each season for repeated windfalls. Keeps the big money a choice. */
+  sponsorMaxActiveMajors: number;
+  /** Minimum length for a major deal, in seasons. Enforced at offer generation
+   * so a lump sum is always a multi-season commitment rather than a yearly
+   * re-signable windfall. */
+  sponsorMajorMinSeasons: number;
 
   // Training facilities (Player Development). One-time upgrade cost per level;
-  // no weekly income — they speed development / recovery instead.
+  // no weekly income — they speed development / recovery instead. Costs are a
+  // major-infrastructure decision (v15): a training centre competes with a
+  // marquee signing, not with a squad-player fee.
   trainingFacilityMaxLevel: number;
   trainingUpgradeCost: number[];
   medicalUpgradeCost: number[];
+
+  // ── Specialist training facilities (v15) ──
+  // Beyond the general Training Centre, a club can invest in facilities that
+  // sharpen a specific part of development. Each is the same one-time-purchase
+  // pattern; all are pure multipliers read by the development pass, so the
+  // engine never special-cases a facility by name.
+  /** Position-focused centres: growth bonus for players whose primary position
+   * sits in the named group. Keyed by the same groups the training plans use. */
+  positionFacilityMaxLevel: number;
+  positionFacilityGrowthPerLevel: number;
+  gkCentreUpgradeCost: number[];
+  defenceCentreUpgradeCost: number[];
+  midfieldCentreUpgradeCost: number[];
+  attackCentreUpgradeCost: number[];
+  /** Plan-focused facilities: amplify the effect of a training plan, so a squad
+   * training a focus with the matching facility develops that focus faster. */
+  planFacilityMaxLevel: number;
+  planFacilityBoostPerLevel: number; // added to a matching plan's growthMult −1
+  sportsScienceUpgradeCost: number[]; // physical/pace plans
+  techCentreUpgradeCost: number[]; // technical plans (playmaking, ball control)
+  finishingCentreUpgradeCost: number[]; // finishing plans
+  /** Youth-specific: lifts growth for players still in the academy age range. */
+  youthDevCentreUpgradeCost: number[];
+  youthDevCentreGrowthPerLevel: number;
 
   // Contracts (§10, v5 — individual wages + length + expiry)
   /** Weekly wage ≈ base * exp(exponent*overall). Same curve as the old
@@ -243,6 +288,28 @@ export interface TuningConfig {
   negotiationBuyerCeilingMult: number; // ceiling ≈ value * this (over the opening offer)
   negotiationMaxRounds: number; // user counters allowed before patience runs out
   negotiationWalkAwayOver: number; // instant walk if a counter exceeds ceiling * this
+
+  // ── Club AI strategy (§10) ──
+  // A club's stance is re-evaluated when each window opens; these are the
+  // thresholds that classify it. Per-stance behaviour lives in the
+  // STANCE_PROFILE table in lib/ai/strategy.ts.
+  aiTitleContenderRatio: number; // league position ratio (0=top) to consider a title push
+  aiUnderperformBand: number; // how far below expectation before stance turns negative
+  aiStanceTolerance: number; // slack allowed against expectation before it counts
+  aiStrugglingRatio: number; // position ratio at/below which a club is failing outright
+  aiAgeingSquadAge: number; // mean squad age at/above which a squad reads as old
+  aiHealthyBudgetRatio: number; // budget < squad value * this = financially squeezed
+  // Squad-need scoring: what makes a position urgent and a target worth signing.
+  aiDepthUrgencyWeight: number; // urgency added per missing body at a position
+  aiNeedScoreWeight: number; // how much positional urgency amplifies a target's score
+  aiMinUpgradeGain: number; // a signing must beat the incumbent by at least this
+  aiAgeBandFalloff: number; // interest multiplier per year outside the stance age band
+  aiMaxBudgetSharePerDeal: number; // most of its budget a club commits to one player
+  // Market volume.
+  aiDealsPerWeek: number; // base AI↔AI deals attempted each week a window is open
+
+  /** AI squad size ceiling. The user's first team is uncapped (v14) — the wage
+   * bill is what limits hoarding — so this only bounds AI roster building. */
   squadCap: number;
   matchdaySquad: number;
 
@@ -261,13 +328,10 @@ export interface TuningConfig {
   intakeClassPerLevel: number; // + per academy level (rounded)
   intakeAgeMin: number;
   intakeAgeMax: number;
-  // Base overall band per intake age (v8): the class arrives younger and rawer.
-  // A prospect's base overall centres on intakeOverallAtMinAge + (age-min)*slope
-  // and spans ±intakeOverallBandHalf around it, e.g. 15yo → 50-70, 12yo → 20-40.
-  // Not a hard cap — a prodigy roll can still push base overall above the band.
-  intakeOverallAtMinAge: number; // band centre at intakeAgeMin
-  intakeOverallPerYear: number; // + per year of age
-  intakeOverallBandHalf: number; // half-width of the band
+  // Intake quality (v15) now runs through the shared PROSPECT_TIERS bands — the
+  // academy's level, youth coach and reputation bias which tier a kid lands in,
+  // exactly as a scout's judgement does. The old per-age overall band is gone;
+  // the maturity curve handles age scaling instead.
   intakeOverallBase: number; // raw ability center of a new class (legacy, scouted path)
   intakeOverallSpread: number;
   intakePotentialBase: number; // potential distribution center at level 0
@@ -310,6 +374,36 @@ export interface TuningConfig {
   scoutPotentialBase: number; // scouted prospects skew above intake fodder
   scoutPotentialPerStar: number;
   scoutPotentialSpread: number;
+
+  // ── Scout experience & judgement (v14) ──
+  // A scout is two independent 1–5★ ratings. EXPERIENCE decides how many
+  // prospects a report brings back (1–7); JUDGEMENT decides how good they are
+  // (which ProspectTier each find lands in). Both are pure distribution tables
+  // indexed by star rating, so the engine only ever samples — it never
+  // special-cases a rating.
+  /** Per experience star (index 1–5), the probability weights over report sizes
+   * 1…7. Row index 0 is unused (no scout, no report). Each row is normalised at
+   * sample time, so the numbers read as relative likelihoods. */
+  scoutReportSizeByExperience: number[][];
+  /** Per judgement star (index 1–5), the probability weights over the prospect
+   * tiers in `prospectTierOrder`. Row 0 unused. */
+  scoutTierByJudgement: number[][];
+  /** Tier order the weight rows above are indexed against. */
+  prospectTierOrder: ProspectTier[];
+  /** Per-tier quality bands. `overall` is the ability a find comes back with and
+   * `potential` the ceiling it is given — a Platinum prospect is the wonderkid.
+   * Both are inclusive [min, max] ranges, clamped to potentialAbsoluteCap. */
+  prospectTierBands: Record<ProspectTier, { overall: [number, number]; potential: [number, number] }>;
+  /** Fraction of potential fog a judgement star removes on that scout's own
+   * reports — a sharp judge of a player also reads the ceiling more tightly. */
+  fogJudgementStarReduction: number;
+  /** Scout wages/fees scale on the two ratings combined (v14). */
+  scoutWageBase: number;
+  scoutWagePerStar: number;
+  scoutFeePerStar: number;
+  /** Days between reports at 1★ experience, and days shaved per experience star.
+   * An experienced scout files more often as well as more fully. */
+  scoutMaxHireable: number; // absolute ceiling on employed scouts (base + Max Scouts levels)
 
   // Loans (out only)
   loanMaxAge: number;
@@ -393,22 +487,25 @@ export const TUNING: TuningConfig = {
 
   formNudgePerRatingPoint: 0.012,
 
-  // Soft cap centres: a 12yo ~52, 15yo ~63, 17yo ~72, clearing at 22. Ordinary
-  // youths are pulled to (just around) this; the ability trimmed becomes potential
-  // headroom. But ~3% of young players roll "prodigy" and keep most of a high
-  // requested overall — that's the rare 80-rated-17yo-with-a-90-ceiling gem.
-  // (Centres raised so even a 12-year-old academy kid clears the 50-overall floor
-  // and reads as a real, developable prospect rather than a hopeless 38.)
-  youthOverallCapBase: 52,
-  youthOverallCapStartAge: 12,
-  youthOverallCapPerYear: 3.7,
-  youthOverallCapClearAge: 22,
+  // Maturity curve: 12yo ≈ 0.42 of eventual ability, 14 ≈ 0.55, 16 ≈ 0.71,
+  // 18 ≈ 0.86, 20 ≈ 0.97, finished at 21. Because it's a continuous curve rather
+  // than a bracketed cap, each extra year of age is worth something — a 16yo is
+  // meaningfully ahead of a 14yo of identical promise, which is the thing the
+  // old age-locked model got wrong. ~3% roll "prodigy" and mature early, which
+  // is where the genuine 80-rated 17-year-old comes from.
+  maturityStartAge: 12,
+  maturityFullAge: 21,
+  maturityFloor: 0.42,
+  maturityCurve: 1.35,
+  maturitySpread: 2.5,
   youthProdigyChance: 0.03,
-  youthProdigyKeepMin: 0.6,
-  youthProdigyKeepMax: 0.95,
+  youthProdigyKeepMin: 0.55,
+  youthProdigyKeepMax: 0.9,
   youthPotentialFloor: 88,
   youthPotentialBandTop: 96,
-  youthSoftCapOvershoot: 3,
+
+  heightFullAge: 19,
+  heightPerYoungYear: 0.012,
 
   minOverall: 50,
 
@@ -466,12 +563,41 @@ export const TUNING: TuningConfig = {
   sponsorRefreshDays: 5,
   sponsorMajorSlots: ["shirt", "stadium"],
   sponsorMajorUpfrontMult: 1.15,
-  sponsorMajorLengthMin: 1,
-  sponsorMajorLengthMax: 3,
+  sponsorMajorLengthMin: 2,
+  sponsorMajorLengthMax: 4,
+  // A major is a 12-day decision; minors linger a little longer since they're
+  // lower stakes. Cooldowns are short enough that a passed slot isn't dead for
+  // a season, long enough that passing costs you something.
+  sponsorDeadlineDaysMajor: 12,
+  sponsorDeadlineDaysMinor: 18,
+  sponsorCooldownDaysMin: 14,
+  sponsorCooldownDaysMax: 30,
+  sponsorMaxActiveMajors: 1,
+  sponsorMajorMinSeasons: 2,
 
+  // 10× the old costs (v15). Training infrastructure is now a genuine
+  // long-horizon investment weighed against the transfer market, not a cheap
+  // early-game formality bought in the first season.
   trainingFacilityMaxLevel: 5,
-  trainingUpgradeCost: [3_500_000, 8_000_000, 16_000_000, 28_000_000, 48_000_000],
-  medicalUpgradeCost: [2_500_000, 6_000_000, 12_000_000, 22_000_000, 38_000_000],
+  trainingUpgradeCost: [35_000_000, 80_000_000, 160_000_000, 280_000_000, 480_000_000],
+  medicalUpgradeCost: [25_000_000, 60_000_000, 120_000_000, 220_000_000, 380_000_000],
+
+  // Specialist facilities. Position centres are the cheapest (each helps only a
+  // quarter of the squad); plan centres cost more (they compound with the plans
+  // the user is already setting); the youth centre sits between the two.
+  positionFacilityMaxLevel: 3,
+  positionFacilityGrowthPerLevel: 0.09,
+  gkCentreUpgradeCost: [12_000_000, 30_000_000, 65_000_000],
+  defenceCentreUpgradeCost: [18_000_000, 42_000_000, 90_000_000],
+  midfieldCentreUpgradeCost: [18_000_000, 42_000_000, 90_000_000],
+  attackCentreUpgradeCost: [20_000_000, 48_000_000, 100_000_000],
+  planFacilityMaxLevel: 3,
+  planFacilityBoostPerLevel: 0.04,
+  sportsScienceUpgradeCost: [26_000_000, 60_000_000, 125_000_000],
+  techCentreUpgradeCost: [28_000_000, 65_000_000, 135_000_000],
+  finishingCentreUpgradeCost: [24_000_000, 56_000_000, 118_000_000],
+  youthDevCentreUpgradeCost: [22_000_000, 52_000_000, 110_000_000],
+  youthDevCentreGrowthPerLevel: 0.11,
 
   contractWageCurve: { base: 160, exponent: 0.082 },
   contractLengthMin: 1,
@@ -503,6 +629,25 @@ export const TUNING: TuningConfig = {
   negotiationBuyerCeilingMult: 1.6,
   negotiationMaxRounds: 3,
   negotiationWalkAwayOver: 1.15,
+
+  // Club AI strategy. Top ~25% of a league with no financial trouble reads as a
+  // title push; a club two-tenths of a table below its reputation is
+  // underperforming. A squad averaging 28+ is ageing.
+  aiTitleContenderRatio: 0.25,
+  aiUnderperformBand: 0.2,
+  aiStanceTolerance: 0.1,
+  aiStrugglingRatio: 0.8,
+  aiAgeingSquadAge: 27,
+  // Budgets run ~4-12% of squad value in this economy; below ~6.5% (the bottom
+  // quartile) a club genuinely has no room to buy.
+  aiHealthyBudgetRatio: 0.065,
+  aiDepthUrgencyWeight: 4,
+  aiNeedScoreWeight: 0.08,
+  aiMinUpgradeGain: 1.5,
+  aiAgeBandFalloff: 0.78,
+  aiMaxBudgetSharePerDeal: 0.45,
+  aiDealsPerWeek: 2,
+
   squadCap: 50,
   matchdaySquad: 18,
 
@@ -518,9 +663,6 @@ export const TUNING: TuningConfig = {
   intakeClassPerLevel: 0.5,
   intakeAgeMin: 12,
   intakeAgeMax: 17,
-  intakeOverallAtMinAge: 30, // 12yo band centre → 20-40; +10/yr → 15yo centre 60 (50-70)
-  intakeOverallPerYear: 10,
-  intakeOverallBandHalf: 10,
   intakeOverallBase: 50,
   intakeOverallSpread: 6,
   intakePotentialBase: 60,
@@ -553,13 +695,55 @@ export const TUNING: TuningConfig = {
 
   scoutReportDaysBase: 40,
   scoutReportDaysPerStar: 5,
-  scoutReportExpiryDays: 14,
+  // Must comfortably outlast the report cadence (40 − 5×stars, floor 10) or a
+  // scout's earlier finds always go cold before the next batch lands and reports
+  // can never accumulate on the board (v12).
+  scoutReportExpiryDays: 45,
   scoutFeeMult: 1.3,
   scoutProspectAgeMin: 15,
   scoutProspectAgeMax: 18,
   scoutPotentialBase: 62,
   scoutPotentialPerStar: 1.6,
   scoutPotentialSpread: 10,
+
+  // Experience → report size. Rows are weights over 1,2,3,4,5,6,7 prospects.
+  // A 1★ scout almost always files a single name (and only ~1% of the time the
+  // full seven); mass shifts steadily up the range until a 5★ scout returns
+  // seven half the time. Row 0 is unreachable (no scout, no report).
+  scoutReportSizeByExperience: [
+    [0, 0, 0, 0, 0, 0, 0], //  — unused
+    [55, 22, 12, 6, 3, 1, 1], // 1★ →  1% seven
+    [30, 27, 20, 11, 6, 3, 3], // 2★ →  3%
+    [12, 18, 24, 20, 12, 7, 7], // 3★ →  7%
+    [4, 8, 15, 20, 20, 13, 20], // 4★ → 20%
+    [2, 3, 6, 9, 12, 18, 50], // 5★ → 50%
+  ],
+  // Judgement → prospect tier. Rows are weights over bronze/silver/gold/platinum.
+  // A poor judge mostly turns up bronze and hits platinum ~1% of the time; a
+  // 5★ judge finds a wonderkid roughly one report in ten.
+  scoutTierByJudgement: [
+    [0, 0, 0, 0], // — unused
+    [64, 27, 8, 1], // 1★ →  1% platinum
+    [48, 34, 16, 2], // 2★ →  2%
+    [32, 38, 26, 4], // 3★ →  4%
+    [18, 36, 39, 7], // 4★ →  7%
+    [8, 30, 52, 10], // 5★ → 10%
+  ],
+  prospectTierOrder: ["bronze", "silver", "gold", "platinum"],
+  // Tier bands. Overall is what the kid can do now, potential the ceiling. The
+  // bands overlap slightly so a tier is a strong signal, not a rigid bracket.
+  // Platinum reaches the absolute cap — that's the generational talent.
+  prospectTierBands: {
+    bronze: { overall: [50, 58], potential: [62, 74] },
+    silver: { overall: [54, 64], potential: [73, 83] },
+    gold: { overall: [60, 71], potential: [82, 90] },
+    platinum: { overall: [68, 80], potential: [89, 97] },
+  },
+  fogJudgementStarReduction: 0.09,
+  scoutWageBase: 3_000,
+  scoutWagePerStar: 1_600,
+  scoutFeePerStar: 55_000,
+  scoutMaxHireable: 7, // scoutNetworkBase 2 + 5 upgrade levels
 
   loanMaxAge: 21,
   loanWeeklyChance: 0.35,

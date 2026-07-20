@@ -14,6 +14,7 @@ import {
   type CountryDatabase,
 } from "@/lib/database";
 import { teamIdFor } from "@/lib/worldgen";
+import { DEFAULT_TIER_NAMES } from "@/lib/config/divisions";
 import { storedKey } from "@/lib/auth";
 import { NAME_POOLS } from "@/lib/config/names";
 import { overallFromAttrs } from "@/lib/config/positions";
@@ -159,6 +160,11 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
   const [saveName, setSaveName] = useState("My Legacy");
   const [playableCountry, setPlayableCountry] = useState<string>("ENG");
   const [clubIndex, setClubIndex] = useState<number | null>(null);
+  // How many tiers the playable country runs (v12). Tiers beyond what its
+  // database authors are generated procedurally.
+  const [divisionDepth, setDivisionDepth] = useState<number>(2);
+  // Optional user-chosen league names, keyed by tier. Blank = keep the default.
+  const [divisionNames, setDivisionNames] = useState<Record<number, string>>({});
   // other countries to include as sim-only (view/shopping). Default: the other
   // engine-default countries (preset-only countries are opt-in).
   const [viewCountries, setViewCountries] = useState<string[]>(
@@ -279,6 +285,13 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
       playableCountry,
       viewCountries: viewCountries.filter((c) => c !== playableCountry),
       countryDBs,
+      divisionDepth,
+      // Only send names the user actually typed; blanks keep the defaults.
+      divisionNames: Object.fromEntries(
+        Object.entries(divisionNames)
+          .filter(([, v]) => v.trim())
+          .map(([k, v]) => [Number(k), v.trim()])
+      ),
     });
   };
 
@@ -337,6 +350,54 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Step 1b: how deep the league pyramid runs, plus optional league names.
+          Tiers the country's database doesn't author are generated. */}
+      <div>
+        <span className="display text-xs font-semibold tracking-widest text-faint">LEAGUE STRUCTURE</span>
+        <p className="mb-2 mt-0.5 text-[11px] text-faint">
+          How many divisions this country runs. Every tier plays out in full, with 3 up and 3 down between each — so you
+          can climb from the bottom or fall a long way.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {[1, 2, 3].map((d) => (
+            <button
+              key={d}
+              onClick={() => setDivisionDepth(d)}
+              className={`rounded-md border px-3 py-1.5 text-sm ${
+                divisionDepth === d ? "border-gold bg-hover text-ink" : "border-line text-faint hover:text-dim"
+              }`}
+            >
+              {d} division{d === 1 ? "" : "s"}
+            </button>
+          ))}
+        </div>
+        <div className="mt-3 space-y-2">
+          {Array.from({ length: divisionDepth }, (_, i) => i + 1).map((tier) => {
+            const authored = [...(basePlayableDb?.divisions ?? [])].sort((a, b) => a.tier - b.tier)[tier - 1];
+            const fallback = authored?.name ?? DEFAULT_TIER_NAMES[tier] ?? `Division ${tier}`;
+            return (
+              <label key={tier} className="flex items-center gap-2">
+                <span className="display w-16 shrink-0 text-[11px] font-semibold tracking-wider text-faint">
+                  TIER {tier}
+                </span>
+                <input
+                  value={divisionNames[tier] ?? ""}
+                  onChange={(e) => setDivisionNames((m) => ({ ...m, [tier]: e.target.value }))}
+                  placeholder={fallback}
+                  className="min-w-0 flex-1 rounded-md border border-line bg-raised px-3 py-1.5 text-sm text-ink placeholder:text-faint focus:border-gold focus:outline-none"
+                />
+                {!authored && (
+                  <span className="shrink-0 text-[10px] text-faint" title="Clubs for this tier are generated">
+                    generated
+                  </span>
+                )}
+              </label>
+            );
+          })}
+        </div>
+        <p className="mt-1.5 text-[11px] text-faint">Leave a name blank to use the default.</p>
       </div>
 
       {/* Step 2: club within the top division — pick an existing club or create

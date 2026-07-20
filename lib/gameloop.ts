@@ -11,12 +11,14 @@ import { buildSideInput, pickLineup, headCoachMult } from "./selection";
 import { simulateMatch } from "./engine/match";
 import { generateLeagueFixtures, drawCupRound, applyPromotionRelegation, initCup } from "./season";
 import { dailyRecovery, applyMatchFatigue, nudgeForm, applySeasonDevelopment, mentorGrowthBonus } from "./development";
-import { weeklyEconomyTick, applySeasonPrizes } from "./economy";
+import { weeklyEconomyTick, applySeasonPrizes, facilityGrowthMult } from "./economy";
 import { aiWeeklyTransferTick, refreshValues } from "./transfers";
+import { refreshClubStances } from "./ai/strategy";
 import { rolloverContracts, ensureContracts } from "./contracts";
 import { resolveSimLeagues } from "./simresolver";
 import { buildSeasonSummary, trackBiggestWin } from "./recordbook";
 import { generateStaffMarket, staffMarketTick } from "./staff";
+import { scoutMarketTick } from "./scouts";
 import { refreshSponsorOffers, rolloverSponsors } from "./sponsors";
 import { getFormation } from "./config/formations";
 import {
@@ -60,7 +62,14 @@ export function applyMatchResult(state: GameState, fixture: Fixture, result: Mat
   fixture.played = true;
   fixture.homeGoals = result.homeGoals;
   fixture.awayGoals = result.awayGoals;
-  fixture.scorers = result.scorers.map(({ playerId, teamId, minute }) => ({ playerId, teamId, minute }));
+  fixture.scorers = result.scorers.map(({ playerId, teamId, minute, assistId }) => ({ playerId, teamId, minute, assistId }));
+  // Keep the team stat line for the Match History tab (v11). The event log and
+  // per-player ratings are intentionally dropped — see MatchDetail.
+  fixture.detail = {
+    possession: result.stats.possession,
+    shots: result.stats.shots,
+    onTarget: result.stats.onTarget,
+  };
 
   // cup ties can't end level — settle on penalties
   if (fixture.competition === "CUP" && result.homeGoals === result.awayGoals) {
@@ -84,7 +93,7 @@ export function applyMatchResult(state: GameState, fixture: Fixture, result: Mat
     if (scorer) scorer.stats.goals += 1;
     if (s.assistId && state.players[s.assistId]) state.players[s.assistId].stats.assists += 1;
   }
-  trackBiggestWin(state, state.teams[fixture.homeId].name, state.teams[fixture.awayId].name, result.homeGoals, result.awayGoals);
+  trackBiggestWin(state, fixture, result.homeGoals, result.awayGoals);
 }
 
 function simAiFixture(state: GameState, fixture: Fixture) {
@@ -176,12 +185,16 @@ function advanceDay(state: GameState): StopReason | null {
   if (day === sched.simResolveDay2) resolveSimLeagues(state, 2, cfg);
   if (day === sched.winterOpenDay) {
     refreshValues(state, cfg);
+    // Clubs reassess their season and set a market stance for the window (§10).
+    refreshClubStances(state, cfg);
     pushInbox(state, "window", "Winter transfer window open", "The winter window is open until 1 February. Sim leagues have updated tables and form to browse.");
     loanMidseasonReports(state);
   }
 
   // Staff market: dismissed slots refill after a couple of days (v6).
   staffMarketTick(state);
+  // Scouting department shortlist tops itself back up the same way (v14).
+  scoutMarketTick(state, cfg);
   // Sponsorship offers land in any empty slot (v6, Club → Income).
   refreshSponsorOffers(state, cfg);
 
@@ -341,8 +354,10 @@ export function runSeasonRollover(state: GameState) {
 
   if (promoted.includes(state.teams[state.userTeamId].name)) {
     state.teams[state.userTeamId].budget += cfg.promotionBonus;
-    const topName = state.leagues[state.divisionIds[0]]?.name ?? "the top division";
-    pushInbox(state, "board", "PROMOTED!", `Promotion to ${topName}! The board adds ${fmtM(cfg.promotionBonus)} to your budget.`);
+    // Read the destination off the club's post-shuffle league, not divisionIds[0]
+    // — on a 3-tier ladder promotion may only be a step up to the second tier.
+    const upName = state.leagues[state.teams[state.userTeamId].leagueId]?.name ?? "the division above";
+    pushInbox(state, "board", "PROMOTED!", `Promotion to ${upName}! The board adds ${fmtM(cfg.promotionBonus)} to your budget.`);
   }
 
   // Loan reviews + fold youth/loan minutes into development inputs (§18).
@@ -380,6 +395,10 @@ export function runSeasonRollover(state: GameState) {
     let extraGrowth = focusSet.has(p.id) ? 1 + cfg.u21FocusGrowthBonus : 1;
     if (inAcademy && !focusSet.has(p.id) && u21SquadSet.has(p.id)) extraGrowth *= 1 + cfg.u21SquadGrowthBonus;
     if ((isUser || inAcademy) && p.age <= cfg.growthEndAge) extraGrowth *= 1 + userMentorBonus;
+    // Specialist training facilities (v15): position centres, plan centres and
+    // the youth development centre each help a subset of the squad, on top of
+    // the general Training Centre already folded into `trainingLevel`.
+    if (isUser || inAcademy) extraGrowth *= facilityGrowthMult(state, state.userTeamId, p, cfg);
     const wasOverall = p.overall;
     // training plans steer only the user's own senior + academy players
     const applyPlan = isUser || inAcademy;
@@ -395,6 +414,10 @@ export function runSeasonRollover(state: GameState) {
   }
 
   refreshValues(state, cfg);
+  // Set each club's stance for the summer window while the season just played is
+  // still readable in the fixtures — it's the evidence they judge themselves on
+  // (§10). The winter window re-evaluates against the live table.
+  refreshClubStances(state, cfg);
 
   // new season scaffolding — old fixtures compress into the record book
   state.season += 1;

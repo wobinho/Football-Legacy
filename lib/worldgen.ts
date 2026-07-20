@@ -5,20 +5,23 @@
 import type { GameState, League, PlayerBio, Pos, Team, Tactic } from "./types";
 import { SCHEMA_VERSION } from "./types";
 import { TUNING, type TuningConfig } from "./config/tuning";
-import { archetypesForPosition, getArchetype } from "./config/archetypes";
+import { archetypesForPosition, getArchetype, DEFAULT_HEIGHT_CM } from "./config/archetypes";
 import { traitsForPosition } from "./config/traits";
 import { overallFromAttrs } from "./config/positions";
 import { poolFor, NAME_POOLS } from "./config/names";
 import { defaultCountryDB, type ClubSeed, type CountryDatabase, type PlayerSeed } from "./database";
 import { FORMATIONS } from "./config/formations";
+import { DEFAULT_TIER_NAMES, MAX_DIVISION_DEPTH, generateDivisionClubs } from "./config/divisions";
 import { mulberry32, deriveSeed, pick, randInt, randNormal, shuffle, type RNG } from "./rng";
 import { playerValue } from "./value";
 import { buildSeasonSchedule } from "./calendar";
 import { generateLeagueFixtures, initCup } from "./season";
 import { generateStaffMarket } from "./staff";
+import { generateScoutMarket } from "./scouts";
 import { refreshSponsorOffers } from "./sponsors";
 import { initAcademyState, seedInitialAcademy } from "./academy";
 import { ensureContracts } from "./contracts";
+import { assignAllKitNumbers } from "./kitnumbers";
 import type { AcademyState } from "./types";
 
 // Squad template: how many players per position a generated club carries.
@@ -68,6 +71,62 @@ function pickNationality(rng: RNG, homeNat: string, homeShare: number): string {
   return pick(rng, NAME_POOLS).nat;
 }
 
+/**
+ * Physical maturity at a given age, 0..1 (v15). This replaces the old hard
+ * age-bracketed overall cap, which had two problems: it was a cliff (a player
+ * one day past `youthOverallCapClearAge` was suddenly uncapped) and it was
+ * *flat* inside a bracket, so a 14-year-old and a 16-year-old were treated as
+ * equally capable.
+ *
+ * The curve is smooth and monotonic: a 12-year-old sits far below a 16-year-old,
+ * who sits below an 18-year-old, who is close to (but not quite) a finished
+ * adult. It reaches 1.0 at `maturityFullAge` and stays there, so nothing about
+ * an adult's generation changes.
+ *
+ * Shape: a smoothstep between `maturityStartAge` and `maturityFullAge`, biased
+ * by `maturityCurve` (>1 = the late-teen years are where most of the catching-up
+ * happens, which is how youth football actually looks).
+ */
+export function maturityAt(age: number, cfg: TuningConfig): number {
+  if (age >= cfg.maturityFullAge) return 1;
+  if (age <= cfg.maturityStartAge) return cfg.maturityFloor;
+  const span = cfg.maturityFullAge - cfg.maturityStartAge;
+  const t = (age - cfg.maturityStartAge) / span;
+  const eased = Math.pow(t, cfg.maturityCurve);
+  return cfg.maturityFloor + (1 - cfg.maturityFloor) * eased;
+}
+
+/**
+ * The realistic *current* ability for a player of this age given the ability
+ * they're being generated toward (v15). A prospect's requested overall is read
+ * as the level they'd show as a finished player; what they can do *today* is
+ * that scaled by maturity, with a small seeded spread so two 15-year-olds of
+ * the same promise aren't identical.
+ *
+ * Crucially this is continuous in age, so 14 < 15 < 16 < 17 always holds on
+ * average — the thing the old bracketed cap got wrong.
+ */
+function ageAdjustedOverall(rng: RNG, requested: number, age: number, cfg: TuningConfig): number {
+  const maturity = maturityAt(age, cfg);
+  if (maturity >= 1) return requested;
+  // Scale toward the quality floor rather than toward zero: even a raw 13-year-old
+  // in a professional academy is a footballer, not a random body.
+  const floor = cfg.minOverall;
+  const scaled = floor + (requested - floor) * maturity;
+  const jitter = randNormal(rng) * cfg.maturitySpread;
+  return scaled + jitter;
+}
+
+/** Roll a height in cm from the archetype's band, with a small age allowance:
+ * the youngest prospects haven't finished growing yet (v15). */
+function rollHeight(rng: RNG, archetypeId: string, age: number, cfg: TuningConfig): number {
+  const [mean, sd] = getArchetype(archetypeId).heightCm ?? DEFAULT_HEIGHT_CM;
+  const adult = mean + randNormal(rng) * sd;
+  // Below the full-growth age a prospect is still short of his adult frame.
+  const grown = age >= cfg.heightFullAge ? 1 : 1 - (cfg.heightFullAge - age) * cfg.heightPerYoungYear;
+  return Math.round(Math.max(160, Math.min(210, adult * Math.max(0.9, grown))));
+}
+
 function deriveAttrs(rng: RNG, overall: number, archetypeId: string) {
   const profile = getArchetype(archetypeId).attrProfile;
   const keys = ["pac", "sho", "pas", "dri", "def", "phy"] as const;
@@ -96,36 +155,32 @@ export function generatePlayer(
   const briefed = opts.archetypeId ? getArchetype(opts.archetypeId) : null;
   const archetype = briefed && briefed.positions.includes(opts.pos) ? briefed : pick(rng, archetypesForPosition(opts.pos));
 
-  // Youth overall realism (§5, v9): a young player's *current* overall is pulled
-  // toward an age-appropriate SOFT cap — a 17-year-old is usually in the 50s–low
-  // 60s, not already an 88. But the cap is soft, not a hard ceiling: a rare
-  // seeded "prodigy" roll lets a teenager keep most of a high requested overall,
-  // so once in a while a genuine 80-rated 17yo with a 90+ ceiling shows up. Any
-  // ability the cap trims isn't lost — it becomes potential headroom below, so
-  // even a trimmed kid reads as a high-ceiling prospect who has to grow into it.
-  const softCap =
-    age >= cfg.youthOverallCapClearAge
-      ? 99
-      : cfg.youthOverallCapBase + (age - cfg.youthOverallCapStartAge) * cfg.youthOverallCapPerYear;
-
-  // A prodigy keeps most of the ability above the soft cap. The caller may force
-  // it (intake/scouting roll the chance themselves, so a high-overall gem isn't
-  // gated twice); otherwise generatePlayer rolls the chance itself, which is what
-  // lets an elite club's squad occasionally throw up a high-rated teenager.
+  // Age realism (§5, v15): a young player's *current* ability is his requested
+  // ability scaled by a smooth physical/technical maturity curve. Unlike the old
+  // bracketed soft cap this is continuous in age, so a 14-year-old is reliably
+  // behind a 16-year-old who is behind an 18-year-old — no cliffs, no flat
+  // brackets where two years of development counted for nothing.
+  //
+  // A rare seeded "prodigy" roll lets a teenager mature early and keep much more
+  // of his requested ability — that's the genuine 80-rated 17-year-old. The
+  // caller may force it (intake/scouting roll the chance themselves, so a gem
+  // isn't gated twice); otherwise it's rolled here, which is what lets an elite
+  // club's squad occasionally throw up a high-rated teenager.
   const isProdigy = opts.prodigy ?? rng() < cfg.youthProdigyChance;
   let overall: number;
-  if (age >= cfg.youthOverallCapClearAge || requested <= softCap) {
-    overall = requested; // adult, or already at/under the soft cap — nothing to trim
-  } else if (isProdigy) {
-    // Prodigy: keep most of the ability that sits above the soft cap. The keep
-    // fraction is random within a band, so prodigies vary from "very good for
-    // their age" to "generational". This is the rare tail the design wants.
-    const keep = cfg.youthProdigyKeepMin + rng() * (cfg.youthProdigyKeepMax - cfg.youthProdigyKeepMin);
-    overall = Math.round(softCap + (requested - softCap) * keep);
+  if (maturityAt(age, cfg) >= 1) {
+    overall = requested; // adult — nothing to scale
   } else {
-    // Ordinary youth: land around the soft cap with a little upward jitter, never
-    // above the requested ability.
-    overall = Math.round(Math.min(requested, softCap + rng() * cfg.youthSoftCapOvershoot));
+    const natural = ageAdjustedOverall(rng, requested, age, cfg);
+    if (isProdigy) {
+      // A prodigy is physically and technically ahead of his age group: he keeps
+      // a large, randomised share of the gap between what an ordinary kid his age
+      // would show and his full requested ability.
+      const keep = cfg.youthProdigyKeepMin + rng() * (cfg.youthProdigyKeepMax - cfg.youthProdigyKeepMin);
+      overall = Math.round(natural + (requested - natural) * keep);
+    } else {
+      overall = Math.round(natural);
+    }
   }
   overall = Math.max(cfg.minOverall, Math.min(requested, overall));
   const trimmed = Math.max(0, requested - overall);
@@ -179,6 +234,7 @@ export function generatePlayer(
     name: makeName(rng, opts.nat),
     age,
     nationality: opts.nat,
+    heightCm: rollHeight(rng, archetype.id, age, cfg),
     positions,
     archetypeId: archetype.id,
     attrs,
@@ -318,6 +374,14 @@ export interface NewGameOptions {
   playableCountry: string;
   /** Other countries to include as sim-only (view/shopping). */
   viewCountries: string[];
+  /** How many divisions deep the playable country runs (1–3, v12). Tiers beyond
+   * what the country's database authors are generated procedurally. Defaults to
+   * whatever the database already provides (capped at MAX_DIVISION_DEPTH). */
+  divisionDepth?: number;
+  /** Optional user-chosen league names, indexed by tier (1-based) — e.g.
+   * `{ 1: "My Premier League" }`. Any tier left out keeps the database's name
+   * (tier 1) or the DEFAULT_TIER_NAMES entry (generated tiers). */
+  divisionNames?: Record<number, string>;
   /** Per-country database (default or user-uploaded). Missing entries fall back
    * to the built-in default for that country. Keyed by country code. */
   countryDBs?: Record<string, CountryDatabase>;
@@ -416,11 +480,32 @@ export function generateWorld(opts: NewGameOptions): GameState {
   };
 
   // Playable country: every division runs the real engine (the user's club sits
-  // in one; promotion/relegation swaps between them).
+  // in one; promotion/relegation moves clubs between adjacent tiers).
   const playCode = opts.playableCountry;
   const playDb = dbFor(opts, playCode);
   if (!playDb) throw new Error(`Unknown playable country "${playCode}".`);
-  for (const div of playDb.divisions) makeDivision(playDb, div, true);
+
+  // Resolve the division ladder (v12). The database supplies whatever tiers it
+  // authors; the requested depth beyond that is generated procedurally, so any
+  // country can run a 2- or 3-tier pyramid with working promotion/relegation.
+  const authored = [...playDb.divisions].sort((a, b) => a.tier - b.tier);
+  const depth = Math.max(1, Math.min(MAX_DIVISION_DEPTH, opts.divisionDepth ?? authored.length));
+  const ladder: CountryDatabase["divisions"] = authored.slice(0, depth);
+  const authoredNames = new Set(authored.flatMap((d) => d.clubs.map((c) => c.name)));
+  for (let tier = authored.length + 1; tier <= depth; tier++) {
+    ladder.push({
+      id: `${playCode}${tier}`,
+      name: DEFAULT_TIER_NAMES[tier] ?? `Division ${tier}`,
+      tier,
+      clubs: generateDivisionClubs(seed, playCode, tier, authoredNames),
+    });
+  }
+  // Apply any user-chosen league names over the resolved ladder.
+  for (const div of ladder) {
+    const custom = opts.divisionNames?.[div.tier]?.trim();
+    if (custom) div.name = custom;
+  }
+  for (const div of ladder) makeDivision(playDb, div, true);
 
   // View-only countries: sim leagues (shopping / atmosphere).
   for (const code of opts.viewCountries) {
@@ -430,10 +515,9 @@ export function generateWorld(opts: NewGameOptions): GameState {
     for (const div of db.divisions) makeDivision(db, div, false);
   }
 
-  // The playable country's two division ids [top, second]. If it has only one
-  // division, the second mirrors the first (no relegation partner).
-  const playDivs = [...playDb.divisions].sort((a, b) => a.tier - b.tier);
-  const divisionIds: [string, string] = [playDivs[0].id, (playDivs[1] ?? playDivs[0]).id];
+  // The playable country's division ladder, top-first (v12). A single-division
+  // country yields a one-entry ladder and simply has no promotion/relegation.
+  const divisionIds: string[] = ladder.map((d) => d.id);
 
   // Free agents — signable during windows (home-nation flavored to the country)
   const faRng = mulberry32(deriveSeed(seed, "freeagents"));
@@ -449,7 +533,7 @@ export function generateWorld(opts: NewGameOptions): GameState {
   }
 
   const schedule = buildSeasonSchedule(1);
-  const playableDivisionIds = Array.from(new Set(playDb.divisions.map((d) => d.id)));
+  const playableDivisionIds = Array.from(new Set(divisionIds));
   const fixtures = playableDivisionIds.flatMap((id, idx) =>
     generateLeagueFixtures(id, leagues[id].teamIds, schedule.leagueRoundDays, seed + idx)
   );
@@ -477,6 +561,7 @@ export function generateWorld(opts: NewGameOptions): GameState {
     offers: [],
     transferList: [],
     staffMarket: generateStaffMarket(deriveSeed(seed, "staff:1")),
+    scoutMarket: generateScoutMarket(deriveSeed(seed, "scouts:1"), cfg),
     simResults: [],
     academy: null as unknown as AcademyState, // filled below — needs the state object
     recordBook: { seasons: [], biggestWin: null },
@@ -486,6 +571,9 @@ export function generateWorld(opts: NewGameOptions): GameState {
   };
   state.academy = initAcademyState(state, cfg);
   seedInitialAcademy(state, cfg);
+  // Shirt numbers (v15): every squad in the world is numbered once the rosters
+  // are final — best players first, so the stars wear the classic low numbers.
+  assignAllKitNumbers(state);
   // Every club-attached player gets an initial individual contract (§10 v5).
   // Academy players stay wage-free until promoted.
   ensureContracts(state, cfg);

@@ -76,13 +76,9 @@ export const STAFF_SLOTS: StaffSlotDef[] = [
     buff: "Runs the academy",
     effectAt: (s) => (s > 0 ? `+${s * 8}% academy growth` : "No academy bonus"),
   },
-  {
-    slot: "scout",
-    dept: "academy",
-    title: "Scout",
-    buff: "Finds prospects",
-    effectAt: (s) => (s > 0 ? `Report ~${Math.max(10, 40 - s * 5)}d, tighter reads` : "No prospect reports"),
-  },
+  // The Scout slot was retired in v14 — scouting is now its own department (a
+  // roster of scouts with experience/judgement ratings, see lib/scouts.ts),
+  // managed from Academy → Staff rather than as a single staff appointment.
 ];
 
 export const STAFF_SLOT_MAP: Record<StaffSlot, StaffSlotDef> = Object.fromEntries(
@@ -216,7 +212,11 @@ export function staffStars(state: GameState, teamId: string, slot: StaffSlot): n
   return state.teams[teamId]?.staff[slot]?.stars ?? 0;
 }
 
+/** The whole backroom wage bill: appointed staff plus the scouting department
+ * (v14 — scouts are a roster, not a staff slot, but they're paid the same way). */
 export function userStaffWages(state: GameState): number {
   const team = state.teams[state.userTeamId];
-  return Object.values(team.staff).reduce((s, m) => s + (m?.wage ?? 0), 0);
+  const staff = Object.values(team.staff).reduce((s, m) => s + (m?.wage ?? 0), 0);
+  const scouts = (team.scouts ?? []).reduce((s, sc) => s + sc.wage, 0);
+  return staff + scouts;
 }

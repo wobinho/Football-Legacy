@@ -50,7 +50,11 @@ export default function StaffPanel({ dept, intro }: { dept: StaffDept; intro?: R
           <section
             key={def.slot}
             className="rounded-lg border border-line p-3.5"
-            style={{ borderLeft: `3px solid ${accent}`, background: `linear-gradient(to right, ${accent}0d, transparent 40%)` }}
+            style={{
+              border: `1px solid ${accent}`,
+              boxShadow: `0 0 0 1px ${accent}26`,
+              background: `linear-gradient(160deg, ${accent}12, transparent 55%)`,
+            }}
           >
             <div className="mb-2.5 flex items-baseline justify-between">
               <h3 className="display text-sm font-semibold uppercase tracking-wide" style={{ color: accent }}>{def.title}</h3>

@@ -23,6 +23,15 @@ import {
 import { academySquadCap, trainingNextCost } from "@/lib/economy";
 import { plansForPosition, resolveTrainingPlan } from "@/lib/config/training";
 import { SCOUT_REGIONS } from "@/lib/config/scouting";
+import {
+  expectedReportSize,
+  idleScouts,
+  maxScouts,
+  scoutById,
+  tierChance,
+  TIER_COLOR,
+  TIER_LABEL,
+} from "@/lib/scouts";
 import { transferWindowState, formatDayShort } from "@/lib/calendar";
 import { formatMoney } from "@/lib/value";
 import { staffSlotsForDept } from "@/lib/staff";
@@ -67,13 +76,178 @@ export default function AcademyScreen() {
 function AcademyStaffTab() {
   useGame((s) => s.rev);
   const youthCoachDef = staffSlotsForDept("academy").find((d) => d.slot === "youthCoach")!;
-  const scoutDef = staffSlotsForDept("academy").find((d) => d.slot === "scout")!;
 
   return (
     <div className="space-y-8">
       <YouthCoachPanel def={youthCoachDef} />
-      <ScoutNetworkPanel def={scoutDef} />
+      <ScoutDepartmentPanel />
     </div>
+  );
+}
+
+/** A scout's two ratings, side by side. Experience and judgement answer
+ * different questions, so they're always shown together and always labelled —
+ * a 5★/1★ scout is a very different hire from a 1★/5★ one. */
+function ScoutRatings({ experience, judgement }: { experience: number; judgement: number }) {
+  return (
+    <div className="space-y-0.5">
+      <div className="flex items-center gap-2">
+        <span className="w-[68px] text-[10px] uppercase tracking-widest text-faint">Exp</span>
+        <Stars n={experience} />
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="w-[68px] text-[10px] uppercase tracking-widest text-faint">Judge</span>
+        <Stars n={judgement} />
+      </div>
+    </div>
+  );
+}
+
+/** What a scout's ratings actually buy you, in plain numbers: the average size
+ * of a report (experience) and the odds of a top-tier find (judgement). */
+function ScoutOutlook({ experience, judgement }: { experience: number; judgement: number }) {
+  const avg = expectedReportSize(TUNING, experience);
+  const plat = tierChance(TUNING, judgement, "platinum");
+  const gold = tierChance(TUNING, judgement, "gold");
+  return (
+    <div className="flex flex-wrap gap-1.5 text-[10px]">
+      <span className="display rounded-sm border border-line px-1.5 py-0.5 text-dim">
+        ~<span className="tnum font-semibold text-ink">{avg.toFixed(1)}</span> per report
+      </span>
+      <span className="display rounded-sm border px-1.5 py-0.5" style={{ borderColor: `${TIER_COLOR.gold}55`, color: TIER_COLOR.gold }}>
+        <span className="tnum font-semibold">{Math.round(gold * 100)}%</span> gold
+      </span>
+      <span className="display rounded-sm border px-1.5 py-0.5" style={{ borderColor: `${TIER_COLOR.platinum}55`, color: TIER_COLOR.platinum }}>
+        <span className="tnum font-semibold">{Math.round(plat * 100)}%</span> platinum
+      </span>
+    </div>
+  );
+}
+
+/** The scouting department (v14): a roster of employed scouts plus the hiring
+ * shortlist. Headcount is what caps concurrent assignments, and Max Scouts caps
+ * headcount — so this panel is where the size of the whole operation is set. */
+function ScoutDepartmentPanel() {
+  const game = useGame((s) => s.game)!;
+  const hire = useGame((s) => s.scoutHire);
+  const fire = useGame((s) => s.scoutFire);
+  const dismiss = useGame((s) => s.scoutDismissCandidate);
+  const team = game.teams[game.userTeamId];
+  const roster = team.scouts ?? [];
+  const cap = maxScouts(game, TUNING);
+  const full = roster.length >= cap;
+  const market = (game.scoutMarket ?? []).filter((c) => c.availableDay === undefined || c.availableDay <= game.currentDay);
+  const onAssignment = new Set(game.academy.assignments.map((a) => a.scoutId));
+
+  return (
+    <Section
+      title="Scouting Department"
+      right={
+        <span className="text-xs text-faint">
+          <span className={`tnum font-semibold ${full ? "text-gold" : "text-ink"}`}>{roster.length}</span> / {cap} employed
+        </span>
+      }
+    >
+      <p className="mb-3 max-w-3xl text-[13px] leading-relaxed text-dim">
+        Every scout carries two ratings. <b className="text-ink">Experience</b> decides how many prospects come back in a
+        report — from a single name up to seven. <b className="text-ink">Judgement</b> decides how good they are: the tier
+        each find lands in, from Bronze up to the rare <span style={{ color: TIER_COLOR.platinum }}>Platinum</span> wonderkid.
+        You can employ {cap} scout{cap === 1 ? "" : "s"} — raise that with <b className="text-ink">Max Scouts</b> on the
+        Upgrades tab — and each one can be out on one assignment at a time.
+      </p>
+
+      {/* employed scouts */}
+      {roster.length === 0 ? (
+        <Card className="mb-4 p-4 text-sm text-dim">
+          No scouts on the books. Hire one below, then send them out from the <b className="text-ink">Scouting</b> tab.
+        </Card>
+      ) : (
+        <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {roster.map((s) => (
+            <Card key={s.id} className="flex flex-col overflow-hidden border-t-2 border-t-gold-lo/40 p-0">
+              <div className="flex items-start justify-between gap-2 bg-raised px-3 py-2.5">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <Flag nat={s.nationality} size={11} />
+                    <span className="truncate text-sm font-semibold">{s.name}</span>
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-faint">{formatMoney(s.wage)}/wk</div>
+                </div>
+                {onAssignment.has(s.id) ? (
+                  <span className="display shrink-0 rounded-sm border border-win/40 px-1.5 py-0.5 text-[9px] font-semibold text-win">
+                    ON ASSIGNMENT
+                  </span>
+                ) : (
+                  <span className="display shrink-0 rounded-sm border border-line px-1.5 py-0.5 text-[9px] font-semibold text-faint">
+                    AVAILABLE
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-1 flex-col gap-2 p-3">
+                <ScoutRatings experience={s.experience} judgement={s.judgement} />
+                <ScoutOutlook experience={s.experience} judgement={s.judgement} />
+                <div className="mt-auto flex justify-end border-t border-line/60 pt-2">
+                  <ConfirmButton
+                    label="Release"
+                    confirmLabel={`Release ${s.name}?`}
+                    tone="danger"
+                    onConfirm={() => fire(s.id)}
+                    className="!px-3 !py-1 text-xs"
+                  />
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* hiring shortlist */}
+      <div className="mb-2 flex items-baseline justify-between">
+        <span className="text-[10px] uppercase tracking-widest text-faint">Scouts available to hire</span>
+        {full && <span className="text-[11px] text-gold">Department full — release a scout or upgrade Max Scouts.</span>}
+      </div>
+      {market.length === 0 ? (
+        <div className="rounded-md border border-dashed border-line px-3 py-6 text-center text-sm text-faint">
+          Shortlist cleared — new scouts arrive in a couple of days.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {market.map((c) => (
+            <Card key={c.id} className="flex flex-col overflow-hidden p-0">
+              <div className="flex items-center justify-between gap-2 bg-raised px-3 py-2.5">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <Flag nat={c.nationality} size={11} />
+                  <span className="truncate text-sm font-semibold">{c.name}</span>
+                </div>
+              </div>
+              <div className="flex flex-1 flex-col gap-2 p-3">
+                <ScoutRatings experience={c.experience} judgement={c.judgement} />
+                <ScoutOutlook experience={c.experience} judgement={c.judgement} />
+                <div className="text-[11px] text-faint">
+                  Fee {formatMoney(c.fee)} · {formatMoney(c.wage)}/wk
+                </div>
+                <div className="mt-auto flex items-stretch gap-1.5 pt-1">
+                  <ConfirmButton
+                    label={full ? "Full" : "Hire"}
+                    confirmLabel="Confirm?"
+                    disabled={full}
+                    onConfirm={() => hire(c.id)}
+                    className="flex-1 !px-2 !py-1 text-xs"
+                  />
+                  <button
+                    onClick={() => dismiss(c.id)}
+                    title="Dismiss — remove from the shortlist"
+                    className="w-7 shrink-0 rounded border border-line text-sm leading-none text-dim transition-colors hover:border-loss/50 hover:text-loss"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </Section>
   );
 }
 
@@ -91,7 +265,7 @@ function YouthCoachPanel({ def }: { def: ReturnType<typeof staffSlotsForDept>[nu
 
   return (
     <Section title="Youth Coach" right={<span className="text-xs text-faint">{def.buff}</span>}>
-      <Card className="overflow-hidden border-l-2 border-l-gold bg-gradient-to-r from-gold-lo/[0.08] to-transparent p-5">
+      <Card className="overflow-hidden border-gold bg-gradient-to-br from-gold-lo/[0.10] to-transparent p-5 shadow-[0_0_0_1px_rgba(217,164,65,0.15)]">
         <div className="flex flex-wrap items-center gap-5">
           {/* coach identity */}
           <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border border-gold-lo/50 bg-gold-lo/10 text-3xl">
@@ -142,7 +316,7 @@ function YouthCoachPanel({ def }: { def: ReturnType<typeof staffSlotsForDept>[nu
                 {ready.map((c) => {
                   const better = current ? c.stars > current.stars : true;
                   return (
-                    <Card key={c.id} className="flex flex-col border-l-2 border-l-gold-lo/40 p-3">
+                    <Card key={c.id} className="flex flex-col border-gold-lo/40 p-3">
                       <div className="flex items-center justify-between">
                         <span className="flex min-w-0 items-center gap-1.5">
                           <Flag nat={c.nationality} size={11} />
@@ -179,114 +353,6 @@ function YouthCoachPanel({ def }: { def: ReturnType<typeof staffSlotsForDept>[nu
           </div>
         )}
       </Card>
-    </Section>
-  );
-}
-
-/** The scouting network — scouts read as a grid of talent-finder cards, each
- * with the report-speed stat up front. Deliberately unlike the backroom-staff
- * rows so scouts feel like the club's eyes on the youth game, not office hires. */
-function ScoutNetworkPanel({ def }: { def: ReturnType<typeof staffSlotsForDept>[number] }) {
-  const game = useGame((s) => s.game)!;
-  const hire = useGame((s) => s.hire);
-  const dismiss = useGame((s) => s.dismissStaff);
-  const fire = useGame((s) => s.fireStaff);
-  const team = game.teams[game.userTeamId];
-  const current = team.staff.scout;
-  const all = game.staffMarket.filter((c) => c.slot === "scout");
-  const ready = all.filter((c) => c.availableDay === undefined || c.availableDay <= game.currentDay);
-  const pending = all.length > 0 && ready.length === 0;
-
-  return (
-    <Section title="Scouting" right={<span className="text-xs text-faint">{def.buff}</span>}>
-      {/* the appointed scout — a wide "field card" */}
-      <Card className="mb-4 p-4">
-        <div className="flex flex-wrap items-center gap-4">
-          {current ? (
-            <>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <Flag nat={current.nationality} size={13} />
-                  <span className="text-lg font-semibold">{current.name}</span>
-                </div>
-                <div className="mt-0.5 flex items-center gap-2 text-xs text-faint">
-                  <Stars n={current.stars} />
-                  <span>· {formatMoney(current.wage)}/wk</span>
-                </div>
-              </div>
-              <div className="rounded-md border border-line bg-raised px-4 py-2 text-center">
-                <div className="text-[10px] uppercase tracking-widest text-faint">Read quality</div>
-                <div className="display text-sm font-bold gold-text">{def.effectAt ? def.effectAt(current.stars) : "—"}</div>
-              </div>
-              <ConfirmButton
-                label="Fire"
-                confirmLabel={`Fire ${current.name}?`}
-                tone="danger"
-                onConfirm={() => fire("scout")}
-                className="!px-3 !py-1.5 text-xs"
-              />
-            </>
-          ) : (
-            <div className="min-w-0 flex-1 text-sm text-dim">
-              No scout on the books — appoint one below, then send them to countries on the{" "}
-              <b className="text-ink">Scouting</b> tab.
-            </div>
-          )}
-        </div>
-      </Card>
-
-      <div className="mb-2 text-[10px] uppercase tracking-widest text-faint">Scouts available to appoint</div>
-      {pending ? (
-        <div className="rounded-md border border-dashed border-line px-3 py-6 text-center text-sm text-faint">
-          Shortlist cleared — new scouts arrive in a couple of days.
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {ready.map((c) => {
-            const better = current ? c.stars > current.stars : true;
-            return (
-              <Card
-                key={c.id}
-                className="flex flex-col overflow-hidden border-t-2 border-t-gold-lo/40 p-0"
-              >
-                {/* scout "badge" header */}
-                <div className="flex items-center justify-between gap-3 bg-raised px-3 py-2.5">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <Flag nat={c.nationality} size={11} />
-                      <span className="truncate text-sm font-semibold">{c.name}</span>
-                    </div>
-                    <Stars n={c.stars} />
-                  </div>
-                </div>
-                <div className="flex flex-1 flex-col p-3">
-                  {def.effectAt && (
-                    <div className={`text-[11px] font-medium ${better ? "text-win" : "text-dim"}`}>{def.effectAt(c.stars)}</div>
-                  )}
-                  <div className="mt-1 text-[11px] text-faint">
-                    Fee {formatMoney(c.fee)} · {formatMoney(c.wage)}/wk
-                  </div>
-                  <div className="mt-3 flex items-stretch gap-1.5">
-                    <ConfirmButton
-                      label={current ? "Replace" : "Appoint"}
-                      confirmLabel="Confirm?"
-                      onConfirm={() => hire(c.id)}
-                      className="flex-1 !px-2 !py-1 text-xs"
-                    />
-                    <button
-                      onClick={() => dismiss(c.id)}
-                      title="Dismiss — remove from the shortlist"
-                      className="w-7 shrink-0 rounded border border-line text-sm leading-none text-dim transition-colors hover:border-loss/50 hover:text-loss"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-      )}
     </Section>
   );
 }
@@ -627,7 +693,7 @@ function U21LockedBanner() {
   if (short.gk > 0) need.push(`${short.gk} goalkeeper${short.gk > 1 ? "s" : ""}`);
   if (short.outfield > 0) need.push(`${short.outfield} outfield player${short.outfield > 1 ? "s" : ""}`);
   return (
-    <Card className="border-l-2 border-l-loss/60 bg-gradient-to-r from-loss/[0.08] to-transparent p-4">
+    <Card className="border-loss/60 bg-gradient-to-br from-loss/[0.10] to-transparent p-4 shadow-[0_0_0_1px_rgba(220,80,80,0.15)]">
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-loss/40 bg-loss/10 text-2xl">
           🔒
@@ -784,49 +850,48 @@ function ScoutingTab() {
   const viewProspect = useGame((s) => s.viewProspect);
   const [sending, setSending] = useState(false);
 
-  const scout = game.teams[game.userTeamId].staff.scout;
+  const roster = game.teams[game.userTeamId].scouts ?? [];
+  const free = idleScouts(game);
   const assignments = game.academy.assignments;
   const capacity = scoutCapacity(game, TUNING);
   const reports = game.academy.reports.filter((r) => r.expiresDay > game.currentDay);
   const team = game.teams[game.userTeamId];
-  const budget = team.budget;
   const academyFull = (team.academyPlayerIds?.length ?? 0) >= academySquadCap(game, team.id, TUNING);
+  // Reports accumulate across a scout's trips (v12), so order them newest-batch
+  // first and keep each batch together — otherwise a big 5★ shortlist and the
+  // previous trip's leftovers read as one undifferentiated pile.
+  const sortedReports = [...reports].sort(
+    (a, b) => b.day - a.day || (b.batch ?? 0) - (a.batch ?? 0) || b.player.overall - a.player.overall
+  );
 
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
       <div className="space-y-6">
         <Section
-          title="Scouting Department"
+          title="Scouts on Assignment"
           right={
             <span className="text-xs text-faint">
-              {scout ? `${scout.name} · ${"★".repeat(scout.stars)}` : "No scout"}
+              <span className={`tnum font-semibold ${assignments.length >= capacity ? "text-gold" : "text-ink"}`}>
+                {assignments.length}
+              </span>{" "}
+              / {capacity} out
             </span>
           }
         >
-          {!scout ? (
+          {roster.length === 0 ? (
             <Card className="p-4 text-sm text-dim">
-              No scout on the books — hire a <b className="text-ink">Scout</b> on the <b className="text-ink">Staff</b> tab and you
-              can start sending them abroad. More stars mean more reports and tighter potential reads; upgrade{" "}
-              <b className="text-ink">Max Scouts</b> on the <b className="text-ink">Upgrades</b> tab to send more out at once.
+              No scouts on the books — hire one on the <b className="text-ink">Staff</b> tab and you can start sending them
+              abroad. A scout&apos;s <b className="text-ink">experience</b> sets how many prospects a report brings back, and
+              their <b className="text-ink">judgement</b> sets how good those prospects are.
             </Card>
           ) : (
             <Card className="p-4">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <span className="display shrink-0 rounded border border-line px-2 py-1 text-xs">
-                  Scouts out{" "}
-                  <span className={`tnum font-semibold ${assignments.length >= capacity ? "text-gold" : "text-ink"}`}>
-                    {assignments.length}
-                  </span>
-                  <span className="text-faint"> / {capacity}</span>
-                </span>
-              </div>
-
               <div className="space-y-2">
-                {assignments.map((a, i) => {
+                {assignments.map((a) => {
                   const briefArch = (a.archetypes ?? []).map((id) => getArchetype(id).name);
+                  const s = scoutById(game, a.scoutId);
                   return (
                     <div key={a.id} className="flex flex-wrap items-center gap-2 rounded border border-line bg-raised px-3 py-2">
-                      <span className="display w-6 shrink-0 text-center text-sm font-bold text-faint">{i + 1}</span>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-1.5 text-sm">
                           <Flag nat={SCOUT_REGIONS.find((r) => r.id === a.region)?.nats[0] ?? "ENG"} size={12} />
@@ -834,6 +899,20 @@ function ScoutingTab() {
                           <span className="text-faint">·</span>
                           <span className="text-dim">{posGroupLabel(a.positions)}</span>
                         </div>
+                        {s && (
+                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+                            <span className="text-dim">{s.name}</span>
+                            <span className="display rounded-sm border border-line px-1 text-[9px] text-faint">
+                              EXP {s.experience}★
+                            </span>
+                            <span className="display rounded-sm border border-line px-1 text-[9px] text-faint">
+                              JUDGE {s.judgement}★
+                            </span>
+                            <span className="text-faint">
+                              · ~{expectedReportSize(TUNING, s.experience).toFixed(1)} per report
+                            </span>
+                          </div>
+                        )}
                         <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-faint">
                           {briefArch.length > 0 ? (
                             briefArch.map((n) => (
@@ -849,7 +928,7 @@ function ScoutingTab() {
                       </div>
                       <button
                         onClick={() => removeScout(a.id)}
-                        title="Recall this scout — frees the slot to send a new brief"
+                        title="Recall this scout — frees them for a new brief"
                         className="h-9 w-9 shrink-0 rounded border border-line text-sm text-dim hover:border-loss/50 hover:text-loss md:h-7 md:w-7"
                       >
                         ✕
@@ -866,13 +945,13 @@ function ScoutingTab() {
 
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                 <span className="min-w-0 flex-1 text-[11px] text-faint">
-                  {assignments.length >= capacity
-                    ? "All scouts deployed. Upgrade Max Scouts on the Upgrades tab to send more."
-                    : `${capacity - assignments.length} scout${capacity - assignments.length === 1 ? "" : "s"} available.`}
+                  {free.length === 0
+                    ? "Every scout is out. Recall one, or hire more on the Staff tab."
+                    : `${free.length} scout${free.length === 1 ? "" : "s"} available to send.`}
                 </span>
                 <GoldButton
                   onClick={() => setSending(true)}
-                  disabled={assignments.length >= capacity}
+                  disabled={free.length === 0}
                   className="shrink-0 !px-4 !py-1.5 text-xs"
                 >
                   + SEND A SCOUT
@@ -889,12 +968,12 @@ function ScoutingTab() {
         ) : (
           <div className="space-y-3">
             {academyFull && (
-              <Card className="border-l-2 border-l-loss/50 p-3 text-[13px] text-dim">
+              <Card className="border-loss/50 p-3 text-[13px] text-dim">
                 Academy is full ({team.academyPlayerIds?.length ?? 0}/{academySquadCap(game, team.id, TUNING)}). Release a prospect or
                 upgrade <b className="text-ink">Academy Squad Size</b> before signing another.
               </Card>
             )}
-            {reports.map((r) => {
+            {sortedReports.map((r) => {
               const p = r.player;
               const v = potentialView(game, p, TUNING);
               return (
@@ -910,6 +989,15 @@ function ScoutingTab() {
                           {SCOUT_REGIONS.find((x) => x.id === r.region)?.short ?? r.region}
                         </span>
                       )}
+                      {r.tier && (
+                        <span
+                          className="display shrink-0 rounded-sm border px-1.5 text-[9px] font-bold uppercase tracking-wide"
+                          style={{ borderColor: `${TIER_COLOR[r.tier]}77`, color: TIER_COLOR[r.tier] }}
+                          title={`${TIER_LABEL[r.tier]} prospect — the tier your scout's judgement turned up`}
+                        >
+                          {TIER_LABEL[r.tier]}
+                        </span>
+                      )}
                     </button>
                     <div className="flex items-center gap-3">
                       <span className="text-xs text-faint">OVR</span>
@@ -919,13 +1007,21 @@ function ScoutingTab() {
                     </div>
                   </div>
                   <div className="mt-1.5 text-[11px] text-faint">
-                    {getArchetype(p.archetypeId).name} · click the name for full stats before you sign
+                    {getArchetype(p.archetypeId).name}
+                    {" · "}
+                    {game.currentDay - r.day <= 0 ? "found today" : `found ${game.currentDay - r.day}d ago`}
+                    {(() => {
+                      const s = scoutById(game, r.scoutId);
+                      return s ? ` · scouted by ${s.name}` : "";
+                    })()}
+                    {" · click the name for full stats before you sign"}
                   </div>
                   <p className="mt-2 text-[13px] italic leading-relaxed text-dim">&ldquo;{r.note}&rdquo;</p>
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-3">
                     <span className="text-xs text-faint">
-                      Fee <span className="display tnum text-sm font-semibold text-ink">{formatMoney(r.fee)}</span> · trail cold in{" "}
+                      <span className="display text-sm font-semibold text-win">Free</span> · youth terms · trail cold in{" "}
                       {r.expiresDay - game.currentDay}d
+                      {academyFull && <span className="ml-1 text-loss">· academy full</span>}
                     </span>
                     <span className="flex flex-wrap items-center justify-end gap-2">
                       <GhostButton onClick={() => viewProspect(p)} className="!px-3 !py-1 text-xs">
@@ -936,10 +1032,10 @@ function ScoutingTab() {
                       </GhostButton>
                       <GoldButton
                         onClick={() => sign(r.id)}
-                        disabled={budget < r.fee || academyFull}
+                        disabled={academyFull}
                         className="!px-4 !py-1 text-xs"
                       >
-                        SIGN — {formatMoney(r.fee)}
+                        SIGN
                       </GoldButton>
                     </span>
                   </div>
@@ -959,7 +1055,10 @@ function ScoutingTab() {
  * archetype focus, then confirm. The brief is fixed once the scout is out — recall
  * and re-send to change it. */
 function SendScoutModal({ onClose }: { onClose: () => void }) {
+  const game = useGame((s) => s.game)!;
   const addScout = useGame((s) => s.academyAddScout);
+  const free = idleScouts(game);
+  const [scoutId, setScoutId] = useState<string>(free[0]?.id ?? "");
   const [region, setRegion] = useState<ScoutRegion>("England");
   const [positions, setPositions] = useState<ScoutPosGroup>("ANY");
   const [archetypes, setArchetypes] = useState<string[]>([]);
@@ -973,13 +1072,50 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
     setArchetypes((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
 
   const confirm = () => {
-    addScout(region, positions, selected);
+    addScout(region, positions, selected, scoutId || undefined);
     onClose();
   };
 
   return (
     <Modal title="Send a scout" onClose={onClose}>
       <div className="space-y-4">
+        {/* Which scout goes: their two ratings decide what comes back, so this
+            is the most consequential choice in the whole brief. */}
+        <div>
+          <div className="mb-1 text-[10px] uppercase tracking-widest text-faint">Scout</div>
+          <div className="space-y-1.5">
+            {free.map((s) => {
+              const on = s.id === scoutId;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setScoutId(s.id)}
+                  className={`flex w-full items-center gap-3 rounded-md border px-3 py-2 text-left ${
+                    on ? "border-gold-lo/60 bg-hover" : "border-line bg-raised hover:border-faint"
+                  }`}
+                >
+                  <Flag nat={s.nationality} size={12} />
+                  <div className="min-w-0 flex-1">
+                    <div className={`truncate text-sm font-medium ${on ? "text-gold" : "text-ink"}`}>{s.name}</div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-faint">
+                      <span>EXP {s.experience}★</span>
+                      <span>·</span>
+                      <span>JUDGE {s.judgement}★</span>
+                      <span>·</span>
+                      <span>~{expectedReportSize(TUNING, s.experience).toFixed(1)} per report</span>
+                      <span>·</span>
+                      <span style={{ color: TIER_COLOR.platinum }}>
+                        {Math.round(tierChance(TUNING, s.judgement, "platinum") * 100)}% platinum
+                      </span>
+                    </div>
+                  </div>
+                  {on && <span className="display shrink-0 text-[11px] font-bold text-gold">✓</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <div>
           <div className="mb-1 text-[10px] uppercase tracking-widest text-faint">Country / region</div>
           <select
@@ -1096,8 +1232,9 @@ function UpgradesTab() {
       accent: "#4a90d9", // blue
       level: scoutLevel,
       maxLevel: TUNING.scoutNetworkMaxLevel,
-      influence: "How many scouts you can have out on assignment at once. Needs at least one Scout on the staff.",
-      now: `${TUNING.scoutNetworkBase + scoutLevel} scouts`,
+      influence:
+        "How many scouts you can employ. Each scout can be out on one assignment at a time, so headcount is what sets the size of your scouting operation. Hire them on the Staff tab.",
+      now: `${TUNING.scoutNetworkBase + scoutLevel} scouts (${team.scouts?.length ?? 0} employed)`,
       next: `${TUNING.scoutNetworkBase + scoutLevel + 1} scouts`,
     },
     {

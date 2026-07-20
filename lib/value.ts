@@ -65,3 +65,13 @@ export function parseMoney(input: string): number | null {
   const val = parseFloat(m[1]) * mult;
   return Number.isFinite(val) ? Math.round(val) : null;
 }
+
+/** Height in feet & inches, from stored centimetres — e.g. 185 → 6'1". The
+ * schema stores metric; every surface in the game reads imperial (v15). */
+export function formatHeight(cm: number | undefined): string {
+  if (!cm || !Number.isFinite(cm)) return "—";
+  const totalInches = Math.round(cm / 2.54);
+  const feet = Math.floor(totalInches / 12);
+  const inches = totalInches % 12;
+  return `${feet}'${inches}"`;
+}

@@ -41,6 +41,15 @@ await page.screenshot({ path: shot("02-home.png") });
 await page.click('button:has-text("Squad")');
 await page.waitForSelector("text=Archetype");
 await page.screenshot({ path: shot("03-squad.png") });
+// v14: clicking a squad row opens the profile with release / transfer-list /
+// loan-list actions.
+await page.click("table tbody tr");
+await page.waitForSelector("text=Actions");
+await page.waitForSelector("text=ADD TO TRANSFER LIST");
+await page.waitForSelector("text=ADD TO LOAN LIST");
+await page.screenshot({ path: shot("03b-squad-actions.png") });
+await page.click('button[aria-label="Close"]');
+await page.waitForSelector("text=Actions", { state: "hidden" });
 
 // tactics
 await page.click('button:has-text("Tactics")');
@@ -87,8 +96,14 @@ await page.click('button:has-text("U21 League")');
 await page.waitForSelector("text=U21 Table");
 await page.screenshot({ path: shot("11-academy-u21.png") });
 await page.click('button:has-text("Scouting")');
-await page.waitForSelector("text=Scouting Department");
+await page.waitForSelector("text=Scouts on Assignment");
 await page.screenshot({ path: shot("12-academy-scouting.png") });
+// v14: scouts are a hired roster (experience + judgement), on the Staff tab
+await page.click('nav >> button:has-text("Academy")');
+await page.click('button:has-text("Staff")');
+await page.waitForSelector("text=Scouting Department");
+await page.waitForSelector("text=Scouts available to hire");
+await page.screenshot({ path: shot("12c-academy-scout-staff.png") });
 // v8: upgrades moved to their own tab (Max Scouts / Academy Squad Size / Focus Slots)
 await page.click('nav >> button:has-text("Academy")');
 await page.click('button:has-text("Upgrades")');

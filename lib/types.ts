@@ -2,7 +2,7 @@
 // Single source of truth for all game data shapes. Schema-versioned so the
 // save/export format doubles as the modding format (GAME_DESIGN.md §2, §13).
 
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 16;
 
 export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "AM" | "LW" | "RW" | "ST";
 
@@ -45,6 +45,14 @@ export interface PlayerBio {
   name: string;
   age: number;
   nationality: string; // 3-letter code
+  /** Height in centimetres (v15). Stored metric — the UI renders feet/inches.
+   * Rolled from the archetype's height profile, so a Target Man towers over a
+   * Poacher. Purely descriptive: the engine never reads it. */
+  heightCm?: number;
+  /** Shirt number (v15), 1–99, unique within the club's senior squad. Academy
+   * players carry their own numbering. Assigned automatically on joining a club
+   * and re-assignable by the user (swapping with the incumbent). */
+  kitNumber?: number;
   positions: Pos[]; // first entry = primary
   archetypeId: string;
   attrs: Attributes;
@@ -185,6 +193,12 @@ export interface TeamAssignments {
   cornerTakerId?: string;
 }
 
+/** An AI club's season-scale market intent (§10). Recomputed each time a
+ * transfer window opens, from league position vs. reputation-implied
+ * expectation, finances and squad age. Drives who the club buys, who it sells
+ * and what it will pay — see lib/ai/strategy.ts (STANCE_PROFILE). */
+export type ClubStance = "title" | "compete" | "stabilise" | "rebuild";
+
 export interface Team {
   id: string;
   name: string;
@@ -194,8 +208,16 @@ export interface Team {
   reputation: number; // 1-100, drives gate income + AI valuation attitude
   budget: number;
   playerIds: string[];
+  /** Current market stance and the season it was last evaluated in (v13).
+   * Optional for old saves — derived on demand by stanceOf(). */
+  stance?: ClubStance;
+  stanceSeason?: number;
   tactic: Tactic;
   staff: Partial<Record<StaffSlot, StaffMember>>;
+  /** The club's scouting department (v14): a roster of hired scouts, each with
+   * their own experience/judgement ratings. Replaces the old single `scout`
+   * staff slot. Only the user's club fills this. Optional for old saves. */
+  scouts?: Scout[];
   stadium: string;
   /** Revenue facilities (§ club income). Level 0 = base; each level is a one-time
    * purchase giving a permanent weekly income boost. Optional for old saves. */
@@ -209,6 +231,23 @@ export interface Team {
   trainingLevel?: number;
   medicalLevel?: number;
   academyLevel?: number;
+  /** Specialist training facilities (v15). Each is an independent one-time
+   * upgrade track that sharpens one part of development rather than raising the
+   * general growth rate:
+   *   gkCentreLevel / defenceCentreLevel / midfieldCentreLevel /
+   *   attackCentreLevel  → growth bonus for players in that position group
+   *   sportsScienceLevel / techCentreLevel / finishingCentreLevel
+   *                      → amplify the matching training plans
+   *   youthDevCentreLevel → growth bonus for players still of academy age
+   * All optional (default 0) for old saves. */
+  gkCentreLevel?: number;
+  defenceCentreLevel?: number;
+  midfieldCentreLevel?: number;
+  attackCentreLevel?: number;
+  sportsScienceLevel?: number;
+  techCentreLevel?: number;
+  finishingCentreLevel?: number;
+  youthDevCentreLevel?: number;
   /** Scouting Network facility (v5): raises how many scouts can be out on
    * assignment at once (capacity = base + scoutNetworkLevel). One-time
    * upgrades in the Scouting Department Upgrades panel, no weekly cost.
@@ -244,6 +283,10 @@ export interface Team {
   /** Pending sponsorship offers the user can accept (v6). Regenerated when a
    * slot is empty; expire after a while. */
   sponsorOffers?: SponsorOffer[];
+  /** Per-slot day before which no new offer will be generated (v11). Set when
+   * an offer lapses or is rejected, so a slot the user passed on goes quiet for
+   * a while instead of re-offering the next day. Keyed by SponsorSlot. */
+  sponsorCooldowns?: Partial<Record<SponsorSlot, number>>;
 }
 
 // ── Sponsors / investments (v6, Club → Income) ────────────────────────────
@@ -322,6 +365,18 @@ export interface MatchResult {
   minutes: Record<string, number>; // playerId -> minutes played
 }
 
+/** Compact post-match summary kept on a played fixture (v11) so the Match
+ * History tab can show goalscorers and team stats without replaying the match.
+ * Deliberately not the full `MatchResult`: the minute-by-minute event log and
+ * per-player ratings/minutes are dropped, since a season of fixtures is held in
+ * the save and the event log dwarfs everything else in it. Current season only —
+ * the rollover clears these along with the fixture list. */
+export interface MatchDetail {
+  possession: [number, number];
+  shots: [number, number];
+  onTarget: [number, number];
+}
+
 export interface Fixture {
   id: string;
   day: number;
@@ -332,7 +387,10 @@ export interface Fixture {
   played: boolean;
   homeGoals?: number;
   awayGoals?: number;
-  scorers?: { playerId: string; teamId: string; minute: number }[];
+  scorers?: { playerId: string; teamId: string; minute: number; assistId?: string }[];
+  /** Team stats for the played match (v11). Absent on old saves and on
+   * fixtures played before the upgrade — the UI degrades to scorers only. */
+  detail?: MatchDetail;
   /** Cup ties that finish level are settled on penalties. */
   shootoutWinnerId?: string;
 }
@@ -434,7 +492,9 @@ export interface SeasonSummary {
 
 export interface RecordBook {
   seasons: SeasonSummary[];
-  biggestWin: { season: number; text: string; margin: number } | null;
+  /** The USER CLUB's biggest win only — never an AI-vs-AI scoreline.
+   *  `goalsFor` breaks ties between equal margins (7–1 beats 5–0). */
+  biggestWin: { season: number; text: string; margin: number; goalsFor?: number } | null;
 }
 
 // ── Season schedule (calendar anchors, §3) ────────────────────────────────
@@ -481,12 +541,50 @@ export type ScoutRegion =
   | "Europe"
   | "World";
 
+/** A scout on the club's books (v14). Scouts are no longer a single staff slot
+ * with one star rating — the club employs a roster of them, and each carries two
+ * independent 1–5★ ratings:
+ *
+ *   experience → how many prospects come back in one report (1–7). Higher stars
+ *                shift the distribution toward the bigger returns.
+ *   judgement  → the QUALITY of what comes back: which prospect tier (Bronze →
+ *                Platinum) a find lands in, and how tight the potential read is.
+ *
+ * How many scouts may be employed at once is the Max Scouts facility cap, and
+ * the number employed is in turn the ceiling on concurrent assignments. */
+export interface Scout {
+  id: string;
+  name: string;
+  nationality: string; // 3-letter code
+  experience: number; // 1-5
+  judgement: number; // 1-5
+  wage: number; // weekly
+}
+
+/** A scout candidate on the hiring market (v14). Same shape as a hired Scout
+ * plus the one-time signing fee and the dismiss-to-refresh arrival day. */
+export interface ScoutCandidate extends Scout {
+  fee: number;
+  /** Set while a refreshed shortlist is still in transit. */
+  availableDay?: number;
+}
+
+/** Prospect quality tiers (v14). A scout's judgement rolls one of these per
+ * find; the tier fixes the band the prospect's overall and potential land in.
+ * Platinum is the wonderkid tier — rare, and only realistically reachable with
+ * a high-judgement scout. Bands live in tuning (PROSPECT_TIERS). */
+export type ProspectTier = "bronze" | "silver" | "gold" | "platinum";
+
 /** One scout out on assignment (v5). Each scout the club can field (capacity
  * grows with the Scouting Network facility) may be pointed at a country and a
  * position focus independently — several may share a country. `nextReportDay`
  * is per-assignment so busy departments surface reports steadily. */
 export interface ScoutAssignment {
   id: string;
+  /** Which employed scout is out on this brief (v14). Their experience drives
+   * the batch size and their judgement the prospect tier. Optional only for
+   * saves migrated from before the scout roster existed. */
+  scoutId?: string;
   region: ScoutRegion;
   positions: ScoutPosGroup;
   /** Archetype focus (v7): the player *types* the scout is briefed to look for.
@@ -495,6 +593,9 @@ export interface ScoutAssignment {
    * scout is sent — part of the brief, like region and position. */
   archetypes?: string[];
   nextReportDay: number;
+  /** How many batches this scout has filed (v12). Stamped onto each report so a
+   * scout's finds stay distinguishable as they pile up. */
+  reportsFiled?: number;
 }
 
 /** A youth prospect surfaced by the scout (§18). The player object is embedded
@@ -511,6 +612,15 @@ export interface ProspectReport {
   region?: ScoutRegion;
   /** Which scout assignment surfaced the report (v5). */
   assignmentId?: string;
+  /** 1-based index of the batch this prospect arrived in (v12). Reports from a
+   * scout accumulate — batch 1 stays on the board while batch 2 lands — so the
+   * UI groups by batch to show which trip turned up whom. */
+  batch?: number;
+  /** Quality tier this find was rolled into (v14), from the scouting scout's
+   * judgement. Display-only — the bands are already baked into the player. */
+  tier?: ProspectTier;
+  /** Which employed scout filed this report (v14, for display). */
+  scoutId?: string;
 }
 
 /** One abstract U21 opponent: a strength number wearing a parent club's name.
@@ -598,10 +708,15 @@ export interface GameState {
   /** The country the user manages in (3-letter code, v7). Its two divisions are
    * the real-engine playable leagues; all other countries run as sims. */
   playableCountry: string;
-  /** The playable country's two division league ids, [top, second] (v7). The
-   * user's club always sits in one of these; promotion/relegation swaps clubs
-   * between them. Replaces the old hardcoded ["ENG1","ENG2"]. */
-  divisionIds: [string, string];
+  /** The playable country's division ladder, ordered top-first (v12). Length is
+   * 1–3: the user picks the depth at new-game setup. Every id here runs the real
+   * engine, and promotion/relegation runs between each adjacent pair, so a club
+   * can climb or fall the whole ladder over a long save.
+   *
+   * Was a fixed `[top, second]` pair through v11; migration widens it in place,
+   * so index 0 is still the top flight and `divisionIds[1]` still reads as the
+   * second tier wherever that was assumed. */
+  divisionIds: string[];
   season: number; // 1-based
   currentDay: number; // days since Jul 1 2025
   players: Record<string, PlayerBio>;
@@ -615,7 +730,14 @@ export interface GameState {
   inbox: InboxItem[];
   offers: TransferOffer[];
   transferList: string[]; // user players listed for sale
+  /** User players made available for loan (v14). Like `transferList`, this is a
+   * visibility flag rather than a queue: listed players draw AI loan interest
+   * during open windows. Academy loans share the same list. */
+  loanList?: string[];
   staffMarket: StaffCandidate[];
+  /** Scout hiring market (v14) — the scouting department's own shortlist,
+   * separate from `staffMarket` since scouts carry two ratings. */
+  scoutMarket?: ScoutCandidate[];
   simResults: SimLeagueResult[]; // latest per sim league
   academy: AcademyState; // Youth Academy (§18, v4)
   recordBook: RecordBook;

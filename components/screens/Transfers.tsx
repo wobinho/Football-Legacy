@@ -12,7 +12,7 @@ import { askPrice } from "@/lib/transfers";
 import { wageDemand, maxLengthFor } from "@/lib/contracts";
 import { transferWindowState } from "@/lib/calendar";
 import { formatMoney } from "@/lib/value";
-import { ArchetypeIcon, Card, Crest, Flag, GhostButton, GoldButton, Modal, Money, MoneyInput, Ovr, PosBadge, Tabs } from "../ui";
+import { ArchetypeIcon, Card, ConfirmButton, Crest, Flag, GhostButton, GoldButton, Modal, Money, MoneyInput, Ovr, PosBadge, Tabs } from "../ui";
 
 type Tab = "search" | "offers" | "listed" | "free";
 
@@ -282,6 +282,7 @@ function BidModal({ p, onClose }: { p: PlayerBio; onClose: () => void }) {
 
 function OffersTab() {
   const game = useGame((s) => s.game)!;
+  const respondOffer = useGame((s) => s.respondOffer);
   const [negotiating, setNegotiating] = useState<string | null>(null);
   const offers = game.offers.filter((o) => o.direction === "incoming" && o.status === "pending");
   if (!offers.length) return <div className="pt-8 text-center text-sm text-faint">No offers on the table. List players to attract bids.</div>;
@@ -300,7 +301,16 @@ function OffersTab() {
                 Valued {formatMoney(p.value)} · Ovr {p.overall} · {p.age}y · expires in {Math.max(0, o.deadlineDay - game.currentDay)}d
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
+              {/* Turning down a bid outright — two-step, since the buyer walks
+                  and the offer can't be recovered. */}
+              <ConfirmButton
+                label="Reject"
+                confirmLabel="Reject?"
+                tone="danger"
+                onConfirm={() => respondOffer(o.id, "reject")}
+                className="!px-3 !py-1.5 !text-xs"
+              />
               <GoldButton onClick={() => setNegotiating(o.id)} className="!py-1.5">NEGOTIATE</GoldButton>
             </div>
           </Card>

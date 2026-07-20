@@ -24,7 +24,14 @@ export interface Archetype {
   attrProfile: Attributes;
   /** Flavor templates for goals: {p}=player, {a}=assister, {t}=team. */
   goalFlavor: string[];
+  /** Typical adult height band in cm (v15): [mean, standard deviation]. Pure
+   * flavour — nothing in the engine reads height — but it's what makes a Target
+   * Man read as a Target Man. Optional so a mod file can omit it. */
+  heightCm?: [number, number];
 }
+
+/** Fallback height band for any archetype that doesn't declare one. */
+export const DEFAULT_HEIGHT_CM: [number, number] = [180, 6];
 
 const A = (
   id: string, name: string, positions: Pos[], desc: string,
@@ -145,6 +152,33 @@ export const ARCHETYPES: Archetype[] = [
     ["{p} does it all himself — dropped deep, drove forward, finished!",
      "Unstoppable from {p}!"]),
 ];
+
+// Height bands per archetype (v15), applied onto the table above so the `A()`
+// signature stays readable. Keepers and target men are the tall end; wingers,
+// poachers and playmakers the short end — the same spread real squads show.
+const HEIGHT_BANDS: Record<string, [number, number]> = {
+  shot_stopper: [191, 4],
+  sweeper_keeper: [189, 4],
+  stopper: [190, 4],
+  ball_playing_def: [186, 4],
+  wing_back: [178, 5],
+  def_fullback: [180, 5],
+  anchor: [185, 5],
+  deep_playmaker: [180, 5],
+  box_to_box: [182, 5],
+  playmaker: [177, 5],
+  adv_playmaker: [175, 5],
+  shadow_striker: [177, 5],
+  speed_winger: [174, 5],
+  inverted_winger: [176, 5],
+  poacher: [179, 5],
+  target_man: [191, 4],
+  complete_forward: [185, 5],
+};
+
+for (const a of ARCHETYPES) {
+  a.heightCm = HEIGHT_BANDS[a.id] ?? DEFAULT_HEIGHT_CM;
+}
 
 export const ARCHETYPE_MAP: Record<string, Archetype> = Object.fromEntries(
   ARCHETYPES.map((a) => [a.id, a])

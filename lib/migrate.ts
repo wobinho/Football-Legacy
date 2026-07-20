@@ -3,7 +3,8 @@
 
 import type { GameState } from "./types";
 import { SCHEMA_VERSION } from "./types";
-import { TUNING } from "./config/tuning";
+import { TUNING, type TuningConfig } from "./config/tuning";
+import { generateScoutMarket } from "./scouts";
 import { buildSeasonSchedule } from "./calendar";
 import { initAcademyState } from "./academy";
 import { ensureContracts } from "./contracts";
@@ -11,7 +12,10 @@ import { migrateOldRegion } from "./config/scouting";
 import { refreshSponsorOffers } from "./sponsors";
 import { RETIRED_TRAIT_IDS, TRAIT_MAP } from "./config/traits";
 import { overallFromAttrs } from "./config/positions";
-import { uid } from "./rng";
+import { getArchetype, DEFAULT_HEIGHT_CM } from "./config/archetypes";
+import { assignAllKitNumbers } from "./kitnumbers";
+import { trackBiggestWin } from "./recordbook";
+import { hashString, mulberry32, randNormal, uid } from "./rng";
 
 /**
  * v1 → v2: the position enum split FB → LB/RB and W → LW/RW. Old players stored
@@ -219,6 +223,159 @@ function migrateV9toV10(state: GameState): void {
   }
 }
 
+/** v10 → v11. Two additions, both backfilled rather than recomputed:
+ *  - Fixtures gain an optional `detail` stat line. Matches already played in a
+ *    v10 save have no stored stats and can't be re-derived without replaying
+ *    them, so they stay absent; the Match History tab renders scorers only for
+ *    those and fills in fully from the next match on.
+ *  - Investments gain a hard deadline. A v10 offer carries `expiresDay`
+ *    already, so the deadline model is satisfied; what's missing is the
+ *    cooldown bookkeeping, which starts empty (a fresh offer may appear the
+ *    next tick, which is the pre-existing behaviour).
+ */
+function migrateV10toV11(state: GameState): void {
+  for (const team of Object.values(state.teams)) {
+    if (team.sponsorOffers) {
+      for (const o of team.sponsorOffers) {
+        // Guard against a v10 offer with no expiry (possible on very old chains).
+        if (typeof o.expiresDay !== "number") o.expiresDay = state.currentDay + 12;
+      }
+    }
+    team.sponsorCooldowns ??= {};
+  }
+}
+
+/** v11 → v12. Two widenings, both backward-compatible in place:
+ *  - `divisionIds` becomes an ordered ladder (`string[]`) instead of a fixed
+ *    `[top, second]` pair. A v11 save's pair is already a valid 2-entry ladder;
+ *    the only fix-up needed is the single-division case, which stored the top
+ *    id twice ([top, top]) — de-duplicated here so the new pro/rel loop doesn't
+ *    try to shuffle a division against itself. Existing saves keep exactly the
+ *    tiers they were created with; depth is a new-game choice, so nothing is
+ *    generated retroactively into a running world.
+ *  - Scout assignments gain a `reportsFiled` counter and reports a `batch`
+ *    stamp. Both are display-only groupings, so old reports simply start at
+ *    batch 1 and the counter picks up from the reports currently on the board.
+ */
+function migrateV11toV12(state: GameState): void {
+  const ids = Array.isArray(state.divisionIds) ? state.divisionIds : [];
+  const ladder = Array.from(new Set(ids.filter((id) => typeof id === "string" && id)));
+  state.divisionIds = ladder.length ? ladder : ids.slice(0, 1);
+
+  const ac = state.academy;
+  if (!ac) return;
+  for (const a of ac.assignments ?? []) {
+    if (typeof a.reportsFiled !== "number") {
+      // Seed the counter past whatever this scout already has on the board, so a
+      // new batch doesn't reuse an existing batch number.
+      a.reportsFiled = (ac.reports ?? []).filter((r) => r.assignmentId === a.id).length || 0;
+    }
+  }
+  for (const r of ac.reports ?? []) {
+    if (typeof r.batch !== "number") r.batch = 1;
+  }
+}
+
+/**
+ * v12 → v13: AI clubs gain a market `stance` (§10 transfer-AI design session).
+ * Stance is derived from live world state, so there is nothing to reconstruct
+ * from an old save — clearing the fields lets the next window opening evaluate
+ * every club fresh, and `stanceOf()` derives one on demand before then.
+ */
+function migrateV12toV13(state: GameState): void {
+  for (const team of Object.values(state.teams)) {
+    delete team.stance;
+    delete team.stanceSeason;
+  }
+}
+
+/**
+ * v13 → v14: the scouting department (§18). The single `scout` staff slot
+ * becomes a roster of scouts carrying two independent 1–5★ ratings, and the
+ * senior squad cap is lifted for the user.
+ *
+ * An appointed scout is carried over as the department's first employee. Their
+ * old single rating can't be split into two informed numbers, so it seeds both
+ * — the manager keeps exactly the scout they hired, just described in the new
+ * terms. Existing assignments are bound to that scout (only one could be
+ * meaningfully staffed before), and the rest are dropped rather than silently
+ * re-pointed at someone who never scouted them.
+ */
+function migrateV13toV14(state: GameState, cfg: TuningConfig): void {
+  const team = state.teams[state.userTeamId];
+  if (!team) return;
+  team.scouts ??= [];
+
+  const legacy = team.staff.scout;
+  if (legacy && team.scouts.length === 0) {
+    team.scouts.push({
+      id: legacy.id,
+      name: legacy.name,
+      nationality: legacy.nationality,
+      experience: legacy.stars,
+      judgement: legacy.stars,
+      wage: legacy.wage,
+    });
+  }
+  // The slot itself no longer exists — clear it so it can't be read back.
+  team.staff.scout = undefined;
+  state.staffMarket = (state.staffMarket ?? []).filter((c) => c.slot !== "scout");
+
+  const first = team.scouts[0];
+  const ac = state.academy;
+  if (ac) {
+    ac.assignments = (ac.assignments ?? []).filter((a, i) => {
+      if (!first) return false; // no scout survived → no live briefs
+      if (a.scoutId) return true;
+      if (i === 0) {
+        a.scoutId = first.id;
+        return true;
+      }
+      return false; // nobody on the books to have filed it
+    });
+    ac.loanList ??= [];
+  }
+
+  state.scoutMarket ??= generateScoutMarket(state.seed ^ 0x5c007, cfg);
+}
+
+/**
+ * v14 → v15: player height, shirt numbers, and the specialist training
+ * facilities.
+ *
+ * Height and kit number are both new required-in-practice display fields, so
+ * they're backfilled for the whole world rather than defaulted at read time:
+ *  - Height is rolled deterministically per player from their archetype's band
+ *    (seeded by player id, so a save always migrates to the same heights).
+ *  - Shirt numbers are assigned squad by squad, keepers and best players first,
+ *    exactly as a fresh world is numbered.
+ * The new facility levels are optional and start at 0 — a migrated club has
+ * simply never built them.
+ */
+function migrateV14toV15(state: GameState): void {
+  for (const p of Object.values(state.players)) {
+    if (typeof p.heightCm !== "number") {
+      const [mean, sd] = getArchetype(p.archetypeId).heightCm ?? DEFAULT_HEIGHT_CM;
+      // Deterministic per player: same save → same heights on every migration.
+      const rng = mulberry32(hashString(`height:${p.id}`));
+      p.heightCm = Math.round(Math.max(160, Math.min(210, mean + randNormal(rng) * sd)));
+    }
+  }
+  // Number every roster in the world; existing numbers (none, at v14) are kept.
+  assignAllKitNumbers(state);
+
+  for (const team of Object.values(state.teams)) {
+    team.gkCentreLevel ??= 0;
+    team.defenceCentreLevel ??= 0;
+    team.midfieldCentreLevel ??= 0;
+    team.attackCentreLevel ??= 0;
+    team.sportsScienceLevel ??= 0;
+    team.techCentreLevel ??= 0;
+    team.finishingCentreLevel ??= 0;
+    team.youthDevCentreLevel ??= 0;
+  }
+}
+
 /** Upgrade a save in place to the current schema. Returns the same object. */
 export function migrateSave(state: GameState): GameState {
   if (state.schemaVersion < 2) {
@@ -257,9 +414,51 @@ export function migrateSave(state: GameState): GameState {
     migrateV9toV10(state);
     state.schemaVersion = 10;
   }
+  if (state.schemaVersion < 11) {
+    migrateV10toV11(state);
+    state.schemaVersion = 11;
+  }
+  if (state.schemaVersion < 12) {
+    migrateV11toV12(state);
+    state.schemaVersion = 12;
+  }
+  if (state.schemaVersion < 13) {
+    migrateV12toV13(state);
+    state.schemaVersion = 13;
+  }
+  if (state.schemaVersion < 14) {
+    migrateV13toV14(state, TUNING);
+    state.schemaVersion = 14;
+  }
+  if (state.schemaVersion < 15) {
+    migrateV14toV15(state);
+    state.schemaVersion = 15;
+  }
+  if (state.schemaVersion < 16) {
+    migrateV15toV16(state);
+    state.schemaVersion = 16;
+  }
   // future migrations chain here
   state.schemaVersion = SCHEMA_VERSION;
   return state;
+}
+
+/**
+ * v15 → v16: the Biggest Win record is the USER CLUB's record, not the
+ * division's. v15 and earlier recorded any lopsided scoreline in a playable
+ * competition, so most saves carry a result between two AI sides. We discard
+ * the stored record and rebuild it from this season's played fixtures — the
+ * only match history still holding scorelines — so a genuine user win survives
+ * the fix. Earlier seasons can't be recovered (match detail compresses into
+ * season summaries at rollover), so the record legitimately restarts from the
+ * current season for long-running saves.
+ */
+function migrateV15toV16(state: GameState): void {
+  state.recordBook.biggestWin = null;
+  for (const f of state.fixtures) {
+    if (!f.played || typeof f.homeGoals !== "number" || typeof f.awayGoals !== "number") continue;
+    trackBiggestWin(state, f, f.homeGoals, f.awayGoals);
+  }
 }
 
 /** True if the save is a version this build knows how to bring up to date. */

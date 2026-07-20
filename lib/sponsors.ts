@@ -94,8 +94,9 @@ function makeOffer(state: GameState, teamId: string, slot: SponsorSlot, cfg: Tun
   const equivalentWeekly = offerAmount(state, teamId, slot, tierIndex, cfg, rng);
 
   if (kind === "major") {
-    const seasons =
-      cfg.sponsorMajorLengthMin + Math.floor(rng() * (cfg.sponsorMajorLengthMax - cfg.sponsorMajorLengthMin + 1));
+    const lo = Math.max(cfg.sponsorMajorLengthMin, cfg.sponsorMajorMinSeasons);
+    const hi = Math.max(lo, cfg.sponsorMajorLengthMax);
+    const seasons = lo + Math.floor(rng() * (hi - lo + 1));
     // one-time lump ≈ equivalent-weekly across the whole term, with an incentive
     const upfront = Math.round((equivalentWeekly * 52 * seasons * cfg.sponsorMajorUpfrontMult) / 100_000) * 100_000;
     return {
@@ -108,7 +109,7 @@ function makeOffer(state: GameState, teamId: string, slot: SponsorSlot, cfg: Tun
       seasons,
       tier: TIER_NAMES[tierIndex],
       day: state.currentDay,
-      expiresDay: state.currentDay + cfg.sponsorOfferExpiryDays,
+      expiresDay: state.currentDay + cfg.sponsorDeadlineDaysMajor,
     };
   }
 
@@ -123,8 +124,32 @@ function makeOffer(state: GameState, teamId: string, slot: SponsorSlot, cfg: Tun
     seasons: 1,
     tier: TIER_NAMES[tierIndex],
     day: state.currentDay,
-    expiresDay: state.currentDay + cfg.sponsorOfferExpiryDays,
+    expiresDay: state.currentDay + cfg.sponsorDeadlineDaysMinor,
   };
+}
+
+/** How many major deals the club currently holds. */
+export function activeMajorCount(state: GameState, teamId: string): number {
+  return (state.teams[teamId].sponsors ?? []).filter((d) => d.kind === "major").length;
+}
+
+/** Why a major offer can't be signed right now, or null if it can. Exposed so
+ * the UI can explain the block on the card instead of only on click. */
+export function majorSlotBlockedReason(state: GameState, teamId: string, cfg: TuningConfig): string | null {
+  if (activeMajorCount(state, teamId) < cfg.sponsorMaxActiveMajors) return null;
+  return cfg.sponsorMaxActiveMajors === 1
+    ? "You already hold a major investment. Only one runs at a time — this one lapses when the current deal expires."
+    : `You already hold ${cfg.sponsorMaxActiveMajors} major investments, the most that can run at once.`;
+}
+
+/** Put a slot to sleep for a randomised cooldown after an offer lapses or is
+ * turned down, so passing has a cost and offers don't churn daily. */
+function startCooldown(state: GameState, slot: SponsorSlot, cfg: TuningConfig) {
+  const team = state.teams[state.userTeamId];
+  const rng = mulberry32(deriveSeed(state.seed, `sponsorcd:${slot}:${state.season}:${state.currentDay}`));
+  const span = Math.max(0, cfg.sponsorCooldownDaysMax - cfg.sponsorCooldownDaysMin);
+  const days = cfg.sponsorCooldownDaysMin + Math.floor(rng() * (span + 1));
+  (team.sponsorCooldowns ??= {})[slot] = state.currentDay + days;
 }
 
 /** Ensure every empty, offer-less slot has a fresh live offer. Called from the
@@ -133,23 +158,61 @@ export function refreshSponsorOffers(state: GameState, cfg: TuningConfig) {
   const team = state.teams[state.userTeamId];
   team.sponsors ??= [];
   team.sponsorOffers ??= [];
-  // drop expired offers
+  team.sponsorCooldowns ??= {};
+
+  // An offer that reaches its deadline unsigned is withdrawn — the suitor walks
+  // and the slot goes quiet for a cooldown. This is the deadline having teeth.
+  const lapsed = team.sponsorOffers.filter((o) => o.expiresDay <= state.currentDay);
+  for (const o of lapsed) {
+    startCooldown(state, o.slot, cfg);
+    const def = SPONSOR_SLOTS.find((d) => d.slot === o.slot);
+    state.news.unshift(
+      `${o.brand} have withdrawn their ${def?.title.toLowerCase() ?? o.slot} offer after hearing nothing from the club.`
+    );
+  }
   team.sponsorOffers = team.sponsorOffers.filter((o) => o.expiresDay > state.currentDay);
+
   for (const def of SPONSOR_SLOTS) {
     const hasDeal = team.sponsors.some((d) => d.slot === def.slot);
     const hasOffer = team.sponsorOffers.some((o) => o.slot === def.slot);
     if (hasDeal || hasOffer) continue;
+    // Slot is sleeping off a lapsed or rejected offer.
+    if ((team.sponsorCooldowns[def.slot] ?? 0) > state.currentDay) continue;
+    // Don't dangle majors the user is barred from signing — a card that can
+    // only be refused is noise, and it would burn its deadline for nothing.
+    if (slotKind(def.slot, cfg) === "major" && majorSlotBlockedReason(state, state.userTeamId, cfg)) continue;
     const rng = mulberry32(deriveSeed(state.seed, `sponsor:${def.slot}:${state.season}:${state.currentDay}`));
-    team.sponsorOffers.push(makeOffer(state, state.userTeamId, def.slot, cfg, rng));
+    const offer = makeOffer(state, state.userTeamId, def.slot, cfg, rng);
+    team.sponsorOffers.push(offer);
+    const deadline = offer.expiresDay - state.currentDay;
+    state.news.unshift(
+      `${offer.brand} table a ${def.title.toLowerCase()} offer — ${
+        offer.kind === "major" ? `${formatOfferMoney(offer.upfront)} up front` : `${formatOfferMoney(offer.weeklyAmount)}/wk`
+      }. They want an answer within ${deadline} days.`
+    );
   }
 }
 
+/** Compact money for news lines (avoids importing the UI formatter into lib). */
+function formatOfferMoney(n: number): string {
+  if (n >= 1_000_000) return `£${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (n >= 1_000) return `£${Math.round(n / 1_000)}k`;
+  return `£${n}`;
+}
+
 /** Accept an offer: it becomes a signed deal, its slot's other offers clear. */
-export function acceptSponsor(state: GameState, offerId: string): string | null {
+export function acceptSponsor(state: GameState, offerId: string, cfg: TuningConfig): string | null {
   const team = state.teams[state.userTeamId];
   const offer = team.sponsorOffers?.find((o) => o.id === offerId);
   if (!offer) return "That offer is no longer on the table.";
+  // The deadline is authoritative here, not just in the daily sweep — the user
+  // could be looking at a stale card rendered before the offer lapsed.
+  if (offer.expiresDay <= state.currentDay) return `${offer.brand} have withdrawn that offer.`;
   if (team.sponsors?.some((d) => d.slot === offer.slot)) return "You already have a deal in that slot.";
+  if (offer.kind === "major") {
+    const blocked = majorSlotBlockedReason(state, state.userTeamId, cfg);
+    if (blocked) return blocked;
+  }
   const deal: SponsorDeal = {
     id: uid("spd"),
     slot: offer.slot,
@@ -169,11 +232,20 @@ export function acceptSponsor(state: GameState, offerId: string): string | null 
   return null;
 }
 
-/** Decline an offer — the slot reopens and a fresh offer lands on a later day. */
-export function declineSponsor(state: GameState, offerId: string): void {
+/** Decline an offer — the suitor walks and the slot sleeps for a cooldown
+ * before anyone else comes calling. Passing is a real decision, not a reroll. */
+export function declineSponsor(state: GameState, offerId: string, cfg: TuningConfig): void {
   const team = state.teams[state.userTeamId];
-  if (!team.sponsorOffers) return;
-  team.sponsorOffers = team.sponsorOffers.filter((o) => o.id !== offerId);
+  const offer = team.sponsorOffers?.find((o) => o.id === offerId);
+  if (!offer) return;
+  team.sponsorOffers = (team.sponsorOffers ?? []).filter((o) => o.id !== offerId);
+  startCooldown(state, offer.slot, cfg);
+}
+
+/** Day a slot's next offer can appear, or null if it isn't sleeping. */
+export function sponsorCooldownUntil(state: GameState, slot: SponsorSlot): number | null {
+  const until = state.teams[state.userTeamId].sponsorCooldowns?.[slot] ?? 0;
+  return until > state.currentDay ? until : null;
 }
 
 /** Total weekly income from signed minor (weekly) sponsor deals. Majors are

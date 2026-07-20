@@ -61,6 +61,111 @@ const OPTION_DETAIL: Record<string, string> = {
   Mixed: "No fixed bias.",
 };
 
+// ── Numeric effect labels ──────────────────────────────────────────────────
+// Every instruction's real simulation effect, READ STRAIGHT OFF `TUNING` so the
+// numbers on screen are the numbers the engine uses — retune in tuning.ts and
+// these labels follow automatically. Deliberately NOT surfaced: the hidden
+// style×mentality counter matrix (§6), which the UI must never reveal.
+type Effect = { label: string; mult: number };
+
+/** Render a multiplier (1.15) as a signed percentage ("+15%"). */
+function pct(mult: number): string {
+  const v = Math.round((mult - 1) * 100);
+  return `${v > 0 ? "+" : ""}${v}%`;
+}
+
+/** The measurable effects of one option, in engine terms. Empty = neutral. */
+function effectsFor(label: string, option: string): Effect[] {
+  const T = TUNING;
+  const out: Effect[] = [];
+  const push = (name: string, mult: number | undefined) => {
+    if (typeof mult === "number" && Math.abs(mult - 1) >= 0.005) out.push({ label: name, mult });
+  };
+  switch (label) {
+    case "Mentality":
+      push("chances (both sides)", T.mentalityChanceMult[option as Mentality]);
+      push("your defense", T.mentalityDefenseMult[option as Mentality]);
+      break;
+    case "Style":
+      // Style has no flat team multiplier: it applies a per-player archetype
+      // synergy inside a ±cap band. Handled specially by EffectTags so the
+      // label reads as a two-sided range, not a straight bonus.
+      break;
+    case "Tempo":
+      push("chances (both sides)", T.tempoChanceMult[option as Tempo]);
+      push("fitness drain", T.tempoFitnessDrainMult[option as Tempo]);
+      break;
+    case "Width":
+      push("wide roles (LB/RB/LW/RW)", T.widthWideMult[option as Width]);
+      push("central roles", T.widthCentralMult[option as Width]);
+      break;
+    case "Press":
+      push("your midfield", T.pressMidfieldMult[option as Press]);
+      push("fitness drain", T.pressFitnessDrainMult[option as Press]);
+      push("chances conceded", T.pressOppChanceMult[option as Press]);
+      break;
+    case "Defensive Line":
+      push("your defense", T.lineDefenseMult[option as DefLine]);
+      push("chances conceded", T.lineOppChanceMult[option as DefLine]);
+      break;
+    case "Focus":
+      if (option !== "Mixed") {
+        out.push({ label: `${option.toLowerCase()}-side goal involvement`, mult: 1 + T.focusFlankBias });
+      }
+      break;
+  }
+  return out;
+}
+
+/** Colour a multiplier by whether it helps or hurts. Costs (fatigue, chances
+ *  conceded) invert: a number above 1 is a downside there, not an upside. */
+const COST_EFFECTS = new Set(["fitness drain", "chances conceded"]);
+
+function EffectTags({ label, option, styleFit }: { label: string; option: string; styleFit?: number }) {
+  // Style is per-player, so instead of a team multiplier we show the band and
+  // the current XI's actual average fit in the selected style.
+  if (label === "Style") {
+    const cap = Math.round(TUNING.synergyCap * 100);
+    return (
+      <span className="flex flex-wrap items-center gap-1">
+        <span className="rounded-sm border border-line px-1 py-px text-[10px] text-faint">
+          per-player fit <b className="tnum text-dim">±{cap}%</b>
+        </span>
+        {typeof styleFit === "number" && (
+          <span className="rounded-sm border border-line px-1 py-px text-[10px] text-faint">
+            your XI avg{" "}
+            <b className={`tnum ${styleFit > 0.5 ? "text-win" : styleFit < -0.5 ? "text-loss" : "text-faint"}`}>
+              {styleFit > 0 ? "+" : ""}
+              {styleFit.toFixed(1)}%
+            </b>
+          </span>
+        )}
+      </span>
+    );
+  }
+
+  const effects = effectsFor(label, option);
+  if (effects.length === 0) {
+    // Every multiplier for this option is exactly 1.0 — it's the neutral
+    // baseline the other options are measured against, not an inert choice.
+    return <span className="text-[10px] text-faint">baseline — no modifier (other options are measured against this)</span>;
+  }
+  return (
+    <span className="flex flex-wrap items-center gap-1">
+      {effects.map((e) => {
+        const isCost = COST_EFFECTS.has(e.label);
+        const good = isCost ? e.mult < 1 : e.mult > 1;
+        const tone = Math.abs(e.mult - 1) < 0.005 ? "text-faint" : good ? "text-win" : "text-loss";
+        return (
+          <span key={e.label} className="rounded-sm border border-line px-1 py-px text-[10px] text-faint">
+            {e.label} <b className={`tnum ${tone}`}>{pct(e.mult)}</b>
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
 function synergyOf(p: PlayerBio, style: Style): number {
   const raw = getArchetype(p.archetypeId).styleSynergy[style];
   return Math.max(1 - TUNING.synergyCap, Math.min(1 + TUNING.synergyCap, raw));
@@ -80,11 +185,14 @@ function Instruction<T extends string>({
   options,
   current,
   onPick,
+  styleFit,
 }: {
   label: string;
   options: readonly T[];
   current: T;
   onPick: (v: T) => void;
+  /** Style row only: the current XI's average synergy, as a percentage. */
+  styleFit?: number;
 }) {
   return (
     <div>
@@ -105,6 +213,10 @@ function Instruction<T extends string>({
             {o}
           </button>
         ))}
+      </div>
+      {/* live numbers for the SELECTED option, straight from TUNING */}
+      <div className="mt-1.5">
+        <EffectTags label={label} option={current} styleFit={styleFit} />
       </div>
       <p className="mt-1 text-[11px] leading-snug text-faint">{INSTRUCTION_INFO[label]}</p>
     </div>
@@ -191,6 +303,15 @@ export default function TacticsScreen() {
     bump(true);
   };
 
+  // Average archetype synergy of the picked XI in the chosen style, as a
+  // percentage — the headline number for "does this style suit my squad?".
+  const xiPlayers = Object.values(game.lineup)
+    .map((id) => game.players[id])
+    .filter((p): p is PlayerBio => !!p);
+  const styleFit = xiPlayers.length
+    ? (xiPlayers.reduce((sum, p) => sum + synergyOf(p, tactic.style), 0) / xiPlayers.length - 1) * 100
+    : undefined;
+
   const startersScore =
     Object.entries(game.lineup).reduce((sum, [slotId, pid]) => {
       const p = game.players[pid];
@@ -219,9 +340,10 @@ export default function TacticsScreen() {
                   </button>
                 ))}
               </div>
+              <p className="mt-1.5 text-[11px] leading-snug text-faint">{formation.desc}</p>
             </div>
             <Instruction label="Mentality" options={MENTALITIES} current={tactic.mentality} onPick={(v) => setTactic({ mentality: v })} />
-            <Instruction label="Style" options={STYLES} current={tactic.style} onPick={(v) => setTactic({ style: v })} />
+            <Instruction label="Style" options={STYLES} current={tactic.style} onPick={(v) => setTactic({ style: v })} styleFit={styleFit} />
 
             {/* Advanced instructions collapse into a dropdown so the setup doesn't
                 fill the screen — the core three (formation/mentality/style) stay

@@ -13,8 +13,8 @@ import { TUNING } from "@/lib/config/tuning";
 import { devPhase, seasonGrowthEstimate, seasonAttrFocus } from "@/lib/development";
 import { trainingNextCost, type TrainingFacility } from "@/lib/economy";
 import { formatMoney } from "@/lib/value";
-import { plansForPosition, resolveTrainingPlan, type TrainingPlanDef } from "@/lib/config/training";
-import { Card, Flag, GhostButton, Ovr, PosBadge, Tabs, UpgradeCard } from "../ui";
+import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan, type TrainingPlanDef } from "@/lib/config/training";
+import { Card, Flag, GhostButton, GoldButton, Ovr, PosBadge, Tabs, UpgradeCard } from "../ui";
 import StaffPanel from "./StaffPanel";
 
 const ATTR_LABELS: [keyof PlayerBio["attrs"], string][] = [
@@ -28,6 +28,20 @@ const ATTR_LABELS: [keyof PlayerBio["attrs"], string][] = [
 const PLAN_GRID = "grid-cols-[2rem_1fr_2rem_2.5rem_8rem] sm:grid-cols-[2.25rem_1fr_2.5rem_3rem_11rem]";
 
 type Tab = "plans" | "facilities" | "staff";
+
+/** One upgrade card's worth of display data. The accent tints the whole card
+ * so each facility reads as its own bounded module. */
+interface FacilityRow {
+  key: TrainingFacility;
+  title: string;
+  icon: string;
+  accent: string;
+  level: number;
+  maxLevel: number;
+  influence: string;
+  effectNow: string;
+  effectNext: string;
+}
 
 export default function DevelopmentScreen() {
   const [tab, setTab] = useState<Tab>("plans");
@@ -57,6 +71,7 @@ function TrainingPlansTab() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const setPlan = useGame((s) => s.setTrainingPlan);
+  const autoAssign = useGame((s) => s.autoAssignTrainingPlan);
   const viewPlayer = useGame((s) => s.viewPlayer);
   const [open, setOpen] = useState<string | null>(null);
   const ctx = devContext(game);
@@ -74,8 +89,34 @@ function TrainingPlansTab() {
       return ga - gb || a.age - b.age;
     });
 
+  // How many players aren't yet on the focus that would most improve them —
+  // drives the auto-assign call to action.
+  const suboptimal = squad.filter(
+    (p) => resolveTrainingPlan(p.trainingPlan, p.positions[0]).id !== optimalTrainingPlan(p).id
+  ).length;
+
   return (
     <div className="space-y-5">
+      <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <div className="min-w-0 flex-1">
+          <div className="display font-semibold text-ink">Optimal training focus</div>
+          <div className="text-[12px] leading-relaxed text-faint">
+            {suboptimal > 0 ? (
+              <>
+                <span className="text-gold">{suboptimal}</span> player{suboptimal === 1 ? " is" : "s are"} on a focus
+                that isn&apos;t the best fit. Auto-assign picks the plan that lifts each player&apos;s overall fastest,
+                from their archetype, position and how much room each attribute still has.
+              </>
+            ) : (
+              "Every player is already training the focus that suits them best."
+            )}
+          </div>
+        </div>
+        <GoldButton onClick={() => autoAssign()} disabled={suboptimal === 0} className="shrink-0 !py-1.5 text-xs">
+          AUTO-ASSIGN ALL
+        </GoldButton>
+      </Card>
+
       <Card className="divide-y divide-line/50">
         <div className={`grid ${PLAN_GRID} items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-faint`}>
           <span>Pos</span>
@@ -87,6 +128,8 @@ function TrainingPlansTab() {
         {squad.map((p) => {
           const plan = resolveTrainingPlan(p.trainingPlan, p.positions[0]);
           const options = plansForPosition(p.positions[0]);
+          const best = optimalTrainingPlan(p);
+          const isOptimal = plan.id === best.id;
           const growing = p.age <= TUNING.growthEndAge;
           const isOpen = open === p.id;
 
@@ -118,7 +161,15 @@ function TrainingPlansTab() {
                 <span className="flex items-center justify-center">
                   <Ovr value={p.overall} size="sm" />
                 </span>
-                <span className="flex justify-end">
+                <span className="flex items-center justify-end gap-1.5">
+                  {/* A dot marks the focus that would improve this player most,
+                      so a mis-set plan is visible without opening the row. */}
+                  <span
+                    className={`shrink-0 text-[10px] leading-none ${isOptimal ? "text-win" : "text-gold"}`}
+                    title={isOptimal ? "Optimal training focus" : `Recommended: ${best.name}`}
+                  >
+                    {isOptimal ? "●" : "○"}
+                  </span>
                   <select
                     value={plan.id}
                     onChange={(e) => setPlan(p.id, e.target.value)}
@@ -273,17 +324,7 @@ function FacilitiesTab() {
   const upgradeTraining = useGame((s) => s.upgradeTraining);
   const team = game.teams[game.userTeamId];
 
-  const facilities: {
-    key: TrainingFacility;
-    title: string;
-    icon: string;
-    accent: string; // per-upgrade accent so the cards read as bounded modules
-    level: number;
-    maxLevel: number;
-    influence: string;
-    effectNow: string;
-    effectNext: string;
-  }[] = [
+  const facilities: FacilityRow[] = [
     {
       key: "training",
       title: "Training Centre",
@@ -324,32 +365,128 @@ function FacilitiesTab() {
     // Academy → Scouting page (§18 v7), not here.
   ];
 
+  // ── Specialist facilities (v15) ──
+  // Two families beyond the core three. POSITION centres lift one position
+  // group; PLAN centres amplify the training focuses the user is already
+  // setting. Both are deliberately narrower (and cheaper) than the general
+  // Training Centre, so a club can specialise rather than only scaling up.
+  const posPct = (lvl: number) => Math.round(lvl * TUNING.positionFacilityGrowthPerLevel * 100);
+  const planPct = (lvl: number) => Math.round(lvl * TUNING.planFacilityBoostPerLevel * 100);
+  const youthPct = (lvl: number) => Math.round(lvl * TUNING.youthDevCentreGrowthPerLevel * 100);
+
+  const positionFacilities: FacilityRow[] = [
+    {
+      key: "gkCentre", title: "Goalkeeping Centre", icon: "🧤", accent: "#c98cd4",
+      level: team.gkCentreLevel ?? 0, maxLevel: TUNING.positionFacilityMaxLevel,
+      influence: "A dedicated keeper unit — specialist coaching, shot-stopping rigs and distribution work. Speeds up development for every goalkeeper on your books.",
+      effectNow: `+${posPct(team.gkCentreLevel ?? 0)}% GK growth`,
+      effectNext: `+${posPct((team.gkCentreLevel ?? 0) + 1)}% GK growth`,
+    },
+    {
+      key: "defenceCentre", title: "Defensive Unit", icon: "🛡️", accent: "#5b8fd6",
+      level: team.defenceCentreLevel ?? 0, maxLevel: TUNING.positionFacilityMaxLevel,
+      influence: "Back-line drills, shape work and duel training. Speeds up development for centre backs and full backs.",
+      effectNow: `+${posPct(team.defenceCentreLevel ?? 0)}% defender growth`,
+      effectNext: `+${posPct((team.defenceCentreLevel ?? 0) + 1)}% defender growth`,
+    },
+    {
+      key: "midfieldCentre", title: "Midfield Hub", icon: "⚙️", accent: "#5fbf8a",
+      level: team.midfieldCentreLevel ?? 0, maxLevel: TUNING.positionFacilityMaxLevel,
+      influence: "Rondos, tempo work and transition drills. Speeds up development for defensive, central and attacking midfielders.",
+      effectNow: `+${posPct(team.midfieldCentreLevel ?? 0)}% midfielder growth`,
+      effectNext: `+${posPct((team.midfieldCentreLevel ?? 0) + 1)}% midfielder growth`,
+    },
+    {
+      key: "attackCentre", title: "Attacking Centre", icon: "⚔️", accent: "#d97a4a",
+      level: team.attackCentreLevel ?? 0, maxLevel: TUNING.positionFacilityMaxLevel,
+      influence: "Final-third patterns, movement in behind and one-v-one work. Speeds up development for wingers and strikers.",
+      effectNow: `+${posPct(team.attackCentreLevel ?? 0)}% forward growth`,
+      effectNext: `+${posPct((team.attackCentreLevel ?? 0) + 1)}% forward growth`,
+    },
+  ];
+
+  const planFacilities: FacilityRow[] = [
+    {
+      key: "sportsScience", title: "Sports Science Lab", icon: "🔬", accent: "#4fb8b8",
+      level: team.sportsScienceLevel ?? 0, maxLevel: TUNING.planFacilityMaxLevel,
+      influence: "GPS tracking, load management and conditioning science. Amplifies the Pace & Movement and Strength & Stamina training plans.",
+      effectNow: `+${planPct(team.sportsScienceLevel ?? 0)}% on physical plans`,
+      effectNext: `+${planPct((team.sportsScienceLevel ?? 0) + 1)}% on physical plans`,
+    },
+    {
+      key: "techCentre", title: "Technical Centre", icon: "🎓", accent: "#8a7fd6",
+      level: team.techCentreLevel ?? 0, maxLevel: TUNING.planFacilityMaxLevel,
+      influence: "Video suites, pattern-of-play rooms and small-sided technical pitches. Amplifies the Playmaking, Ball Control and Defending plans.",
+      effectNow: `+${planPct(team.techCentreLevel ?? 0)}% on technical plans`,
+      effectNext: `+${planPct((team.techCentreLevel ?? 0) + 1)}% on technical plans`,
+    },
+    {
+      key: "finishingCentre", title: "Finishing School", icon: "🥅", accent: "#d9a441",
+      level: team.finishingCentreLevel ?? 0, maxLevel: TUNING.planFacilityMaxLevel,
+      influence: "Dedicated shooting pitches and finishing coaches working in and around the box. Amplifies the Finishing training plan.",
+      effectNow: `+${planPct(team.finishingCentreLevel ?? 0)}% on finishing plans`,
+      effectNext: `+${planPct((team.finishingCentreLevel ?? 0) + 1)}% on finishing plans`,
+    },
+    {
+      key: "youthDevCentre", title: "Youth Development Centre", icon: "🌿", accent: "#7fbf5f",
+      level: team.youthDevCentreLevel ?? 0, maxLevel: TUNING.planFacilityMaxLevel,
+      influence: `Age-group coaching, individual development plans and a pathway to the first team. Speeds up development for every player aged ${TUNING.academyMaxAge} or under, senior squad or academy.`,
+      effectNow: `+${youthPct(team.youthDevCentreLevel ?? 0)}% growth for U${TUNING.academyMaxAge + 1}s`,
+      effectNext: `+${youthPct((team.youthDevCentreLevel ?? 0) + 1)}% growth for U${TUNING.academyMaxAge + 1}s`,
+    },
+  ];
+
+  const renderCard = (f: FacilityRow) => {
+    const nextCost = trainingNextCost(game, game.userTeamId, f.key, TUNING);
+    const maxed = nextCost === null;
+    const canAfford = nextCost !== null && team.budget >= nextCost;
+    return (
+      <UpgradeCard
+        key={f.key}
+        title={f.title}
+        icon={f.icon}
+        accent={f.accent}
+        level={f.level}
+        maxLevel={f.maxLevel}
+        blurb={f.influence}
+        effectNow={f.effectNow}
+        effectNext={f.effectNext}
+        cost={maxed ? "—" : formatMoney(nextCost!)}
+        maxed={maxed}
+        canAfford={canAfford}
+        note={maxed ? "Fully upgraded." : canAfford ? "A long-term investment in your squad." : "Not enough budget yet."}
+        onUpgrade={() => upgradeTraining(f.key)}
+      />
+    );
+  };
+
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">
-      {facilities.map((f) => {
-        const nextCost = trainingNextCost(game, game.userTeamId, f.key, TUNING);
-        const maxed = nextCost === null;
-        const canAfford = nextCost !== null && team.budget >= nextCost;
-        return (
-          <UpgradeCard
-            key={f.key}
-            title={f.title}
-            icon={f.icon}
-            accent={f.accent}
-            level={f.level}
-            maxLevel={f.maxLevel}
-            blurb={f.influence}
-            effectNow={f.effectNow}
-            effectNext={f.effectNext}
-            cost={maxed ? "—" : formatMoney(nextCost!)}
-            maxed={maxed}
-            canAfford={canAfford}
-            note={maxed ? "Fully upgraded." : canAfford ? "A long-term investment in your squad." : "Not enough budget yet."}
-            onUpgrade={() => upgradeTraining(f.key)}
-          />
-        );
-      })}
+    <div className="space-y-8">
+      <div>
+        <p className="mb-4 text-[13px] leading-relaxed text-dim">
+          Infrastructure is the slowest and most permanent way to improve a squad. The core facilities lift everyone;
+          the specialist centres below are narrower but cheaper, so a club can build the identity it wants rather than
+          only scaling up.
+        </p>
+        <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">{facilities.map(renderCard)}</div>
+      </div>
+
+      <div>
+        <h3 className="display mb-1 text-base font-semibold uppercase tracking-wide text-dim">Position Centres</h3>
+        <p className="mb-4 text-[13px] leading-relaxed text-faint">
+          Each centre speeds up development for one position group. Cheaper than the Training Centre because each only
+          helps a quarter of the squad — build the ones your best prospects sit in.
+        </p>
+        <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">{positionFacilities.map(renderCard)}</div>
+      </div>
+
+      <div>
+        <h3 className="display mb-1 text-base font-semibold uppercase tracking-wide text-dim">Training Plan Centres</h3>
+        <p className="mb-4 text-[13px] leading-relaxed text-faint">
+          These amplify the training focuses you set on the Training Plans tab, so they pay off most when your squad is
+          actually training the matching plans.
+        </p>
+        <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">{planFacilities.map(renderCard)}</div>
       </div>
     </div>
   );

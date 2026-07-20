@@ -8,10 +8,11 @@ import { useState } from "react";
 import { useGame } from "@/store/gameStore";
 import { getArchetype } from "@/lib/config/archetypes";
 import { POS_LABELS, posColors } from "@/lib/config/positions";
-import { formatMoney } from "@/lib/value";
+import { formatHeight, formatMoney } from "@/lib/value";
 import { yearsLeft } from "@/lib/contracts";
-import { plansForPosition, resolveTrainingPlan } from "@/lib/config/training";
-import { ArchetypeIcon, AttrGrid, Card, Crest, Flag, FitnessBar, FormChip, GoldButton, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip } from "../ui";
+import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan } from "@/lib/config/training";
+import { MAX_KIT_NUMBER, MIN_KIT_NUMBER, squadNumbersFor } from "@/lib/kitnumbers";
+import { ArchetypeIcon, AttrGrid, Card, ConfirmButton, Crest, Flag, FitnessBar, FormChip, GhostButton, GoldButton, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip } from "../ui";
 import ContractModal from "./ContractModal";
 
 export default function PlayerProfileModal() {
@@ -20,6 +21,10 @@ export default function PlayerProfileModal() {
   const id = useGame((s) => s.selectedPlayerId);
   const close = useGame((s) => s.closePlayer);
   const setTrainingPlan = useGame((s) => s.setTrainingPlan);
+  const autoAssignPlan = useGame((s) => s.autoAssignTrainingPlan);
+  const toggleTransferList = useGame((s) => s.toggleTransferList);
+  const toggleLoan = useGame((s) => s.academyToggleLoan);
+  const releaseSenior = useGame((s) => s.releaseSenior);
   const [tab, setTab] = useState<"bio" | "career">("bio");
   const [contractOpen, setContractOpen] = useState(false);
 
@@ -74,7 +79,17 @@ export default function PlayerProfileModal() {
               <span className="text-faint">·</span>
               <span>{p.age}y</span>
               <span className="text-faint">·</span>
+              <span title={p.heightCm ? `${p.heightCm} cm` : undefined}>{formatHeight(p.heightCm)}</span>
+              <span className="text-faint">·</span>
               <span>{p.nationality}</span>
+              {typeof p.kitNumber === "number" && (
+                <>
+                  <span className="text-faint">·</span>
+                  <span className="display tnum font-semibold text-ink" title="Shirt number">
+                    #{p.kitNumber}
+                  </span>
+                </>
+              )}
               {p.loan && (
                 <span className="display rounded-sm border border-win/40 px-1.5 py-0.5 text-[10px] font-semibold text-win">
                   ON LOAN · {game.teams[p.loan.toClubId]?.name}
@@ -209,29 +224,126 @@ export default function PlayerProfileModal() {
             </Section>
           </div>
 
+          {/* Shirt number (v15) — re-assignable, swapping with the incumbent */}
+          {isUserOwned && <KitNumberPanel playerId={p.id} />}
+
           {/* Training plan (§5 v8) — a development focus for the user's own players */}
           {isUserOwned && (
             <Section title="Training Plan">
               <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
                 {(() => {
                   const plan = resolveTrainingPlan(p.trainingPlan, p.positions[0]);
+                  const best = optimalTrainingPlan(p);
+                  const isOptimal = plan.id === best.id;
                   return (
                     <>
                       <div className="min-w-0 flex-1">
-                        <div className="display font-semibold text-ink">{plan.name}</div>
-                        <div className="text-[12px] leading-relaxed text-faint">{plan.blurb}</div>
+                        <div className="display flex items-center gap-2 font-semibold text-ink">
+                          {plan.name}
+                          {isOptimal && (
+                            <span className="display rounded-sm border border-win/40 px-1.5 py-0.5 text-[10px] font-semibold text-win">
+                              OPTIMAL
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[12px] leading-relaxed text-faint">
+                          {plan.blurb}
+                          {!isOptimal && (
+                            <>
+                              {" "}
+                              <span className="text-gold">Recommended: {best.name}.</span>
+                            </>
+                          )}
+                        </div>
                       </div>
-                      <select
-                        value={plan.id}
-                        onChange={(e) => setTrainingPlan(p.id, e.target.value)}
-                        className="rounded-md border border-line bg-raised px-2 py-1.5 text-sm text-ink focus:border-gold focus:outline-none"
-                      >
-                        {plansForPosition(p.positions[0]).map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {o.name}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <select
+                          value={plan.id}
+                          onChange={(e) => setTrainingPlan(p.id, e.target.value)}
+                          className="rounded-md border border-line bg-raised px-2 py-1.5 text-sm text-ink focus:border-gold focus:outline-none"
+                        >
+                          {plansForPosition(p.positions[0]).map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {o.name}
+                            </option>
+                          ))}
+                        </select>
+                        <GhostButton
+                          onClick={() => autoAssignPlan(p.id)}
+                          disabled={isOptimal}
+                          className="!py-1.5 text-xs"
+                        >
+                          AUTO
+                        </GhostButton>
+                      </div>
+                    </>
+                  );
+                })()}
+              </Card>
+            </Section>
+          )}
+
+          {/* Squad actions (v14) — the three ways a player leaves, or is made
+              available to leave. Listing is a visibility flag, not a queue: it
+              tells other clubs he's gettable and offers follow. */}
+          {isUserSenior && (
+            <Section title="Actions">
+              <Card className="divide-y divide-line/50">
+                {(() => {
+                  const listed = game.transferList.includes(p.id);
+                  const loanListed = game.academy.loanList.includes(p.id);
+                  return (
+                    <>
+                      <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+                        <div className="min-w-0 flex-1">
+                          <div className="display font-semibold text-ink">
+                            Transfer list
+                            {listed && <span className="ml-2 text-[10px] font-normal text-gold">LISTED</span>}
+                          </div>
+                          <div className="text-[12px] leading-relaxed text-faint">
+                            {listed
+                              ? "Clubs know he's available — expect more offers, and at a keener price."
+                              : "Let clubs know he can be bought. More offers come in, though they'll bid a little lower."}
+                          </div>
+                        </div>
+                        <GhostButton onClick={() => toggleTransferList(p.id)} className="shrink-0 !py-1.5 text-xs">
+                          {listed ? "REMOVE FROM LIST" : "ADD TO TRANSFER LIST"}
+                        </GhostButton>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+                        <div className="min-w-0 flex-1">
+                          <div className="display font-semibold text-ink">
+                            Loan list
+                            {loanListed && <span className="ml-2 text-[10px] font-normal text-win">LISTED</span>}
+                          </div>
+                          <div className="text-[12px] leading-relaxed text-faint">
+                            {loanListed
+                              ? "Available for a season-long loan — a club may take him while a window is open."
+                              : "Make him available for a season-long loan. He'll play regular football elsewhere and the minutes count toward his development."}
+                          </div>
+                        </div>
+                        <GhostButton onClick={() => toggleLoan(p.id)} className="shrink-0 !py-1.5 text-xs">
+                          {loanListed ? "REMOVE FROM LOAN LIST" : "ADD TO LOAN LIST"}
+                        </GhostButton>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+                        <div className="min-w-0 flex-1">
+                          <div className="display font-semibold text-loss">Release</div>
+                          <div className="text-[12px] leading-relaxed text-faint">
+                            Tear up his contract. He leaves immediately as a free agent and you receive no fee — this
+                            can&apos;t be undone.
+                          </div>
+                        </div>
+                        <ConfirmButton
+                          label="RELEASE"
+                          confirmLabel={`Release ${p.name}?`}
+                          tone="danger"
+                          onConfirm={() => releaseSenior(p.id)}
+                          className="shrink-0 !px-3 !py-1.5 text-xs"
+                        />
+                      </div>
                     </>
                   );
                 })()}
@@ -332,5 +444,80 @@ export default function PlayerProfileModal() {
         {contractOpen && <ContractModal p={p} onClose={() => setContractOpen(false)} />}
       </div>
     </div>
+  );
+}
+
+/**
+ * Shirt-number editor (v15). Typing a number another squad member already wears
+ * SWAPS the two — which is what actually happens when a squad re-numbers, and
+ * what a manager expects when they claim a taken shirt. The panel names the
+ * current holder before you commit, so the swap is never a surprise.
+ */
+function KitNumberPanel({ playerId }: { playerId: string }) {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const commit = useGame((s) => s.setKitNumber);
+  const p = game.players[playerId];
+  const [draft, setDraft] = useState<string>("");
+
+  const current = p?.kitNumber;
+  const taken = squadNumbersFor(game, playerId);
+  const parsed = draft.trim() === "" ? null : Number(draft);
+  const valid =
+    parsed !== null && Number.isInteger(parsed) && parsed >= MIN_KIT_NUMBER && parsed <= MAX_KIT_NUMBER;
+  const holder = valid && parsed !== current ? taken.get(parsed!) : undefined;
+
+  return (
+    <Section title="Shirt Number">
+      <Card className="flex flex-wrap items-center justify-between gap-4 p-4">
+        <div className="flex items-center gap-4">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg border border-gold-lo/50 bg-raised">
+            <span className="display tnum text-2xl font-bold text-gold">
+              {typeof current === "number" ? current : "—"}
+            </span>
+          </div>
+          <div className="min-w-0">
+            <div className="display font-semibold text-ink">Squad number</div>
+            <div className="text-[12px] leading-relaxed text-faint">
+              {holder ? (
+                <>
+                  <span className="text-gold">#{parsed}</span> is {holder}&apos;s — assigning it swaps their numbers.
+                </>
+              ) : (
+                `Any number from ${MIN_KIT_NUMBER} to ${MAX_KIT_NUMBER}. Taking a teammate's number swaps the two.`
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <input
+            type="text"
+            inputMode="numeric"
+            value={draft}
+            placeholder={typeof current === "number" ? String(current) : "#"}
+            onChange={(e) => setDraft(e.target.value.replace(/[^0-9]/g, "").slice(0, 2))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && valid) {
+                commit(playerId, parsed!);
+                setDraft("");
+              }
+            }}
+            className="w-16 rounded-md border border-line bg-raised px-2 py-1.5 text-center text-sm tnum text-ink focus:border-gold focus:outline-none"
+            aria-label="New shirt number"
+          />
+          <GhostButton
+            onClick={() => {
+              if (!valid) return;
+              commit(playerId, parsed!);
+              setDraft("");
+            }}
+            disabled={!valid || parsed === current}
+            className="!py-1.5 text-xs"
+          >
+            {holder ? "SWAP" : "ASSIGN"}
+          </GhostButton>
+        </div>
+      </Card>
+    </Section>
   );
 }

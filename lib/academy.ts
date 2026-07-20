@@ -11,6 +11,7 @@ import type {
   PlayerBio,
   Pos,
   ProspectReport,
+  Scout,
   ScoutAssignment,
   ScoutPosGroup,
   ScoutRegion,
@@ -19,15 +20,27 @@ import type {
   U21TableRow,
 } from "./types";
 import type { TuningConfig } from "./config/tuning";
-import { mulberry32, deriveSeed, pick, pickWeighted, randInt, randNormal, randRange, randPoisson, shuffle, uid, type RNG } from "./rng";
+import { mulberry32, deriveSeed, pick, pickWeighted, randInt, randRange, randPoisson, shuffle, uid, type RNG } from "./rng";
 import { generatePlayer } from "./worldgen";
-import { playerValue, formatMoney } from "./value";
+import { playerValue } from "./value";
 import { transferWindowState } from "./calendar";
 import { regionNats } from "./config/scouting";
 import { getArchetype } from "./config/archetypes";
 import { grantDefaultContract } from "./contracts";
 import { academySquadCap } from "./economy";
 import { pushInboxItem } from "./inbox";
+import { assignKitNumber, clearKitNumber } from "./kitnumbers";
+import {
+  assignmentCapacity,
+  bestJudgement,
+  hasScout,
+  idleScouts,
+  rollProspectTier,
+  rollReportSize,
+  rollTierQuality,
+  scoutById,
+  userScouts,
+} from "./scouts";
 
 const POS_GROUPS: Record<ScoutPosGroup, Pos[]> = {
   GK: ["GK"],
@@ -50,9 +63,11 @@ function youthCoachStars(state: GameState): number {
   return userTeam(state).staff.youthCoach?.stars ?? 0;
 }
 
+/** The department's sharpest judge of a player (v14). Judgement — not
+ * experience — is what tightens a potential read, so the fog on players outside
+ * the club is lifted by the best judgement on the books. */
 function scoutStars(state: GameState): number {
-  // The Scout's rating drives report frequency + potential-range accuracy (§18).
-  return userTeam(state).staff.scout?.stars ?? 0;
+  return bestJudgement(state);
 }
 
 export function academyPlayers(state: GameState): PlayerBio[] {
@@ -94,9 +109,13 @@ export function potentialView(state: GameState, p: PlayerBio, cfg: TuningConfig)
     const s = potentialStars(cfg, p.potential);
     return { exact: p.potential, estimate: p.potential, loStars: s, hiStars: s };
   }
+  // Own players are read by the youth coach; everyone else's by the sharpest
+  // judgement in the scouting department (v14 — judgement, not experience, is
+  // what makes a read tight).
   const isOwn = p.clubId === state.userTeamId;
   const stars = isOwn ? youthCoachStars(state) : scoutStars(state);
-  const staffCut = Math.min(0.45, stars * (isOwn ? cfg.fogCoachStarReduction : cfg.fogScoutStarReduction));
+  const perStar = isOwn ? cfg.fogCoachStarReduction : cfg.fogJudgementStarReduction;
+  const staffCut = Math.min(0.45, stars * perStar);
   const seasonsSeen = p.devLog?.length ?? 0;
   const minutes = (p.stats.minutes + (p.youthStats?.minutes ?? 0)) / 3000;
   const info = Math.min(1, Math.max(0, (p.age - 16) * 0.09 + seasonsSeen * 0.08 + Math.min(1, minutes) * 0.15));
@@ -163,15 +182,14 @@ export function initAcademyState(state: GameState, cfg: TuningConfig): AcademySt
   };
 }
 
-// ── Scouting network capacity (v5) ────────────────────────────────────────
-// How many scouts the club can have out on assignment at once: it needs at
-// least one Scout on the staff to scout at all, and the Scouting Network
-// facility raises the ceiling from there.
+// ── Scouting network capacity (v14) ───────────────────────────────────────
+// Assignments are capped by HEADCOUNT: a scout can only be in one place at a
+// time, so the club can have as many briefs running as it employs scouts. The
+// Max Scouts facility now caps how many may be employed (see maxScouts), which
+// makes the upgrade the real gate on department size.
 
-export function scoutCapacity(state: GameState, cfg: TuningConfig): number {
-  const team = userTeam(state);
-  if (!team.staff.scout) return 0;
-  return cfg.scoutNetworkBase + (team.scoutNetworkLevel ?? 0);
+export function scoutCapacity(state: GameState, _cfg: TuningConfig): number {
+  return assignmentCapacity(state);
 }
 
 // ── Intake day (§18) ──────────────────────────────────────────────────────
@@ -185,36 +203,43 @@ function rollIntakeProspect(
   const team = userTeam(state);
   const level = team.academyLevel ?? 0;
   const age = randInt(rng, cfg.intakeAgeMin, cfg.intakeAgeMax);
-  // Base overall follows an age band (v8): younger classes arrive rawer, e.g.
-  // 15yo → 50-70, 12yo → 20-40. Not a hard cap — the prodigy branch below can
-  // still push a gem's base overall above the band.
-  const bandCenter = cfg.intakeOverallAtMinAge + (age - cfg.intakeAgeMin) * cfg.intakeOverallPerYear;
-  let overall = bandCenter + randRange(rng, -cfg.intakeOverallBandHalf, cfg.intakeOverallBandHalf);
-  // Rare prodigy: request a much higher raw overall so generatePlayer's prodigy
-  // branch produces a genuinely high-rated teenager (the ~80-rated 17yo gem).
-  // Golden-generation members carry an elevated prodigy chance. We set prodigy
-  // explicitly so the high request isn't gated a second time inside generatePlayer.
-  const prodigyChance = opts.golden ? cfg.youthProdigyChance * 6 : cfg.youthProdigyChance;
-  const prodigy = rng() < prodigyChance;
-  if (prodigy) overall = Math.max(overall, randRange(rng, 74, 88));
-  const p = freshId(generatePlayer(rng, cfg, { pos: pick(rng, INTAKE_POS_POOL), overall, nat: "ENG", age, prodigy }));
-  let pot: number;
+
+  // Tiered ratings (v15): an intake prospect is rolled into the same Bronze →
+  // Platinum tiers a scout's find uses, so the two pipelines speak one quality
+  // language. The academy's own quality — its facility level, youth coach and
+  // the club's reputation — plays the role a scout's judgement plays, biasing
+  // WHICH tier the kid lands in. A better academy doesn't just add potential
+  // points, it turns up better prospects.
+  const academyJudgement = Math.max(
+    1,
+    Math.min(
+      5,
+      Math.round(
+        1 +
+          level * 0.6 +
+          youthCoachStars(state) * 0.4 +
+          (team.reputation - 40) * 0.035 +
+          (opts.golden ? 2 : 0)
+      )
+    )
+  );
+  const tier = rollProspectTier(rng, cfg, academyJudgement);
+  const band = rollTierQuality(rng, cfg, tier);
+
+  // The tier band describes a finished prospect's level; generatePlayer's
+  // maturity curve scales it down to what a kid this age can actually do today,
+  // so a 13-year-old Gold and a 17-year-old Gold share a ceiling but not a
+  // current rating — which is exactly the age realism this pass is after.
+  const prodigy = tier === "platinum" || (opts.golden && rng() < 0.5);
+  const p = freshId(
+    generatePlayer(rng, cfg, { pos: pick(rng, INTAKE_POS_POOL), overall: band.overall, nat: "ENG", age, prodigy })
+  );
+
+  let pot = band.potential;
   if (opts.golden) {
-    pot = randRange(rng, cfg.goldenGenPotentialMin, cfg.goldenGenPotentialMax);
-  } else if (prodigy) {
-    // A prodigy's ceiling matches the hype: 90+ for the rare high-overall gem.
-    pot = randRange(rng, 88, cfg.potentialAbsoluteCap);
-  } else {
-    pot =
-      cfg.intakePotentialBase +
-      level * cfg.intakePotentialPerLevel +
-      youthCoachStars(state) * cfg.intakePotentialPerCoachStar +
-      team.reputation * cfg.intakePotentialRepFactor +
-      randNormal(rng) * cfg.intakePotentialSpread;
+    // Golden-generation kids get the elite ceiling regardless of rolled tier.
+    pot = Math.max(pot, randRange(rng, cfg.goldenGenPotentialMin, cfg.goldenGenPotentialMax));
   }
-  // Balance (v10): intake prospects share the high, spread youth-potential band.
-  const bandTop = Math.min(cfg.potentialAbsoluteCap, cfg.youthPotentialBandTop);
-  pot = Math.max(pot, cfg.youthPotentialFloor + rng() * (bandTop - cfg.youthPotentialFloor));
   p.potential = Math.round(Math.min(cfg.potentialAbsoluteCap, Math.max(p.overall + 2, pot)));
   p.value = playerValue(p, cfg);
   p.clubId = team.id;
@@ -251,6 +276,7 @@ export function runIntakeDay(state: GameState, cfg: TuningConfig) {
     const p = rollIntakeProspect(state, rng, cfg, { golden: golden && i < 2 });
     state.players[p.id] = p;
     (team.academyPlayerIds ??= []).push(p.id);
+    assignKitNumber(state, p);
     ids.push(p.id);
     lines.push(`${p.name} — ${p.positions[0]}, ${p.age}, ${starRangeLabel(state, p, cfg)}`);
   }
@@ -273,6 +299,7 @@ export function seedInitialAcademy(state: GameState, cfg: TuningConfig) {
     const p = rollIntakeProspect(state, rng, cfg, { golden: false });
     state.players[p.id] = p;
     (team.academyPlayerIds ??= []).push(p.id);
+    assignKitNumber(state, p);
   }
 }
 
@@ -302,6 +329,7 @@ export function aiIntake(state: GameState, cfg: TuningConfig, rngSeed: number) {
       grantDefaultContract(state, p, cfg);
       state.players[p.id] = p;
       team.playerIds.push(p.id);
+      assignKitNumber(state, p);
     }
   }
   // the user's own squad still needs the retiree cleanup pass
@@ -537,14 +565,20 @@ export function promoteToSenior(state: GameState, playerId: string, cfg: TuningC
     return `Too young to promote — prospects join the senior squad at ${cfg.academyPromoteMinAge}.`;
   }
   if (prospect?.loan) return "Recall the loan first.";
-  if (team.playerIds.length >= cfg.squadCap) return `Senior squad is full (${cfg.squadCap}).`;
+  // No senior squad cap (v14) — promotion is a football decision, not a slot
+  // hunt. The academy squad cap is still the pipeline's real constraint.
   team.academyPlayerIds = academy.filter((id) => id !== playerId);
   team.playerIds.push(playerId);
   state.academy.focusIds = state.academy.focusIds.filter((id) => id !== playerId);
   state.academy.u21Squad = (state.academy.u21Squad ?? []).filter((id) => id !== playerId);
-  // A promoted graduate signs his first professional deal (§10 v5 contracts).
+  // A promoted graduate signs his first professional deal (§10 v5 contracts)
+  // and takes a senior shirt (the academy and senior squads number separately).
   const p = state.players[playerId];
   if (p && !p.contract) grantDefaultContract(state, p, cfg);
+  if (p) {
+    clearKitNumber(p);
+    assignKitNumber(state, p);
+  }
   return null;
 }
 
@@ -555,6 +589,8 @@ export function demoteToAcademy(state: GameState, playerId: string, cfg: TuningC
   if (!p || p.age > cfg.academyMaxAge) return `Only players ${cfg.academyMaxAge} or younger can join the academy squad.`;
   team.playerIds = team.playerIds.filter((id) => id !== playerId);
   (team.academyPlayerIds ??= []).push(playerId);
+  clearKitNumber(p);
+  assignKitNumber(state, p);
   for (const [slot, id] of Object.entries(state.lineup)) {
     if (id === playerId) delete state.lineup[slot];
   }
@@ -571,6 +607,7 @@ export function releaseFromAcademy(state: GameState, playerId: string): string |
   state.academy.loanList = state.academy.loanList.filter((id) => id !== playerId);
   p.clubId = null;
   p.loan = undefined;
+  clearKitNumber(p);
   if (!state.careers[playerId]) state.careers[playerId] = { playerId, seasons: [], transfers: [] };
   state.careers[playerId].transfers.push({ season: state.season, day: state.currentDay, from: team.name, to: "Released", fee: 0 });
   return null;
@@ -582,8 +619,12 @@ export function releaseFromAcademy(state: GameState, playerId: string): string |
 // country + position focus; several may share a country. Reports arrive per
 // assignment on their own cadence.
 
-function reportCadence(state: GameState, cfg: TuningConfig): number {
-  return Math.max(10, cfg.scoutReportDaysBase - scoutStars(state) * cfg.scoutReportDaysPerStar);
+/** Days until a scout's next report. Experience is what makes a scout quick as
+ * well as thorough, so the cadence keys off that rating; with no scout named
+ * (legacy saves, season reset) the best experience on the books stands in. */
+function reportCadence(state: GameState, cfg: TuningConfig, scout?: Scout): number {
+  const experience = scout?.experience ?? userScouts(state).reduce((b, s) => Math.max(b, s.experience), 0);
+  return Math.max(10, cfg.scoutReportDaysBase - experience * cfg.scoutReportDaysPerStar);
 }
 
 /** Add a new scout assignment if there's spare capacity. The full brief (region,
@@ -594,19 +635,28 @@ export function addScoutAssignment(
   region: ScoutRegion,
   positions: ScoutPosGroup,
   cfg: TuningConfig,
-  archetypes: string[] = []
+  archetypes: string[] = [],
+  scoutId?: string
 ): string | null {
   const ac = state.academy;
-  if (!userTeam(state).staff.scout) return "Hire a Scout on the Club page before assigning one.";
-  if (ac.assignments.length >= scoutCapacity(state, cfg)) {
-    return "No spare scouts — upgrade Max Scouts in the Scouting Department to send more.";
+  if (!hasScout(state)) return "Hire a scout in the Academy → Staff tab before sending one out.";
+  // A brief belongs to one scout — their experience sets the batch size and
+  // their judgement the quality of what comes back. Pick the named scout if one
+  // was chosen, otherwise the first one not already out on a trip.
+  const free = idleScouts(state);
+  const scout = scoutId ? free.find((s) => s.id === scoutId) : free[0];
+  if (!scout) {
+    return scoutId
+      ? "That scout is already out on an assignment."
+      : "Every scout is already out — recall one, or hire more (Max Scouts caps the department).";
   }
   ac.assignments.push({
     id: uid("asg"),
+    scoutId: scout.id,
     region,
     positions,
     archetypes: archetypes.length ? [...archetypes] : undefined,
-    nextReportDay: state.currentDay + 7 + Math.round(reportCadence(state, cfg) * 0.4),
+    nextReportDay: state.currentDay + 7 + Math.round(reportCadence(state, cfg, scout) * 0.4),
   });
   return null;
 }
@@ -624,8 +674,17 @@ export function removeScoutAssignment(state: GameState, id: string) {
   state.academy.assignments = state.academy.assignments.filter((a) => a.id !== id);
 }
 
-/** Trim assignments down to current capacity (e.g. a scout was let go). */
+/** Keep the assignment list honest (v14): every brief must belong to a scout
+ * still on the books, and one scout can only hold one brief. Runs after hiring
+ * changes and at rollover, so a fired scout's trip ends with them. */
 export function clampScoutAssignments(state: GameState, cfg: TuningConfig) {
+  const roster = new Set(userScouts(state).map((s) => s.id));
+  const taken = new Set<string>();
+  state.academy.assignments = state.academy.assignments.filter((a) => {
+    if (!a.scoutId || !roster.has(a.scoutId) || taken.has(a.scoutId)) return false;
+    taken.add(a.scoutId);
+    return true;
+  });
   const cap = scoutCapacity(state, cfg);
   if (state.academy.assignments.length > cap) {
     state.academy.assignments = state.academy.assignments.slice(0, cap);
@@ -660,65 +719,118 @@ function briefTarget(a: ScoutAssignment, rng: RNG): { pos: Pos; archetypeId?: st
   return { pos, archetypeId: arch.id };
 }
 
-function generateScoutReport(state: GameState, cfg: TuningConfig, a: ScoutAssignment, rng: RNG): ProspectReport {
-  const stars = scoutStars(state);
+/** How many prospects a scout brings back in one report (v14). Driven by the
+ * scout's EXPERIENCE through the tuning distribution — a 1★ scout files a
+ * single name almost every time, a 5★ scout returns the full seven about half
+ * the time. Sampled per report, so batch size varies trip to trip. */
+export function prospectsPerReport(rng: RNG, cfg: TuningConfig, scout: Scout): number {
+  return rollReportSize(rng, cfg, scout.experience);
+}
+
+/** Build one prospect for a report. The scout's JUDGEMENT rolls a quality tier
+ * (Bronze → Platinum), and the tier's band supplies both the ability the kid
+ * arrives with and the ceiling they're given — that's the whole quality story
+ * for a scouted find. A platinum is the wonderkid. */
+function generateScoutReport(
+  state: GameState,
+  cfg: TuningConfig,
+  a: ScoutAssignment,
+  rng: RNG,
+  batch: number,
+  scout: Scout
+): ProspectReport {
   const { pos, archetypeId } = briefTarget(a, rng);
   const nat = pick(rng, regionNats(a.region));
   const age = randInt(rng, cfg.scoutProspectAgeMin, cfg.scoutProspectAgeMax);
-  // Ability keeps scouted teenagers genuinely developable — a 15-year-old comes
-  // back in the mid-50s (with room to grow), not a hopeless 38. The quality floor
-  // in generatePlayer enforces cfg.minOverall regardless.
-  let overall = cfg.minOverall + 5 + (age - cfg.scoutProspectAgeMin) * 2.5 + randNormal(rng) * 3;
-  // A scout can rarely unearth a high-overall gem abroad — same prodigy tail as
-  // the academy intake (set explicitly so it isn't gated twice downstream).
-  const prodigy = rng() < cfg.youthProdigyChance;
-  if (prodigy) overall = Math.max(overall, randRange(rng, 74, 88));
-  const p = freshId(generatePlayer(rng, cfg, { pos, overall, nat, age, prodigy, archetypeId }));
-  let potBase = prodigy
-    ? randRange(rng, 88, cfg.potentialAbsoluteCap)
-    : cfg.scoutPotentialBase + stars * cfg.scoutPotentialPerStar + randNormal(rng) * cfg.scoutPotentialSpread;
-  // Balance (v10): scouted prospects share the high, spread youth-potential band.
-  const bandTop = Math.min(cfg.potentialAbsoluteCap, cfg.youthPotentialBandTop);
-  potBase = Math.max(potBase, cfg.youthPotentialFloor + rng() * (bandTop - cfg.youthPotentialFloor));
-  p.potential = Math.round(Math.min(cfg.potentialAbsoluteCap, Math.max(p.overall + 4, potBase)));
+  const tier = rollProspectTier(rng, cfg, scout.judgement);
+  const band = rollTierQuality(rng, cfg, tier);
+  // Platinum finds are generational, so they take the prodigy path through
+  // worldgen — that's what lets a teenager keep a genuinely high overall
+  // instead of being pulled back to the age soft cap.
+  const prodigy = tier === "platinum";
+  const p = freshId(generatePlayer(rng, cfg, { pos, overall: band.overall, nat, age, prodigy, archetypeId }));
+  p.potential = Math.round(Math.min(cfg.potentialAbsoluteCap, Math.max(p.overall + 3, band.potential)));
   p.value = playerValue(p, cfg);
-  const fee = Math.max(200_000, Math.round((p.value * cfg.scoutFeeMult) / 50_000) * 50_000);
   return {
     id: uid("rep"),
     player: p,
-    fee,
+    // Academy signings are free (v11) — kept on the type at 0 so old saves and
+    // the career ledger still read cleanly.
+    fee: 0,
     note: pick(rng, SCOUT_NOTES),
     day: state.currentDay,
     expiresDay: state.currentDay + cfg.scoutReportExpiryDays,
     region: a.region,
     assignmentId: a.id,
+    batch,
+    tier,
+    scoutId: scout.id,
   };
 }
 
-/** Daily tick: expire stale reports; each due assignment drops a new prospect
- * report. No scout hired or no assignments → the pipeline stays quiet. */
+/** Daily tick: expire stale reports; each due assignment files a new batch of
+ * prospects. No scout hired or no assignments → the pipeline stays quiet.
+ *
+ * Reports ACCUMULATE (v12): a scout's earlier finds stay on the board while
+ * later ones land, so a shortlist builds up over a window. Nothing clears a
+ * report but its own expiry, the user signing or passing on it, or the season
+ * rollover — a new batch never displaces the last one. */
 export function dailyScoutTick(state: GameState, cfg: TuningConfig) {
   const ac = state.academy;
   ac.reports = ac.reports.filter((r) => r.expiresDay > state.currentDay);
-  const stars = scoutStars(state);
-  if (!stars || ac.assignments.length === 0) return;
+  if (!hasScout(state) || ac.assignments.length === 0) return;
   clampScoutAssignments(state, cfg);
 
   for (const a of ac.assignments) {
     if (state.currentDay < a.nextReportDay) continue;
+    const scout = scoutById(state, a.scoutId);
+    if (!scout) continue; // clamped away next pass
     const rng = mulberry32(deriveSeed(state.seed, `scout:${a.id}:${state.currentDay}`));
-    const report = generateScoutReport(state, cfg, a, rng);
-    ac.reports.push(report);
-    a.nextReportDay = state.currentDay + reportCadence(state, cfg) + randInt(rng, -3, 4);
+    const batch = (a.reportsFiled ?? 0) + 1;
+    a.reportsFiled = batch;
+
+    // Batch size is the scout's experience (v14); each find's quality is their
+    // judgement. The two ratings answer different questions, so a thorough but
+    // undiscerning scout returns seven ordinary names.
+    const count = prospectsPerReport(rng, cfg, scout);
+    const found: ProspectReport[] = [];
+    for (let i = 0; i < count; i++) {
+      const report = generateScoutReport(state, cfg, a, rng, batch, scout);
+      ac.reports.push(report);
+      found.push(report);
+    }
+    a.nextReportDay = state.currentDay + reportCadence(state, cfg, scout) + randInt(rng, -3, 4);
+
+    const regionLabel = a.region;
+    const tierName = (r: ProspectReport) => (r.tier ? r.tier.toUpperCase() : "");
+    const lines = found
+      .map(
+        (r) =>
+          `${r.player.name} — ${r.player.positions[0]}, age ${r.player.age}, ${r.player.nationality}` +
+          `${r.tier ? ` [${tierName(r)}]` : ""}, potential ${starRangeLabel(state, r.player, cfg)}\n  “${r.note}”`
+      )
+      .join("\n\n");
+    const best = found.find((r) => r.tier === "platinum");
+    const title = best
+      ? `Scout report: a special one in ${regionLabel} — ${best.player.name}`
+      : found.length === 1
+        ? `Scout report: ${found[0].player.name} (${found[0].player.positions[0]}, ${found[0].player.age})`
+        : `Scout report: ${found.length} prospects from ${regionLabel}`;
+    const intro =
+      found.length === 1
+        ? `${scout.name} files from ${regionLabel}:\n\n`
+        : `${scout.name} files a shortlist of ${found.length} from ${regionLabel}:\n\n`;
     pushInbox(
       state,
       "scout",
-      `Scout report: ${report.player.name} (${report.player.positions[0]}, ${report.player.age})`,
-      `${report.note}\n\n${report.player.name} — ${report.player.positions[0]}, age ${report.player.age}, ${report.player.nationality}, ` +
-        `potential ${starRangeLabel(state, report.player, cfg)}. Asking fee ${formatMoney(report.fee)}. ` +
-        `The trail goes cold in ${cfg.scoutReportExpiryDays} days. Sign him from the Academy screen.`,
-      report.id
+      title,
+      `${intro}${lines}\n\nNo fee — they'd join the academy on youth terms. ` +
+        `The trail goes cold in ${cfg.scoutReportExpiryDays} days. Sign them from the Academy screen.`,
+      found[0].id
     );
+    if (best) {
+      state.news.unshift(`${scout.name} has found something special in ${regionLabel}: ${best.player.name}, ${best.player.age}.`);
+    }
   }
 }
 
@@ -732,15 +844,18 @@ export function signProspect(state: GameState, reportId: string, cfg: TuningConf
   if ((team.academyPlayerIds?.length ?? 0) >= academySquadCap(state, team.id, cfg)) {
     return "Academy is full — release a prospect or upgrade Academy Squad Size to sign more.";
   }
-  if (team.budget < report.fee) return "Not enough budget for the fee.";
-  team.budget -= report.fee;
+  // Academy prospects are free to sign (v11). Scouting is its own investment —
+  // the scout wage, the network facility, and the academy squad cap are the
+  // gates. Charging a fee on top made the whole pipeline feel like a worse
+  // transfer market. The squad cap above is now the only limit.
   const p = report.player;
   p.clubId = team.id;
   p.academyClubId = team.id;
   state.players[p.id] = p;
   (team.academyPlayerIds ??= []).push(p.id);
+  assignKitNumber(state, p);
   state.careers[p.id] = { playerId: p.id, seasons: [], transfers: [] };
-  state.careers[p.id].transfers.push({ season: state.season, day: state.currentDay, from: "Youth football", to: team.name, fee: report.fee });
+  state.careers[p.id].transfers.push({ season: state.season, day: state.currentDay, from: "Youth football", to: team.name, fee: 0 });
   ac.reports = ac.reports.filter((r) => r.id !== reportId);
   state.news.unshift(`${team.name} sign ${p.age}-year-old ${p.name} for the academy.`);
   return null;
@@ -757,7 +872,12 @@ function isUserPlayer(state: GameState, playerId: string): boolean {
   return t.playerIds.includes(playerId) || (t.academyPlayerIds ?? []).includes(playerId);
 }
 
-export function toggleLoanList(state: GameState, playerId: string, cfg: TuningConfig): string | null {
+/** List/unlist a player for loan. Academy prospects go out on development loans
+ * for minutes; senior players (v14) can be loaned out too — same machinery,
+ * same weekly AI uptake, so a squad player you can't sell can still leave for a
+ * season. Being listed is a visibility flag, not a queue: it tells other clubs
+ * he's available and they come to you. */
+export function toggleLoanList(state: GameState, playerId: string, _cfg: TuningConfig): string | null {
   const ac = state.academy;
   if (ac.loanList.includes(playerId)) {
     ac.loanList = ac.loanList.filter((id) => id !== playerId);
@@ -765,8 +885,8 @@ export function toggleLoanList(state: GameState, playerId: string, cfg: TuningCo
   }
   const p = state.players[playerId];
   if (!p || !isUserPlayer(state, playerId)) return "Not your player.";
-  if (p.age > cfg.loanMaxAge) return `Only players ${cfg.loanMaxAge} or younger go out on development loans.`;
   if (p.loan) return "Already out on loan.";
+  if (p.retired) return "That player has retired.";
   ac.loanList.push(playerId);
   return null;
 }
@@ -794,8 +914,11 @@ export function weeklyLoanTick(state: GameState, cfg: TuningConfig) {
     for (const id of [...ac.loanList]) {
       const p = state.players[id];
       if (!p || p.loan || rng() >= cfg.loanWeeklyChance) continue;
-      // destination: a club whose level roughly matches the player's ability
-      const targetRep = Math.min(80, Math.max(35, p.overall + 10));
+      // destination: a club whose level roughly matches the player's ability.
+      // A senior pro is loaned to play, not to develop, so clubs at his own
+      // level come calling; a prospect drops a rung to get minutes.
+      const isSenior = userTeam(state).playerIds.includes(id);
+      const targetRep = Math.min(80, Math.max(35, p.overall + (isSenior ? 0 : 10)));
       const candidates = Object.values(state.teams)
         .filter((t) => t.id !== state.userTeamId)
         .sort((a, b) => Math.abs(a.reputation - targetRep) - Math.abs(b.reputation - targetRep))
@@ -921,24 +1044,18 @@ export function academyPostDevRollover(state: GameState, cfg: TuningConfig) {
   const team = userTeam(state);
   const academy = team.academyPlayerIds ?? [];
 
-  // age-out at academyMaxAge+1: promote if there's room, otherwise released
+  // Age-out at academyMaxAge+1: everyone who comes through graduates. With the
+  // senior squad cap gone (v14) there's always a pathway, so nobody is released
+  // for want of a slot — trimming the squad is the user's call, not the rule's.
   for (const id of [...academy]) {
     const p = state.players[id];
     if (!p || p.retired || p.age <= cfg.academyMaxAge) continue;
-    if (team.playerIds.length < cfg.squadCap) {
-      team.academyPlayerIds = (team.academyPlayerIds ?? []).filter((x) => x !== id);
-      team.playerIds.push(id);
-      if (!p.contract) grantDefaultContract(state, p, cfg);
-      pushInbox(state, "academy", `${p.name} steps up`, `${p.name} turns ${p.age} and graduates into the senior squad.`);
-    } else {
-      releaseFromAcademy(state, id);
-      pushInbox(
-        state,
-        "academy",
-        `${p.name} released`,
-        `${p.name} came through the ranks but there was no senior pathway — the squad is full. He leaves as a free agent.`
-      );
-    }
+    team.academyPlayerIds = (team.academyPlayerIds ?? []).filter((x) => x !== id);
+    team.playerIds.push(id);
+    if (!p.contract) grantDefaultContract(state, p, cfg);
+    clearKitNumber(p);
+    assignKitNumber(state, p);
+    pushInbox(state, "academy", `${p.name} steps up`, `${p.name} turns ${p.age} and graduates into the senior squad.`);
   }
 
   // warn about next summer's age-outs while there's a season to act
@@ -949,7 +1066,7 @@ export function academyPostDevRollover(state: GameState, cfg: TuningConfig) {
       "academy",
       "Final academy season",
       `${leavers.map((p) => p.name).join(", ")} ${leavers.length === 1 ? "is" : "are"} now ${cfg.academyMaxAge} — ` +
-        `promote, sell, or loan them this season, or they'll be promoted (if there's room) or released next summer.`
+        `promote, sell, or loan them this season, or they'll graduate into the senior squad automatically next summer.`
     );
   }
 
@@ -958,13 +1075,17 @@ export function academyPostDevRollover(state: GameState, cfg: TuningConfig) {
   // new-season pipeline reset
   const ac = state.academy;
   ac.focusIds = ac.focusIds.filter((id) => (team.academyPlayerIds ?? []).includes(id));
-  ac.loanList = ac.loanList.filter((id) => isUserPlayer(state, id) && (state.players[id]?.age ?? 99) <= cfg.loanMaxAge);
+  // Loan listings survive the summer for anyone still on the books (v14 opened
+  // loans to senior players, so there's no age gate to re-apply here).
+  ac.loanList = ac.loanList.filter((id) => isUserPlayer(state, id) && !state.players[id]?.retired);
   ac.reports = [];
   ac.nextReportDay = state.schedule.seasonStartDay + reportCadence(state, cfg);
   // Scout assignments persist across seasons; just requeue their next report and
   // clamp to whatever capacity survives (a scout may have been let go).
   clampScoutAssignments(state, cfg);
-  for (const a of ac.assignments) a.nextReportDay = state.schedule.seasonStartDay + reportCadence(state, cfg);
+  for (const a of ac.assignments) {
+    a.nextReportDay = state.schedule.seasonStartDay + reportCadence(state, cfg, scoutById(state, a.scoutId));
+  }
   ac.u21 = buildU21Season(state, cfg);
 }
 

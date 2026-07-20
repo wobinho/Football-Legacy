@@ -9,9 +9,19 @@ import type { GameState, PlayerBio, TransferOffer } from "./types";
 import type { TuningConfig } from "./config/tuning";
 import { TUNING } from "./config/tuning";
 import { transferWindowState } from "./calendar";
-import { mulberry32, deriveSeed, pick, uid } from "./rng";
+import { mulberry32, deriveSeed, pickWeighted, uid } from "./rng";
 import { playerValue } from "./value";
 import { grantDefaultContract, makeContract } from "./contracts";
+import { assignKitNumber, clearKitNumber } from "./kitnumbers";
+import type { RNG } from "./rng";
+import {
+  STANCE_PROFILE,
+  stanceOf,
+  squadNeeds,
+  targetScore,
+  saleCandidates,
+  buyBudgetFor,
+} from "./ai/strategy";
 
 export function windowOpen(state: GameState): boolean {
   return transferWindowState(state.currentDay, state.schedule).open;
@@ -30,6 +40,18 @@ export function askPrice(state: GameState, p: PlayerBio, cfg: TuningConfig): num
   let mult = cfg.aiAcceptThreshold;
   if (isKeyPlayer(state, p)) mult *= cfg.aiKeyPlayerPremium;
   if (p.age <= 22 && p.potential - p.overall >= 6) mult *= 1.2;
+  // The selling club's stance sets how badly it wants to keep him: a side going
+  // for the title prices its players out of the market, one rebuilding is happy
+  // to cash in (§10).
+  if (p.clubId && p.clubId !== state.userTeamId) {
+    const seller = state.teams[p.clubId];
+    if (seller) {
+      const profile = STANCE_PROFILE[stanceOf(state, seller, cfg)];
+      mult *= profile.sellAsk;
+      // A club that won't sell starters at all names a prohibitive price.
+      if (isKeyPlayer(state, p) && !profile.sellsStarters) mult *= cfg.aiKeyPlayerPremium;
+    }
+  }
   return Math.round((p.value * mult) / 100_000) * 100_000;
 }
 
@@ -74,6 +96,10 @@ export function completeTransfer(
   }
   p.clubId = toClubId;
   p.form = 1.0;
+  // Shirt number (v15): the old club's number is given up on the way out and a
+  // free one at the new club is taken on the way in.
+  clearKitNumber(p);
+  if (toClubId) assignKitNumber(state, p);
   ensureCareer(state, playerId);
   state.careers[playerId].transfers.push({
     season: state.season,
@@ -90,6 +116,22 @@ export function completeTransfer(
       if (id === playerId) delete state.lineup[slot];
     }
   }
+}
+
+/** Release a senior player from the user's squad (v14). He leaves as a free
+ * agent immediately — no fee either way, and the club eats the remaining wage
+ * commitment as the price of a clean break. Academy prospects release through
+ * releaseFromAcademy instead (they have no contract to tear up). */
+export function releasePlayer(state: GameState, playerId: string): string | null {
+  const team = state.teams[state.userTeamId];
+  const p = state.players[playerId];
+  if (!p) return "No such player.";
+  if (!team.playerIds.includes(playerId)) return "Not in your senior squad.";
+  if (p.loan) return "Recall him from his loan spell first.";
+  completeTransfer(state, playerId, null, 0);
+  state.academy.loanList = state.academy.loanList.filter((id) => id !== playerId);
+  state.news.unshift(`${team.name} release ${p.name}. He is a free agent.`);
+  return null;
 }
 
 export type BidOutcome =
@@ -112,7 +154,8 @@ export function userBid(
   const user = state.teams[state.userTeamId];
   if (!windowOpen(state)) return { kind: "error", reason: "The transfer window is closed." };
   if (p.clubId === state.userTeamId) return { kind: "error", reason: "Already your player." };
-  if (user.playerIds.length >= cfg.squadCap) return { kind: "error", reason: `Squad cap reached (${cfg.squadCap} senior players).` };
+  // No senior squad cap for the user (v14) — the wage bill is the constraint on
+  // hoarding, not an arbitrary slot count. AI clubs still respect cfg.squadCap.
   if (fee > user.budget) return { kind: "error", reason: "That bid exceeds your budget." };
 
   // free agent: signs for the (zero) signing fee
@@ -259,15 +302,24 @@ export function aiWeeklyTransferTick(state: GameState, cfg: TuningConfig): boole
     for (const p of userPlayers) {
       const chance = cfg.aiBidChancePerWeek * listedBoost(p) * (quality(p) - 58) * 0.015;
       if (rng() < chance) {
-        const buyers = Object.values(state.teams).filter(
-          (t) =>
-            t.id !== state.userTeamId &&
-            state.leagues[t.leagueId]?.playable &&
-            t.budget > p.value &&
-            t.reputation >= state.teams[state.userTeamId].reputation - 25
-        );
-        if (buyers.length) {
-          const buyer = pick(rng, buyers);
+        // Only clubs with a real hole in this player's position come calling,
+        // and only if he'd actually improve them (§10) — an offer should always
+        // be legible to the user, not arbitrary.
+        const interested = Object.values(state.teams)
+          .filter(
+            (t) =>
+              t.id !== state.userTeamId &&
+              state.leagues[t.leagueId]?.playable &&
+              t.budget > p.value &&
+              t.reputation >= state.teams[state.userTeamId].reputation - 25
+          )
+          .map((t) => {
+            const need = squadNeeds(state, t, cfg).find((n) => p.positions.includes(n.pos));
+            return need ? { team: t, score: targetScore(state, t, need, p, cfg) } : null;
+          })
+          .filter((x): x is { team: (typeof state.teams)[string]; score: number } => !!x && x.score > 0);
+        if (interested.length) {
+          const buyer = pickWeighted(rng, interested, (x) => x.score).team;
           const fee = Math.round((p.value * (state.transferList.includes(p.id) ? 0.95 + rng() * 0.2 : 1.0 + rng() * 0.35)) / 100_000) * 100_000;
           const offer: TransferOffer = {
             id: uid("off"),
@@ -300,25 +352,7 @@ export function aiWeeklyTransferTick(state: GameState, cfg: TuningConfig): boole
     }
   }
 
-  // AI ↔ AI business (kept light; news only)
-  const playableTeams = Object.values(state.teams).filter((t) => state.leagues[t.leagueId]?.playable);
-  const deals = 1 + Math.floor(rng() * 3);
-  for (let d = 0; d < deals; d++) {
-    const buyer = pick(rng, playableTeams);
-    if (buyer.id === state.userTeamId || buyer.budget < 3_000_000) continue;
-    if (buyer.playerIds.length >= cfg.squadCap) continue;
-    const sellers = Object.values(state.teams).filter((t) => t.id !== buyer.id && t.id !== state.userTeamId);
-    const seller = pick(rng, sellers);
-    const targets = seller.playerIds
-      .map((id) => state.players[id])
-      .filter((p) => !p.retired && p.value <= buyer.budget * 0.6 && p.overall >= 58 && !isKeyPlayer(state, p));
-    if (!targets.length) continue;
-    const target = pick(rng, targets);
-    const fee = Math.round((target.value * (1.05 + rng() * 0.2)) / 100_000) * 100_000;
-    if (fee > buyer.budget || state.teams[target.clubId!] !== seller) continue;
-    completeTransfer(state, target.id, buyer.id, fee);
-    state.news.unshift(`${target.name} joins ${buyer.name} from ${seller.name} for ${fmtFee(fee)}.`);
-  }
+  aiSquadBuilding(state, rng, cfg);
   state.news = state.news.slice(0, 24);
 
   // expire stale offers
@@ -326,6 +360,67 @@ export function aiWeeklyTransferTick(state: GameState, cfg: TuningConfig): boole
     if (o.status === "pending" && state.currentDay > o.deadlineDay) o.status = "withdrawn";
   }
   return interrupt;
+}
+
+/**
+ * AI ↔ AI squad building (§10). Each week a window is open, a few clubs act on
+ * their stance: they work out their weakest position, look for a player who
+ * actually improves it, and pay what their stance says that's worth. Clubs that
+ * are short of money sell before they buy.
+ *
+ * Deliberately moderate in volume — the world should visibly evolve without the
+ * user's league reshaping itself underneath them.
+ */
+function aiSquadBuilding(state: GameState, rng: RNG, cfg: TuningConfig) {
+  const clubs = Object.values(state.teams).filter(
+    (t) => t.id !== state.userTeamId && state.leagues[t.leagueId]?.playable
+  );
+  if (clubs.length < 2) return;
+
+  // Pick the acting clubs by stance appetite — a rebuilding or title-chasing
+  // side is likelier to do business than one just balancing the books.
+  const attempts = Math.max(1, Math.round(cfg.aiDealsPerWeek * (0.5 + rng())));
+  for (let i = 0; i < attempts; i++) {
+    const buyer = pickWeighted(rng, clubs, (t) => STANCE_PROFILE[stanceOf(state, t, cfg)].activity);
+    if (buyer.playerIds.length >= cfg.squadCap) continue;
+
+    const needs = squadNeeds(state, buyer, cfg);
+    if (!needs.length) continue;
+    // Act on one of the two most pressing holes.
+    const need = needs[Math.min(needs.length - 1, Math.floor(rng() * 2))];
+
+    // Shop the rest of the world (never the user's squad — those go through the
+    // formal offer path so the user always gets to decide).
+    let best: { player: PlayerBio; score: number } | null = null;
+    for (const seller of clubs) {
+      if (seller.id === buyer.id) continue;
+      const sellerProfile = STANCE_PROFILE[stanceOf(state, seller, cfg)];
+      for (const p of saleCandidates(state, seller, cfg)) {
+        if (p.loan) continue;
+        const score = targetScore(state, buyer, need, p, cfg);
+        if (score <= 0) continue;
+        // Can the buyer actually afford the seller's price?
+        const price = Math.round((p.value * cfg.aiAcceptThreshold * sellerProfile.sellAsk) / 100_000) * 100_000;
+        if (price > buyBudgetFor(state, buyer, p, cfg) || price > buyer.budget) continue;
+        if (!best || score > best.score) best = { player: p, score };
+      }
+    }
+    if (!best) continue;
+
+    const target = best.player;
+    const seller = state.teams[target.clubId!];
+    if (!seller) continue;
+    const sellerProfile = STANCE_PROFILE[stanceOf(state, seller, cfg)];
+    // A club won't strip itself below a workable squad.
+    if (seller.playerIds.length <= cfg.matchdaySquad) continue;
+
+    const fee = Math.round((target.value * cfg.aiAcceptThreshold * sellerProfile.sellAsk) / 100_000) * 100_000;
+    completeTransfer(state, target.id, buyer.id, fee);
+    const why = STANCE_PROFILE[stanceOf(state, buyer, cfg)].label;
+    state.news.unshift(
+      `${target.name} joins ${buyer.name} from ${seller.name} for ${fmtFee(fee)} — ${why.toLowerCase()}.`
+    );
+  }
 }
 
 /** Refresh values after aging or window openings. */

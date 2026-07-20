@@ -112,15 +112,30 @@ export function buildSeasonSummary(state: GameState): SeasonSummary {
   };
 }
 
-/** Track the biggest win record as results come in (playable comps only). */
-export function trackBiggestWin(state: GameState, homeName: string, awayName: string, hg: number, ag: number) {
-  const margin = Math.abs(hg - ag);
+/**
+ * Track the biggest win record as results come in (playable comps only).
+ * This is the USER CLUB's record book, so only wins by the club the player
+ * controls count — a 6–0 between two AI sides is not the user's record.
+ */
+export function trackBiggestWin(state: GameState, fixture: { homeId: string; awayId: string }, hg: number, ag: number) {
+  const userId = state.userTeamId;
+  const isHome = fixture.homeId === userId;
+  const isAway = fixture.awayId === userId;
+  if (!isHome && !isAway) return;
+
+  const own = isHome ? hg : ag;
+  const opp = isHome ? ag : hg;
+  if (own <= opp) return; // must be a win, not just a big scoreline
+
+  const margin = own - opp;
   if (margin < 4) return;
   const current = state.recordBook.biggestWin;
-  if (!current || margin > current.margin) {
-    const text = hg > ag ? `${homeName} ${hg}–${ag} ${awayName}` : `${awayName} ${ag}–${hg} ${homeName} (away)`;
-    state.recordBook.biggestWin = { season: state.season, text, margin };
-  }
+  // Tie-break on goals scored so 7–1 beats a previously-recorded 5–0 of equal margin.
+  if (current && (margin < current.margin || (margin === current.margin && own <= (current.goalsFor ?? 0)))) return;
+
+  const oppName = state.teams[isHome ? fixture.awayId : fixture.homeId]?.name ?? "—";
+  const text = isHome ? `${state.teams[userId].name} ${hg}–${ag} ${oppName}` : `${oppName} ${hg}–${ag} ${state.teams[userId].name} (away)`;
+  state.recordBook.biggestWin = { season: state.season, text, margin, goalsFor: own };
 }
 
 /** All-time club records computed from careers on demand (no extra store). */

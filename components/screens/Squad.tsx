@@ -56,8 +56,17 @@ export default function SquadScreen() {
 
   return (
     <Section
-      title={`Squad — ${players.length}/25`}
-      right={<span className="text-xs text-faint">{game.transferList.length ? `${game.transferList.length} transfer-listed` : ""}</span>}
+      title={`Squad — ${players.length} players`}
+      right={
+        <span className="text-xs text-faint">
+          {[
+            game.transferList.length ? `${game.transferList.length} transfer-listed` : "",
+            game.academy.loanList.length ? `${game.academy.loanList.length} loan-listed` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </span>
+      }
     >
       <div className="overflow-x-auto rounded-md border border-line bg-surface">
         <table className="w-full min-w-[880px] text-sm">
@@ -91,6 +100,9 @@ export default function SquadScreen() {
                     <Flag nat={p.nationality} size={14} />
                     <span className="font-medium">{p.name}</span>
                     {game.transferList.includes(p.id) && <span className="text-[10px] text-gold">LISTED</span>}
+                    {!p.loan && game.academy.loanList.includes(p.id) && (
+                      <span className="text-[10px] text-win">LOAN-LISTED</span>
+                    )}
                     {p.loan && <span className="text-[10px] text-win">ON LOAN · {game.teams[p.loan.toClubId]?.short}</span>}
                     {p.traits.length > 0 && <span className="text-[10px] text-faint">{"◆".repeat(p.traits.length)}</span>}
                   </span>

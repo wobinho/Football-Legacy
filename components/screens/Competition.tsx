@@ -4,11 +4,52 @@
 
 import { createContext, useContext, useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
-import type { TableRow } from "@/lib/types";
+import type { Fixture, TableRow } from "@/lib/types";
 import { computeTable } from "@/lib/season";
 import { formatDayShort } from "@/lib/calendar";
-import { Card, CountryFlag, Crest, Section, Tabs } from "../ui";
+import { Card, CountryFlag, Crest, Modal, Section, Tabs } from "../ui";
 import TeamCard from "./TeamCard";
+
+/** Competition colour coding for Match History. Keyed by the competition's role
+ * rather than its id, so it holds for any playable country (v7 divisions are
+ * data-driven). Gold stays reserved for the cup — the prestige competition —
+ * per the design language; the leagues take cool, distinct hues. */
+type CompStyle = { label: string; dot: string; chip: string };
+
+function useCompStyles(): Record<string, CompStyle> {
+  const game = useGame((s) => s.game)!;
+  return useMemo(() => {
+    const map: Record<string, CompStyle> = {
+      CUP: {
+        label: "Cup",
+        dot: "bg-[var(--color-gold)]",
+        chip: "border-gold-lo/50 text-gold",
+      },
+    };
+    // One hue per tier, top-first (v12: the ladder may be 1–3 deep). Gold stays
+    // reserved for the cup, so the tiers take cool, distinct hues.
+    const TIER_HUES = [
+      { dot: "bg-[#4a7bd0]", chip: "border-[#4a7bd0]/50 text-[#8fb4ee]" },
+      { dot: "bg-[#3fb27f]", chip: "border-[#3fb27f]/50 text-[#6fcaa0]" },
+      { dot: "bg-[#b07fd0]", chip: "border-[#b07fd0]/50 text-[#cba6e4]" },
+    ];
+    Array.from(new Set(game.divisionIds)).forEach((id, i) => {
+      const hue = TIER_HUES[Math.min(i, TIER_HUES.length - 1)];
+      map[id] = { label: game.leagues[id]?.name ?? id, ...hue };
+    });
+    return map;
+  }, [game.divisionIds, game.leagues]);
+}
+
+function compStyleFor(styles: Record<string, CompStyle>, competition: string, leagueName?: string): CompStyle {
+  return (
+    styles[competition] ?? {
+      label: leagueName ?? competition,
+      dot: "bg-[var(--color-faint)]",
+      chip: "border-line text-faint",
+    }
+  );
+}
 
 // Lets any nested row open the team card without threading a prop everywhere.
 const OpenTeam = createContext<(teamId: string) => void>(() => {});
@@ -25,6 +66,7 @@ export default function CompetitionScreen() {
     const t: { id: string; label: string }[] = [
       ...playableIds.map((id) => ({ id, label: game.leagues[id]?.name ?? id })),
       { id: "CUP", label: "Cup" },
+      { id: "HISTORY", label: "Match History" },
     ];
     for (const l of Object.values(game.leagues)) {
       if (!l.playable) t.push({ id: l.id, label: `${l.name} ◇` });
@@ -39,7 +81,15 @@ export default function CompetitionScreen() {
     <OpenTeam.Provider value={setTeamCard}>
       <div>
         <Tabs<string> tabs={tabs} active={tab} onChange={setTab} />
-        {tab === "CUP" ? <CupView /> : game.leagues[tab]?.playable ? <LeagueView leagueId={tab} /> : <SimLeagueView leagueId={tab} />}
+        {tab === "HISTORY" ? (
+          <MatchHistoryView />
+        ) : tab === "CUP" ? (
+          <CupView />
+        ) : game.leagues[tab]?.playable ? (
+          <LeagueView leagueId={tab} />
+        ) : (
+          <SimLeagueView leagueId={tab} />
+        )}
       </div>
       {teamCard && <TeamCard teamId={teamCard} onClose={() => setTeamCard(null)} />}
     </OpenTeam.Provider>
@@ -128,10 +178,15 @@ function LeagueView({ leagueId }: { leagueId: string }) {
             rows={table}
             highlight={game.userTeamId}
             note={(_, pos) => {
-              const isTop = leagueId === game.divisionIds[0];
-              const isSecond = leagueId === game.divisionIds[1] && game.divisionIds[1] !== game.divisionIds[0];
-              if (isTop) return pos > n - 3 ? "▼" : "";
-              if (isSecond) return pos <= 3 ? "▲" : "";
+              // The ladder may be 1–3 deep (v12): a middle tier has BOTH a
+              // promotion zone at the top and a relegation zone at the bottom.
+              const ladder = Array.from(new Set(game.divisionIds));
+              const tier = ladder.indexOf(leagueId);
+              if (tier === -1) return "";
+              const canGoUp = tier > 0;
+              const canGoDown = tier < ladder.length - 1;
+              if (canGoUp && pos <= 3) return "▲";
+              if (canGoDown && pos > n - 3) return "▼";
               return "";
             }}
           />
@@ -221,6 +276,255 @@ function CupView() {
           )}
         </Section>
       ))}
+    </div>
+  );
+}
+
+// ── Match History (v11) ───────────────────────────────────────────────────
+// Every played fixture of the *current* season across all playable
+// competitions, newest first, colour-coded by competition and clickable for
+// the scorers and team stats stored on the fixture. `state.fixtures` only ever
+// holds the current season (the rollover clears it), so no season filter is
+// needed — but we key off game.season in the heading to make that explicit.
+
+function MatchHistoryView() {
+  const game = useGame((s) => s.game)!;
+  const styles = useCompStyles();
+  const [scope, setScope] = useState<"all" | "mine">("mine");
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  const played = useMemo(() => {
+    return game.fixtures
+      .filter((f) => f.played)
+      .filter((f) => scope === "all" || f.homeId === game.userTeamId || f.awayId === game.userTeamId)
+      .sort((a, b) => b.day - a.day || a.id.localeCompare(b.id));
+  }, [game.fixtures, game.userTeamId, scope]);
+
+  // Group by matchday so a round reads as a block rather than a flat wall.
+  const groups = useMemo(() => {
+    const byDay = new Map<number, Fixture[]>();
+    for (const f of played) {
+      const list = byDay.get(f.day);
+      if (list) list.push(f);
+      else byDay.set(f.day, [f]);
+    }
+    return Array.from(byDay.entries());
+  }, [played]);
+
+  const openFixture = openId ? played.find((f) => f.id === openId) ?? null : null;
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="display text-sm font-semibold">This Season&apos;s Results</div>
+          <div className="text-[11px] text-faint">
+            Season {game.season} · {played.length} match{played.length === 1 ? "" : "es"} played · tap a result for details
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {/* Competition colour key — teaches the coding at a glance. */}
+          <div className="hidden flex-wrap items-center gap-2.5 sm:flex">
+            {Object.entries(styles).map(([id, s]) => (
+              <span key={id} className="flex items-center gap-1.5 text-[11px] text-faint">
+                <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
+                {s.label}
+              </span>
+            ))}
+          </div>
+          <div className="flex overflow-hidden rounded-md border border-line">
+            {(["mine", "all"] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setScope(s)}
+                className={`display px-3 py-1 text-[11px] font-semibold transition-colors ${
+                  scope === s ? "gold-grad text-black" : "text-faint hover:text-dim"
+                }`}
+              >
+                {s === "mine" ? "MY CLUB" : "ALL"}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {played.length === 0 ? (
+        <Card className="p-8 text-center text-sm text-faint">
+          <div className="display mb-2 text-lg text-dim">NO MATCHES YET</div>
+          Results appear here as the season is played.
+        </Card>
+      ) : (
+        <div className="space-y-5">
+          {groups.map(([day, fixtures]) => (
+            <div key={day}>
+              <div className="mb-1.5 flex items-center gap-2">
+                <span className="display text-[11px] uppercase tracking-widest text-faint">{formatDayShort(day)}</span>
+                <span className="gold-thread h-px flex-1" />
+              </div>
+              <Card className="divide-y divide-line/50">
+                {fixtures.map((f) => (
+                  <HistoryRow key={f.id} f={f} styles={styles} onOpen={() => setOpenId(f.id)} />
+                ))}
+              </Card>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {openFixture && <MatchDetailModal f={openFixture} styles={styles} onClose={() => setOpenId(null)} />}
+    </div>
+  );
+}
+
+function HistoryRow({ f, styles, onOpen }: { f: Fixture; styles: Record<string, CompStyle>; onOpen: () => void }) {
+  const game = useGame((s) => s.game)!;
+  const h = game.teams[f.homeId];
+  const a = game.teams[f.awayId];
+  const s = compStyleFor(styles, f.competition, game.leagues[f.competition]?.name);
+  const mine = f.homeId === game.userTeamId || f.awayId === game.userTeamId;
+
+  // Result tint from the user's perspective; neutral for matches they're not in.
+  let tone = "text-ink";
+  if (mine) {
+    const myGoals = f.homeId === game.userTeamId ? f.homeGoals! : f.awayGoals!;
+    const oppGoals = f.homeId === game.userTeamId ? f.awayGoals! : f.homeGoals!;
+    const won = f.shootoutWinnerId ? f.shootoutWinnerId === game.userTeamId : myGoals > oppGoals;
+    const lost = f.shootoutWinnerId ? f.shootoutWinnerId !== game.userTeamId : myGoals < oppGoals;
+    tone = won ? "text-win" : lost ? "text-loss" : "text-draw";
+  }
+
+  return (
+    <button
+      onClick={onOpen}
+      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-hover ${mine ? "bg-hover/40" : ""}`}
+      title="View match details"
+    >
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${s.dot}`} title={s.label} />
+      <span className="flex flex-1 items-center justify-end gap-1.5 truncate">
+        <span className="truncate">{h.name}</span>
+        <Crest colors={h.colors} short={h.short} size={16} />
+      </span>
+      <span className={`display w-14 shrink-0 text-center tnum font-semibold ${tone}`}>
+        {f.homeGoals}–{f.awayGoals}
+      </span>
+      <span className="flex flex-1 items-center gap-1.5 truncate">
+        <Crest colors={a.colors} short={a.short} size={16} />
+        <span className="truncate">{a.name}</span>
+      </span>
+      {f.shootoutWinnerId && (
+        <span className="hidden shrink-0 text-[10px] text-faint sm:inline">
+          {game.teams[f.shootoutWinnerId].short} on pens
+        </span>
+      )}
+    </button>
+  );
+}
+
+function MatchDetailModal({ f, styles, onClose }: { f: Fixture; styles: Record<string, CompStyle>; onClose: () => void }) {
+  const game = useGame((s) => s.game)!;
+  const viewPlayer = useGame((s) => s.viewPlayer);
+  const h = game.teams[f.homeId];
+  const a = game.teams[f.awayId];
+  const s = compStyleFor(styles, f.competition, game.leagues[f.competition]?.name);
+  const scorers = f.scorers ?? [];
+  const homeScorers = scorers.filter((x) => x.teamId === f.homeId).sort((x, y) => x.minute - y.minute);
+  const awayScorers = scorers.filter((x) => x.teamId === f.awayId).sort((x, y) => x.minute - y.minute);
+
+  const goalLine = (list: typeof scorers, align: "left" | "right") => (
+    <div className={`space-y-1 ${align === "right" ? "text-right" : "text-left"}`}>
+      {list.length === 0 && <div className="text-[11px] text-faint">—</div>}
+      {list.map((g, i) => {
+        const p = game.players[g.playerId];
+        const assist = g.assistId ? game.players[g.assistId] : null;
+        return (
+          <div key={`${g.playerId}-${g.minute}-${i}`} className="text-[12px]">
+            <button
+              onClick={() => p && viewPlayer(p.id)}
+              className="font-medium hover:text-gold"
+              disabled={!p}
+            >
+              {p?.name ?? "Unknown"}
+            </button>
+            <span className="ml-1.5 tnum text-faint">{g.minute}&apos;</span>
+            {assist && <div className="text-[10px] text-faint">assist {assist.name}</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  return (
+    <Modal title="Match Details" onClose={onClose}>
+      <div className="mb-3 flex items-center justify-between">
+        <span className={`display rounded-sm border px-1.5 py-0.5 text-[9px] font-semibold ${s.chip}`}>
+          {s.label.toUpperCase()}
+        </span>
+        <span className="text-[11px] text-faint">{formatDayShort(f.day)}</span>
+      </div>
+
+      {/* Scoreline */}
+      <div className="flex items-center gap-3 rounded-md border border-line bg-raised px-4 py-3">
+        <div className="flex flex-1 flex-col items-center gap-1.5 text-center">
+          <Crest colors={h.colors} short={h.short} size={30} />
+          <span className="text-[12px] leading-tight">{h.name}</span>
+        </div>
+        <div className="text-center">
+          <div className="display text-3xl font-bold tnum">
+            {f.homeGoals}–{f.awayGoals}
+          </div>
+          {f.shootoutWinnerId && (
+            <div className="text-[10px] text-faint">{game.teams[f.shootoutWinnerId].short} win on penalties</div>
+          )}
+        </div>
+        <div className="flex flex-1 flex-col items-center gap-1.5 text-center">
+          <Crest colors={a.colors} short={a.short} size={30} />
+          <span className="text-[12px] leading-tight">{a.name}</span>
+        </div>
+      </div>
+
+      {/* Goalscorers */}
+      <div className="mt-4">
+        <div className="mb-2 text-[10px] uppercase tracking-widest text-faint">Goalscorers</div>
+        <div className="grid grid-cols-2 gap-4">
+          {goalLine(homeScorers, "right")}
+          {goalLine(awayScorers, "left")}
+        </div>
+      </div>
+
+      {/* Team stats — absent on fixtures played before the v11 upgrade. */}
+      <div className="mt-4 border-t border-line/60 pt-3">
+        <div className="mb-2 text-[10px] uppercase tracking-widest text-faint">Match Stats</div>
+        {f.detail ? (
+          <div className="space-y-2.5">
+            <StatBar label="Possession" home={f.detail.possession[0]} away={f.detail.possession[1]} suffix="%" />
+            <StatBar label="Shots" home={f.detail.shots[0]} away={f.detail.shots[1]} />
+            <StatBar label="On Target" home={f.detail.onTarget[0]} away={f.detail.onTarget[1]} />
+          </div>
+        ) : (
+          <div className="text-[12px] text-faint">
+            Detailed stats weren&apos;t recorded for this match. They&apos;re kept for every match from now on.
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+/** A two-sided proportional bar for one match stat. */
+function StatBar({ label, home, away, suffix = "" }: { label: string; home: number; away: number; suffix?: string }) {
+  const total = home + away;
+  const homePct = total > 0 ? (home / total) * 100 : 50;
+  return (
+    <div>
+      <div className="mb-1 flex items-baseline justify-between text-[11px]">
+        <span className="display tnum font-semibold">{home}{suffix}</span>
+        <span className="text-faint">{label}</span>
+        <span className="display tnum font-semibold">{away}{suffix}</span>
+      </div>
+      <div className="flex h-1.5 overflow-hidden rounded-full bg-line">
+        <div className="bg-[var(--color-gold)]" style={{ width: `${homePct}%` }} />
+        <div className="flex-1 bg-[#4a7bd0]" />
+      </div>
     </div>
   );
 }

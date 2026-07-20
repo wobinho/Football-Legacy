@@ -8,7 +8,7 @@ import { TUNING } from "@/lib/config/tuning";
 import { weeklyBreakdown, facilityNextCost, type Facility } from "@/lib/economy";
 import { clubAllTimeRecords } from "@/lib/recordbook";
 import { academyGraduates } from "@/lib/academy";
-import { SPONSOR_SLOTS } from "@/lib/sponsors";
+import { SPONSOR_SLOTS, activeMajorCount, majorSlotBlockedReason, sponsorCooldownUntil } from "@/lib/sponsors";
 import { formatMoney } from "@/lib/value";
 import { Card, GhostButton, GoldButton, Section, Tabs, UpgradeCard } from "../ui";
 
@@ -201,6 +201,8 @@ function InvestmentsTab() {
   const team = game.teams[game.userTeamId];
   const deals = team.sponsors ?? [];
   const offers = (team.sponsorOffers ?? []).filter((o) => o.expiresDay > game.currentDay);
+  const majorsHeld = activeMajorCount(game, game.userTeamId);
+  const majorBlock = majorSlotBlockedReason(game, game.userTeamId, TUNING);
   const weekly = deals.filter((d) => d.kind === "minor").reduce((s, d) => s + d.weeklyAmount, 0);
   const upfrontThisSeason = deals
     .filter((d) => d.kind === "major" && d.signedSeason === game.season)
@@ -216,8 +218,8 @@ function InvestmentsTab() {
     // Strong visual separation of the two investment kinds: majors read as gold
     // "big deal" cards; minors read as cool, steady weekly cards.
     const cardCls = isMajor
-      ? "border-l-2 border-l-gold bg-gradient-to-r from-gold-lo/[0.08] to-transparent"
-      : "border-l-2 border-l-[#4a7bd0]/60";
+      ? "border-gold bg-gradient-to-br from-gold-lo/[0.10] to-transparent shadow-[0_0_0_1px_rgba(217,164,65,0.15)]"
+      : "border-[#4a7bd0]/60 bg-gradient-to-br from-[#4a7bd0]/[0.08] to-transparent";
     return (
       <Section
         key={def.slot}
@@ -268,7 +270,7 @@ function InvestmentsTab() {
                     {offer.tier.toUpperCase()}
                   </span>
                   <div className="text-[11px] text-faint">
-                    {offer.seasons} season{offer.seasons > 1 ? "s" : ""} · offer expires in {offer.expiresDay - game.currentDay}d
+                    {offer.seasons} season{offer.seasons > 1 ? "s" : ""} commitment
                   </div>
                 </div>
                 {isMajor ? (
@@ -280,18 +282,55 @@ function InvestmentsTab() {
                   <span className="display tnum font-semibold text-win">+{formatMoney(offer.weeklyAmount)}/wk</span>
                 )}
               </div>
+              {/* The deadline — the decision pressure this panel is built around.
+                  Escalates to loss red in the final stretch. */}
+              {(() => {
+                const daysLeft = offer.expiresDay - game.currentDay;
+                const urgent = daysLeft <= 4;
+                return (
+                  <div
+                    className={`mt-3 flex items-center gap-2 rounded-md border px-3 py-1.5 text-[11px] ${
+                      urgent ? "border-loss/50 bg-loss/10 text-loss" : "border-line bg-raised text-dim"
+                    }`}
+                  >
+                    <span>{urgent ? "⏳" : "🗓"}</span>
+                    <span>
+                      <span className="display font-bold tnum">{daysLeft}</span> day{daysLeft === 1 ? "" : "s"} to decide —
+                      {urgent ? " they walk if you don't sign." : " the offer is withdrawn after that."}
+                    </span>
+                  </div>
+                );
+              })()}
+              {isMajor && majorBlock && (
+                <div className="mt-2 rounded-md border border-line bg-raised px-3 py-1.5 text-[11px] text-faint">
+                  {majorBlock}
+                </div>
+              )}
               <div className="mt-3 flex items-center justify-end gap-2">
                 <GhostButton onClick={() => pass(offer.id)} className="!px-3 !py-1 text-xs">
                   Pass
                 </GhostButton>
-                <GoldButton onClick={() => sign(offer.id)} className="!px-4 !py-1 text-xs">
+                <GoldButton
+                  onClick={() => sign(offer.id)}
+                  disabled={isMajor && !!majorBlock}
+                  className="!px-4 !py-1 text-xs"
+                >
                   {isMajor ? "TAKE THE LUMP SUM" : "ACCEPT DEAL"}
                 </GoldButton>
               </div>
             </div>
           ) : (
             <div className="mt-3 border-t border-line/60 pt-3 text-[12px] text-faint">
-              No offer in this slot right now — one should arrive in the coming days.
+              {(() => {
+                const until = sponsorCooldownUntil(game, def.slot);
+                if (until) {
+                  return `No suitors right now — after the last offer lapsed, expect interest again in about ${
+                    until - game.currentDay
+                  } days.`;
+                }
+                if (isMajor && majorBlock) return majorBlock;
+                return "No offer in this slot right now — one should arrive in the coming days.";
+              })()}
             </div>
           )}
         </Card>
@@ -301,13 +340,31 @@ function InvestmentsTab() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <Card className="px-4 py-2 text-right">
+      <div className="flex flex-wrap items-stretch gap-3">
+        <Card className="px-4 py-2">
           <div className="text-[10px] uppercase tracking-widest text-faint">Weekly from minors</div>
           <div className="display gold-text text-xl font-bold tnum">+{formatMoney(weekly)}/wk</div>
           {upfrontThisSeason > 0 && (
             <div className="mt-0.5 text-[11px] text-win">{formatMoney(upfrontThisSeason)} lump sums this season</div>
           )}
+        </Card>
+        {/* Slot budget — majors are the scarce resource, so show it plainly. */}
+        <Card className="px-4 py-2">
+          <div className="text-[10px] uppercase tracking-widest text-faint">Major slots used</div>
+          <div className="display text-xl font-bold tnum">
+            {majorsHeld}<span className="text-faint">/{TUNING.sponsorMaxActiveMajors}</span>
+          </div>
+          <div className="mt-0.5 text-[11px] text-faint">
+            {majorsHeld >= TUNING.sponsorMaxActiveMajors ? "Full until a deal expires" : "One big deal at a time"}
+          </div>
+        </Card>
+        <Card className="px-4 py-2">
+          <div className="text-[10px] uppercase tracking-widest text-faint">Minor slots used</div>
+          <div className="display text-xl font-bold tnum">
+            {deals.filter((d) => d.kind === "minor").length}
+            <span className="text-faint">/{SPONSOR_SLOTS.filter((s) => s.kind === "minor").length}</span>
+          </div>
+          <div className="mt-0.5 text-[11px] text-faint">One deal per slot</div>
         </Card>
       </div>
 
@@ -415,7 +472,7 @@ function HistoryTab() {
 
       <div className="space-y-6">
         {game.recordBook.biggestWin && (
-          <Section title="Biggest Win (all competitions)">
+          <Section title="Our Biggest Win (all competitions)">
             <Card className="p-4 text-center">
               <div className="display text-xl font-bold">{game.recordBook.biggestWin.text}</div>
               <div className="mt-1 text-xs text-faint">Season {game.recordBook.biggestWin.season}</div>

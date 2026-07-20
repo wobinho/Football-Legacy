@@ -147,23 +147,63 @@ export function settleCupRound(state: GameState, roundIndex: number) {
   }
 }
 
-/** Promotion/relegation between the playable country's two divisions (3 up, 3
- * down). Reads state.divisionIds [top, second] so it works for any country
- * (v7) — no hardcoded league ids. A single-division country is a no-op. */
-export function applyPromotionRelegation(state: GameState): { promoted: string[]; relegated: string[] } {
-  const [topId, secondId] = state.divisionIds;
-  if (topId === secondId) return { promoted: [], relegated: [] };
-  const d1 = state.leagues[topId];
-  const d2 = state.leagues[secondId];
-  if (!d1 || !d2) return { promoted: [], relegated: [] };
-  const t1 = computeTable(state.fixtures, topId, d1.teamIds);
-  const t2 = computeTable(state.fixtures, secondId, d2.teamIds);
-  const relegated = t1.slice(-3).map((r) => r.teamId);
-  const promoted = t2.slice(0, 3).map((r) => r.teamId);
+/** How many clubs go up/down between each adjacent pair of divisions. */
+const PRO_REL_COUNT = 3;
 
-  d1.teamIds = [...t1.slice(0, -3).map((r) => r.teamId), ...promoted];
-  d2.teamIds = [...relegated, ...t2.slice(3).map((r) => r.teamId)];
-  for (const id of promoted) state.teams[id].leagueId = topId;
-  for (const id of relegated) state.teams[id].leagueId = secondId;
-  return { promoted: promoted.map((id) => state.teams[id].name), relegated: relegated.map((id) => state.teams[id].name) };
+/** Promotion/relegation across the playable country's whole division ladder
+ * (3 up, 3 down between every adjacent pair). Reads `state.divisionIds`
+ * top-first, so it works for any country and any depth 1–3 (v12) — no hardcoded
+ * league ids. A single-division ladder is a no-op.
+ *
+ * Every pair is settled from the SAME pre-shuffle snapshot of final tables, so a
+ * club relegated from tier 1 lands in tier 2 without being able to be promoted
+ * back out of it in the same pass. */
+export function applyPromotionRelegation(state: GameState): { promoted: string[]; relegated: string[] } {
+  // De-duplicate defensively: a v11 save could carry [top, top] for a
+  // single-division country, which must stay a no-op rather than shuffling a
+  // division against itself.
+  const ladder = Array.from(new Set(state.divisionIds)).filter((id) => state.leagues[id]);
+  if (ladder.length < 2) return { promoted: [], relegated: [] };
+
+  // Snapshot every division's final table before anything moves.
+  const tables = new Map(
+    ladder.map((id) => [id, computeTable(state.fixtures, id, state.leagues[id].teamIds)] as const)
+  );
+
+  // Per division, the ids that leave upward and downward this rollover.
+  const goingUp = new Map<string, string[]>();
+  const goingDown = new Map<string, string[]>();
+  for (let i = 0; i < ladder.length - 1; i++) {
+    const upperId = ladder[i];
+    const lowerId = ladder[i + 1];
+    const upper = tables.get(upperId)!;
+    const lower = tables.get(lowerId)!;
+    // Guard tiny/odd divisions: never move more clubs than a table can spare.
+    const n = Math.min(PRO_REL_COUNT, Math.floor(upper.length / 2), Math.floor(lower.length / 2));
+    if (n <= 0) continue;
+    goingDown.set(upperId, upper.slice(-n).map((r) => r.teamId));
+    goingUp.set(lowerId, lower.slice(0, n).map((r) => r.teamId));
+  }
+
+  // Rebuild each division: whoever stayed, plus arrivals from either side.
+  const promotedNames: string[] = [];
+  const relegatedNames: string[] = [];
+  for (let i = 0; i < ladder.length; i++) {
+    const id = ladder[i];
+    const table = tables.get(id)!;
+    const left = new Set([...(goingUp.get(id) ?? []), ...(goingDown.get(id) ?? [])]);
+    const stayed = table.map((r) => r.teamId).filter((tid) => !left.has(tid));
+    // arrivals: relegated from the tier above, promoted from the tier below
+    const fromAbove = goingDown.get(ladder[i - 1]) ?? [];
+    const fromBelow = goingUp.get(ladder[i + 1]) ?? [];
+    state.leagues[id].teamIds = [...fromAbove, ...stayed, ...fromBelow];
+    for (const tid of [...fromAbove, ...fromBelow]) state.teams[tid].leagueId = id;
+  }
+
+  // The record book lists every move on the ladder, top pair first.
+  for (const id of ladder) {
+    for (const tid of goingUp.get(id) ?? []) promotedNames.push(state.teams[tid].name);
+    for (const tid of goingDown.get(id) ?? []) relegatedNames.push(state.teams[tid].name);
+  }
+  return { promoted: promotedNames, relegated: relegatedNames };
 }

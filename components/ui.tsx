@@ -304,7 +304,13 @@ export function UpgradeCard({
         className="p-4"
         style={
           accent
-            ? { borderLeft: `3px solid ${accent}`, background: `linear-gradient(to right, ${accent}0d, transparent 45%)` }
+            ? {
+                // Accent rings the WHOLE container (v15) rather than tinting one
+                // edge, so an upgrade card reads as a single bounded module.
+                border: `1px solid ${accent}`,
+                boxShadow: `0 0 0 1px ${accent}26, 0 1px 12px -6px ${accent}66`,
+                background: `linear-gradient(160deg, ${accent}12, transparent 55%)`,
+              }
             : undefined
         }
       >

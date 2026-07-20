@@ -12,10 +12,13 @@ import type { Fixture, MatchResult } from "@/lib/types";
 import { saveGame, loadGame, listSaves, deleteSave, exportSave, importSave, type SaveMeta } from "@/lib/save";
 import { cloudOwner } from "@/lib/cloud";
 import { forgetKey, rememberLastSave, lastSave, clearLastSave } from "@/lib/auth";
-import { userBid, respondToOffer, type BidOutcome, type OfferResponse } from "@/lib/transfers";
+import { userBid, respondToOffer, releasePlayer, type BidOutcome, type OfferResponse } from "@/lib/transfers";
 import { hireStaff, dismissCandidate, fireStaff } from "@/lib/staff";
+import { hireScout, fireScout, dismissScoutCandidate } from "@/lib/scouts";
 import { acceptSponsor, declineSponsor } from "@/lib/sponsors";
 import { upgradeFacility, upgradeTrainingFacility, type Facility, type TrainingFacility } from "@/lib/economy";
+import { setKitNumber } from "@/lib/kitnumbers";
+import { optimalTrainingPlan } from "@/lib/config/training";
 import type { StaffSlot, TeamAssignments } from "@/lib/types";
 import {
   promoteToSenior,
@@ -71,6 +74,11 @@ interface GameStore {
   applyUserResult: (fixture: Fixture, result: MatchResult) => void;
 
   setTrainingPlan: (playerId: string, planId: string) => void;
+  /** Auto-assign the optimal training focus. With a playerId, just that player;
+   * without one, every player on the user's books (v15). */
+  autoAssignTrainingPlan: (playerId?: string) => void;
+  /** Set a player's shirt number, swapping with whoever wears it (v15). */
+  setKitNumber: (playerId: string, number: number) => void;
   setTactic: (t: Partial<Tactic>) => void;
   setLineupSlot: (slotId: string, playerId: string | null) => void;
   clearLineup: () => void;
@@ -104,11 +112,19 @@ interface GameStore {
   academyToggleU21Squad: (playerId: string) => void;
   academyToggleLoan: (playerId: string) => void;
   academyRecall: (playerId: string) => void;
-  academyAddScout: (region: ScoutRegion, positions: ScoutPosGroup, archetypes?: string[]) => void;
+  academyAddScout: (region: ScoutRegion, positions: ScoutPosGroup, archetypes?: string[], scoutId?: string) => void;
   academyUpdateScout: (id: string, patch: { region?: ScoutRegion; positions?: ScoutPosGroup; archetypes?: string[] }) => void;
   academyRemoveScout: (id: string) => void;
   academySign: (reportId: string) => void;
   academyDismiss: (reportId: string) => void;
+
+  // Scouting department (v14): a roster of scouts, hired and fired on its own
+  scoutHire: (candidateId: string) => void;
+  scoutFire: (scoutId: string) => void;
+  scoutDismissCandidate: (candidateId: string) => void;
+
+  // Squad actions (v14): release / list for transfer / list for loan
+  releaseSenior: (playerId: string) => void;
 }
 
 // ── Autosave plumbing ──────────────────────────────────────────────────────
@@ -315,6 +331,44 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
+  autoAssignTrainingPlan: (playerId) => {
+    const g = get().game;
+    if (!g) return;
+    const team = g.teams[g.userTeamId];
+    const ids = playerId ? [playerId] : [...team.playerIds, ...(team.academyPlayerIds ?? [])];
+    let changed = 0;
+    for (const id of ids) {
+      const p = g.players[id];
+      if (!p || p.retired) continue;
+      const best = optimalTrainingPlan(p);
+      if (p.trainingPlan !== best.id) {
+        p.trainingPlan = best.id;
+        changed++;
+      }
+    }
+    if (playerId) {
+      const p = g.players[playerId];
+      get().showToast(
+        changed
+          ? `${p?.name} switched to ${optimalTrainingPlan(p!).name}.`
+          : "Already on the optimal training focus."
+      );
+    } else {
+      get().showToast(
+        changed ? `Optimal training focus set for ${changed} player${changed === 1 ? "" : "s"}.` : "Every player is already on their optimal focus."
+      );
+    }
+    get().bump(true);
+  },
+
+  setKitNumber: (playerId, number) => {
+    const g = get().game;
+    if (!g) return;
+    const err = setKitNumber(g, playerId, number);
+    if (err) get().showToast(err);
+    get().bump(true);
+  },
+
   setTactic: (t) => {
     const g = get().game;
     if (!g) return;
@@ -419,7 +473,7 @@ export const useGame = create<GameStore>((set, get) => ({
   signSponsor: (offerId) => {
     const g = get().game;
     if (!g) return;
-    const err = acceptSponsor(g, offerId);
+    const err = acceptSponsor(g, offerId, TUNING);
     if (err) get().showToast(err);
     else get().showToast("Sponsorship deal signed — weekly income up.");
     get().bump(true);
@@ -428,7 +482,7 @@ export const useGame = create<GameStore>((set, get) => ({
   passSponsor: (offerId) => {
     const g = get().game;
     if (!g) return;
-    declineSponsor(g, offerId);
+    declineSponsor(g, offerId, TUNING);
     get().bump(true);
   },
 
@@ -468,6 +522,14 @@ export const useGame = create<GameStore>((set, get) => ({
         scoutNetwork: "Max Scouts increased — send more scouts abroad.",
         academySquad: "Academy Squad Size increased — room for more prospects.",
         focusSlot: "Focus Slots increased — flag more prospects for focus.",
+        gkCentre: "Goalkeeping Centre upgraded — keepers develop faster.",
+        defenceCentre: "Defensive Unit upgraded — defenders develop faster.",
+        midfieldCentre: "Midfield Hub upgraded — midfielders develop faster.",
+        attackCentre: "Attacking Centre upgraded — forwards develop faster.",
+        sportsScience: "Sports Science Lab upgraded — physical training plans go further.",
+        techCentre: "Technical Centre upgraded — technical training plans go further.",
+        finishingCentre: "Finishing School upgraded — finishing plans go further.",
+        youthDevCentre: "Youth Development Centre upgraded — under-21s develop faster.",
       };
       get().showToast(msg[facility]);
     }
@@ -547,10 +609,10 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
-  academyAddScout: (region, positions, archetypes = []) => {
+  academyAddScout: (region, positions, archetypes = [], scoutId) => {
     const g = get().game;
     if (!g) return;
-    const err = addScoutAssignment(g, region, positions, TUNING, archetypes);
+    const err = addScoutAssignment(g, region, positions, TUNING, archetypes, scoutId);
     if (err) get().showToast(err);
     get().bump(true);
   },
@@ -582,6 +644,43 @@ export const useGame = create<GameStore>((set, get) => ({
     const g = get().game;
     if (!g) return;
     dismissReport(g, reportId);
+    get().bump(true);
+  },
+
+  // ── Scouting department (v14) ──
+  scoutHire: (candidateId) => {
+    const g = get().game;
+    if (!g) return;
+    const name = (g.scoutMarket ?? []).find((c) => c.id === candidateId)?.name;
+    const err = hireScout(g, candidateId, TUNING);
+    get().showToast(err ?? `${name} joins the scouting department.`);
+    get().bump(true);
+  },
+
+  scoutFire: (scoutId) => {
+    const g = get().game;
+    if (!g) return;
+    const name = (g.teams[g.userTeamId].scouts ?? []).find((s) => s.id === scoutId)?.name;
+    const err = fireScout(g, scoutId, TUNING);
+    get().showToast(err ?? `${name} leaves the club. Any assignment they held is recalled.`);
+    get().bump(true);
+  },
+
+  scoutDismissCandidate: (candidateId) => {
+    const g = get().game;
+    if (!g) return;
+    dismissScoutCandidate(g, candidateId, TUNING);
+    get().bump(true);
+  },
+
+  // ── Squad actions (v14) ──
+  releaseSenior: (playerId) => {
+    const g = get().game;
+    if (!g) return;
+    const name = g.players[playerId]?.name;
+    const err = releasePlayer(g, playerId);
+    get().showToast(err ?? `${name} released — he leaves as a free agent.`);
+    if (!err) get().closePlayer();
     get().bump(true);
   },
 }));
