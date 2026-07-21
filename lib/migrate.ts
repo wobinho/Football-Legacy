@@ -466,6 +466,10 @@ export function migrateSave(state: GameState): GameState {
     migrateV22toV23(state);
     state.schemaVersion = 23;
   }
+  if (state.schemaVersion < 24) {
+    migrateV23toV24(state);
+    state.schemaVersion = 24;
+  }
   // future migrations chain here
   state.schemaVersion = SCHEMA_VERSION;
   return state;
@@ -699,6 +703,20 @@ function migrateV21toV22(state: GameState): void {
  */
 function migrateV22toV23(state: GameState): void {
   void state; // additive/optional — topAssists and resolve-day default at read time
+}
+
+/**
+ * v23 → v24: player accolades. Individual honours and Team-of-the-Season places
+ * are stamped on players (PlayerBio.accolades) and captured on each season
+ * summary (SeasonSummary.accolades) from the next rollover on. Both are optional
+ * and absent on an old save — a player simply has an empty trophy cabinet and a
+ * historical season review degrades to the two legacy Player/Young Player fields
+ * it already stored. Past seasons can't be reconstructed (the per-player rating
+ * detail behind them compressed away at each old rollover), so awards legitimately
+ * begin accruing from this save's next completed season. Nothing to backfill.
+ */
+function migrateV23toV24(state: GameState): void {
+  void state; // additive/optional — accolades default at read time
 }
 
 /** True if the save is a version this build knows how to bring up to date. */

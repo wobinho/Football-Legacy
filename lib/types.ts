@@ -2,7 +2,7 @@
 // Single source of truth for all game data shapes. Schema-versioned so the
 // save/export format doubles as the modding format (GAME_DESIGN.md §2, §13).
 
-export const SCHEMA_VERSION = 23;
+export const SCHEMA_VERSION = 24;
 
 export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "AM" | "LW" | "RW" | "ST";
 
@@ -113,6 +113,41 @@ export interface PlayerBio {
    * growth-rate nudge. Undefined = the "balanced" default. Only meaningful for
    * the user's players; AI squads grow on the neutral curve. */
   trainingPlan?: string;
+  /** Player accolades (v24) — the honours this player has won, newest last. Each
+   * is stamped at the season rollover when awards are computed; the profile card
+   * renders them and the record book's season review lists that season's winners.
+   * Optional (absent = never won anything); survives on retired players so a
+   * legend's cabinet is permanent. */
+  accolades?: Accolade[];
+}
+
+/** A per-league or save-wide season award (v24). Individual honours (Player of
+ * the Season, Golden Boot, …) and a Team-of-the-Season place are both modelled
+ * here — a `teamOfSeason`/`legacyTeamOfSeason` accolade simply carries the
+ * position the player was picked in. Titles/prizes live in tuning-free data
+ * (ACCOLADE_META in lib/accolades.ts), so the type carries only the facts. */
+export type AccoladeType =
+  | "playerOfSeason" // per league — highest average rating
+  | "youngPlayerOfSeason" // per league — highest-rated U21
+  | "goldenBoot" // per league — most goals
+  | "goldenPlaymaker" // per league — most assists
+  | "goldenGlove" // per league — highest-rated goalkeeper
+  | "teamOfSeason" // per league — one of the XI of the season
+  | "legacyPlayerOfSeason" // save-wide — highest-rated player across all leagues
+  | "legacyTeamOfSeason"; // save-wide — one of the XI across all leagues
+
+export interface Accolade {
+  type: AccoladeType;
+  season: number;
+  /** The league this honour was won in — absent for the two save-wide (legacy)
+   * awards, which span every league. */
+  leagueId?: string;
+  /** Denormalised league name so a retired player's cabinet still reads right
+   * even if his old league is renamed or pruned. Absent for legacy awards. */
+  leagueName?: string;
+  /** The position slot a Team-of-the-Season pick occupied (GK/DEF/MID/ATT),
+   * present only on the two team accolades. */
+  slot?: "GK" | "DEF" | "MID" | "ATT";
 }
 
 /** An individual player contract (v5). Overrides the old aggregate wage bill:
@@ -499,7 +534,7 @@ export interface SimTopAssister {
 export interface SimLeagueResult {
   leagueId: string;
   season: number;
-  half: 1 | 2; // resolved before winter window (1) and after the final round (2)
+  half: 0 | 1 | 2; // 0 = season start (fresh table), 1 = winter window (~halfway), 2 = after the final round (full)
   table: TableRow[];
   topScorers: SimTopScorer[];
   /** Top assist-makers (v23). Absent on saves resolved before the upgrade — the
@@ -597,6 +632,44 @@ export interface InboxItem {
 
 // ── Record book (§13) ─────────────────────────────────────────────────────
 
+/** A single award winner recorded on a season summary (v24). Denormalised so a
+ * historical season review always reads right, independent of later world
+ * changes (a promoted club, a pruned retiree). `stat` carries the headline
+ * number where one applies (goals, assists, avg rating). */
+export interface AwardWinner {
+  playerId: string;
+  name: string;
+  teamName: string;
+  /** Primary position — lets the record book badge a Team-of-the-Season pick. */
+  pos?: Pos;
+  /** Headline number for the award (goals / assists / avg rating), if any. */
+  stat?: number;
+}
+
+/** The full set of honours decided in one season (v24), stored on the summary so
+ * the record book's season review can show them without re-deriving from a world
+ * that has since moved on. Per-league awards are keyed by league id; the two
+ * `legacy*` awards are save-wide. */
+export interface SeasonAccolades {
+  /** Per-league individual honours, keyed by league id. */
+  byLeague: Record<
+    string,
+    {
+      playerOfSeason?: AwardWinner;
+      youngPlayerOfSeason?: AwardWinner;
+      goldenBoot?: AwardWinner;
+      goldenPlaymaker?: AwardWinner;
+      goldenGlove?: AwardWinner;
+      /** The XI of the season, in pick order (GK → DEF → MID → ATT). */
+      teamOfSeason?: AwardWinner[];
+    }
+  >;
+  /** Save-wide Legacy Player of the Year — best rating across every league. */
+  legacyPlayerOfSeason?: AwardWinner;
+  /** Save-wide Legacy Team of the Year — best XI across every league. */
+  legacyTeamOfSeason?: AwardWinner[];
+}
+
 export interface SeasonSummary {
   season: number;
   yearLabel: string; // e.g. "2025/26"
@@ -606,6 +679,9 @@ export interface SeasonSummary {
   topScorers: Record<string, { playerId: string; name: string; teamName: string; goals: number }>;
   playerOfSeason: { playerId: string; name: string; teamName: string } | null;
   youngPlayerOfSeason: { playerId: string; name: string; teamName: string } | null;
+  /** Full per-league + save-wide honours for the season (v24). Optional — old
+   * summaries predate it and the review degrades to the two legacy fields above. */
+  accolades?: SeasonAccolades;
   userTeamId: string;
   userFinish: string; // e.g. "3rd in Premier Division"
   notableTransfers: { playerName: string; from: string; to: string; fee: number }[];

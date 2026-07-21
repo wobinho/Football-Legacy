@@ -378,6 +378,22 @@ function YouthCoachPanel({ def }: { def: ReturnType<typeof staffSlotsForDept>[nu
 
 // ── Academy squad ─────────────────────────────────────────────────────────
 
+/** The prospect-tier badge (Bronze → Diamond) a player carries while in the
+ * academy. Rendered in the tier's accent colour; nothing shows once the player
+ * has graduated to the senior squad (the tier is cleared on promotion). */
+function TierTag({ tier, className = "" }: { tier: PlayerBio["u21Tier"]; className?: string }) {
+  if (!tier) return null;
+  return (
+    <span
+      className={`display shrink-0 rounded-sm border px-1 text-[9px] font-semibold uppercase tracking-widest ${className}`}
+      style={{ borderColor: `${TIER_COLOR[tier]}77`, color: TIER_COLOR[tier] }}
+      title={`${TIER_LABEL[tier]} prospect`}
+    >
+      {TIER_LABEL[tier]}
+    </span>
+  );
+}
+
 function statusChips(game: NonNullable<ReturnType<typeof useGame.getState>["game"]>, p: PlayerBio) {
   const chips: { label: string; cls: string }[] = [];
   if (game.academy.focusIds.includes(p.id)) chips.push({ label: "FOCUS", cls: "border-gold-lo/60 text-gold" });
@@ -497,6 +513,7 @@ function SquadTab() {
                   <span className="flex items-center gap-1.5">
                     <Flag nat={p.nationality} size={11} />
                     <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
+                    <TierTag tier={p.u21Tier} />
                   </span>
                   <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-faint">
                     {getArchetype(p.archetypeId).name}
@@ -573,11 +590,14 @@ function SquadTab() {
                   onOpen={() => viewPlayer(p.id)}
                   ovr={<Ovr value={p.overall} size="sm" />}
                   sub={<span className="truncate">{getArchetype(p.archetypeId).name}</span>}
-                  badges={chips.map((c) => (
-                    <span key={c.label} className={`display rounded-sm border px-1 text-[9px] font-semibold ${c.cls}`}>
-                      {c.label}
-                    </span>
-                  ))}
+                  badges={[
+                    ...(p.u21Tier ? [<TierTag key="tier" tier={p.u21Tier} />] : []),
+                    ...chips.map((c) => (
+                      <span key={c.label} className={`display rounded-sm border px-1 text-[9px] font-semibold ${c.cls}`}>
+                        {c.label}
+                      </span>
+                    )),
+                  ]}
                   stats={
                     <span className="flex items-center gap-1.5">
                       <span className="text-faint">POT</span>

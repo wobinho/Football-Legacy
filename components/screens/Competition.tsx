@@ -2,7 +2,7 @@
 
 // Competition (§15.5): tables, results, top scorers; playable + sim tabs.
 
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { Fixture, TableRow } from "@/lib/types";
 import { computeTable, computeForm, type FormResult } from "@/lib/season";
@@ -69,25 +69,59 @@ export default function CompetitionScreen() {
   // dedupe in case a single-division country lists the same id twice.
   const playableIds = useMemo(() => Array.from(new Set(game.divisionIds)), [game.divisionIds]);
 
+  // The tab bar stays deliberately small (v24): only the competitions the user
+  // is actually invested in — their own league, the divisions immediately above
+  // and below it on the ladder, the cup and match history. Every other country's
+  // league is a sim, and with many leagues selected these would swamp the bar,
+  // so they all move into the "Other leagues" dropdown instead.
+  const userLeagueId = game.teams[game.userTeamId]?.leagueId;
+  const focusIds = useMemo(() => {
+    const idx = playableIds.indexOf(userLeagueId);
+    if (idx === -1) return playableIds; // user not on the playable ladder — show all
+    // the user's division plus the one directly above and below it
+    return playableIds.filter((_, i) => Math.abs(i - idx) <= 1);
+  }, [playableIds, userLeagueId]);
+
   const tabs = useMemo(() => {
-    const t: { id: string; label: string }[] = [
-      ...playableIds.map((id) => ({ id, label: game.leagues[id]?.name ?? id })),
+    return [
+      ...focusIds.map((id) => ({ id, label: game.leagues[id]?.name ?? id })),
       { id: "CUP", label: "Cup" },
       { id: "HISTORY", label: "Match History" },
     ];
-    for (const l of Object.values(game.leagues)) {
-      if (!l.playable) t.push({ id: l.id, label: `${l.name} ◇` });
-    }
-    return t;
-  }, [game.leagues, playableIds]);
+  }, [game.leagues, focusIds]);
 
-  const [tab, setTab] = useState(game.divisionIds[0]);
+  // Every non-playable division, grouped for the dropdown — these are the sim
+  // leagues that used to clutter the tab bar.
+  const otherLeagues = useMemo(
+    () =>
+      Object.values(game.leagues)
+        .filter((l) => !l.playable)
+        .sort((a, b) => a.country.localeCompare(b.country) || a.tier - b.tier || a.name.localeCompare(b.name)),
+    [game.leagues]
+  );
+
+  const [tab, setTab] = useState<string>(userLeagueId ?? game.divisionIds[0]);
   const [teamCard, setTeamCard] = useState<string | null>(null);
+
+  // Whether the current tab is one of the "other leagues" (dropdown) selections,
+  // so the dropdown trigger reflects the active choice rather than a tab.
+  const otherSelected = tab !== "CUP" && tab !== "HISTORY" && !focusIds.includes(tab);
 
   return (
     <OpenTeam.Provider value={setTeamCard}>
       <div>
-        <Tabs<string> tabs={tabs} active={tab} onChange={setTab} />
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-2 border-b border-line">
+          <Tabs<string> tabs={tabs} active={otherSelected ? "" : tab} onChange={setTab} className="!mb-0 !border-0" />
+          {otherLeagues.length > 0 && (
+            <div className="pb-1.5">
+              <OtherLeaguesDropdown
+                leagues={otherLeagues}
+                active={otherSelected ? tab : null}
+                onSelect={setTab}
+              />
+            </div>
+          )}
+        </div>
         {tab === "HISTORY" ? (
           <MatchHistoryView />
         ) : tab === "CUP" ? (
@@ -100,6 +134,92 @@ export default function CompetitionScreen() {
       </div>
       {teamCard && <TeamCard teamId={teamCard} onClose={() => setTeamCard(null)} />}
     </OpenTeam.Provider>
+  );
+}
+
+/** Dropdown of every sim (non-playable) league, each with its country flag, so
+ * the tab bar stays focused on the user's own ladder. A country's leagues are
+ * grouped under a flagged heading. Closes on outside-click or Escape. */
+function OtherLeaguesDropdown({
+  leagues,
+  active,
+  onSelect,
+}: {
+  leagues: import("@/lib/types").League[];
+  active: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  // Group leagues by country so the menu reads as a world of nations.
+  const byCountry = useMemo(() => {
+    const map = new Map<string, import("@/lib/types").League[]>();
+    for (const l of leagues) {
+      const list = map.get(l.country);
+      if (list) list.push(l);
+      else map.set(l.country, [l]);
+    }
+    return Array.from(map.entries());
+  }, [leagues]);
+
+  const activeLeague = active ? leagues.find((l) => l.id === active) : null;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={`display flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-semibold transition-colors ${
+          activeLeague ? "border-gold-lo/60 text-gold" : "border-line text-faint hover:text-dim"
+        }`}
+      >
+        {activeLeague && <CountryFlag country={activeLeague.country} size={12} />}
+        <span className="max-w-[10rem] truncate">{activeLeague ? activeLeague.name : "Other leagues"}</span>
+        <span className={`text-[9px] transition-transform ${open ? "rotate-180" : ""}`}>▼</span>
+      </button>
+
+      {open && (
+        <div className="absolute right-0 z-30 mt-1 max-h-[70vh] w-64 overflow-y-auto rounded-md border border-line bg-surface py-1 shadow-xl">
+          {byCountry.map(([country, ls]) => (
+            <div key={country}>
+              <div className="flex items-center gap-1.5 px-3 pb-1 pt-2 text-[10px] uppercase tracking-widest text-faint">
+                <CountryFlag country={country} size={11} />
+                <span className="truncate">{country}</span>
+              </div>
+              {ls.map((l) => (
+                <button
+                  key={l.id}
+                  onClick={() => {
+                    onSelect(l.id);
+                    setOpen(false);
+                  }}
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] hover:bg-hover ${
+                    active === l.id ? "gold-text font-semibold" : "text-dim"
+                  }`}
+                >
+                  <CountryFlag country={l.country} size={11} />
+                  <span className="truncate">{l.name}</span>
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -246,7 +366,17 @@ function LeagueView({ leagueId }: { leagueId: string }) {
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
       <div className="xl:col-span-2">
-        <Section title="Table">
+        <Section
+          title="Table"
+          right={
+            league.country ? (
+              <span className="flex items-center gap-1.5 text-xs text-faint">
+                <CountryFlag country={league.country} size={14} />
+                {league.country}
+              </span>
+            ) : undefined
+          }
+        >
           <TableCard
             rows={table}
             highlight={game.userTeamId}
@@ -785,7 +915,7 @@ function SimLeagueView({ leagueId }: { leagueId: string }) {
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
       <div className="xl:col-span-2">
         <Section
-          title={`Table — ${result.half === 1 ? "in progress" : "final"} (Season ${result.season})`}
+          title={`Table — ${result.half === 0 ? "not started" : result.half === 1 ? "in progress" : "final"} (Season ${result.season})`}
           right={league && <span className="flex items-center gap-1.5 text-xs text-faint"><CountryFlag country={league.country} size={14} />{league.country}</span>}
         >
           <TableCard rows={result.table} />

@@ -12,7 +12,9 @@ import {
   defaultCountryDB,
   validateCountryDB,
   type CountryDatabase,
+  type PlayerSeed,
 } from "@/lib/database";
+import { libraryClubToSeed } from "@/lib/customdb";
 import { divisionSeed, teamIdFor } from "@/lib/worldgen";
 import { DEFAULT_TIER_NAMES, MAX_DIVISION_DEPTH, generateDivisionClubs } from "@/lib/config/divisions";
 import { storedKey } from "@/lib/auth";
@@ -21,9 +23,10 @@ import { overallFromAttrs } from "@/lib/config/positions";
 import { CountryFlag, Crest, Flag, GoldButton, GhostButton, Modal, Ovr, PosBadge } from "./ui";
 import CreateClubModal, { customClubSeed, type CustomClub } from "./CreateClubModal";
 import CreatePlayerModal, { customPlayerSeed, type CustomPlayer } from "./CreatePlayerModal";
+import DatabaseEditor from "./DatabaseEditor";
 
 export default function MainMenu() {
-  const [mode, setMode] = useState<"menu" | "new">("menu");
+  const [mode, setMode] = useState<"menu" | "new" | "database">("menu");
   const logout = useGame((s) => s.logout);
   const who = storedKey();
   return (
@@ -43,12 +46,16 @@ export default function MainMenu() {
           </p>
         )}
       </header>
-      {mode === "menu" ? <SaveList onNew={() => setMode("new")} /> : <NewGameForm onBack={() => setMode("menu")} />}
+      {mode === "menu" && (
+        <SaveList onNew={() => setMode("new")} onDatabase={() => setMode("database")} />
+      )}
+      {mode === "new" && <NewGameForm onBack={() => setMode("menu")} />}
+      {mode === "database" && <DatabaseEditor onBack={() => setMode("menu")} />}
     </div>
   );
 }
 
-function SaveList({ onNew }: { onNew: () => void }) {
+function SaveList({ onNew, onDatabase }: { onNew: () => void; onDatabase: () => void }) {
   const saves = useGame((s) => s.saves);
   const loadSave = useGame((s) => s.loadSave);
   const removeSave = useGame((s) => s.removeSave);
@@ -84,8 +91,9 @@ function SaveList({ onNew }: { onNew: () => void }) {
           </div>
         </div>
       ))}
-      <div className="flex justify-center gap-3 pt-4">
+      <div className="flex flex-wrap justify-center gap-3 pt-4">
         <GoldButton onClick={onNew}>NEW LEGACY</GoldButton>
+        <GhostButton onClick={onDatabase}>Database editor</GhostButton>
         <GhostButton onClick={() => fileRef.current?.click()}>Import save</GhostButton>
         <input
           ref={fileRef}
@@ -186,6 +194,13 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
   const [customPlayers, setCustomPlayers] = useState<CustomPlayer[]>([]);
   /** null = closed, "new" = creating, otherwise the player being edited. */
   const [playerModal, setPlayerModal] = useState<CustomPlayer | "new" | null>(null);
+  // The persistent library (v25): saved clubs/players the user can pull in.
+  const library = useGame((s) => s.library);
+  // The roster carried by a library club chosen as the created club — kept
+  // separately because CustomClub itself has no roster field, and spliced onto
+  // the created club's seed in effectiveDbFor.
+  const [customClubRoster, setCustomClubRoster] = useState<PlayerSeed[] | null>(null);
+  const [libraryPickerOpen, setLibraryPickerOpen] = useState<"clubs" | "players" | null>(null);
 
   const includedCodes = useMemo(
     () => Array.from(new Set([playableCountry, ...viewCountries])),
@@ -243,7 +258,11 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
     if (withClub && customClub) {
       const top = [...db.divisions].sort((a, b) => a.tier - b.tier)[0];
       if (top && customClub.replaceIndex < top.clubs.length) {
-        top.clubs[customClub.replaceIndex] = customClubSeed(customClub);
+        const seed = customClubSeed(customClub);
+        // A club pulled from the library carries an authored roster; CustomClub
+        // itself has no roster field, so re-attach it here.
+        if (customClubRoster && customClubRoster.length) seed.players = customClubRoster.map((p) => ({ ...p }));
+        top.clubs[customClub.replaceIndex] = seed;
       }
     }
     for (const cp of playersHere) {
@@ -500,9 +519,25 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
           {/* Create-a-club replaces a top-flight side, so it only applies when
               you're starting in tier 1. */}
           {!customClub && !playableLoading && startTier === 1 && (
-            <button onClick={() => setClubModalOpen(true)} className="text-[11px] text-gold hover:underline">
-              ＋ Create your own club
-            </button>
+            <div className="flex items-center gap-3">
+              {library.clubs.length > 0 && (
+                <button
+                  onClick={() => setLibraryPickerOpen("clubs")}
+                  className="text-[11px] text-gold hover:underline"
+                >
+                  ↧ From library
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setCustomClubRoster(null); // a fresh manual club has no roster
+                  setClubModalOpen(true);
+                }}
+                className="text-[11px] text-gold hover:underline"
+              >
+                ＋ Create your own club
+              </button>
+            </div>
           )}
         </div>
         {customClub && (
@@ -658,9 +693,16 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
       <div>
         <div className="mb-2 flex items-center justify-between">
           <span className="display text-xs font-semibold tracking-widest text-faint">CREATE-A-PLAYER (OPTIONAL)</span>
-          <button onClick={() => setPlayerModal("new")} className="text-[11px] text-gold hover:underline">
-            ＋ Create a player
-          </button>
+          <div className="flex items-center gap-3">
+            {library.players.length > 0 && (
+              <button onClick={() => setLibraryPickerOpen("players")} className="text-[11px] text-gold hover:underline">
+                ↧ From library
+              </button>
+            )}
+            <button onClick={() => setPlayerModal("new")} className="text-[11px] text-gold hover:underline">
+              ＋ Create a player
+            </button>
+          </div>
         </div>
         {customPlayers.length === 0 ? (
           <p className="text-[11px] text-faint">
@@ -734,7 +776,131 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
           onClose={() => setPlayerModal(null)}
         />
       )}
+
+      {/* Library picker (v25): pull a saved club or player in, then confirm its
+          placement in the normal create-a-club / create-a-player modal. */}
+      {libraryPickerOpen === "clubs" && (
+        <LibraryPicker
+          title="Add a Club From Your Library"
+          empty="No saved clubs in your library."
+          items={library.clubs.map((c) => ({
+            id: c.id,
+            crest: { colors: c.colors, short: c.short },
+            title: c.name,
+            sub: `Rep ${c.rep} · Squad ${c.squadQuality ?? c.rep}${c.players?.length ? ` · ${c.players.length} authored` : ""}`,
+          }))}
+          onPick={(id) => {
+            const lc = library.clubs.find((c) => c.id === id);
+            if (!lc) return;
+            const seed = libraryClubToSeed(lc);
+            setCustomClubRoster(seed.players ?? null);
+            // Prefill the create-a-club modal; the user confirms which club to
+            // replace (defaulting to the current pick or the first slot).
+            setCustomClub({
+              name: lc.name,
+              short: lc.short,
+              colors: lc.colors,
+              stadium: lc.stadium,
+              rep: lc.rep,
+              squadQuality: lc.squadQuality ?? lc.rep,
+              replaceIndex: clubIndex ?? 0,
+            });
+            setLibraryPickerOpen(null);
+            setClubModalOpen(true);
+          }}
+          onClose={() => setLibraryPickerOpen(null)}
+        />
+      )}
+      {libraryPickerOpen === "players" && (
+        <LibraryPicker
+          title="Add a Player From Your Library"
+          empty="No saved players in your library."
+          items={library.players.map((p) => ({
+            id: p.id,
+            flag: p.nationality,
+            pos: p.positions[0],
+            title: p.name,
+            ovr: overallFromAttrs(p.attrs, p.positions[0]),
+            sub: `Age ${p.age} · Potential ${p.potential}`,
+          }))}
+          onPick={(id) => {
+            const lp = library.players.find((p) => p.id === id);
+            if (!lp) return;
+            // Default destination: the playable country's first authored division
+            // and first club — the user adjusts it in the create-a-player modal.
+            const destDb = effectiveDbFor(playableCountry);
+            const topDiv = destDb ? [...destDb.divisions].sort((a, b) => a.tier - b.tier)[0] : null;
+            setPlayerModal({
+              id: `cp${Date.now().toString(36)}`,
+              name: lp.name,
+              age: lp.age,
+              nationality: lp.nationality,
+              positions: [...lp.positions],
+              attrs: { ...lp.attrs },
+              potential: lp.potential,
+              archetypeId: lp.archetypeId,
+              traits: [...lp.traits],
+              country: playableCountry,
+              divisionId: topDiv?.id ?? "",
+              clubIndex: 0,
+            });
+            setLibraryPickerOpen(null);
+          }}
+          onClose={() => setLibraryPickerOpen(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/** A simple chooser over saved library entries (clubs or players). Picking one
+ * hands its id back so the caller can prefill the matching create modal. */
+function LibraryPicker({
+  title,
+  empty,
+  items,
+  onPick,
+  onClose,
+}: {
+  title: string;
+  empty: string;
+  items: {
+    id: string;
+    title: string;
+    sub: string;
+    crest?: { colors: [string, string]; short: string };
+    flag?: string;
+    pos?: string;
+    ovr?: number;
+  }[];
+  onPick: (id: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal title={title} onClose={onClose}>
+      {items.length === 0 ? (
+        <p className="py-6 text-center text-sm text-faint">{empty}</p>
+      ) : (
+        <div className="grid max-h-[60vh] grid-cols-1 gap-2 overflow-y-auto pr-1">
+          {items.map((it) => (
+            <button
+              key={it.id}
+              onClick={() => onPick(it.id)}
+              className="flex items-center gap-2.5 rounded-md border border-line bg-surface p-2.5 text-left transition-colors hover:bg-hover"
+            >
+              {it.crest && <Crest colors={it.crest.colors} short={it.crest.short} size={30} />}
+              {it.flag && <Flag nat={it.flag} size={13} />}
+              {it.pos && <PosBadge pos={it.pos} />}
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">{it.title}</div>
+                <div className="text-[11px] text-faint">{it.sub}</div>
+              </div>
+              {it.ovr !== undefined && <Ovr value={it.ovr} size="sm" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </Modal>
   );
 }
 

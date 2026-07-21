@@ -341,6 +341,11 @@ function rollIntakeProspect(
   p.value = playerValue(p, cfg);
   p.clubId = team.id;
   p.academyClubId = team.id;
+  // The prospect tier stays on the player as an academy label (Gold/Silver/…/
+  // Diamond). It's shown while the kid is in the academy and dropped on
+  // promotion to the senior squad. Golden-gen kids get the elite ceiling above
+  // but keep their rolled tier as the badge.
+  p.u21Tier = tier;
   return p;
 }
 
@@ -899,6 +904,9 @@ export function promoteToSenior(state: GameState, playerId: string, cfg: TuningC
   if (p) {
     clearKitNumber(p);
     assignKitNumber(state, p);
+    // The prospect tier (Gold/Silver/…/Diamond) is an academy label — it comes
+    // off the moment the player joins the senior squad.
+    delete p.u21Tier;
   }
   return null;
 }
@@ -1483,6 +1491,8 @@ export function academyPostDevRollover(state: GameState, cfg: TuningConfig) {
     if (!p.contract) grantDefaultContract(state, p, cfg);
     clearKitNumber(p);
     assignKitNumber(state, p);
+    // Prospect tier is an academy-only label — drop it on graduation.
+    delete p.u21Tier;
     pushInbox(state, "academy", `${p.name} steps up`, `${p.name} turns ${p.age} and graduates into the senior squad.`);
   }
 

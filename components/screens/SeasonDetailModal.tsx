@@ -15,9 +15,10 @@
 
 import { useState } from "react";
 import { useGame } from "@/store/gameStore";
-import type { SeasonSummary } from "@/lib/types";
+import type { AwardWinner, SeasonSummary } from "@/lib/types";
 import { formatMoney } from "@/lib/value";
-import { Card, Crest, Modal } from "../ui";
+import { ACCOLADE_META } from "@/lib/accolades";
+import { Card, Crest, Modal, PosBadge } from "../ui";
 
 export default function SeasonDetailModal({ summary, onClose }: { summary: SeasonSummary; onClose: () => void }) {
   const game = useGame((s) => s.game)!;
@@ -36,10 +37,20 @@ export default function SeasonDetailModal({ summary, onClose }: { summary: Seaso
   const table = summary.finalTables[activeId] ?? [];
   const topScorer = summary.topScorers[activeId];
   const champion = summary.championsByLeague[activeId];
+  // Full honours for the season (v24). Absent on summaries built before the
+  // feature — the modal degrades to the two legacy award cards it always had.
+  const accolades = summary.accolades;
+  const leagueAwards = accolades?.byLeague[activeId];
 
   // The user's own club is the thread through the whole exhibit — it's their
   // museum, so their row is always the one that stands out.
   const userTeamId = summary.userTeamId;
+
+  // Closing before opening a profile keeps a single overlay on screen at a time.
+  const openProfile = (playerId: string) => {
+    onClose();
+    viewPlayer(playerId);
+  };
 
   return (
     <Modal title={`${summary.yearLabel} — Season Review`} onClose={onClose} size="lg">
@@ -61,33 +72,49 @@ export default function SeasonDetailModal({ summary, onClose }: { summary: Seaso
         </Card>
       </div>
 
-      {/* Awards. Clickable through to the profile — a name in the record book
-          should always lead somewhere, including for players long retired. */}
-      {(summary.playerOfSeason || summary.youngPlayerOfSeason) && (
-        <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {summary.playerOfSeason && (
-            <AwardCard
-              label="Player of the Season"
-              name={summary.playerOfSeason.name}
-              club={summary.playerOfSeason.teamName}
-              onClick={() => {
-                onClose();
-                viewPlayer(summary.playerOfSeason!.playerId);
-              }}
+      {/* Save-wide honours (v24) — Legacy Player of the Year and the Legacy Team
+          of the Year span every league, so they lead the exhibit. Falls back to
+          the two legacy Player/Young Player fields on old summaries. Clickable
+          through to the profile — a name in the record book should always lead
+          somewhere, including for players long retired. */}
+      {accolades?.legacyPlayerOfSeason ? (
+        <div className="mb-4 space-y-2">
+          <AwardCard
+            label={`${ACCOLADE_META.legacyPlayerOfSeason.emoji} Legacy Player of the Year`}
+            name={accolades.legacyPlayerOfSeason.name}
+            club={accolades.legacyPlayerOfSeason.teamName}
+            stat={fmtRating(accolades.legacyPlayerOfSeason.stat)}
+            onClick={() => openProfile(accolades.legacyPlayerOfSeason!.playerId)}
+          />
+          {accolades.legacyTeamOfSeason?.length ? (
+            <TeamOfSeason
+              label={`${ACCOLADE_META.legacyTeamOfSeason.emoji} Legacy Team of the Year`}
+              xi={accolades.legacyTeamOfSeason}
+              onView={openProfile}
             />
-          )}
-          {summary.youngPlayerOfSeason && (
-            <AwardCard
-              label="Young Player of the Season"
-              name={summary.youngPlayerOfSeason.name}
-              club={summary.youngPlayerOfSeason.teamName}
-              onClick={() => {
-                onClose();
-                viewPlayer(summary.youngPlayerOfSeason!.playerId);
-              }}
-            />
-          )}
+          ) : null}
         </div>
+      ) : (
+        (summary.playerOfSeason || summary.youngPlayerOfSeason) && (
+          <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {summary.playerOfSeason && (
+              <AwardCard
+                label="Player of the Season"
+                name={summary.playerOfSeason.name}
+                club={summary.playerOfSeason.teamName}
+                onClick={() => openProfile(summary.playerOfSeason!.playerId)}
+              />
+            )}
+            {summary.youngPlayerOfSeason && (
+              <AwardCard
+                label="Young Player of the Season"
+                name={summary.youngPlayerOfSeason.name}
+                club={summary.youngPlayerOfSeason.teamName}
+                onClick={() => openProfile(summary.youngPlayerOfSeason!.playerId)}
+              />
+            )}
+          </div>
+        )
       )}
 
       {/* Division picker — only when the save actually has more than one. */}
@@ -158,24 +185,46 @@ export default function SeasonDetailModal({ summary, onClose }: { summary: Seaso
         </table>
       </Card>
 
-      {/* Golden boot for the division on show. */}
-      {topScorer && (
-        <button
-          onClick={() => {
-            onClose();
-            viewPlayer(topScorer.playerId);
-          }}
-          className="mt-3 flex w-full items-center justify-between rounded-md border border-line bg-raised px-3 py-2 text-left text-sm hover:bg-hover"
-        >
-          <span>
-            <span className="mr-2">⚽</span>
-            <span className="display font-semibold">{topScorer.name}</span>
-            <span className="ml-2 text-[11px] text-faint">{topScorer.teamName}</span>
-          </span>
-          <span className="display tnum font-bold gold-text">
-            {topScorer.goals} <span className="text-[10px] font-normal text-faint">goals</span>
-          </span>
-        </button>
+      {/* Per-league honours for the division on show (v24). The full slate —
+          Player / Young Player of the Season, Golden Boot / Playmaker / Glove —
+          each clickable through to the profile, then the XI of the season. */}
+      {leagueAwards ? (
+        <div className="mt-4 space-y-3">
+          <div className="text-[11px] uppercase tracking-widest text-faint">
+            {game.leagues[activeId]?.name ?? activeId} — Honours
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <LeagueAward type="playerOfSeason" w={leagueAwards.playerOfSeason} kind="rating" onView={openProfile} />
+            <LeagueAward type="youngPlayerOfSeason" w={leagueAwards.youngPlayerOfSeason} kind="rating" onView={openProfile} />
+            <LeagueAward type="goldenBoot" w={leagueAwards.goldenBoot} kind="goals" onView={openProfile} />
+            <LeagueAward type="goldenPlaymaker" w={leagueAwards.goldenPlaymaker} kind="assists" onView={openProfile} />
+            <LeagueAward type="goldenGlove" w={leagueAwards.goldenGlove} kind="rating" onView={openProfile} />
+          </div>
+          {leagueAwards.teamOfSeason?.length ? (
+            <TeamOfSeason
+              label={`${ACCOLADE_META.teamOfSeason.emoji} Team of the Season`}
+              xi={leagueAwards.teamOfSeason}
+              onView={openProfile}
+            />
+          ) : null}
+        </div>
+      ) : (
+        // Golden-boot-only fallback for summaries built before v24 accolades.
+        topScorer && (
+          <button
+            onClick={() => openProfile(topScorer.playerId)}
+            className="mt-3 flex w-full items-center justify-between rounded-md border border-line bg-raised px-3 py-2 text-left text-sm hover:bg-hover"
+          >
+            <span>
+              <span className="mr-2">⚽</span>
+              <span className="display font-semibold">{topScorer.name}</span>
+              <span className="ml-2 text-[11px] text-faint">{topScorer.teamName}</span>
+            </span>
+            <span className="display tnum font-bold gold-text">
+              {topScorer.goals} <span className="text-[10px] font-normal text-faint">goals</span>
+            </span>
+          </button>
+        )
       )}
 
       {/* Promotion / relegation, the season's other structural story. */}
@@ -223,23 +272,99 @@ function AwardCard({
   label,
   name,
   club,
+  stat,
   onClick,
 }: {
   label: string;
   name: string;
   club: string;
+  stat?: string;
   onClick: () => void;
 }) {
   return (
     <button
       onClick={onClick}
-      className="flex items-center justify-between rounded-md border border-line bg-raised px-3 py-2 text-left hover:bg-hover"
+      className="flex w-full items-center justify-between rounded-md border border-line bg-raised px-3 py-2 text-left hover:bg-hover"
     >
       <span className="min-w-0">
         <span className="block text-[10px] uppercase tracking-widest text-faint">{label}</span>
         <span className="display truncate text-sm font-semibold">{name}</span>
       </span>
-      <span className="ml-2 shrink-0 text-[11px] text-faint">{club}</span>
+      <span className="ml-2 shrink-0 text-right">
+        <span className="block text-[11px] text-faint">{club}</span>
+        {stat && <span className="display block text-[11px] font-semibold gold-text">{stat}</span>}
+      </span>
     </button>
   );
+}
+
+/** One per-league honour card, or a "not awarded" placeholder when the season
+ * had no eligible winner (e.g. a league with no qualifying goalkeeper). */
+function LeagueAward({
+  type,
+  w,
+  kind,
+  onView,
+}: {
+  type: keyof typeof ACCOLADE_META;
+  w?: AwardWinner;
+  kind: "rating" | "goals" | "assists";
+  onView: (id: string) => void;
+}) {
+  const meta = ACCOLADE_META[type];
+  if (!w) {
+    return (
+      <div className="rounded-md border border-line/60 bg-raised/50 px-3 py-2">
+        <span className="block text-[10px] uppercase tracking-widest text-faint">
+          {meta.emoji} {meta.title}
+        </span>
+        <span className="text-sm text-faint">Not awarded</span>
+      </div>
+    );
+  }
+  const stat =
+    kind === "rating"
+      ? fmtRating(w.stat)
+      : w.stat !== undefined
+      ? `${w.stat} ${kind === "goals" ? "goals" : "assists"}`
+      : undefined;
+  return (
+    <AwardCard
+      label={`${meta.emoji} ${meta.title}`}
+      name={w.name}
+      club={w.teamName}
+      stat={stat}
+      onClick={() => onView(w.playerId)}
+    />
+  );
+}
+
+/** The XI of the season, grouped GK → DEF → MID → ATT, each pick clickable. */
+function TeamOfSeason({ label, xi, onView }: { label: string; xi: AwardWinner[]; onView: (id: string) => void }) {
+  return (
+    <div>
+      <div className="mb-1.5 text-[11px] uppercase tracking-widest text-faint">{label}</div>
+      <Card className="grid grid-cols-2 gap-x-3 gap-y-0.5 p-2 sm:grid-cols-3">
+        {xi.map((w) => (
+          <button
+            key={w.playerId}
+            onClick={() => onView(w.playerId)}
+            className="flex items-center gap-2 rounded px-1.5 py-1 text-left text-[12px] hover:bg-hover"
+          >
+            {w.pos && <PosBadge pos={w.pos} />}
+            <span className="min-w-0 flex-1 truncate">
+              <span className="font-medium">{w.name}</span>
+              <span className="ml-1 text-[10px] text-faint">{w.teamName}</span>
+            </span>
+            {w.stat !== undefined && <span className="display shrink-0 tnum text-[11px] gold-text">{fmtRating(w.stat)}</span>}
+          </button>
+        ))}
+      </Card>
+    </div>
+  );
+}
+
+/** Format an average-rating stat to two decimals, or undefined if absent. */
+function fmtRating(stat?: number): string | undefined {
+  return stat === undefined ? undefined : stat.toFixed(2);
 }

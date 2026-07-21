@@ -5,6 +5,7 @@ import type { GameState, SeasonSummary, PlayerBio } from "./types";
 import { computeTable } from "./season";
 import { seasonYearLabel } from "./calendar";
 import { activePlayers } from "./archive";
+import { computeSeasonAccolades } from "./accolades";
 
 function topScorerOf(state: GameState, leagueId: string): { playerId: string; name: string; teamName: string; goals: number } | null {
   let best: PlayerBio | null = null;
@@ -20,23 +21,6 @@ function topScorerOf(state: GameState, leagueId: string): { playerId: string; na
     teamName: best.clubId ? state.teams[best.clubId].name : "—",
     goals: best.stats.goals,
   };
-}
-
-function bestRated(state: GameState, leagueId: string, maxAge?: number): PlayerBio | null {
-  let best: PlayerBio | null = null;
-  let bestScore = 0;
-  for (const p of activePlayers(state)) {
-    if (!p.clubId) continue;
-    if (state.teams[p.clubId]?.leagueId !== leagueId) continue;
-    if (maxAge !== undefined && p.age > maxAge) continue;
-    if (p.stats.apps < 15) continue;
-    const score = (p.stats.ratingSum / p.stats.apps) * 10 + (p.stats.goals + p.stats.assists) * 0.4;
-    if (score > bestScore) {
-      bestScore = score;
-      best = p;
-    }
-  }
-  return best;
 }
 
 export function buildSeasonSummary(state: GameState): SeasonSummary {
@@ -69,10 +53,18 @@ export function buildSeasonSummary(state: GameState): SeasonSummary {
     if (ts) topScorers[league.id] = ts;
   }
 
-  // Player of the Season is judged in the playable country's top division.
+  // Season honours (v24): every league's individual awards + Team of the Season,
+  // plus the two save-wide legacy awards. This STAMPS the winning players'
+  // permanent cabinets, so it must run once, here at the rollover, while this
+  // season's stats are still intact.
+  const accolades = computeSeasonAccolades(state);
+
+  // The summary's headline Player / Young Player fields (kept for old readers and
+  // the inbox line) come from the playable top division's accolade block.
   const topDivId = state.divisionIds?.[0] ?? "ENG1";
-  const poty = bestRated(state, topDivId);
-  const ypoty = bestRated(state, topDivId, 21);
+  const topBlock = accolades.byLeague[topDivId];
+  const poty = topBlock?.playerOfSeason ?? null;
+  const ypoty = topBlock?.youngPlayerOfSeason ?? null;
 
   const userLeagueId = state.teams[state.userTeamId].leagueId;
   const userTable = finalTables[userLeagueId] ?? [];
@@ -100,11 +92,12 @@ export function buildSeasonSummary(state: GameState): SeasonSummary {
     finalTables,
     topScorers,
     playerOfSeason: poty
-      ? { playerId: poty.id, name: poty.name, teamName: poty.clubId ? state.teams[poty.clubId].name : "—" }
+      ? { playerId: poty.playerId, name: poty.name, teamName: poty.teamName }
       : null,
     youngPlayerOfSeason: ypoty
-      ? { playerId: ypoty.id, name: ypoty.name, teamName: ypoty.clubId ? state.teams[ypoty.clubId].name : "—" }
+      ? { playerId: ypoty.playerId, name: ypoty.name, teamName: ypoty.teamName }
       : null,
+    accolades,
     userTeamId: state.userTeamId,
     userFinish: pos > 0 ? `${pos}${suffix} in ${state.leagues[userLeagueId].name}` : "—",
     notableTransfers: notable.slice(0, 5),

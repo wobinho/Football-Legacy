@@ -25,6 +25,7 @@ import { refreshClubStances } from "./ai/strategy";
 import { rolloverContracts, ensureContracts } from "./contracts";
 import { resolveSimLeagues } from "./simresolver";
 import { buildSeasonSummary, trackBiggestWin } from "./recordbook";
+import { ACCOLADE_META } from "./accolades";
 import { generateStaffMarket, staffMarketTick, refreshStaffMarket } from "./staff";
 import { scoutMarketTick, refreshScoutMarketFull } from "./scouts";
 import { refreshAiCommercial, refreshSponsorOffers, rolloverSponsors } from "./sponsors";
@@ -455,6 +456,22 @@ export function afterUserMatch(state: GameState) {
 
 // ── Season rollover (§3 off-season, §13 compression) ─────────────────────
 
+/** The titles of every honour a player won THIS season (v24), for the career
+ * row. Team-of-the-Season slots collapse into one line so a row reads "Team of
+ * the Season" once rather than four times. Derived from the accolades already
+ * stamped by buildSeasonSummary earlier in the rollover. */
+function seasonAwardTitles(p: import("./types").PlayerBio, season: number): string[] {
+  const titles: string[] = [];
+  const seen = new Set<string>();
+  for (const a of p.accolades ?? []) {
+    if (a.season !== season) continue;
+    if (seen.has(a.type)) continue;
+    seen.add(a.type);
+    titles.push(ACCOLADE_META[a.type].title);
+  }
+  return titles;
+}
+
 function appendCareerRows(state: GameState) {
   for (const p of activePlayers(state)) {
     if (p.stats.apps === 0 && !p.clubId) {
@@ -472,7 +489,7 @@ function appendCareerRows(state: GameState) {
       goals: p.stats.goals,
       assists: p.stats.assists,
       avgRating: p.stats.apps ? Math.round((p.stats.ratingSum / p.stats.apps) * 100) / 100 : 0,
-      awards: [],
+      awards: seasonAwardTitles(p, state.season),
     });
     // youth football gets its own history line (§18): U21 league or loan spell
     const ys = p.youthStats;
@@ -598,9 +615,11 @@ export function runSeasonRollover(state: GameState) {
   state.staffMarket = generateStaffMarket(deriveSeed(state.seed, `staff:${state.season}`));
   state.marketRefreshDay = state.schedule.seasonStartDay + cfg.marketRefreshDays;
   // Resolve the non-playable leagues for the new season so the open summer window
-  // has current tables and form to shop against from day one — matching the fresh
-  // save (worldgen), rather than waiting for the winter resolution.
-  resolveSimLeagues(state, 1, cfg);
+  // shows the fresh, not-yet-started tables (teams loaded, 0 games) — matching the
+  // fresh save (worldgen). They fill in at the winter window (~halfway) and again
+  // after their final round (full), so sim tables track the player's own progress
+  // rather than jumping straight to a half-played season on day one.
+  resolveSimLeagues(state, 0, cfg);
   rolloverSponsors(state); // expire deals that have run their course (v6)
   state.offers = [];
   state.lineup = {};

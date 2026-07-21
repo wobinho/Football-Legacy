@@ -13,6 +13,8 @@ import { yearsLeft } from "@/lib/contracts";
 import { seasonGrowth } from "@/lib/development";
 import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan } from "@/lib/config/training";
 import { MAX_KIT_NUMBER, MIN_KIT_NUMBER, squadNumbersFor } from "@/lib/kitnumbers";
+import { ACCOLADE_META } from "@/lib/accolades";
+import type { Accolade, AccoladeType } from "@/lib/types";
 import { ArchetypeIcon, AttrGrid, Card, ConfirmButton, Crest, Flag, FitnessBar, FormChip, GhostButton, GoldButton, GrowthBadge, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip } from "../ui";
 import ContractModal from "./ContractModal";
 
@@ -199,6 +201,12 @@ export default function PlayerProfileModal() {
               </div>
             </Card>
           </Section>
+
+          {/* Honours (v24) — the trophy cabinet. Permanent: it shows on the card
+              from the season a player first wins something, and survives
+              retirement. Absent on a player who's never won anything. */}
+          {(p.accolades?.length ?? 0) > 0 && <HonoursSection accolades={p.accolades!} />}
+
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <Section title="Attributes">
               <AttrGrid p={p} />
@@ -482,6 +490,76 @@ export default function PlayerProfileModal() {
         {contractOpen && <ContractModal p={p} onClose={() => setContractOpen(false)} />}
       </div>
     </div>
+  );
+}
+
+/**
+ * Honours (v24) — a player's permanent trophy cabinet. Accolades are grouped by
+ * type (so five Golden Boots read as one line with a ×5 badge), the group's
+ * seasons and leagues listed beneath. Ordered by prestige so the marquee honours
+ * (Legacy Player, Player of the Season) sit at the top.
+ */
+const ACCOLADE_ORDER: AccoladeType[] = [
+  "legacyPlayerOfSeason",
+  "legacyTeamOfSeason",
+  "playerOfSeason",
+  "youngPlayerOfSeason",
+  "goldenBoot",
+  "goldenPlaymaker",
+  "goldenGlove",
+  "teamOfSeason",
+];
+
+function HonoursSection({ accolades }: { accolades: Accolade[] }) {
+  // Group by type, gathering each win's (season, league) so a repeated honour is
+  // one row with its full history rather than a wall of duplicates.
+  const groups = new Map<AccoladeType, Accolade[]>();
+  for (const a of accolades) {
+    const list = groups.get(a.type);
+    if (list) list.push(a);
+    else groups.set(a.type, [a]);
+  }
+  const ordered = ACCOLADE_ORDER.filter((t) => groups.has(t)).map((t) => ({
+    type: t,
+    wins: groups.get(t)!.slice().sort((x, y) => x.season - y.season),
+  }));
+
+  const total = accolades.length;
+
+  return (
+    <Section title={`Honours (${total})`}>
+      <Card className="divide-y divide-line/50">
+        {ordered.map(({ type, wins }) => {
+          const meta = ACCOLADE_META[type];
+          return (
+            <div key={type} className="flex items-start gap-3 px-4 py-2.5">
+              <span className="mt-0.5 shrink-0 text-lg leading-none" aria-hidden>
+                {meta.emoji}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="display flex items-center gap-2 font-semibold text-ink">
+                  {meta.title}
+                  {wins.length > 1 && (
+                    <span className="display rounded-sm border border-gold-lo/50 px-1.5 py-0.5 text-[10px] font-bold text-gold">
+                      ×{wins.length}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-faint">
+                  {wins.map((w, i) => (
+                    <span key={i} className="tnum">
+                      S{w.season}
+                      {w.leagueName ? <span className="ml-1 text-dim">{w.leagueName}</span> : null}
+                      {i < wins.length - 1 ? " ·" : ""}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </Card>
+    </Section>
   );
 }
 

@@ -14,8 +14,58 @@ import { devPhase, seasonGrowth, seasonGrowthEstimate, seasonAttrFocus } from "@
 import { trainingNextCost, type TrainingFacility } from "@/lib/economy";
 import { formatMoney } from "@/lib/value";
 import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan, type TrainingPlanDef } from "@/lib/config/training";
+import { POS_ORDER } from "@/lib/config/positions";
 import { Card, Flag, GhostButton, GoldButton, Ovr, PlayerCard, PlayerGrid, PosBadge, Tabs, UpgradeCard, usePlayerView, ViewToggle } from "../ui";
 import StaffPanel from "./StaffPanel";
+
+// Columns the Training Plans list can be sorted by. Position is the default —
+// keepers first — so the list reads in team-sheet order out of the box.
+type PlanSortKey = "pos" | "name" | "age" | "ovr";
+const POS_RANK: Record<string, number> = Object.fromEntries(POS_ORDER.map((p, i) => [p, i]));
+
+/** Ascending comparison of two players by the given sort column. */
+function comparePlan(a: PlayerBio, b: PlayerBio, key: PlanSortKey): number {
+  switch (key) {
+    case "pos":
+      return (POS_RANK[a.positions[0]] ?? 99) - (POS_RANK[b.positions[0]] ?? 99);
+    case "age":
+      return a.age - b.age;
+    case "ovr":
+      return a.overall - b.overall;
+    case "name":
+      return a.name.localeCompare(b.name);
+  }
+}
+
+/** A clickable column header for the Training Plans list. Clicking the active
+ * column flips its direction; clicking another switches to it (ascending). */
+function SortHeader({
+  label,
+  col,
+  sort,
+  onSort,
+  align = "left",
+}: {
+  label: string;
+  col: PlanSortKey;
+  sort: { key: PlanSortKey; dir: 1 | -1 };
+  onSort: (s: { key: PlanSortKey; dir: 1 | -1 }) => void;
+  align?: "left" | "center";
+}) {
+  const active = sort.key === col;
+  return (
+    <button
+      onClick={() => onSort(active ? { key: col, dir: (sort.dir * -1) as 1 | -1 } : { key: col, dir: 1 })}
+      className={`flex items-center gap-1 uppercase tracking-widest transition-colors hover:text-dim ${
+        align === "center" ? "justify-center" : ""
+      } ${active ? "text-gold" : ""}`}
+      title={`Sort by ${label}`}
+    >
+      {label}
+      <span className="text-[8px] leading-none">{active ? (sort.dir === 1 ? "▲" : "▼") : "↕"}</span>
+    </button>
+  );
+}
 
 const ATTR_LABELS: [keyof PlayerBio["attrs"], string][] = [
   ["pac", "PAC"], ["sho", "SHO"], ["pas", "PAS"], ["dri", "DRI"], ["def", "DEF"], ["phy", "PHY"],
@@ -75,19 +125,22 @@ function TrainingPlansTab() {
   const viewPlayer = useGame((s) => s.viewPlayer);
   const [open, setOpen] = useState<string | null>(null);
   const [view, setView] = usePlayerView("development");
+  // Column the list view is sorted by. Position ascending is the default, so
+  // goalkeepers lead the list (POS_ORDER puts GK first); click a header to
+  // re-sort, click again to flip the direction.
+  const [sort, setSort] = useState<{ key: PlanSortKey; dir: 1 | -1 }>({ key: "pos", dir: 1 });
   const ctx = devContext(game);
   const team = game.teams[game.userTeamId];
 
-  // senior squad + academy. Potential is hidden from the manager, so we lead
-  // with the players who still have room to grow (youngest first), then the rest.
+  // senior squad + academy.
   const ids = [...team.playerIds, ...(team.academyPlayerIds ?? [])];
   const squad = ids
     .map((id) => game.players[id])
     .filter((p): p is PlayerBio => !!p && !p.retired)
     .sort((a, b) => {
-      const ga = a.age <= TUNING.growthEndAge ? 0 : 1;
-      const gb = b.age <= TUNING.growthEndAge ? 0 : 1;
-      return ga - gb || a.age - b.age;
+      const cmp = comparePlan(a, b, sort.key) * sort.dir;
+      // Stable tiebreak so equal keys always land in the same order.
+      return cmp || (POS_RANK[a.positions[0]] ?? 99) - (POS_RANK[b.positions[0]] ?? 99) || a.name.localeCompare(b.name);
     });
 
   // How many players aren't yet on the focus that would most improve them —
@@ -176,10 +229,10 @@ function TrainingPlansTab() {
       ) : (
       <Card className="divide-y divide-line/50">
         <div className={`grid ${PLAN_GRID} items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-faint`}>
-          <span>Pos</span>
-          <span>Player</span>
-          <span className="text-center">Age</span>
-          <span className="text-center">OVR</span>
+          <SortHeader label="Pos" col="pos" sort={sort} onSort={setSort} />
+          <SortHeader label="Player" col="name" sort={sort} onSort={setSort} />
+          <SortHeader label="Age" col="age" sort={sort} onSort={setSort} align="center" />
+          <SortHeader label="OVR" col="ovr" sort={sort} onSort={setSort} align="center" />
           <span className="text-center">Training focus</span>
         </div>
         {squad.map((p) => {

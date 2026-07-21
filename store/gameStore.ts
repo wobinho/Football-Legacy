@@ -47,6 +47,15 @@ import {
 } from "@/lib/academy";
 import { evaluateOffer, applyContract, type OfferVerdict } from "@/lib/contracts";
 import type { ScoutPosGroup, ScoutRegion } from "@/lib/types";
+import {
+  loadLibrary,
+  persistLibrary,
+  emptyLibrary,
+  libraryId,
+  type CustomLibrary,
+  type LibraryClub,
+  type LibraryPlayer,
+} from "@/lib/customdb";
 
 interface GameStore {
   game: GameState | null;
@@ -159,6 +168,19 @@ interface GameStore {
 
   // Squad actions (v14): release / list for transfer / list for loan
   releaseSenior: (playerId: string) => void;
+
+  // ── Custom content library (v25): reusable saved clubs & players ──
+  /** The active game-key owner's saved library. Loaded at boot; persisted on
+   * every mutation. A convenience store, independent of any running save. */
+  library: CustomLibrary;
+  /** Re-read the library from IndexedDB (called at boot and after key switches). */
+  refreshLibrary: () => Promise<void>;
+  /** Add a new club (no id) or update an existing one (id set). Returns the id. */
+  saveLibraryClub: (club: Omit<LibraryClub, "updatedAt">) => string;
+  removeLibraryClub: (id: string) => void;
+  /** Add a new player (no id) or update an existing one (id set). Returns the id. */
+  saveLibraryPlayer: (player: Omit<LibraryPlayer, "updatedAt">) => string;
+  removeLibraryPlayer: (id: string) => void;
 }
 
 // ── Autosave plumbing ──────────────────────────────────────────────────────
@@ -265,8 +287,11 @@ export const useGame = create<GameStore>((set, get) => ({
   pendingGate: null,
   toast: null,
   seasonReview: null,
+  library: emptyLibrary(),
 
   boot: async () => {
+    // The custom-content library is owner-scoped like saves; load it alongside.
+    loadLibrary().then((library) => set({ library })).catch(() => {});
     try {
       const saves = await listSaves();
       // Auto-resume: on a refresh, drop the player straight back into the save
@@ -828,5 +853,49 @@ export const useGame = create<GameStore>((set, get) => ({
     get().showToast(err ?? `${name} released — he leaves as a free agent.`);
     if (!err) get().closePlayer();
     get().bump(true);
+  },
+
+  // ── Custom content library (v25) ──
+  refreshLibrary: async () => {
+    const library = await loadLibrary();
+    set({ library });
+  },
+
+  saveLibraryClub: (club) => {
+    const lib = get().library;
+    const id = club.id || libraryId("club");
+    const entry: LibraryClub = { ...club, id, updatedAt: Date.now() };
+    const exists = lib.clubs.some((c) => c.id === id);
+    const clubs = exists ? lib.clubs.map((c) => (c.id === id ? entry : c)) : [...lib.clubs, entry];
+    const next = { ...lib, clubs };
+    set({ library: next });
+    persistLibrary(next).catch(() => get().showToast("Couldn't save to your library."));
+    return id;
+  },
+
+  removeLibraryClub: (id) => {
+    const lib = get().library;
+    const next = { ...lib, clubs: lib.clubs.filter((c) => c.id !== id) };
+    set({ library: next });
+    persistLibrary(next).catch(() => {});
+  },
+
+  saveLibraryPlayer: (player) => {
+    const lib = get().library;
+    const id = player.id || libraryId("player");
+    const entry: LibraryPlayer = { ...player, id, updatedAt: Date.now() };
+    const exists = lib.players.some((p) => p.id === id);
+    const players = exists ? lib.players.map((p) => (p.id === id ? entry : p)) : [...lib.players, entry];
+    const next = { ...lib, players };
+    set({ library: next });
+    persistLibrary(next).catch(() => get().showToast("Couldn't save to your library."));
+    return id;
+  },
+
+  removeLibraryPlayer: (id) => {
+    const lib = get().library;
+    const next = { ...lib, players: lib.players.filter((p) => p.id !== id) };
+    set({ library: next });
+    persistLibrary(next).catch(() => {});
   },
 }));

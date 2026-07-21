@@ -14,13 +14,14 @@ import type { TuningConfig } from "./config/tuning";
 import { teamStrength } from "./selection";
 import { mulberry32, deriveSeed, randNormal, pickWeighted } from "./rng";
 
-export function resolveSimLeagues(state: GameState, half: 1 | 2, cfg: TuningConfig) {
+export function resolveSimLeagues(state: GameState, half: 0 | 1 | 2, cfg: TuningConfig) {
   for (const league of Object.values(state.leagues)) {
     if (league.playable) continue;
     const rng = mulberry32(deriveSeed(state.seed, `sim:${league.id}:${state.season}:${half}`));
     const n = league.teamIds.length;
     const gamesTotal = (n - 1) * 2;
-    const games = half === 1 ? Math.floor(gamesTotal / 2) : gamesTotal;
+    // 0 = season not yet started (fresh table, 0 games), 1 = ~halfway, 2 = full
+    const games = half === 0 ? 0 : half === 1 ? Math.floor(gamesTotal / 2) : gamesTotal;
 
     // strength + noise → finishing order
     const rated = league.teamIds.map((id) => {

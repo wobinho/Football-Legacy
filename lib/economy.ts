@@ -363,15 +363,20 @@ export function weeklyEconomyTick(state: GameState, cfg: TuningConfig) {
   }
 }
 
-/** End-of-season prize money, scaled by final position. */
+/**
+ * End-of-season prize money, scaled by final position. The champion banks the
+ * tier's top prize; every place below takes a fixed percentage less than the one
+ * above (compounding), so 1st → last is a geometric decay. Resolved before the
+ * promotion/relegation shuffle, so relegated clubs are paid at their old tier.
+ */
 export function applySeasonPrizes(state: GameState, cfg: TuningConfig) {
   for (const league of Object.values(state.leagues)) {
     if (!league.playable) continue;
     const table = computeTable(state.fixtures, league.id, league.teamIds);
     const top = cfg.seasonPrizeByTier[league.tier - 1] ?? 0;
+    const step = 1 - cfg.seasonPrizeDecayPerPosition;
     table.forEach((row, i) => {
-      const share = 1 - (i / (table.length - 1)) * 0.75;
-      state.teams[row.teamId].budget += Math.round(top * share);
+      state.teams[row.teamId].budget += Math.round(top * Math.pow(step, i));
     });
   }
   if (state.cup.winnerId) state.teams[state.cup.winnerId].budget += cfg.cupWinBonus;

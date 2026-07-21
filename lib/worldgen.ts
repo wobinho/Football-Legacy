@@ -377,9 +377,9 @@ function randomTactic(rng: RNG): Tactic {
 }
 
 /** Starting transfer budget from reputation. Exported so the new-game setup can
- * preview the budget a created club will open with. */
+ * preview the budget a created club will open with. v1.42: +25% across all clubs. */
 export function clubBudget(rep: number): number {
-  return Math.max(2_000_000, Math.round(Math.pow(Math.max(0, rep - 40), 2) * 40_000));
+  return Math.max(2_500_000, Math.round(Math.pow(Math.max(0, rep - 40), 2) * 50_000));
 }
 
 export interface NewGameOptions {
@@ -651,9 +651,10 @@ export function generateWorld(opts: NewGameOptions): GameState {
   // Seed opening sponsorship offers for the user's empty slots (v6).
   refreshSponsorOffers(state, cfg);
   // Resolve the non-playable leagues once up front so a brand-new save already
-  // has plausible tables, form and top-scorer lists for the open summer window —
-  // otherwise the other leagues would read as empty until the winter resolution.
-  resolveSimLeagues(state, 1, cfg);
+  // has the season's fresh, not-yet-started tables (teams loaded in strength
+  // order, 0 games) for the open summer window. They fill in at the winter window
+  // (~halfway) and again after their final round (full).
+  resolveSimLeagues(state, 0, cfg);
 
   const user = teams[opts.userTeamId];
   state.inbox.push({

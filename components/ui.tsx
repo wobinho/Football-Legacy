@@ -543,13 +543,15 @@ export function Tabs<T extends string>({
   tabs,
   active,
   onChange,
+  className = "",
 }: {
   tabs: { id: T; label: string; badge?: number }[];
   active: T;
   onChange: (id: T) => void;
+  className?: string;
 }) {
   return (
-    <div className="mb-4 flex flex-wrap gap-1 border-b border-line">
+    <div className={`mb-4 flex flex-wrap gap-1 border-b border-line ${className}`}>
       {tabs.map((t) => (
         <button
           key={t.id}

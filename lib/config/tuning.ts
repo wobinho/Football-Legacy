@@ -4,6 +4,16 @@
 
 import type { Mentality, ProspectTier, Style } from "../types";
 
+/** How far a club went in a European cup — the axis the continental prize table
+ * is keyed on. Every qualifier banks at least the `groupStage` figure. */
+export type EuropeanCupStage =
+  | "champion"
+  | "runnerUp"
+  | "semiFinal"
+  | "quarterFinal"
+  | "roundOf16"
+  | "groupStage";
+
 export interface TuningConfig {
   schemaVersion: number;
 
@@ -180,8 +190,26 @@ export interface TuningConfig {
   gateIncomePerReputation: number;
   wagePerOverallCurve: { base: number; exponent: number }; // weekly wage ≈ base * exp(exponent*overall)
   seasonPrizeByTier: number[]; // end-of-season prize for champion, scales down
+  /** Per-position decay of the champion's prize: each place below 1st receives
+   * `top × (1 − seasonPrizeDecayPerPosition)^(position−1)`. Applies to every
+   * league regardless of size; relegated clubs are paid before the shuffle. */
+  seasonPrizeDecayPerPosition: number;
   promotionBonus: number;
   cupWinBonus: number;
+
+  // ── European Cup payouts (locked spec; consumed once the feature ships) ─────
+  // Prize by how far a club goes in each of the three continental cups. Keyed by
+  // cup tier (1 = Champions League, 2 = Europa, 3 = Conference) then by the stage
+  // the club bows out at. "champion" = won the final; "runnerUp" = lost the final;
+  // "semiFinal" = a beaten semi-finalist; "quarterFinal" = a beaten quarter-
+  // finalist; "roundOf16" = knocked out in the R16; "groupStage" = eliminated in
+  // the groups. Every club that qualifies banks at least its groupStage figure.
+  // See the european-cups-design spec: 32 teams, 8 groups of 4, top 2 into a
+  // two-leg R16/QF/SF and a single-match final.
+  europeanCupPrizeByTier: Record<
+    EuropeanCupStage,
+    number
+  >[];
 
   // Club income facilities (§ club income) — one-time upgrade cost per level,
   // permanent weekly income boost. Index = level being purchased (0 → level 1).
@@ -728,7 +756,20 @@ export const TUNING: TuningConfig = {
   positionBonusMax: 300_000,
   gateIncomePerReputation: 6_000,
   wagePerOverallCurve: { base: 160, exponent: 0.082 },
-  seasonPrizeByTier: [25_000_000, 8_000_000],
+  // Champion's prize by tier: tier 1 £200M, tier 2 £120M, tier 3 £75M. Each
+  // position below 1st takes 3% less than the one above (compounding), so a
+  // 20-team top flight runs £200M → £112.12M last, tier 2 £120M → £67.27M,
+  // tier 3 £75M → £42.05M.
+  seasonPrizeByTier: [200_000_000, 120_000_000, 75_000_000],
+  seasonPrizeDecayPerPosition: 0.03,
+  // Continental prize by cup tier (index 0 = Champions League) and finish stage.
+  // Tier 3 pays a flat figure below the quarter-finals — the spec draws no line
+  // between the R16 and the group stage there, so both sit at £15M.
+  europeanCupPrizeByTier: [
+    { champion: 150_000_000, runnerUp: 130_000_000, semiFinal: 110_000_000, quarterFinal: 100_000_000, roundOf16: 80_000_000, groupStage: 50_000_000 },
+    { champion: 90_000_000, runnerUp: 75_000_000, semiFinal: 60_000_000, quarterFinal: 50_000_000, roundOf16: 40_000_000, groupStage: 30_000_000 },
+    { champion: 55_000_000, runnerUp: 45_000_000, semiFinal: 35_000_000, quarterFinal: 25_000_000, roundOf16: 15_000_000, groupStage: 15_000_000 },
+  ],
   promotionBonus: 30_000_000,
   cupWinBonus: 10_000_000,
 
@@ -882,7 +923,7 @@ export const TUNING: TuningConfig = {
   focusSlotMaxLevel: 7, // base 3 + 7 levels → up to 10 focus slots
   focusSlotUpgradeCost: [1_500_000, 3_000_000, 5_000_000, 7_500_000, 10_500_000, 14_000_000, 18_000_000],
 
-  valueCurve: { base: 12_000, exponent: 0.104 },
+  valueCurve: { base: 9_600, exponent: 0.104 }, // v1.42: −20% across the board to unstick the transfer market
   youthPotentialValueBoost: 1.8,
   aiAcceptThreshold: 1.1,
   aiKeyPlayerPremium: 1.35,

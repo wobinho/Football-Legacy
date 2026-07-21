@@ -7,6 +7,72 @@ Save-schema version is noted where it moved. The game auto-migrates older saves 
 
 ---
 
+## 2026-07-21 — Player accolades: end-of-season honours
+
+Save schema: **v23 → v24** (players gain an optional `accolades` cabinet and season
+summaries gain an optional `accolades` block; both default absent, so old saves open
+unchanged and begin accruing honours from their next completed season).
+
+- **Per-league honours, every league.** At each season rollover, once tables are final
+  and before the development pass, every league — playable *and* sim — hands out its
+  individual awards: **Player of the Season** (highest average rating, min 15 apps),
+  **Young Player of the Season** (best-rated U21), **Golden Boot** (most goals),
+  **Golden Playmaker** (most assists), **Golden Glove** (best-rated goalkeeper), and a
+  **Team of the Season** — the XI of the season, capped at max 1 GK / 4 DEF / 3 MID /
+  4 ATT and filled best-first with graceful fallback so it's always a full eleven.
+- **Save-wide legacy honours.** Across every league: **Legacy Player of the Year**
+  (highest-rated player anywhere) and **Legacy Team of the Year** (the best XI, same
+  position caps).
+- **A permanent cabinet.** Every honour is stamped onto the winning player
+  (`PlayerBio.accolades`) and survives retirement, so a legend's trophy cabinet is
+  forever. The **player profile** grows a **Honours** section grouping wins by type
+  (five Golden Boots read as one line with a ×5 badge) with the seasons and leagues
+  listed. Season career rows carry that season's award titles in their existing
+  `awards` field.
+- **Season review shows the full slate.** The record book's **Season Review** modal now
+  renders each division's complete honours and its XI of the season, plus the two
+  save-wide legacy awards up top — every name clickable through to the profile. New
+  logic lives in `lib/accolades.ts` (`computeSeasonAccolades`, `ACCOLADE_META`); the
+  rollover calls it from `buildSeasonSummary`.
+
+---
+
+## 2026-07-21 — Economy overhaul: bigger budgets, real prize money
+
+- **Starting budgets +25% for every club.** `clubBudget()` in `lib/worldgen.ts` scales its
+  reputation term (40,000 → 50,000) and floor (£2M → £2.5M) up a quarter, so every club — user
+  and AI — opens with a 25% larger transfer kitty.
+- **League prize money rebuilt as a geometric ladder.** The end-of-season prize now starts from
+  a big per-tier champion figure — **tier 1 £200M, tier 2 £120M, tier 3 £75M** — and each place
+  below takes **3% less than the one above**, compounding (`seasonPrizeDecayPerPosition` in
+  `lib/config/tuning.ts`). So a 20-team top flight runs £200M (1st) → £194M (2nd) → £188.18M (3rd)
+  → … → £112.12M (20th); tier 2 £120M → £67.27M; tier 3 £75M → £42.05M. Applies to any league
+  size (`top × 0.97^(pos−1)`) and, as before, resolves *before* the promotion/relegation shuffle,
+  so relegated clubs bank their money at their old tier. Replaces the old linear 25%→100% share.
+- **European Cup payout tables added (locked spec, not yet wired).** `europeanCupPrizeByTier`
+  in tuning holds the continental prize by cup tier and finish stage (champion / runner-up /
+  semi-final / quarter-final / R16 / group stage) — CL £150M→£50M, Europa £90M→£30M, Conference
+  £55M→£15M — ready for the European Cups feature to consume when it ships. No engine reads it yet.
+
+---
+
+## 2026-07-21 — Livelier market, sim leagues that track your season
+
+- **Player values cut 20% across the board.** `valueCurve.base` drops from £12,000 to £9,600
+  in `lib/config/tuning.ts`, scaling every market value down by a fifth. Asking prices fall while
+  AI budgets hold, so more `canAfford` checks pass and the transfer window actually moves —
+  the summer window had been resolving with no deals at all. Cached `value` fields refresh at
+  the next winter window / rollover, so existing saves pick this up without a migration.
+- **Sim leagues resolve three times a season, tracking your own progress.** The start-of-season
+  pass (worldgen + rollover) now resolves at a new `half=0` — a *fresh, not-yet-started* table
+  (teams loaded in strength order, 0 games, no scorers) instead of jumping straight to a
+  half-played 19-game season on day one. The tables then fill in at the winter window (`half=1`,
+  ~halfway) and after the final round (`half=2`, full), so the sim world no longer runs miles
+  ahead of the league you're actually playing. The Competition sim view labels the fresh table
+  "not started". `SimLeagueResult.half` widens `1 | 2 → 0 | 1 | 2`; old saves read fine.
+
+---
+
 ## 2026-07-21 — League form guide, in-season sim tables, richer team card
 
 Save schema: **v22 → v23** (sim leagues gain an optional `topAssists` line and their
