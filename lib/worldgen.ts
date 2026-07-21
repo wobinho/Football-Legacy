@@ -18,6 +18,7 @@ import { buildSeasonSchedule } from "./calendar";
 import { generateLeagueFixtures, initCup } from "./season";
 import { generateStaffMarket } from "./staff";
 import { generateScoutMarket } from "./scouts";
+import { resolveSimLeagues } from "./simresolver";
 import { refreshSponsorOffers } from "./sponsors";
 import { initAcademyState, seedInitialAcademy } from "./academy";
 import { ensureContracts } from "./contracts";
@@ -627,14 +628,17 @@ export function generateWorld(opts: NewGameOptions): GameState {
     inbox: [],
     offers: [],
     transferList: [],
+    shortlist: [],
     staffMarket: generateStaffMarket(deriveSeed(seed, "staff:1")),
     scoutMarket: generateScoutMarket(deriveSeed(seed, "scouts:1"), cfg),
+    marketRefreshDay: schedule.seasonStartDay + cfg.marketRefreshDays,
     simResults: [],
     academy: null as unknown as AcademyState, // filled below — needs the state object
     recordBook: { seasons: [], biggestWin: null },
     pendingMatchFixtureId: null,
     lastExportSeason: 1,
     news: [],
+    transferNews: [],
   };
   state.academy = initAcademyState(state, cfg);
   seedInitialAcademy(state, cfg);
@@ -646,6 +650,10 @@ export function generateWorld(opts: NewGameOptions): GameState {
   ensureContracts(state, cfg);
   // Seed opening sponsorship offers for the user's empty slots (v6).
   refreshSponsorOffers(state, cfg);
+  // Resolve the non-playable leagues once up front so a brand-new save already
+  // has plausible tables, form and top-scorer lists for the open summer window —
+  // otherwise the other leagues would read as empty until the winter resolution.
+  resolveSimLeagues(state, 1, cfg);
 
   const user = teams[opts.userTeamId];
   state.inbox.push({

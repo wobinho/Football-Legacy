@@ -79,6 +79,38 @@ export function computeTable(fixtures: Fixture[], leagueId: string, teamIds: str
   );
 }
 
+/** A single recent-result token from a team's perspective. */
+export type FormResult = "W" | "D" | "L";
+
+/** Last-N league form per team (default 5), oldest→newest so the row reads
+ * left-to-right like a real form guide. Derived from the same played fixtures as
+ * the table, so it stays in lockstep with it. Only meaningful for playable
+ * leagues (sim leagues carry no per-fixture data — they return empty). */
+export function computeForm(
+  fixtures: Fixture[],
+  leagueId: string,
+  teamIds: string[],
+  n = 5
+): Record<string, FormResult[]> {
+  // Chronological, tie-broken by round then id so replays are stable.
+  const played = fixtures
+    .filter((f) => f.competition === leagueId && f.played)
+    .sort((a, b) => a.day - b.day || a.round - b.round || a.id.localeCompare(b.id));
+
+  const form: Record<string, FormResult[]> = Object.fromEntries(teamIds.map((id) => [id, []]));
+  for (const f of played) {
+    const hg = f.homeGoals!;
+    const ag = f.awayGoals!;
+    const home = form[f.homeId];
+    const away = form[f.awayId];
+    if (home) home.push(hg > ag ? "W" : hg < ag ? "L" : "D");
+    if (away) away.push(ag > hg ? "W" : ag < hg ? "L" : "D");
+  }
+  // Keep only the last n, preserving oldest→newest order within that window.
+  for (const id of teamIds) form[id] = form[id].slice(-n);
+  return form;
+}
+
 // ── Cup (§4: one simple knockout cup) ────────────────────────────────────
 // 40 entrants: Round 1 trims 16 low-reputation clubs to 8, giving a clean
 // 32-team bracket from Round 2. Draws are random each round.

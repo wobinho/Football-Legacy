@@ -454,6 +454,18 @@ export function migrateSave(state: GameState): GameState {
     migrateV19toV20(state);
     state.schemaVersion = 20;
   }
+  if (state.schemaVersion < 21) {
+    migrateV20toV21(state);
+    state.schemaVersion = 21;
+  }
+  if (state.schemaVersion < 22) {
+    migrateV21toV22(state);
+    state.schemaVersion = 22;
+  }
+  if (state.schemaVersion < 23) {
+    migrateV22toV23(state);
+    state.schemaVersion = 23;
+  }
   // future migrations chain here
   state.schemaVersion = SCHEMA_VERSION;
   return state;
@@ -646,7 +658,47 @@ function migrateV19toV20(state: GameState): void {
     team.membershipLevel ??= 0;
     team.eventsLevel ??= 0;
     team.academyPartnerLevel ??= 0;
+    // Gymnasium — a new core training facility (whole-squad growth). Starts at
+    // level 0, exactly as a new save would.
+    team.gymnasiumLevel ??= 0;
   }
+  // Periodic for-hire market turnover: schedule the first cycle from today.
+  state.marketRefreshDay ??= state.currentDay + TUNING.marketRefreshDays;
+}
+
+/**
+ * v20 → v21: the scouting shortlist. A personal watchlist of other clubs'
+ * players, starting empty — nothing to backfill from, and being on it changes
+ * nothing in the world, so an old save simply opens with an empty list.
+ */
+function migrateV20toV21(state: GameState): void {
+  state.shortlist ??= [];
+}
+
+/**
+ * v21 → v22: the structured world transfer feed (Transfers → News). A live
+ * ledger of every senior deal between clubs, starting empty. There is nothing to
+ * reconstruct — past deals were only ever kept as the flavour ticker and per-
+ * player career rows, neither of which carries the crest/kind detail the feed
+ * renders — so an old save simply begins logging from its next completed move.
+ */
+function migrateV21toV22(state: GameState): void {
+  state.transferNews ??= [];
+}
+
+/**
+ * v22 → v23: sim leagues gain a top-assists line, and their final resolution
+ * moves from just before season end to just after the final league round (so
+ * the completed table is browsable during the season it belongs to).
+ *
+ * Both are read-time-safe: an already-resolved `SimLeagueResult` without
+ * `topAssists` simply renders scorers only, and the resolve-day shift only
+ * affects the schedule from the next season's rollover on. Nothing stored needs
+ * rewriting — the fields default at read time. Kept as an explicit step so the
+ * chain stays honest.
+ */
+function migrateV22toV23(state: GameState): void {
+  void state; // additive/optional — topAssists and resolve-day default at read time
 }
 
 /** True if the save is a version this build knows how to bring up to date. */

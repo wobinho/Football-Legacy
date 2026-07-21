@@ -59,6 +59,10 @@ interface GameStore {
   previewPlayer: PlayerBio | null;
   lastStop: StopReason | null;
   toast: string | null;
+  /** The season summary to show in the end-of-season review modal, set the
+   * moment END SEASON takes the rollover and cleared when the user dismisses it.
+   * Null the rest of the time. */
+  seasonReview: import("@/lib/types").SeasonSummary | null;
 
   boot: () => Promise<void>;
   newGame: (opts: NewGameOptions) => Promise<void>;
@@ -81,9 +85,23 @@ interface GameStore {
 
   continueGame: () => void;
   advanceDayOnce: () => void;
-  simulateToDay: (targetDay: number) => void;
+  /** Calendar "simulate to this day". Pauses the day before an important
+   * calendar event (a U21 deadline, a window opening/closing, the youth intake)
+   * and records it in `pendingGate` so the UI can prompt. Pass `ignoreGateId`
+   * (the gate the user acknowledged) to carry on through it toward the same
+   * target. */
+  simulateToDay: (targetDay: number, ignoreGateId?: string) => void;
+  /** The intended day the last "simulate to" was heading for, so a "keep going"
+   * from a gate prompt resumes toward the same destination. */
+  pendingSimTarget: number | null;
+  /** An important calendar day a "simulate to" paused before, awaiting the user.
+   * Cleared when they act, dismiss, or keep going. */
+  pendingGate: import("@/lib/gameloop").CalendarGate | null;
+  dismissGate: () => void;
   /** Take the season rollover (the END SEASON button). No-op mid-season. */
   endSeason: () => void;
+  /** Dismiss the end-of-season review modal. */
+  closeSeasonReview: () => void;
   applyUserResult: (fixture: Fixture, result: MatchResult) => void;
 
   setTrainingPlan: (playerId: string, planId: string) => void;
@@ -99,6 +117,7 @@ interface GameStore {
   bid: (playerId: string, fee: number, terms?: { wage: number; years: number; releaseClause?: number }) => BidOutcome;
   respondOffer: (offerId: string, response: "accept" | "reject" | "counter", amount?: number) => OfferResponse;
   toggleTransferList: (playerId: string) => void;
+  toggleShortlist: (playerId: string) => void;
   hire: (candidateId: string) => void;
   dismissStaff: (candidateId: string) => void;
   fireStaff: (slot: StaffSlot) => void;
@@ -242,7 +261,10 @@ export const useGame = create<GameStore>((set, get) => ({
   selectedPlayerId: null,
   previewPlayer: null,
   lastStop: null,
+  pendingSimTarget: null,
+  pendingGate: null,
   toast: null,
+  seasonReview: null,
 
   boot: async () => {
     try {
@@ -370,24 +392,42 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   // Calendar "jump to this day" — force-sim (auto-plays user matches) to target.
-  // Clamps at the season end day; the rollover is taken via endSeason().
-  simulateToDay: (targetDay) => {
+  // Clamps at the season end day; the rollover is taken via endSeason(). Pauses
+  // the day before an important calendar event (progress gate, §3) and records
+  // it in `pendingGate`; the UI prompts, then either acts or keeps going with the
+  // gate id so the sim resumes past it toward the same target.
+  simulateToDay: (targetDay, ignoreGateId) => {
     const g = get().game;
     if (!g || g.pendingMatchFixtureId) return;
     if (targetDay <= g.currentDay) return;
-    const stop = advanceToDay(g, targetDay);
-    set({ lastStop: stop, screen: "home", rev: get().rev + 1 });
+    const stop = advanceToDay(g, targetDay, ignoreGateId);
+    if (stop.kind === "gate") {
+      // Hold the destination so "keep going" can resume toward it, and surface
+      // the gate. Stay on Home so the calendar and its prompt are both visible.
+      set({ lastStop: stop, pendingSimTarget: targetDay, pendingGate: stop.gate, screen: "home", rev: get().rev + 1 });
+    } else {
+      set({ lastStop: stop, pendingSimTarget: null, pendingGate: null, screen: "home", rev: get().rev + 1 });
+    }
     scheduleSave(g, true);
   },
+
+  // Dismiss the current progress-gate prompt without simming further (the user
+  // chose to stay put and deal with it here).
+  dismissGate: () => set({ pendingGate: null, pendingSimTarget: null }),
 
   // END SEASON: the one place the rollover happens, always player-initiated.
   endSeason: () => {
     const g = get().game;
     if (!g || g.pendingMatchFixtureId || !isSeasonComplete(g)) return;
     runSeasonRollover(g);
-    set({ lastStop: null, screen: "home", rev: get().rev + 1 });
+    // The rollover pushes the just-finished season's summary onto the record
+    // book; surface it in the end-of-season review the player sees immediately.
+    const review = g.recordBook.seasons[g.recordBook.seasons.length - 1] ?? null;
+    set({ lastStop: null, screen: "home", rev: get().rev + 1, seasonReview: review });
     scheduleSave(g, true);
   },
+
+  closeSeasonReview: () => set({ seasonReview: null }),
 
   applyUserResult: (fixture, result) => {
     const g = get().game;
@@ -521,6 +561,18 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
+  toggleShortlist: (playerId) => {
+    const g = get().game;
+    if (!g) return;
+    const list = (g.shortlist ??= []);
+    if (list.includes(playerId)) {
+      g.shortlist = list.filter((id) => id !== playerId);
+    } else {
+      list.push(playerId);
+    }
+    get().bump(true);
+  },
+
   hire: (candidateId) => {
     const g = get().game;
     if (!g) return;
@@ -594,6 +646,7 @@ export const useGame = create<GameStore>((set, get) => ({
       const msg: Record<TrainingFacility, string> = {
         training: "Training Centre upgraded — players develop faster.",
         medical: "Medical Centre upgraded — quicker recovery.",
+        gymnasium: "Gymnasium upgraded — the whole squad develops faster.",
         academy: "Youth Academy upgraded — bigger, better intake classes.",
         scoutNetwork: "Max Scouts increased — send more scouts abroad.",
         academySquad: "Academy Squad Size increased — room for more prospects.",

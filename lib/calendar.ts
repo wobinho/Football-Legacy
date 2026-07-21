@@ -114,8 +114,16 @@ export function buildSeasonSchedule(season: number): SeasonSchedule {
     summerCloseDay: dateToDay(startYear, 8, 1),
     winterOpenDay,
     winterCloseDay: dateToDay(startYear + 1, 1, 1),
-    simResolveDay1: winterOpenDay - 3,
-    simResolveDay2: cupRoundDays[5] + 3,
+    // Sim (non-playable) leagues are resolved when each transfer window opens, so
+    // the player always has current form to shop against. The summer window opens
+    // with the season itself (handled at season start in worldgen/rollover); the
+    // winter resolution fires the day the winter window opens. The final pass (v23)
+    // fires three days after the last league round — while the season is still on
+    // screen — so the completed sim tables are browsable in-season rather than only
+    // at the very end. It also writes realistic minutes so sim players age like
+    // their peers. Kept clear of the cup final (two weeks later) and season end.
+    simResolveDay1: winterOpenDay,
+    simResolveDay2: leagueRoundDays[37] + 3,
     seasonEndDay: cupRoundDays[5] + 7, // season review, then jump to next Jul 1
     intakeDay: nextWeekday(dateToDay(startYear + 1, 2, 10), 3), // Wed mid-March (§18)
   };

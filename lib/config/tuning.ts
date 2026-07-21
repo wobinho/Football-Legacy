@@ -209,6 +209,9 @@ export interface TuningConfig {
 
   // Staff market (v6) — dismiss-to-refresh cadence.
   staffRefreshDays: number; // days until a dismissed slot's new crop arrives
+  /** Full turnover of the staff & scout for-hire pools every N days (v20), on
+   * top of dismiss-to-refresh, so the shortlists never go stale. */
+  marketRefreshDays: number;
 
   // Sponsors / investments (v6, Club → Income). Weekly income from season-long
   // deals; quality scales with club reputation, division, and squad
@@ -291,6 +294,10 @@ export interface TuningConfig {
   trainingFacilityMaxLevel: number;
   trainingUpgradeCost: number[];
   medicalUpgradeCost: number[];
+  /** Gymnasium (v20): a core facility lifting development speed for the whole
+   * squad, every age — a pure multiplier read by the development pass. */
+  gymnasiumUpgradeCost: number[];
+  gymnasiumGrowthPerLevel: number; // ×(1 + level*this) on every player's growth
 
   // ── Specialist training facilities (v15) ──
   // Beyond the general Training Centre, a club can invest in facilities that
@@ -746,6 +753,7 @@ export const TUNING: TuningConfig = {
   academyPartnerIncomePerLevel: 40_000,
 
   staffRefreshDays: 2,
+  marketRefreshDays: 10,
 
   sponsorBaseWeeklyByReputation: 5_200,
   // Per-slot share of the front-of-shirt baseline. The majors sit at the top;
@@ -824,6 +832,11 @@ export const TUNING: TuningConfig = {
   trainingFacilityMaxLevel: 5,
   trainingUpgradeCost: [35_000_000, 80_000_000, 160_000_000, 280_000_000, 480_000_000],
   medicalUpgradeCost: [25_000_000, 60_000_000, 120_000_000, 220_000_000, 380_000_000],
+  // Gymnasium: broad, whole-squad conditioning. Deliberately a touch weaker
+  // per level than the Training Centre (which only helps youth), but it lifts
+  // everyone — priced alongside the other core facilities.
+  gymnasiumUpgradeCost: [28_000_000, 68_000_000, 140_000_000, 250_000_000, 430_000_000],
+  gymnasiumGrowthPerLevel: 0.05,
 
   // Specialist facilities. Position centres are the cheapest (each helps only a
   // quarter of the squad); plan centres cost more (they compound with the plans
@@ -873,7 +886,7 @@ export const TUNING: TuningConfig = {
   youthPotentialValueBoost: 1.8,
   aiAcceptThreshold: 1.1,
   aiKeyPlayerPremium: 1.35,
-  aiBidChancePerWeek: 0.1,
+  aiBidChancePerWeek: 0.14,
   freeAgentSigningFee: 0,
   negotiationBuyerCeilingMult: 1.6,
   negotiationMaxRounds: 6, // hard backstop; patience normally binds first
@@ -906,16 +919,18 @@ export const TUNING: TuningConfig = {
   aiMinUpgradeGain: 1.5,
   aiAgeBandFalloff: 0.78,
   aiMaxBudgetSharePerDeal: 0.45,
-  aiDealsPerWeek: 2,
+  aiDealsPerWeek: 3,
 
-  // Financial discipline (v19). A club keeps a fifth of its budget back after
-  // any signing and will not shop at all unless it holds eight weeks of wages.
-  // Below that it turns forced seller and takes 15% under the asking price to
-  // raise cash. Wage bills are capped at 70% of weekly income.
-  aiBudgetReserveRatio: 0.2,
-  aiWageReserveWeeks: 8,
+  // Financial discipline (v19, retuned v21). Clubs are still genuinely wary of
+  // their books — they hold a real cash reserve and keep weeks of wages in hand —
+  // but the v19 settings were cautious enough that the league went quiet. The
+  // reserve drops to a sixth and the wage cushion to six weeks, which frees more
+  // deals to clear while leaving a club that can't cover its wages a forced
+  // seller (15% under asking). Wage bills stay capped at three-quarters of income.
+  aiBudgetReserveRatio: 0.16,
+  aiWageReserveWeeks: 6,
   aiDistressSellDiscount: 0.85,
-  aiMaxWageToIncomeRatio: 0.7,
+  aiMaxWageToIncomeRatio: 0.75,
 
   squadCap: 50,
   matchdaySquad: 18,

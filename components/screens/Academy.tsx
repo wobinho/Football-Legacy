@@ -42,7 +42,7 @@ import {
 import { transferWindowState, formatDayShort } from "@/lib/calendar";
 import { formatMoney } from "@/lib/value";
 import { staffSlotsForDept } from "@/lib/staff";
-import { Card, ConfirmButton, Flag, GhostButton, GoldButton, Modal, Ovr, PosBadge, PotentialBadge, Section, Stars, StarRange, Tabs, UpgradeCard } from "../ui";
+import { Card, ConfirmButton, Flag, GhostButton, GoldButton, Modal, Ovr, PlayerCard, PlayerGrid, PosBadge, PotentialBadge, Section, Stars, StarRange, Tabs, UpgradeCard, usePlayerView, ViewToggle } from "../ui";
 
 type Tab = "squad" | "u21" | "scouting" | "staff" | "upgrades";
 
@@ -131,6 +131,20 @@ function ScoutOutlook({ experience, judgement }: { experience: number; judgement
   );
 }
 
+/** Countdown to the next full turnover of the for-hire pools (v20). Shown on the
+ * staff/scout hiring shortlists so the manager knows when fresh faces arrive. */
+export function MarketRefreshTimer() {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  if (game.marketRefreshDay === undefined) return null;
+  const daysLeft = Math.max(0, game.marketRefreshDay - game.currentDay);
+  return (
+    <span className="text-[11px] text-faint" title="The people available to hire refresh on this timer.">
+      New faces in <span className={`tnum font-semibold ${daysLeft <= 2 ? "text-gold" : "text-dim"}`}>{daysLeft}</span>d
+    </span>
+  );
+}
+
 /** The scouting department (v14): a roster of employed scouts plus the hiring
  * shortlist. Headcount is what caps concurrent assignments, and Max Scouts caps
  * headcount — so this panel is where the size of the whole operation is set. */
@@ -201,9 +215,12 @@ function ScoutDepartmentPanel() {
       )}
 
       {/* hiring shortlist */}
-      <div className="mb-2 flex items-baseline justify-between">
+      <div className="mb-2 flex items-baseline justify-between gap-3">
         <span className="text-[10px] uppercase tracking-widest text-faint">Scouts available to hire</span>
-        {full && <span className="text-[11px] text-gold">Department full — release a scout or upgrade Max Scouts.</span>}
+        <span className="flex items-baseline gap-3">
+          <MarketRefreshTimer />
+          {full && <span className="text-[11px] text-gold">Department full — release a scout or upgrade Max Scouts.</span>}
+        </span>
       </div>
       {market.length === 0 ? (
         <div className="rounded-md border border-dashed border-line px-3 py-6 text-center text-sm text-faint">
@@ -305,7 +322,10 @@ function YouthCoachPanel({ def }: { def: ReturnType<typeof staffSlotsForDept>[nu
 
         {(ready.length > 0 || pending) && (
           <div className="mt-4 border-t border-line/60 pt-4">
-            <div className="mb-2 text-[10px] uppercase tracking-widest text-faint">Available to appoint</div>
+            <div className="mb-2 flex items-baseline justify-between gap-3">
+              <span className="text-[10px] uppercase tracking-widest text-faint">Available to appoint</span>
+              <MarketRefreshTimer />
+            </div>
             {pending ? (
               <div className="rounded-md border border-dashed border-line px-3 py-4 text-center text-sm text-faint">
                 Shortlist cleared — new candidates arrive in a couple of days.
@@ -361,6 +381,7 @@ function YouthCoachPanel({ def }: { def: ReturnType<typeof staffSlotsForDept>[nu
 function statusChips(game: NonNullable<ReturnType<typeof useGame.getState>["game"]>, p: PlayerBio) {
   const chips: { label: string; cls: string }[] = [];
   if (game.academy.focusIds.includes(p.id)) chips.push({ label: "FOCUS", cls: "border-gold-lo/60 text-gold" });
+  if ((game.academy.u21.registered ?? []).includes(p.id)) chips.push({ label: "U21 REG", cls: "border-win/40 text-win" });
   if (p.loan) chips.push({ label: `LOAN · ${game.teams[p.loan.toClubId]?.short ?? "?"}`, cls: "border-win/40 text-win" });
   else if (game.academy.loanList.includes(p.id)) chips.push({ label: "LOAN-LISTED", cls: "border-line text-dim" });
   if (p.age === TUNING.academyMaxAge) chips.push({ label: "FINAL SEASON", cls: "border-loss/40 text-loss" });
@@ -384,12 +405,15 @@ function SquadTab() {
   const toggleLoan = useGame((s) => s.academyToggleLoan);
   const recall = useGame((s) => s.academyRecall);
   const setPlan = useGame((s) => s.setTrainingPlan);
+  const [view, setView] = usePlayerView("academy");
 
   const team = game.teams[game.userTeamId];
   const seniorRoom = TUNING.squadCap - team.playerIds.length;
   const windowOpen = transferWindowState(game.currentDay, game.schedule).open;
   const intakeDay = game.schedule.intakeDay;
   const intake = game.academy.lastIntake;
+  // Prospects locked to the U21 competition can't be promoted mid-competition.
+  const u21Registered = new Set(game.academy.u21.registered ?? []);
 
   // The academy squad is exactly your U21 prospects — one consolidated roster.
   const roster = academyPlayers(game).sort((a, b) => {
@@ -428,15 +452,20 @@ function SquadTab() {
       : []),
   ];
 
+  if (view === "grid") return grid();
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap gap-2">
-        {stats.map((s) => (
-          <div key={s.label} className="rounded-md border border-line bg-surface px-3 py-1.5" title={s.hint}>
-            <div className="text-[9px] uppercase tracking-widest text-faint">{s.label}</div>
-            <div className="display tnum text-sm font-semibold text-ink">{s.value}</div>
-          </div>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
+          {stats.map((s) => (
+            <div key={s.label} className="rounded-md border border-line bg-surface px-3 py-1.5" title={s.hint}>
+              <div className="text-[9px] uppercase tracking-widest text-faint">{s.label}</div>
+              <div className="display tnum text-sm font-semibold text-ink">{s.value}</div>
+            </div>
+          ))}
+        </div>
+        <ViewToggle view={view} onChange={setView} />
       </div>
 
       <Card className="divide-y divide-line/50">
@@ -457,6 +486,7 @@ function SquadTab() {
           const chips = statusChips(game, p);
           const isFocus = game.academy.focusIds.includes(p.id);
           const listed = game.academy.loanList.includes(p.id);
+          const registered = u21Registered.has(p.id);
           return (
             <div key={p.id} className={`px-4 py-2.5 md:grid ${SQUAD_GRID} md:items-center md:gap-3`}>
               {/* identity line — md:contents dissolves the wrapper so these
@@ -489,64 +519,19 @@ function SquadTab() {
                 </span>
               </div>
               <span className="mt-2 flex flex-wrap items-center gap-1.5 md:mt-0 md:justify-end">
-                {(() => {
-                  const plan = resolveTrainingPlan(p.trainingPlan, p.positions[0]);
-                  const options = plansForPosition(p.positions[0]);
-                  return (
-                    <select
-                      value={plan.id}
-                      onChange={(e) => setPlan(p.id, e.target.value)}
-                      title={`Training plan — ${plan.blurb}`}
-                      className="display rounded border border-line bg-raised px-2 py-1 text-[11px] font-semibold tracking-wide text-dim transition-colors hover:border-faint hover:text-ink focus:border-gold focus:outline-none"
-                    >
-                      {options.map((o) => (
-                        <option key={o.id} value={o.id}>
-                          {o.name}
-                        </option>
-                      ))}
-                    </select>
-                  );
-                })()}
-                <TextBtn
-                  label={isFocus ? "★ Focus" : "☆ Focus"}
-                  title={isFocus ? "Remove focus" : "Make focus prospect (guaranteed U21 starts + coaching)"}
-                  active={isFocus}
-                  onClick={() => toggleFocus(p.id)}
-                  disabled={!!p.loan}
-                />
-                {p.loan ? (
-                  <TextBtn
-                    label="Recall Loan"
-                    title={windowOpen ? "Recall from loan" : "Can only recall during a transfer window"}
-                    onClick={() => recall(p.id)}
-                    disabled={!windowOpen}
-                  />
-                ) : (
-                  <TextBtn
-                    label={listed ? "Loan-listed ✓" : "Send on Loan"}
-                    title={listed ? "Remove from the loan list" : "List for a season loan — an AI club may take them for first-team minutes"}
-                    active={listed}
-                    onClick={() => toggleLoan(p.id)}
-                  />
-                )}
-                <TextBtn
-                  label="Promote"
-                  title={
-                    p.age < TUNING.academyPromoteMinAge
-                      ? `Too young — prospects join the senior squad at ${TUNING.academyPromoteMinAge}`
-                      : seniorRoom > 0
-                        ? "Promote to the senior (first) team"
-                        : "Senior squad is full — sell or release someone first"
-                  }
-                  onClick={() => promote(p.id)}
-                  disabled={seniorRoom <= 0 || !!p.loan || p.age < TUNING.academyPromoteMinAge}
-                />
-                <ConfirmButton
-                  label="Release"
-                  confirmLabel="Release?"
-                  tone="danger"
-                  onConfirm={() => release(p.id)}
-                  className="display !rounded !px-2 !py-1 !text-[11px] tracking-wide"
+                <SquadActions
+                  p={p}
+                  isFocus={isFocus}
+                  listed={listed}
+                  registered={registered}
+                  windowOpen={windowOpen}
+                  seniorRoom={seniorRoom}
+                  onSetPlan={setPlan}
+                  onToggleFocus={toggleFocus}
+                  onToggleLoan={toggleLoan}
+                  onRecall={recall}
+                  onPromote={promote}
+                  onRelease={release}
                 />
               </span>
             </div>
@@ -554,6 +539,167 @@ function SquadTab() {
         })}
       </Card>
     </div>
+  );
+
+  function grid() {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-2">
+            {stats.map((s) => (
+              <div key={s.label} className="rounded-md border border-line bg-surface px-3 py-1.5" title={s.hint}>
+                <div className="text-[9px] uppercase tracking-widest text-faint">{s.label}</div>
+                <div className="display tnum text-sm font-semibold text-ink">{s.value}</div>
+              </div>
+            ))}
+          </div>
+          <ViewToggle view={view} onChange={setView} />
+        </div>
+        {roster.length === 0 ? (
+          <Card className="px-4 py-6 text-sm text-faint">
+            No academy prospects yet — the first intake class arrives in March, and your scout can find more.
+          </Card>
+        ) : (
+          <PlayerGrid>
+            {roster.map((p) => {
+              const chips = statusChips(game, p);
+              const isFocus = game.academy.focusIds.includes(p.id);
+              const listed = game.academy.loanList.includes(p.id);
+              const registered = u21Registered.has(p.id);
+              return (
+                <PlayerCard
+                  key={p.id}
+                  p={p}
+                  onOpen={() => viewPlayer(p.id)}
+                  ovr={<Ovr value={p.overall} size="sm" />}
+                  sub={<span className="truncate">{getArchetype(p.archetypeId).name}</span>}
+                  badges={chips.map((c) => (
+                    <span key={c.label} className={`display rounded-sm border px-1 text-[9px] font-semibold ${c.cls}`}>
+                      {c.label}
+                    </span>
+                  ))}
+                  stats={
+                    <span className="flex items-center gap-1.5">
+                      <span className="text-faint">POT</span>
+                      <PotentialBadge game={game} p={p} />
+                    </span>
+                  }
+                  actions={
+                    <SquadActions
+                      p={p}
+                      isFocus={isFocus}
+                      listed={listed}
+                      registered={registered}
+                      windowOpen={windowOpen}
+                      seniorRoom={seniorRoom}
+                      onSetPlan={setPlan}
+                      onToggleFocus={toggleFocus}
+                      onToggleLoan={toggleLoan}
+                      onRecall={recall}
+                      onPromote={promote}
+                      onRelease={release}
+                    />
+                  }
+                />
+              );
+            })}
+          </PlayerGrid>
+        )}
+      </div>
+    );
+  }
+}
+
+/** The per-prospect action cluster (training-plan picker, focus, loan, promote,
+ * release), shared between the academy squad's list rows and its grid cards so
+ * both offer exactly the same controls. */
+function SquadActions({
+  p,
+  isFocus,
+  listed,
+  registered,
+  windowOpen,
+  seniorRoom,
+  onSetPlan,
+  onToggleFocus,
+  onToggleLoan,
+  onRecall,
+  onPromote,
+  onRelease,
+}: {
+  p: PlayerBio;
+  isFocus: boolean;
+  listed: boolean;
+  registered: boolean;
+  windowOpen: boolean;
+  seniorRoom: number;
+  onSetPlan: (id: string, planId: string) => void;
+  onToggleFocus: (id: string) => void;
+  onToggleLoan: (id: string) => void;
+  onRecall: (id: string) => void;
+  onPromote: (id: string) => void;
+  onRelease: (id: string) => void;
+}) {
+  const plan = resolveTrainingPlan(p.trainingPlan, p.positions[0]);
+  const options = plansForPosition(p.positions[0]);
+  return (
+    <>
+      <select
+        value={plan.id}
+        onChange={(e) => onSetPlan(p.id, e.target.value)}
+        title={`Training plan — ${plan.blurb}`}
+        className="display rounded border border-line bg-raised px-2 py-1 text-[11px] font-semibold tracking-wide text-dim transition-colors hover:border-faint hover:text-ink focus:border-gold focus:outline-none"
+      >
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name}
+          </option>
+        ))}
+      </select>
+      <TextBtn
+        label={isFocus ? "★ Focus" : "☆ Focus"}
+        title={isFocus ? "Remove focus" : "Make focus prospect (guaranteed U21 starts + coaching)"}
+        active={isFocus}
+        onClick={() => onToggleFocus(p.id)}
+        disabled={!!p.loan}
+      />
+      {p.loan ? (
+        <TextBtn
+          label="Recall Loan"
+          title={windowOpen ? "Recall from loan" : "Can only recall during a transfer window"}
+          onClick={() => onRecall(p.id)}
+          disabled={!windowOpen}
+        />
+      ) : (
+        <TextBtn
+          label={listed ? "Loan-listed ✓" : "Send on Loan"}
+          title={listed ? "Remove from the loan list" : "List for a season loan — an AI club may take them for first-team minutes"}
+          active={listed}
+          onClick={() => onToggleLoan(p.id)}
+        />
+      )}
+      <TextBtn
+        label="Promote"
+        title={
+          registered
+            ? "Registered for the U21 competition — can't be promoted until the next registration window"
+            : p.age < TUNING.academyPromoteMinAge
+              ? `Too young — prospects join the senior squad at ${TUNING.academyPromoteMinAge}`
+              : seniorRoom > 0
+                ? "Promote to the senior (first) team"
+                : "Senior squad is full — sell or release someone first"
+        }
+        onClick={() => onPromote(p.id)}
+        disabled={seniorRoom <= 0 || !!p.loan || p.age < TUNING.academyPromoteMinAge || registered}
+      />
+      <ConfirmButton
+        label="Release"
+        confirmLabel="Release?"
+        tone="danger"
+        onConfirm={() => onRelease(p.id)}
+        className="display !rounded !px-2 !py-1 !text-[11px] tracking-wide"
+      />
+    </>
   );
 }
 
@@ -680,6 +826,7 @@ function U21RegistrationPanel() {
                   <PosBadge pos={p.positions[0]} />
                   <button onClick={() => viewPlayer(p.id)} className="group min-w-0 flex-1 truncate text-left text-sm">
                     <span className="flex items-center gap-1.5">
+                      <Flag nat={p.nationality} size={11} />
                       <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
                       <span className="tnum text-[11px] text-faint">{p.age}y</span>
                       {focus.has(p.id) && <span className="display text-[9px] font-semibold text-gold">★</span>}

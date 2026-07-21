@@ -777,6 +777,9 @@ function HistoryTab() {
         <Section title="All-Time Top Scorers (club)">
           <RecordList rows={records.topScorers.map((r) => ({ ...r, value: r.goals }))} onView={viewPlayer} unit="goals" />
         </Section>
+        <Section title="All-Time Top Assists (club)">
+          <RecordList rows={records.topAssists.map((r) => ({ ...r, value: r.assists }))} onView={viewPlayer} unit="assists" />
+        </Section>
         <Section title="Most Appearances (club)">
           <RecordList rows={records.mostAppearances.map((r) => ({ ...r, value: r.apps }))} onView={viewPlayer} unit="apps" />
         </Section>

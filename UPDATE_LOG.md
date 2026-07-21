@@ -7,6 +7,94 @@ Save-schema version is noted where it moved. The game auto-migrates older saves 
 
 ---
 
+## 2026-07-21 — League form guide, in-season sim tables, richer team card
+
+Save schema: **v22 → v23** (sim leagues gain an optional `topAssists` line and their
+final resolution moves earlier in the season; both default at read time, so old saves
+open unchanged and pick up the new behaviour from their next rollover).
+
+- **Last-5 form guide in the league table.** Every playable division's **Competition → Table**
+  gains a **Form** column: the club's last five league results as compact W/D/L pills, oldest→newest,
+  tinted win/draw/loss. Derived by a new `computeForm` in `lib/season.ts` off the same played
+  fixtures as the table. Hidden below the `sm` breakpoint so the phone layout keeps its compact stat
+  grid; the table scrolls to reveal it.
+- **Sim leagues resolve in-season.** The final resolution of the non-playable (sim-only) leagues
+  moves from just before season end to **three days after their last league round** (`simResolveDay2`
+  in `lib/calendar.ts`), so the completed final table is browsable *during* the season it belongs to
+  rather than only at the very end. The summer (start-of-season) and winter resolutions are unchanged.
+- **Top assists for sim leagues.** The sim resolver now credits assists off the same weighted draw as
+  goals (weighted by passing), writes them onto sim players' season stats, and returns a `topAssists`
+  board rendered beside the top scorers on the sim-league view.
+- **Expanded team card.** Clicking a club now also shows its **season top scorer and top assister**
+  (tap through to the profile) and a concise **Recent Results** list — last eight matches with W/D/L
+  badge, opponent, scoreline, date and competition. Results are shown for playable-league clubs (sim
+  clubs carry no per-fixture data); leaders work for both.
+
+---
+
+## 2026-07-21 — Grid / list view toggle for player tables
+
+No save-schema change — this is a UI-only preference (stored in the browser).
+
+- **List / grid toggle on every player table.** The **Squad**, **Transfers** (Search, My Listings,
+  Shortlist, Free Agents), **Academy → Academy Squad**, and **Development → Training Plans** screens
+  each gain a segmented **list / grid** control. List view (the dense, established layout) stays the
+  default; grid view lays the same players out as cards, carrying the same identity, badges, stats
+  and actions the row does. The choice is per-screen and remembered across sessions via
+  `localStorage` (`fl.view.<screen>`).
+- **Shared primitives.** New `ViewToggle`, `usePlayerView`, `PlayerGrid` and `PlayerCard` in
+  `components/ui.tsx` so all four screens draw from one card shell, and the academy squad's action
+  cluster was factored into a shared `SquadActions` used by both layouts.
+
+---
+
+## 2026-07-21 — Transfer News wire, all-time assists, calendar progress gate
+
+Save schema: **v21 → v22** (adds the world-wide `transferNews` feed; old saves open with an
+empty one and begin logging from their next completed deal).
+
+- **Transfer News (new tab).** A new **Transfers → Transfer News** tab renders the world's
+  market wire: every senior deal between clubs as it completes, newest first, grouped by
+  season. Rows read left-to-right as the move itself — selling club → player → buying club — with
+  the fee as the scoreboard hero and a badge for anything that isn't a straight cash transfer
+  (free, release clause). The user's own business is tinted gold, and an **ALL CLUBS / MY CLUB**
+  filter narrows the feed. Backed by a structured `TransferNewsItem` ledger written from
+  `completeTransfer` (`lib/transfers.ts`), distinct from the flavour ticker (capped so a long save
+  can't grow it unbounded).
+- **All-time top assists.** The club **History & Records** tab gains an *All-Time Top Assists
+  (club)* board beside the existing top scorers, and each playable division's **Competition** page
+  now shows *Top Assists* directly beneath *Top Scorers*. Both read from real per-player assist
+  totals (`clubAllTimeRecords` in `lib/recordbook.ts`).
+- **Calendar progress gate.** Simulating several days ahead from the calendar no longer silently
+  skips important days. A jump pauses the day *before* a U21 registration deadline, a transfer
+  window opening or closing, or the youth intake, and prompts the user to act, keep going, or stay
+  put (`nextCalendarGate` in `lib/gameloop.ts`, surfaced by the new `GateModal`).
+
+---
+
+## 2026-07-21 — Livelier market, scouting shortlist, cleaner squad list
+
+Save schema: **v20 → v21** (adds the user's scouting `shortlist`; old saves open with an empty one).
+
+- **A quieter league was too quiet.** The v19 financial-discipline work stopped AI clubs
+  overspending but throttled the whole market to a trickle. The clubs stay wary of their books —
+  they still hold a cash reserve and keep weeks of wages in hand — but the settings are relaxed so
+  more deals clear: AI↔AI deals attempted per week `2 → 3`, budget reserve `20% → 16%`, wage cushion
+  `8 → 6` weeks, wage-to-income cap `70% → 75%` (`lib/config/tuning.ts`).
+- **Offers now come in for players who aren't listed.** A good footballer draws interest whether or
+  not his club is shopping him (`aiWeeklyTransferTick`). Transfer-listing still triples the chance
+  and keeps the ask keener, but the market no longer goes silent just because the user hasn't put
+  anyone up for sale. Bid chance `0.10 → 0.14`; the interested-clubs reputation gate widened.
+- **Scouting shortlist (new).** Any player at another club (or a free agent) can be added to a
+  personal shortlist from their player card. Targets collect under **Transfers → Shortlist**, where
+  you can open a bid straight from the list or drop them with the ✕. Purely a watchlist — it has no
+  effect on the world.
+- **No growth badge on the squad list.** At the start of a season nobody has moved yet, so the
+  +/- column read as a flat row of nothing. The running season delta stays on the Player Profile
+  and Development screens, where it has context.
+
+---
+
 ## 2026-07-19 — 32 country presets & preset-derived defaults
 
 Save schema: unchanged. New-game setup only; existing saves unaffected.

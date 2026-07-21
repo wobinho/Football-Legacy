@@ -20,6 +20,7 @@ import ClubScreen from "./screens/Club";
 import DevelopmentScreen from "./screens/Development";
 import AcademyScreen from "./screens/Academy";
 import PlayerProfileModal from "./screens/PlayerProfile";
+import SeasonDetailModal from "./screens/SeasonDetailModal";
 
 const NAV: { id: ScreenId; label: string }[] = [
   { id: "home", label: "Home" },
@@ -41,6 +42,8 @@ export default function Shell() {
   const continueGame = useGame((s) => s.continueGame);
   const advanceDayOnce = useGame((s) => s.advanceDayOnce);
   const endSeason = useGame((s) => s.endSeason);
+  const seasonReview = useGame((s) => s.seasonReview);
+  const closeSeasonReview = useGame((s) => s.closeSeasonReview);
   const quitToMenu = useGame((s) => s.quitToMenu);
   const logout = useGame((s) => s.logout);
   const [navOpen, setNavOpen] = useState(false);
@@ -212,6 +215,9 @@ export default function Shell() {
 
       {/* Player profile floats over whatever screen you're on */}
       <PlayerProfileModal />
+
+      {/* End-of-season review — shown the moment the rollover is taken. */}
+      {seasonReview && <SeasonDetailModal summary={seasonReview} onClose={closeSeasonReview} />}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 // Shared UI primitives — the design system in miniature.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { formatMoney, groupDigits, parseMoney } from "@/lib/value";
 import type { GameState, PlayerBio, Pos } from "@/lib/types";
 import { posColors, resolvePos } from "@/lib/config/positions";
@@ -639,6 +639,156 @@ export function TraitChip({ id, size = "sm" }: { id: string; size?: "xs" | "sm" 
         </span>
       )}
     </span>
+  );
+}
+
+// ── List / grid view toggle (v25) ──────────────────────────────────────────
+// Every screen that lists players offers the same choice between a dense list
+// (the default) and a card grid. The preference is per-screen and remembered
+// across sessions, so a manager who prefers cards on the Squad keeps them there
+// without forcing the same on Transfers.
+
+export type PlayerView = "list" | "grid";
+
+/**
+ * Per-screen list/grid preference, persisted to localStorage under `fl.view.<key>`.
+ * Defaults to "list" — the established, information-dense layout — and only
+ * upgrades to a stored value after mount so server and first client render agree
+ * (no hydration mismatch).
+ */
+export function usePlayerView(key: string): [PlayerView, (v: PlayerView) => void] {
+  const storageKey = `fl.view.${key}`;
+  const [view, setView] = useState<PlayerView>("list");
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(storageKey);
+      if (saved === "list" || saved === "grid") setView(saved);
+    } catch {
+      // localStorage unavailable (private mode / SSR) — the default stands.
+    }
+  }, [storageKey]);
+  const set = (v: PlayerView) => {
+    setView(v);
+    try {
+      window.localStorage.setItem(storageKey, v);
+    } catch {
+      // ignore — the in-memory choice still applies for this session.
+    }
+  };
+  return [view, set];
+}
+
+/** The segmented list/grid control. Sits in a Section's `right` slot or beside a
+ * screen's own filters; the active side wears the gold treatment. */
+export function ViewToggle({ view, onChange }: { view: PlayerView; onChange: (v: PlayerView) => void }) {
+  const opts: { id: PlayerView; label: string; icon: React.ReactNode }[] = [
+    {
+      id: "list",
+      label: "List view",
+      icon: (
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden>
+          <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      ),
+    },
+    {
+      id: "grid",
+      label: "Grid view",
+      icon: (
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden>
+          <rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" />
+          <rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" />
+          <rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" />
+          <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+      ),
+    },
+  ];
+  return (
+    <span className="inline-flex overflow-hidden rounded-md border border-line" role="group" aria-label="View mode">
+      {opts.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          onClick={() => onChange(o.id)}
+          aria-pressed={view === o.id}
+          title={o.label}
+          className={`flex items-center justify-center px-2 py-1 transition-colors ${
+            view === o.id ? "gold-grad text-black" : "bg-raised text-faint hover:text-dim"
+          }`}
+        >
+          {o.icon}
+        </button>
+      ))}
+    </span>
+  );
+}
+
+/** The responsive card-grid container for grid view. Auto-fills columns so cards
+ * stay a comfortable width from phone to wide desktop. */
+export function PlayerGrid({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div
+      className={`grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(15rem,1fr))] ${className}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** One player as a card in grid view. Shared shell — the header (pos badge,
+ * flag, name, age) and the OVR line are common; each screen supplies its own
+ * `sub` (archetype / club line), `badges`, `stats` and `actions` so the card
+ * carries the same information its list row would. Clicking the card body opens
+ * the player unless the click lands on an interactive control. */
+export function PlayerCard({
+  p,
+  onOpen,
+  ovr,
+  sub,
+  badges,
+  stats,
+  actions,
+}: {
+  p: PlayerBio;
+  onOpen?: () => void;
+  /** OVR readout — screens pass their own <Ovr>/<PotentialBadge> so growth and
+   * fog-of-war treatments match the list. */
+  ovr?: React.ReactNode;
+  sub?: React.ReactNode;
+  badges?: React.ReactNode;
+  stats?: React.ReactNode;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <div className="group flex flex-col rounded-md border border-line bg-surface p-3 transition-colors hover:border-faint">
+      <div className="flex items-start gap-2">
+        <PosBadge pos={p.positions[0]} />
+        <button
+          onClick={onOpen}
+          disabled={!onOpen}
+          className="min-w-0 flex-1 text-left"
+        >
+          <span className="flex items-center gap-1.5">
+            <Flag nat={p.nationality} size={12} />
+            <span className={`truncate font-semibold ${onOpen ? "transition-colors group-hover:text-gold" : ""}`}>
+              {p.name}
+            </span>
+            <span className="ml-auto shrink-0 tnum text-[11px] text-faint">{p.age}y</span>
+          </span>
+          {sub && <span className="mt-0.5 flex min-w-0 items-center gap-1.5 truncate text-[11px] text-faint">{sub}</span>}
+        </button>
+      </div>
+
+      {badges && <div className="mt-2 flex flex-wrap items-center gap-1">{badges}</div>}
+
+      <div className="mt-2 flex items-center justify-between gap-2 border-t border-line/60 pt-2">
+        <div className="flex min-w-0 items-center gap-2 text-[11px] text-dim">{stats}</div>
+        {ovr && <div className="shrink-0">{ovr}</div>}
+      </div>
+
+      {actions && <div className="mt-2 flex flex-wrap items-center gap-1.5">{actions}</div>}
+    </div>
   );
 }
 

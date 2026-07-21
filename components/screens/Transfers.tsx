@@ -6,23 +6,25 @@ import { useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { PlayerBio, Pos } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
-import { getArchetype } from "@/lib/config/archetypes";
+import { ARCHETYPES, getArchetype } from "@/lib/config/archetypes";
+import { TRAITS } from "@/lib/config/traits";
 import { POS_ORDER } from "@/lib/config/positions";
 import { askPrice, negotiationStateOf } from "@/lib/transfers";
 import { seasonGrowth } from "@/lib/development";
 import { wageDemandWithClause, maxLengthFor, evaluateOffer } from "@/lib/contracts";
-import { transferWindowState } from "@/lib/calendar";
+import { transferWindowState, formatDayShort, seasonYearLabel } from "@/lib/calendar";
 import { formatMoney } from "@/lib/value";
-import { ArchetypeIcon, Card, ConfirmButton, Crest, Flag, GhostButton, GoldButton, Modal, Money, MoneyInput, Ovr, PosBadge, Tabs } from "../ui";
+import { ArchetypeIcon, Card, ConfirmButton, Crest, Flag, GhostButton, GoldButton, Modal, Money, MoneyInput, Ovr, PlayerCard, PlayerGrid, PosBadge, Tabs, usePlayerView, ViewToggle } from "../ui";
 import ReleaseClauseField from "./ReleaseClauseField";
 
-type Tab = "search" | "offers" | "listed" | "free";
+type Tab = "search" | "offers" | "listed" | "shortlist" | "free" | "news";
 
 export default function TransfersScreen() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const [tab, setTab] = useState<Tab>("search");
   const pendingCount = game.offers.filter((o) => o.status === "pending" && o.direction === "incoming").length;
+  const shortlistCount = (game.shortlist ?? []).length;
   const win = transferWindowState(game.currentDay, game.schedule);
 
   return (
@@ -40,7 +42,9 @@ export default function TransfersScreen() {
           { id: "search", label: "Search" },
           { id: "offers", label: "Offers", badge: pendingCount },
           { id: "listed", label: "My Listings" },
+          { id: "shortlist", label: "Shortlist", badge: shortlistCount },
           { id: "free", label: "Free Agents" },
+          { id: "news", label: "Transfer News" },
         ]}
         active={tab}
         onChange={setTab}
@@ -48,7 +52,9 @@ export default function TransfersScreen() {
       {tab === "search" && <SearchTab />}
       {tab === "offers" && <OffersTab />}
       {tab === "listed" && <ListedTab />}
+      {tab === "shortlist" && <ShortlistTab />}
       {tab === "free" && <FreeAgentsTab />}
+      {tab === "news" && <TransferNewsTab />}
     </div>
   );
 }
@@ -89,13 +95,55 @@ function PlayerRowButton({ p, right, onClick }: { p: PlayerBio; right: React.Rea
   );
 }
 
+/** Grid-view counterpart to PlayerRowButton — the same identity + market info as
+ * a card, with `right` (fee / free / listing action) tucked into the actions
+ * row. Used by every browse tab so list and grid carry the same data. */
+function PlayerCardButton({ p, right, onClick }: { p: PlayerBio; right: React.ReactNode; onClick: () => void }) {
+  const game = useGame((s) => s.game)!;
+  const club = p.clubId ? game.teams[p.clubId] : null;
+  return (
+    <PlayerCard
+      p={p}
+      onOpen={onClick}
+      ovr={<Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />}
+      sub={
+        <>
+          <ArchetypeIcon archetypeId={p.archetypeId} size={12} />
+          <span className="truncate">{getArchetype(p.archetypeId).name}</span>
+        </>
+      }
+      stats={
+        club ? (
+          <span className="flex min-w-0 items-center gap-1 truncate">
+            <Crest colors={club.colors} short={club.short} size={13} />
+            <span className="truncate">{club.name}</span>
+          </span>
+        ) : (
+          <span className="text-win">Free agent</span>
+        )
+      }
+      actions={<span className="flex w-full items-center justify-end gap-2">{right}</span>}
+    />
+  );
+}
+
 function SearchTab() {
   const game = useGame((s) => s.game)!;
   const [pos, setPos] = useState<Pos | "ALL">("ALL");
   const [maxValue, setMaxValue] = useState<number>(0);
+  const [archetype, setArchetype] = useState<string>("ALL");
+  const [trait, setTrait] = useState<string>("ALL");
   const [query, setQuery] = useState("");
   const [target, setTarget] = useState<PlayerBio | null>(null);
+  const [view, setView] = usePlayerView("transfers");
   const scouted = useScouted();
+
+  // Archetypes offered in the picker narrow to the selected position, so the
+  // list stays relevant — a "Target Man" filter makes no sense under Goalkeeper.
+  const archetypeOptions = useMemo(
+    () => (pos === "ALL" ? ARCHETYPES : ARCHETYPES.filter((a) => a.positions.includes(pos))),
+    [pos]
+  );
 
   const results = useMemo(() => {
     const list = Object.values(game.players).filter(
@@ -105,10 +153,12 @@ function SearchTab() {
         p.clubId !== game.userTeamId &&
         (pos === "ALL" || p.positions.includes(pos)) &&
         (maxValue === 0 || p.value <= maxValue) &&
+        (archetype === "ALL" || p.archetypeId === archetype) &&
+        (trait === "ALL" || p.traits.includes(trait)) &&
         (query === "" || p.name.toLowerCase().includes(query.toLowerCase()))
     );
     return list.sort((a, b) => b.overall - a.overall).slice(0, 60);
-  }, [game.players, game.userTeamId, pos, maxValue, query]);
+  }, [game.players, game.userTeamId, pos, maxValue, archetype, trait, query]);
 
   return (
     <div>
@@ -121,12 +171,41 @@ function SearchTab() {
         />
         <select
           value={pos}
-          onChange={(e) => setPos(e.target.value as Pos | "ALL")}
+          onChange={(e) => {
+            const next = e.target.value as Pos | "ALL";
+            setPos(next);
+            // Drop an archetype filter that the new position can't field.
+            if (archetype !== "ALL" && next !== "ALL" && !getArchetype(archetype).positions.includes(next)) {
+              setArchetype("ALL");
+            }
+          }}
           className="rounded-md border border-line bg-raised px-2 py-1.5 text-sm text-dim focus:border-gold focus:outline-none"
         >
           <option value="ALL">All positions</option>
           {POS_ORDER.map((p) => (
             <option key={p} value={p}>{p}</option>
+          ))}
+        </select>
+        <select
+          value={archetype}
+          onChange={(e) => setArchetype(e.target.value)}
+          className="rounded-md border border-line bg-raised px-2 py-1.5 text-sm text-dim focus:border-gold focus:outline-none"
+          title="Filter by archetype"
+        >
+          <option value="ALL">All archetypes</option>
+          {archetypeOptions.map((a) => (
+            <option key={a.id} value={a.id}>{a.name}</option>
+          ))}
+        </select>
+        <select
+          value={trait}
+          onChange={(e) => setTrait(e.target.value)}
+          className="rounded-md border border-line bg-raised px-2 py-1.5 text-sm text-dim focus:border-gold focus:outline-none"
+          title="Filter by trait"
+        >
+          <option value="ALL">All traits</option>
+          {TRAITS.map((t) => (
+            <option key={t.id} value={t.id}>{t.name}</option>
           ))}
         </select>
         <select
@@ -140,22 +219,41 @@ function SearchTab() {
           ))}
         </select>
         {!scouted && <span className="text-[11px] text-faint">Hire a Scout for tighter potential reads on young players.</span>}
+        <span className="ml-auto">
+          <ViewToggle view={view} onChange={setView} />
+        </span>
       </div>
-      <Card>
-        {results.map((p) => (
-          <PlayerRowButton
-            key={p.id}
-            p={p}
-            onClick={() => setTarget(p)}
-            right={
-              <div className="w-28 text-right">
-                <Money value={p.value} className="text-dim" />
-              </div>
-            }
-          />
-        ))}
-        {results.length === 0 && <div className="p-4 text-sm text-faint">No players match those filters.</div>}
-      </Card>
+      {results.length === 0 ? (
+        <Card>
+          <div className="p-4 text-sm text-faint">No players match those filters.</div>
+        </Card>
+      ) : view === "grid" ? (
+        <PlayerGrid>
+          {results.map((p) => (
+            <PlayerCardButton
+              key={p.id}
+              p={p}
+              onClick={() => setTarget(p)}
+              right={<Money value={p.value} className="text-dim" />}
+            />
+          ))}
+        </PlayerGrid>
+      ) : (
+        <Card>
+          {results.map((p) => (
+            <PlayerRowButton
+              key={p.id}
+              p={p}
+              onClick={() => setTarget(p)}
+              right={
+                <div className="w-28 text-right">
+                  <Money value={p.value} className="text-dim" />
+                </div>
+              }
+            />
+          ))}
+        </Card>
+      )}
       {target && <BidModal p={target} onClose={() => setTarget(null)} />}
     </div>
   );
@@ -553,59 +651,340 @@ function ListedTab() {
   const game = useGame((s) => s.game)!;
   const toggle = useGame((s) => s.toggleTransferList);
   const viewPlayer = useGame((s) => s.viewPlayer);
+  const [view, setView] = usePlayerView("transfers");
   const team = game.teams[game.userTeamId];
   const players = team.playerIds.map((id) => game.players[id]).filter(Boolean).sort((a, b) => b.overall - a.overall);
+
+  const listBtn = (p: PlayerBio) => {
+    const listed = game.transferList.includes(p.id);
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          toggle(p.id);
+        }}
+        title={listed ? "Remove from the transfer list" : "Put on the transfer list to attract offers"}
+        className={`display w-24 rounded px-2 py-1 text-xs font-semibold ${
+          listed ? "gold-grad text-black" : "border border-line text-faint hover:text-dim"
+        }`}
+      >
+        {listed ? "LISTED ✓" : "List"}
+      </button>
+    );
+  };
+
   return (
-    <Card>
-      {players.map((p) => {
-        const listed = game.transferList.includes(p.id);
-        return (
-          <div key={p.id} className="flex items-center gap-3 border-b border-line/50 px-3 py-2 text-sm last:border-0">
-            <PosBadge pos={p.positions[0]} />
-            <button onClick={() => viewPlayer(p.id)} className="group min-w-0 flex-1 text-left">
-              <span className="flex items-center gap-1.5 truncate font-medium">
-                <Flag nat={p.nationality} size={13} />
-                <span className="truncate transition-colors group-hover:text-gold">{p.name}</span>
-                <span className="ml-1 text-[11px] text-faint">{p.age}y</span>
-              </span>
-              <span className="flex items-center gap-1.5 truncate text-[11px] text-faint">
-                <ArchetypeIcon archetypeId={p.archetypeId} size={12} />
-                <span className="truncate">{getArchetype(p.archetypeId).name}</span>
-              </span>
-            </button>
-            <Money value={p.value} className="text-dim" />
-            <Ovr value={p.overall} size="sm" />
-            <button
-              onClick={() => toggle(p.id)}
-              title={listed ? "Remove from the transfer list" : "Put on the transfer list to attract offers"}
-              className={`display w-24 rounded px-2 py-1 text-xs font-semibold ${
-                listed ? "gold-grad text-black" : "border border-line text-faint hover:text-dim"
-              }`}
-            >
-              {listed ? "LISTED ✓" : "List"}
-            </button>
-          </div>
-        );
-      })}
-    </Card>
+    <>
+      <div className="mb-3 flex justify-end">
+        <ViewToggle view={view} onChange={setView} />
+      </div>
+      {view === "grid" ? (
+        <PlayerGrid>
+          {players.map((p) => (
+            <PlayerCard
+              key={p.id}
+              p={p}
+              onOpen={() => viewPlayer(p.id)}
+              ovr={<Ovr value={p.overall} size="sm" />}
+              sub={
+                <>
+                  <ArchetypeIcon archetypeId={p.archetypeId} size={12} />
+                  <span className="truncate">{getArchetype(p.archetypeId).name}</span>
+                </>
+              }
+              stats={<Money value={p.value} className="text-dim" />}
+              actions={<span className="flex w-full justify-end">{listBtn(p)}</span>}
+            />
+          ))}
+        </PlayerGrid>
+      ) : (
+        <Card>
+          {players.map((p) => (
+            <div key={p.id} className="flex items-center gap-3 border-b border-line/50 px-3 py-2 text-sm last:border-0">
+              <PosBadge pos={p.positions[0]} />
+              <button onClick={() => viewPlayer(p.id)} className="group min-w-0 flex-1 text-left">
+                <span className="flex items-center gap-1.5 truncate font-medium">
+                  <Flag nat={p.nationality} size={13} />
+                  <span className="truncate transition-colors group-hover:text-gold">{p.name}</span>
+                  <span className="ml-1 text-[11px] text-faint">{p.age}y</span>
+                </span>
+                <span className="flex items-center gap-1.5 truncate text-[11px] text-faint">
+                  <ArchetypeIcon archetypeId={p.archetypeId} size={12} />
+                  <span className="truncate">{getArchetype(p.archetypeId).name}</span>
+                </span>
+              </button>
+              <Money value={p.value} className="text-dim" />
+              <Ovr value={p.overall} size="sm" />
+              {listBtn(p)}
+            </div>
+          ))}
+        </Card>
+      )}
+    </>
+  );
+}
+
+function ShortlistTab() {
+  const game = useGame((s) => s.game)!;
+  const toggle = useGame((s) => s.toggleShortlist);
+  const [target, setTarget] = useState<PlayerBio | null>(null);
+  const [view, setView] = usePlayerView("transfers");
+  // The shortlist stores ids; resolve to live players and drop anyone who's since
+  // retired or signed for the user (they no longer belong on a targets list).
+  const players = (game.shortlist ?? [])
+    .map((id) => game.players[id])
+    .filter((p): p is PlayerBio => !!p && !p.retired && p.clubId !== game.userTeamId)
+    .sort((a, b) => b.overall - a.overall);
+
+  if (!players.length) {
+    return (
+      <div className="pt-8 text-center text-sm text-faint">
+        Your shortlist is empty. Open any player&apos;s card and use{" "}
+        <span className="text-dim">Add to Shortlist</span> to track him here.
+      </div>
+    );
+  }
+
+  const right = (p: PlayerBio) => (
+    <div className="flex items-center gap-2">
+      <span className="w-20 text-right">
+        {p.clubId ? <Money value={p.value} className="text-dim" /> : <span className="text-xs text-win">Free</span>}
+      </span>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          toggle(p.id);
+        }}
+        title="Remove from shortlist"
+        className="rounded px-2 py-1 text-xs text-faint hover:text-loss"
+      >
+        ✕
+      </button>
+    </div>
+  );
+
+  return (
+    <>
+      <div className="mb-3 flex justify-end">
+        <ViewToggle view={view} onChange={setView} />
+      </div>
+      {view === "grid" ? (
+        <PlayerGrid>
+          {players.map((p) => (
+            <PlayerCardButton key={p.id} p={p} onClick={() => setTarget(p)} right={right(p)} />
+          ))}
+        </PlayerGrid>
+      ) : (
+        <Card>
+          {players.map((p) => (
+            <PlayerRowButton key={p.id} p={p} onClick={() => setTarget(p)} right={right(p)} />
+          ))}
+        </Card>
+      )}
+      {target && <BidModal p={target} onClose={() => setTarget(null)} />}
+    </>
   );
 }
 
 function FreeAgentsTab() {
   const game = useGame((s) => s.game)!;
   const [target, setTarget] = useState<PlayerBio | null>(null);
+  const [view, setView] = usePlayerView("transfers");
   const agents = Object.values(game.players)
     .filter((p) => !p.retired && !p.clubId)
     .sort((a, b) => b.overall - a.overall);
   return (
     <>
-      <Card>
-        {agents.map((p) => (
-          <PlayerRowButton key={p.id} p={p} onClick={() => setTarget(p)} right={<span className="w-24 text-right text-xs text-win">Free</span>} />
-        ))}
-        {agents.length === 0 && <div className="p-4 text-sm text-faint">No free agents available.</div>}
-      </Card>
+      <div className="mb-3 flex justify-end">
+        <ViewToggle view={view} onChange={setView} />
+      </div>
+      {agents.length === 0 ? (
+        <Card>
+          <div className="p-4 text-sm text-faint">No free agents available.</div>
+        </Card>
+      ) : view === "grid" ? (
+        <PlayerGrid>
+          {agents.map((p) => (
+            <PlayerCardButton key={p.id} p={p} onClick={() => setTarget(p)} right={<span className="text-xs text-win">Free</span>} />
+          ))}
+        </PlayerGrid>
+      ) : (
+        <Card>
+          {agents.map((p) => (
+            <PlayerRowButton key={p.id} p={p} onClick={() => setTarget(p)} right={<span className="w-24 text-right text-xs text-win">Free</span>} />
+          ))}
+        </Card>
+      )}
       {target && <BidModal p={target} onClose={() => setTarget(null)} />}
     </>
   );
 }
+
+// ── Transfer News (v22) ────────────────────────────────────────────────────
+// The world's market wire: every senior deal between clubs as it completes,
+// newest first. Read-only — this is the story of the window, not another place
+// to trade. Rows read left-to-right as the move itself (selling club → player →
+// buying club), the fee is the scoreboard hero on the right, and a kind badge
+// flags anything that isn't a straight cash transfer (free, release clause,
+// loan). The user's own business is tinted gold so it stands out of the flow.
+
+type NewsFilter = "all" | "mine";
+
+/** Visual treatment per deal kind — a compact badge in the game's accent
+ * vocabulary. A plain cash transfer carries no badge (the fee says it all). */
+const NEWS_KIND: Record<string, { label: string; cls: string } | null> = {
+  transfer: null,
+  free: { label: "FREE", cls: "border-win/40 text-win" },
+  release: { label: "RELEASED", cls: "border-loss/40 text-loss" },
+  clause: { label: "CLAUSE", cls: "border-gold-lo/50 text-gold" },
+  loan: { label: "LOAN", cls: "border-[#4a7bd0]/50 text-[#8fb4ee]" },
+};
+
+function TransferNewsTab() {
+  const game = useGame((s) => s.game)!;
+  const viewPlayer = useGame((s) => s.viewPlayer);
+  const [filter, setFilter] = useState<NewsFilter>("all");
+
+  const feed = game.transferNews ?? [];
+  const rows = useMemo(
+    () => (filter === "mine" ? feed.filter((n) => n.involvesUser) : feed),
+    [feed, filter]
+  );
+
+  // Group by the season the deal happened in, so a long save reads as chapters
+  // rather than one endless column. Newest season first (the feed is already
+  // newest-first, so first-seen order preserves that).
+  const groups = useMemo(() => {
+    const bySeason = new Map<number, typeof rows>();
+    for (const n of rows) {
+      const list = bySeason.get(n.season);
+      if (list) list.push(n);
+      else bySeason.set(n.season, [n]);
+    }
+    return Array.from(bySeason.entries());
+  }, [rows]);
+
+  const mineCount = useMemo(() => feed.filter((n) => n.involvesUser).length, [feed]);
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="display text-sm font-semibold">Market Wire</div>
+          <div className="text-[11px] text-faint">
+            {feed.length} deal{feed.length === 1 ? "" : "s"} across the world · newest first
+          </div>
+        </div>
+        <div className="flex overflow-hidden rounded-md border border-line">
+          {(["all", "mine"] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`display px-3 py-1 text-[11px] font-semibold transition-colors ${
+                filter === f ? "gold-grad text-black" : "text-faint hover:text-dim"
+              }`}
+            >
+              {f === "all" ? "ALL CLUBS" : `MY CLUB${mineCount ? ` (${mineCount})` : ""}`}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <Card className="p-8 text-center text-sm text-faint">
+          <div className="display mb-2 text-lg text-dim">THE WIRE IS QUIET</div>
+          {filter === "mine"
+            ? "None of your own deals yet. Buy or sell a player and it lands here."
+            : "No transfers have gone through yet. Deals appear here the moment a window opens and clubs start doing business."}
+        </Card>
+      ) : (
+        <div className="space-y-5">
+          {groups.map(([season, items]) => (
+            <div key={season}>
+              <div className="mb-1.5 flex items-center gap-2">
+                <span className="display text-[11px] uppercase tracking-widest text-faint">
+                  {seasonYearLabel(season)} season
+                </span>
+                <span className="gold-thread h-px flex-1" />
+                <span className="text-[10px] tnum text-faint">{items.length}</span>
+              </div>
+              <Card className="divide-y divide-line/50">
+                {items.map((n) => (
+                  <TransferNewsRow key={n.id} n={n} onView={() => n.playerId && viewPlayer(n.playerId)} />
+                ))}
+              </Card>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One deal on the wire: selling club → player → buying club, fee on the right. */
+function TransferNewsRow({
+  n,
+  onView,
+}: {
+  n: NonNullable<GameStateTransferNews>[number];
+  onView: () => void;
+}) {
+  const game = useGame((s) => s.game)!;
+  const from = n.fromClubId ? game.teams[n.fromClubId] : null;
+  const to = n.toClubId ? game.teams[n.toClubId] : null;
+  const badge = NEWS_KIND[n.kind];
+  // The player may still be in the world (clickable through to his card) or long
+  // gone from a pruned long save — fall back to the denormalised name either way.
+  const playerLive = !!game.players[n.playerId];
+
+  const clubChip = (club: typeof from, fallback: string, align: "left" | "right") => (
+    <span className={`flex min-w-0 items-center gap-1.5 ${align === "right" ? "flex-row-reverse text-right" : ""}`}>
+      {club ? <Crest colors={club.colors} short={club.short} size={18} /> : <span className="text-faint">—</span>}
+      <span className="truncate text-[12px] text-dim">{club?.name ?? fallback}</span>
+    </span>
+  );
+
+  return (
+    <div className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 ${n.involvesUser ? "bg-hover/40" : ""}`}>
+      {/* Player + move direction — the sentence of the deal. */}
+      <div className="flex min-w-0 flex-1 basis-[15rem] items-center gap-2">
+        <button
+          onClick={onView}
+          disabled={!playerLive}
+          className={`display shrink-0 text-sm font-semibold ${playerLive ? "hover:text-gold" : "text-dim"} ${
+            n.involvesUser ? "gold-text" : ""
+          }`}
+          title={playerLive ? "View player" : undefined}
+        >
+          {n.playerName}
+        </button>
+        {badge && (
+          <span className={`display shrink-0 rounded-sm border px-1 py-0.5 text-[8px] font-bold ${badge.cls}`}>
+            {badge.label}
+          </span>
+        )}
+      </div>
+
+      <div className="flex min-w-0 flex-1 basis-[16rem] items-center gap-2">
+        {clubChip(from, n.fromName, "right")}
+        <span className="shrink-0 text-faint" aria-hidden>
+          →
+        </span>
+        {clubChip(to, n.toName, "left")}
+      </div>
+
+      {/* Fee — the scoreboard hero. A free move reads "Free" in win green. */}
+      <div className="ml-auto shrink-0 text-right">
+        {n.fee > 0 ? (
+          <span className="display tnum text-sm font-bold">{formatMoney(n.fee)}</span>
+        ) : (
+          <span className="display text-xs font-semibold text-win">{n.kind === "release" ? "Released" : "Free"}</span>
+        )}
+        <div className="text-[10px] tnum text-faint">{formatDayShort(n.day)}</div>
+      </div>
+    </div>
+  );
+}
+
+/** Helper alias so the row can type its item without importing the array type. */
+type GameStateTransferNews = import("@/lib/types").GameState["transferNews"];

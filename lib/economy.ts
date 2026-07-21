@@ -219,6 +219,7 @@ export type TrainingFacility =
   | "training"
   | "medical"
   | "academy"
+  | "gymnasium"
   | "scoutNetwork"
   | "academySquad"
   | "focusSlot"
@@ -241,6 +242,7 @@ const TRAINING_FACILITY_SPEC: Record<
 > = {
   training: { levelKey: "trainingLevel", costKey: "trainingUpgradeCost", maxKey: "trainingFacilityMaxLevel" },
   medical: { levelKey: "medicalLevel", costKey: "medicalUpgradeCost", maxKey: "trainingFacilityMaxLevel" },
+  gymnasium: { levelKey: "gymnasiumLevel", costKey: "gymnasiumUpgradeCost", maxKey: "trainingFacilityMaxLevel" },
   academy: { levelKey: "academyLevel", costKey: "academyUpgradeCost", maxKey: "academyMaxLevel" },
   scoutNetwork: { levelKey: "scoutNetworkLevel", costKey: "scoutNetworkUpgradeCost", maxKey: "scoutNetworkMaxLevel" },
   academySquad: { levelKey: "academySquadLevel", costKey: "academySquadUpgradeCost", maxKey: "academySquadMaxLevel" },
@@ -323,6 +325,9 @@ export function facilityGrowthMult(
   const team = state.teams[teamId];
   if (!team) return 1;
   let mult = 1;
+
+  // Gymnasium lifts every player's growth regardless of age or position.
+  mult *= 1 + trainingLevelOf(state, teamId, "gymnasium") * cfg.gymnasiumGrowthPerLevel;
 
   const posCentre = POSITION_CENTRE[player.positions[0]];
   if (posCentre) {

@@ -208,6 +208,24 @@ export function staffMarketTick(state: GameState) {
   }
 }
 
+/** Periodic full turnover of the for-hire staff pool (v20). Every slot that
+ * isn't currently appointed gets a brand-new, immediately-available crop, so the
+ * shortlists don't stagnate between hires. An appointed slot is left alone —
+ * hiring deliberately clears its market until the manager dismisses that hire. */
+export function refreshStaffMarket(state: GameState) {
+  const team = state.teams[state.userTeamId];
+  const rng = mulberry32(state.seed ^ (state.currentDay * 0x9e3779b1));
+  const fresh: StaffCandidate[] = [];
+  for (const def of STAFF_SLOTS) {
+    if (def.dormant) continue;
+    if (team.staff[def.slot]) continue; // appointed — leave the slot as it is
+    fresh.push(...generateSlotCandidates(rng, def.slot)); // immediately available
+  }
+  // Keep entries for appointed slots (there shouldn't be any), swap the rest.
+  const appointed = new Set(STAFF_SLOTS.filter((d) => team.staff[d.slot]).map((d) => d.slot));
+  state.staffMarket = state.staffMarket.filter((c) => appointed.has(c.slot)).concat(fresh);
+}
+
 export function staffStars(state: GameState, teamId: string, slot: StaffSlot): number {
   return state.teams[teamId]?.staff[slot]?.stars ?? 0;
 }

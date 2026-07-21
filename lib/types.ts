@@ -2,7 +2,7 @@
 // Single source of truth for all game data shapes. Schema-versioned so the
 // save/export format doubles as the modding format (GAME_DESIGN.md §2, §13).
 
-export const SCHEMA_VERSION = 20;
+export const SCHEMA_VERSION = 23;
 
 export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "AM" | "LW" | "RW" | "ST";
 
@@ -261,6 +261,10 @@ export interface Team {
   trainingLevel?: number;
   medicalLevel?: number;
   academyLevel?: number;
+  /** Gymnasium (v20): a core facility that lifts development speed for the whole
+   * squad regardless of age — the broad conditioning base that complements the
+   * Training Centre (which the dev pass caps to under-25s). Optional (default 0). */
+  gymnasiumLevel?: number;
   /** Specialist training facilities (v15). Each is an independent one-time
    * upgrade track that sharpens one part of development rather than raising the
    * general growth rate:
@@ -485,12 +489,22 @@ export interface SimTopScorer {
   goals: number;
 }
 
+/** A synthetic assist line for a sim league (v23). Same shape as the scorer
+ * line — the resolver credits assists off the same weighted draw. */
+export interface SimTopAssister {
+  playerId: string;
+  assists: number;
+}
+
 export interface SimLeagueResult {
   leagueId: string;
   season: number;
-  half: 1 | 2; // resolved before winter window (1) and before summer (2)
+  half: 1 | 2; // resolved before winter window (1) and after the final round (2)
   table: TableRow[];
   topScorers: SimTopScorer[];
+  /** Top assist-makers (v23). Absent on saves resolved before the upgrade — the
+   * UI degrades to scorers only. */
+  topAssists?: SimTopAssister[];
 }
 
 // ── Economy / transfers ───────────────────────────────────────────────────
@@ -523,6 +537,33 @@ export interface TransferOffer {
    * unreasonable ask costs far more than a modest one — so how hard you push
    * matters as much as how often. At 0 the buyer walks. */
   patience?: number;
+}
+
+/** One completed deal in the world's transfer feed (v22, Transfers → News).
+ *
+ * Every senior transfer between clubs is logged here as it completes — the
+ * user's own business, AI↔AI trades, release-clause triggers and free-agent
+ * moves — so the Transfer News tab reads as a live wire of market activity.
+ * Distinct from `state.news` (a short flavour ticker that rolls off): this is a
+ * structured, filterable ledger the UI renders with crests and fees. Newest
+ * first; capped so a long save doesn't accumulate unbounded history. */
+export interface TransferNewsItem {
+  id: string;
+  season: number;
+  day: number;
+  playerId: string;
+  playerName: string; // denormalised — survives even if the player is later pruned
+  /** Selling club id, or null for a free-agent signing. */
+  fromClubId: string | null;
+  fromName: string;
+  /** Buying club id, or null when a player is released to free agency. */
+  toClubId: string | null;
+  toName: string;
+  fee: number;
+  /** How the move came about — colours the row and lets the UI badge it. */
+  kind: "transfer" | "free" | "release" | "clause" | "loan";
+  /** True when the user's own club was a party to the deal (buyer or seller). */
+  involvesUser: boolean;
 }
 
 export interface StaffCandidate {
@@ -862,6 +903,12 @@ export interface GameState {
   inbox: InboxItem[];
   offers: TransferOffer[];
   transferList: string[]; // user players listed for sale
+  /** The user's scouting shortlist (v21): players at OTHER clubs (or free agents)
+   * the manager is tracking. Purely a personal watchlist — being on it has no
+   * effect on the world, it just collects targets in one place (Transfers →
+   * Shortlist). Added from a player's card; distinct from `transferList`, which
+   * is the user's own players put up for sale. */
+  shortlist?: string[];
   /** User players made available for loan (v14). Like `transferList`, this is a
    * visibility flag rather than a queue: listed players draw AI loan interest
    * during open windows. Academy loans share the same list. */
@@ -870,10 +917,18 @@ export interface GameState {
   /** Scout hiring market (v14) — the scouting department's own shortlist,
    * separate from `staffMarket` since scouts carry two ratings. */
   scoutMarket?: ScoutCandidate[];
+  /** Day the staff & scout hiring markets next cycle in (v20). On top of the
+   * dismiss-to-refresh cadence, every `marketRefreshDays` the whole for-hire pool
+   * turns over so the shortlists don't go stale. Optional for old saves. */
+  marketRefreshDay?: number;
   simResults: SimLeagueResult[]; // latest per sim league
   academy: AcademyState; // Youth Academy (§18, v4)
   recordBook: RecordBook;
   pendingMatchFixtureId: string | null; // set when Continue stops on a matchday
   lastExportSeason: number; // for backup reminders
   news: string[]; // ticker
+  /** Structured world-wide transfer feed (v22, Transfers → News). Every senior
+   * deal that completes is appended (newest first) and rendered as a filterable
+   * ledger. Optional for old saves — backfilled empty at migration. */
+  transferNews?: TransferNewsItem[];
 }

@@ -8,10 +8,12 @@
 import { useMemo } from "react";
 import { useGame } from "@/store/gameStore";
 import { computeTable } from "@/lib/season";
+import { formatDayShort } from "@/lib/calendar";
 import { POS_ORDER } from "@/lib/config/positions";
 import { getArchetype } from "@/lib/config/archetypes";
 import { squadWageBill } from "@/lib/value";
 import { TUNING } from "@/lib/config/tuning";
+import type { Fixture } from "@/lib/types";
 import { ArchetypeIcon, Card, Crest, Flag, Money, Ovr, PosBadge } from "../ui";
 
 export default function TeamCard({ teamId, onClose }: { teamId: string; onClose: () => void }) {
@@ -47,6 +49,27 @@ export default function TeamCard({ teamId, onClose }: { teamId: string; onClose:
     const pos = sim.table.findIndex((r) => r.teamId === teamId);
     return pos >= 0 ? { pos: pos + 1, of: sim.table.length } : null;
   }, [game.fixtures, game.simResults, team.leagueId, league, teamId]);
+
+  // This season's leaders, drawn from the squad's running stats. Populated live
+  // for playable leagues and by the sim resolver for the rest, so both work.
+  const topScorer = useMemo(() => {
+    const best = squad.filter((p) => p.stats.goals > 0).sort((a, b) => b.stats.goals - a.stats.goals)[0];
+    return best ? { p: best, value: best.stats.goals } : null;
+  }, [squad]);
+  const topAssist = useMemo(() => {
+    const best = squad.filter((p) => p.stats.assists > 0).sort((a, b) => b.stats.assists - a.stats.assists)[0];
+    return best ? { p: best, value: best.stats.assists } : null;
+  }, [squad]);
+
+  // Recent results (this season). Only playable leagues carry per-fixture data;
+  // sim leagues resolve statistically, so there's nothing to list for them.
+  const recent = useMemo(() => {
+    if (!league?.playable) return [] as Fixture[];
+    return game.fixtures
+      .filter((f) => f.played && (f.homeId === teamId || f.awayId === teamId))
+      .sort((a, b) => b.day - a.day || b.round - a.round)
+      .slice(0, 8);
+  }, [game.fixtures, league, teamId]);
 
   const avgOvr = squad.length ? Math.round(squad.reduce((s, p) => s + p.overall, 0) / squad.length) : 0;
   const squadValue = squad.reduce((s, p) => s + p.value, 0);
@@ -103,6 +126,71 @@ export default function TeamCard({ teamId, onClose }: { teamId: string; onClose:
           {stat("Wage bill / wk", <Money value={wageBill} />)}
         </div>
 
+        {/* season leaders */}
+        {(topScorer || topAssist) && (
+          <div className="mb-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <LeaderCard
+              label="Top Scorer"
+              suffix="goals"
+              leader={topScorer}
+              onView={(id) => {
+                onClose();
+                viewPlayer(id);
+              }}
+            />
+            <LeaderCard
+              label="Top Assists"
+              suffix="assists"
+              leader={topAssist}
+              onView={(id) => {
+                onClose();
+                viewPlayer(id);
+              }}
+            />
+          </div>
+        )}
+
+        {/* recent results (playable leagues only) */}
+        {recent.length > 0 && (
+          <div className="mb-5">
+            <div className="mb-1 flex items-end justify-between">
+              <h3 className="display text-lg font-semibold">Recent Results</h3>
+              <span className="text-xs text-faint">This season</span>
+            </div>
+            <div className="gold-thread mb-3" />
+            <Card className="divide-y divide-line/50">
+              {recent.map((f) => {
+                const home = f.homeId === teamId;
+                const oppId = home ? f.awayId : f.homeId;
+                const opp = game.teams[oppId];
+                const gf = home ? f.homeGoals! : f.awayGoals!;
+                const ga = home ? f.awayGoals! : f.homeGoals!;
+                const shootoutWon = f.shootoutWinnerId ? f.shootoutWinnerId === teamId : null;
+                const won = shootoutWon ?? gf > ga;
+                const lost = f.shootoutWinnerId ? !shootoutWon : gf < ga;
+                const badge = won ? "W" : lost ? "L" : "D";
+                const badgeTone = won ? "bg-win/20 text-win" : lost ? "bg-loss/20 text-loss" : "bg-draw/20 text-draw";
+                const compLabel = f.competition === "CUP" ? "Cup" : game.leagues[f.competition]?.name ?? "";
+                return (
+                  <div key={f.id} className="flex items-center gap-2.5 px-3 py-2 text-[13px]">
+                    <span className={`display flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px] text-[10px] font-bold ${badgeTone}`}>
+                      {badge}
+                    </span>
+                    <span className="w-10 shrink-0 text-[10px] uppercase text-faint">{home ? "vs" : "at"}</span>
+                    <Crest colors={opp.colors} short={opp.short} size={16} />
+                    <span className="min-w-0 flex-1 truncate">{opp.name}</span>
+                    <span className="shrink-0 tnum text-[10px] text-faint">{formatDayShort(f.day)}</span>
+                    <span className="display w-12 shrink-0 text-center tnum font-semibold">
+                      {gf}–{ga}
+                    </span>
+                    {compLabel && <span className="hidden w-14 shrink-0 truncate text-right text-[10px] text-faint sm:inline">{compLabel}</span>}
+                  </div>
+                );
+              })}
+            </Card>
+          </div>
+        )}
+
         {/* squad */}
         <div className="mb-1 flex items-end justify-between">
           <h3 className="display text-lg font-semibold">Squad</h3>
@@ -135,6 +223,40 @@ export default function TeamCard({ teamId, onClose }: { teamId: string; onClose:
           {squad.length === 0 && <div className="p-4 text-sm text-faint">No players.</div>}
         </Card>
       </div>
+    </div>
+  );
+}
+
+/** A season-leader tile (top scorer / assists): headshot-free, name + tally.
+ * Renders a muted placeholder when the club has nobody on the board yet. */
+function LeaderCard({
+  label,
+  suffix,
+  leader,
+  onView,
+}: {
+  label: string;
+  suffix: string;
+  leader: { p: import("@/lib/types").PlayerBio; value: number } | null;
+  onView: (id: string) => void;
+}) {
+  return (
+    <div className="rounded-md border border-line bg-raised px-3 py-2">
+      <div className="mb-1 text-[10px] uppercase tracking-widest text-faint">{label}</div>
+      {leader ? (
+        <button onClick={() => onView(leader.p.id)} className="flex w-full items-center justify-between text-left hover:text-gold">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <Flag nat={leader.p.nationality} size={13} />
+            <span className="min-w-0 truncate text-sm font-medium">{leader.p.name}</span>
+          </span>
+          <span className="display shrink-0 tnum text-sm font-bold">
+            {leader.value}
+            <span className="ml-1 text-[10px] font-normal text-faint">{suffix}</span>
+          </span>
+        </button>
+      ) : (
+        <div className="text-sm text-faint">—</div>
+      )}
     </div>
   );
 }

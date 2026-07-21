@@ -24,6 +24,7 @@ export default function PlayerProfileModal() {
   const setTrainingPlan = useGame((s) => s.setTrainingPlan);
   const autoAssignPlan = useGame((s) => s.autoAssignTrainingPlan);
   const toggleTransferList = useGame((s) => s.toggleTransferList);
+  const toggleShortlist = useGame((s) => s.toggleShortlist);
   const toggleLoan = useGame((s) => s.academyToggleLoan);
   const releaseSenior = useGame((s) => s.releaseSenior);
   const [tab, setTab] = useState<"bio" | "career">("bio");
@@ -49,6 +50,11 @@ export default function PlayerProfileModal() {
   const isUserSenior =
     !isPreview &&
     p.clubId === game.userTeamId && game.teams[game.userTeamId].playerIds.includes(p.id) && !p.loan && !p.retired;
+  // A recruitment target: a real world player at another club (or a free agent)
+  // the user can add to their scouting shortlist (v21). Not for the user's own
+  // players, retirees, or scouted previews (they aren't in the world yet).
+  const canShortlist = !isPreview && !p.retired && p.clubId !== game.userTeamId;
+  const shortlisted = (game.shortlist ?? []).includes(p.id);
   const arch = getArchetype(p.archetypeId);
   const career = game.careers[p.id];
   const avgRating = p.stats.apps ? (p.stats.ratingSum / p.stats.apps).toFixed(2) : "—";
@@ -231,6 +237,30 @@ export default function PlayerProfileModal() {
               </p>
             </Section>
           </div>
+
+          {/* Scouting shortlist (v21) — track another club's player (or a free
+              agent) as a recruitment target. Purely a personal watchlist; it
+              collects the target under Transfers → Shortlist. */}
+          {canShortlist && (
+            <Section title="Recruitment">
+              <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+                <div className="min-w-0 flex-1">
+                  <div className="display font-semibold text-ink">
+                    Shortlist
+                    {shortlisted && <span className="ml-2 text-[10px] font-normal text-gold">SHORTLISTED</span>}
+                  </div>
+                  <div className="text-[12px] leading-relaxed text-faint">
+                    {shortlisted
+                      ? "He's on your shortlist — find him under Transfers → Shortlist to make a move when the window's open."
+                      : "Keep an eye on him. Adding him to your shortlist collects him with your other targets under Transfers → Shortlist."}
+                  </div>
+                </div>
+                <GhostButton onClick={() => toggleShortlist(p.id)} className="shrink-0 !py-1.5 text-xs">
+                  {shortlisted ? "REMOVE FROM SHORTLIST" : "ADD TO SHORTLIST"}
+                </GhostButton>
+              </Card>
+            </Section>
+          )}
 
           {/* Shirt number (v15) — re-assignable, swapping with the incumbent */}
           {isUserOwned && <KitNumberPanel playerId={p.id} />}

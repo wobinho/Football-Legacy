@@ -11,6 +11,7 @@ import type { StaffDept, StaffSlot } from "@/lib/types";
 import { staffSlotsForDept } from "@/lib/staff";
 import { formatMoney } from "@/lib/value";
 import { Card, ConfirmButton, Flag, Stars } from "../ui";
+import { MarketRefreshTimer } from "./Academy";
 
 // A distinct accent colour per staff slot, so each position reads as its own
 // bounded module (requirement: visual boundary + coloured borders per slot).
@@ -37,6 +38,9 @@ export default function StaffPanel({ dept, intro }: { dept: StaffDept; intro?: R
   return (
     <div className="space-y-6">
       {intro && <p className="max-w-3xl text-[13px] leading-relaxed text-dim">{intro}</p>}
+      <div className="flex justify-end">
+        <MarketRefreshTimer />
+      </div>
       <div className="grid grid-cols-1 gap-x-6 gap-y-6 lg:grid-cols-2">
       {slots.map((def) => {
         const current = team.staff[def.slot];

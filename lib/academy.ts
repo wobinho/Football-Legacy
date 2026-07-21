@@ -880,6 +880,12 @@ export function promoteToSenior(state: GameState, playerId: string, cfg: TuningC
     return `Too young to promote — prospects join the senior squad at ${cfg.academyPromoteMinAge}.`;
   }
   if (prospect?.loan) return "Recall the loan first.";
+  // A prospect registered for the U21 competition is locked to that side for the
+  // duration — promoting mid-competition would pull him from a squad he can no
+  // longer be replaced in, so the registration bars the promotion until it lapses.
+  if ((state.academy.u21.registered ?? []).includes(playerId)) {
+    return "Registered for the U21 competition — he can't be promoted until the next registration window.";
+  }
   // No senior squad cap (v14) — promotion is a football decision, not a slot
   // hunt. The academy squad cap is still the pipeline's real constraint.
   team.academyPlayerIds = academy.filter((id) => id !== playerId);

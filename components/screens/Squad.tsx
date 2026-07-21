@@ -8,9 +8,8 @@ import type { PlayerBio } from "@/lib/types";
 import { getArchetype } from "@/lib/config/archetypes";
 import { POS_ORDER } from "@/lib/config/positions";
 import { yearsLeft } from "@/lib/contracts";
-import { seasonGrowth } from "@/lib/development";
 import { formatMoney } from "@/lib/value";
-import { ArchetypeIcon, FitnessBar, Flag, FormChip, Money, Ovr, PosBadge, Section } from "../ui";
+import { ArchetypeIcon, FitnessBar, Flag, FormChip, Money, Ovr, PlayerCard, PlayerGrid, PosBadge, Section, usePlayerView, ViewToggle } from "../ui";
 
 type SortKey = "pos" | "name" | "age" | "overall" | "fitness" | "value" | "goals" | "apps" | "contract";
 
@@ -20,6 +19,7 @@ export default function SquadScreen() {
   const viewPlayer = useGame((s) => s.viewPlayer);
   const [sort, setSort] = useState<SortKey>("pos");
   const [desc, setDesc] = useState(false);
+  const [view, setView] = usePlayerView("squad");
 
   const team = game.teams[game.userTeamId];
   const players = useMemo(() => {
@@ -59,16 +59,59 @@ export default function SquadScreen() {
     <Section
       title={`Squad — ${players.length} players`}
       right={
-        <span className="text-xs text-faint">
-          {[
-            game.transferList.length ? `${game.transferList.length} transfer-listed` : "",
-            game.academy.loanList.length ? `${game.academy.loanList.length} loan-listed` : "",
-          ]
-            .filter(Boolean)
-            .join(" · ")}
+        <span className="flex items-center gap-3">
+          <span className="hidden text-xs text-faint sm:inline">
+            {[
+              game.transferList.length ? `${game.transferList.length} transfer-listed` : "",
+              game.academy.loanList.length ? `${game.academy.loanList.length} loan-listed` : "",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+          <ViewToggle view={view} onChange={setView} />
         </span>
       }
     >
+      {view === "grid" ? (
+        <PlayerGrid>
+          {players.map((p) => (
+            <PlayerCard
+              key={p.id}
+              p={p}
+              onOpen={() => viewPlayer(p.id)}
+              ovr={<Ovr value={p.overall} size="sm" />}
+              sub={
+                <>
+                  <ArchetypeIcon archetypeId={p.archetypeId} size={12} />
+                  <span className="truncate">{getArchetype(p.archetypeId).name}</span>
+                </>
+              }
+              badges={
+                <>
+                  {game.transferList.includes(p.id) && <span className="text-[10px] text-gold">LISTED</span>}
+                  {!p.loan && game.academy.loanList.includes(p.id) && (
+                    <span className="text-[10px] text-win">LOAN-LISTED</span>
+                  )}
+                  {p.loan && (
+                    <span className="text-[10px] text-win">ON LOAN · {game.teams[p.loan.toClubId]?.short}</span>
+                  )}
+                  {p.traits.length > 0 && <span className="text-[10px] text-faint">{"◆".repeat(p.traits.length)}</span>}
+                </>
+              }
+              stats={
+                <>
+                  <FitnessBar value={p.fitness} />
+                  <FormChip form={p.form} />
+                  <span className="tnum">
+                    {p.stats.goals}/{p.stats.assists}
+                  </span>
+                  <Money value={p.value} className="text-dim" />
+                </>
+              }
+            />
+          ))}
+        </PlayerGrid>
+      ) : (
       <div className="overflow-x-auto rounded-md border border-line bg-surface">
         <table className="w-full min-w-[880px] text-sm">
           <thead className="border-b border-line">
@@ -116,7 +159,11 @@ export default function SquadScreen() {
                   </span>
                 </td>
                 <td className="px-2 py-2 text-center">
-                  <Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />
+                  {/* No season-growth badge on the squad list (v21): at the start
+                      of a season nobody has moved yet, so the badge would read as
+                      a flat column of nothing. The running +/- lives on the Player
+                      Profile and Development screens where it has context. */}
+                  <Ovr value={p.overall} size="sm" />
                 </td>
                 <td className="px-2 py-2">
                   <FitnessBar value={p.fitness} />
@@ -153,6 +200,7 @@ export default function SquadScreen() {
           </tbody>
         </table>
       </div>
+      )}
     </Section>
   );
 }

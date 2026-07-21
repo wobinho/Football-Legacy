@@ -25,8 +25,8 @@ import { refreshClubStances } from "./ai/strategy";
 import { rolloverContracts, ensureContracts } from "./contracts";
 import { resolveSimLeagues } from "./simresolver";
 import { buildSeasonSummary, trackBiggestWin } from "./recordbook";
-import { generateStaffMarket, staffMarketTick } from "./staff";
-import { scoutMarketTick } from "./scouts";
+import { generateStaffMarket, staffMarketTick, refreshStaffMarket } from "./staff";
+import { scoutMarketTick, refreshScoutMarketFull } from "./scouts";
 import { refreshAiCommercial, refreshSponsorOffers, rolloverSponsors } from "./sponsors";
 import { getFormation } from "./config/formations";
 import {
@@ -46,7 +46,100 @@ export type StopReason =
   | { kind: "matchday"; fixtureId: string }
   | { kind: "offer" }
   | { kind: "seasonEnd" }
+  | { kind: "gate"; gate: CalendarGate } // a calendar "simulate ahead" hit an important day
   | { kind: "idle" }; // safety valve
+
+/**
+ * An important calendar day a "simulate ahead" should not silently skip over
+ * (§3). When the user fast-forwards several days at once, the loop pauses the day
+ * BEFORE one of these so they can act on it — register a youth side, shop a
+ * window that's about to open, or get a deal done before one closes — rather than
+ * blowing past it. Each gate is a one-off per calendar day, deduped by `id`.
+ */
+export interface CalendarGate {
+  /** The day the important thing happens; the sim pauses the day before it. */
+  day: number;
+  /** Stable id so the same gate isn't offered twice on the same day. */
+  id: string;
+  title: string;
+  body: string;
+  /** Where to send the user to act on it, if anywhere. */
+  screen?: import("./types").ScreenId;
+}
+
+/**
+ * The first important day strictly after `fromDay` and on/before `targetDay`
+ * that a fast-forward should pause at — or null if the stretch is clear. Only
+ * gates the user can still do something about are returned:
+ *  - a U21 registration deadline they haven't met yet,
+ *  - a transfer window about to open (a chance to shop),
+ *  - a transfer window about to close (last chance to act),
+ *  - the youth intake day (a class is about to arrive).
+ *
+ * Pure over the state it reads; the loop calls it, never mutates through it.
+ */
+export function nextCalendarGate(state: GameState, fromDay: number, targetDay: number): CalendarGate | null {
+  const sched = state.schedule;
+  const gates: CalendarGate[] = [];
+  const push = (day: number, id: string, title: string, body: string, screen?: import("./types").ScreenId) => {
+    if (day > fromDay && day <= targetDay) gates.push({ day, id, title, body, screen });
+  };
+
+  // U21 registration deadline — only if the user still needs to act (window open,
+  // not yet registered, not already forfeited). Pausing exactly on the deadline
+  // still leaves the day to register.
+  const u21 = state.academy?.u21;
+  if (u21 && !u21.forfeited && u21.registrationDay !== undefined && (u21.registered?.length ?? 0) === 0) {
+    push(
+      u21.registrationDay,
+      `u21reg:${state.season}:${u21.half ?? 0}`,
+      "U21 registration closing",
+      "The registration deadline for the U21 competition is here. Submit your seven prospects on the Academy screen before it closes, or a drawn side takes your entry.",
+      "academy"
+    );
+  }
+
+  // Winter window opens — a fresh chance to shop, with updated sim tables.
+  push(
+    sched.winterOpenDay,
+    `winOpen:${state.season}`,
+    "Winter transfer window opens",
+    "The winter window is about to open. Sim leagues have refreshed tables and form to shop against — a chance to strengthen for the run-in.",
+    "transfers"
+  );
+
+  // Windows about to close — last chance to get a deal over the line.
+  push(
+    sched.summerCloseDay,
+    `sumClose:${state.season}`,
+    "Summer window closing",
+    "The summer transfer window is about to close. Get any remaining business done — deals won't resume until the winter window.",
+    "transfers"
+  );
+  push(
+    sched.winterCloseDay,
+    `winClose:${state.season}`,
+    "Winter window closing",
+    "The winter transfer window is about to close. This is your last chance to buy or sell until the summer.",
+    "transfers"
+  );
+
+  // Youth intake — a new class of prospects arrives.
+  if (sched.intakeDay !== undefined) {
+    push(
+      sched.intakeDay,
+      `intake:${state.season}`,
+      "Youth intake day",
+      "This year's academy intake is about to arrive. Head to the Academy screen to see who's come through.",
+      "academy"
+    );
+  }
+
+  if (!gates.length) return null;
+  // Earliest gate first; the sim pauses the day before it.
+  gates.sort((a, b) => a.day - b.day);
+  return gates[0];
+}
 
 export function matchSeed(state: GameState, fixture: Fixture): number {
   return deriveSeed(state.seed, `match:${state.season}:${fixture.id}:${hashString(fixture.homeId + fixture.awayId)}`);
@@ -212,6 +305,13 @@ function advanceDay(state: GameState): StopReason | null {
   staffMarketTick(state);
   // Scouting department shortlist tops itself back up the same way (v14).
   scoutMarketTick(state, cfg);
+  // Periodic full turnover of both for-hire pools (v20): every marketRefreshDays
+  // the shortlists cycle so they never go stale between hires.
+  if (state.marketRefreshDay !== undefined && day >= state.marketRefreshDay) {
+    refreshStaffMarket(state);
+    refreshScoutMarketFull(state, cfg);
+    state.marketRefreshDay = day + cfg.marketRefreshDays;
+  }
   // Sponsorship offers land in any empty slot (v6, Club → Income).
   refreshSponsorOffers(state, cfg);
 
@@ -279,13 +379,33 @@ export function advanceOneDay(state: GameState): StopReason {
  * and swallowing transfer-offer interrupts along the way. Stops early only at a
  * season rollover (the world is a different shape after) or if we somehow blow
  * past a safety bound. `targetDay` is inclusive of that day's fixtures.
+ *
+ * Progress gate (§3): a multi-day jump won't silently skip an important calendar
+ * day (a U21 registration deadline, a window opening or closing, the youth
+ * intake). When one falls inside the span, the sim pauses the day BEFORE it and
+ * returns a `gate` stop so the UI can surface it — the user then acts and
+ * continues past it. Pass `ignoreGate` (the same target the gate stopped at) to
+ * carry on THROUGH a gate the user has acknowledged, so "keep going" doesn't get
+ * caught on the same day forever.
  */
-export function advanceToDay(state: GameState, targetDay: number): StopReason {
+export function advanceToDay(state: GameState, targetDay: number, ignoreGate?: string): StopReason {
   if (isSeasonComplete(state)) return { kind: "seasonEnd" };
   // Never sim across the season boundary: the rollover rebuilds fixtures and
   // resets currentDay, so anything past this day belongs to a different world.
   // The player takes that step deliberately via END SEASON.
-  const limit = Math.min(targetDay, state.schedule.seasonEndDay);
+  const hardLimit = Math.min(targetDay, state.schedule.seasonEndDay);
+
+  // Find the first important day in the span and pause the day before it, unless
+  // it's the one the user just acknowledged (then it no longer gates this jump).
+  let gate = nextCalendarGate(state, state.currentDay, hardLimit);
+  if (gate && gate.id === ignoreGate) {
+    // Look past the acknowledged gate for the NEXT one, so a jump spanning two
+    // deadlines still pauses at the second.
+    gate = nextCalendarGate(state, gate.day, hardLimit);
+  }
+  // Pause the day before the gate (but never before where we already are).
+  const limit = gate ? Math.max(state.currentDay, Math.min(hardLimit, gate.day - 1)) : hardLimit;
+
   let guard = 0;
   while (state.currentDay < limit && guard++ < 420) {
     const stop = advanceDay(state);
@@ -304,7 +424,12 @@ export function advanceToDay(state: GameState, targetDay: number): StopReason {
       return stop;
     }
   }
-  return isSeasonComplete(state) ? { kind: "seasonEnd" } : { kind: "idle" };
+  if (isSeasonComplete(state)) return { kind: "seasonEnd" };
+  // Reached the day before a gate without hitting a harder stop — surface it.
+  if (gate && state.currentDay >= limit && state.currentDay < hardLimit) {
+    return { kind: "gate", gate };
+  }
+  return { kind: "idle" };
 }
 
 /** Simulate the user's fixture headlessly using their saved (or auto-filled) lineup. */
@@ -471,6 +596,11 @@ export function runSeasonRollover(state: GameState) {
   state.cup = initCup(playableDivs.flatMap((id) => state.leagues[id].teamIds));
   state.currentDay = state.schedule.seasonStartDay;
   state.staffMarket = generateStaffMarket(deriveSeed(state.seed, `staff:${state.season}`));
+  state.marketRefreshDay = state.schedule.seasonStartDay + cfg.marketRefreshDays;
+  // Resolve the non-playable leagues for the new season so the open summer window
+  // has current tables and form to shop against from day one — matching the fresh
+  // save (worldgen), rather than waiting for the winter resolution.
+  resolveSimLeagues(state, 1, cfg);
   rolloverSponsors(state); // expire deals that have run their course (v6)
   state.offers = [];
   state.lineup = {};

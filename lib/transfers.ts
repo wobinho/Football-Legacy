@@ -5,7 +5,7 @@
 // values. Valuation formula details and richer AI behavior are the knobs
 // the future session should revisit — all logic is isolated in this module.
 
-import type { GameState, PlayerBio, TransferOffer } from "./types";
+import type { GameState, PlayerBio, TransferNewsItem, TransferOffer } from "./types";
 import type { TuningConfig } from "./config/tuning";
 import { TUNING } from "./config/tuning";
 import { transferWindowState } from "./calendar";
@@ -68,6 +68,45 @@ function ensureCareer(state: GameState, playerId: string) {
   if (!state.careers[playerId]) state.careers[playerId] = { playerId, seasons: [], transfers: [] };
 }
 
+/** Cap on the structured transfer feed (v22). Deep enough to read as a live wire
+ * across a whole season's windows, bounded so a long save can't grow it forever. */
+const TRANSFER_NEWS_CAP = 200;
+
+/**
+ * Append one completed deal to the world's transfer feed (v22, Transfers →
+ * News). Called from completeTransfer for every senior move between clubs. The
+ * kind is derived here from the from/to shape unless the caller pins it (a
+ * release-clause trigger and a plain sale both go club→club, so the caller
+ * disambiguates those). Free-agent signings and releases are inferred.
+ */
+function logTransferNews(
+  state: GameState,
+  p: PlayerBio,
+  fromClubId: string | null,
+  toClubId: string | null,
+  fee: number,
+  kind?: TransferNewsItem["kind"]
+) {
+  const feed = (state.transferNews ??= []);
+  const resolved: TransferNewsItem["kind"] =
+    kind ?? (!fromClubId ? "free" : !toClubId ? "release" : "transfer");
+  feed.unshift({
+    id: uid("tn"),
+    season: state.season,
+    day: state.currentDay,
+    playerId: p.id,
+    playerName: p.name,
+    fromClubId,
+    fromName: fromClubId ? state.teams[fromClubId]?.name ?? "—" : "Free agent",
+    toClubId,
+    toName: toClubId ? state.teams[toClubId]?.name ?? "—" : "Released",
+    fee,
+    kind: resolved,
+    involvesUser: fromClubId === state.userTeamId || toClubId === state.userTeamId,
+  });
+  if (feed.length > TRANSFER_NEWS_CAP) feed.length = TRANSFER_NEWS_CAP;
+}
+
 /** Move a player between clubs (or from/to free agency) and settle money. When a
  * destination is given, the player picks up a contract there — explicit terms if
  * supplied (a user-negotiated signing), otherwise a default deal at their
@@ -77,7 +116,10 @@ export function completeTransfer(
   playerId: string,
   toClubId: string | null,
   fee: number,
-  terms?: { wage: number; years: number; releaseClause?: number }
+  terms?: { wage: number; years: number; releaseClause?: number },
+  /** How the deal came about (v22 transfer feed). Defaults are inferred from the
+   * from/to shape; pass "clause" or "loan" where they can't be. */
+  kind?: TransferNewsItem["kind"]
 ) {
   const p = state.players[playerId];
   const fromClubId = p.clubId;
@@ -117,6 +159,10 @@ export function completeTransfer(
     to: toClubId ? state.teams[toClubId].name : "Released",
     fee,
   });
+  // Structured world feed (v22, Transfers → News). Logged for every move a club
+  // is party to — a plain release with no club on either side (shouldn't happen)
+  // is skipped so the feed stays about clubs doing business.
+  if (fromClubId || toClubId) logTransferNews(state, p, fromClubId, toClubId, fee, kind);
   // clean up any other pending offers for this player
   state.offers = state.offers.filter((o) => o.playerId !== playerId || o.status !== "pending");
   state.transferList = state.transferList.filter((id) => id !== playerId);
@@ -383,15 +429,20 @@ export function aiWeeklyTransferTick(state: GameState, cfg: TuningConfig): boole
   const listedAcademy = (user.academyPlayerIds ?? [])
     .map((id) => state.players[id])
     .filter((p) => p && !p.loan && state.transferList.includes(p.id));
+  // A player draws interest even when he isn't listed (v21) — a good footballer
+  // is a target whether or not his club is shopping him. Listing still matters a
+  // great deal (it triples the chance below), but the market no longer goes quiet
+  // simply because the user hasn't put anyone up for sale. The senior floor is
+  // low enough that squad players get the odd approach, not just the stars.
   const userPlayers = [
-    ...user.playerIds.map((id) => state.players[id]).filter((p) => p.overall >= 62),
+    ...user.playerIds.map((id) => state.players[id]).filter((p) => p.overall >= 58 && !p.loan),
     ...listedAcademy,
   ];
   if (userPlayers.length && user.playerIds.length > 14) {
     const listedBoost = (p: PlayerBio) => (state.transferList.includes(p.id) ? 3 : 1);
     const quality = (p: PlayerBio) => Math.max(p.overall, p.age <= 21 ? p.potential - 12 : 0);
     for (const p of userPlayers) {
-      const chance = cfg.aiBidChancePerWeek * listedBoost(p) * (quality(p) - 58) * 0.015;
+      const chance = cfg.aiBidChancePerWeek * listedBoost(p) * (quality(p) - 54) * 0.015;
       if (rng() < chance) {
         // Only clubs with a real hole in this player's position come calling,
         // and only if he'd actually improve them (§10) — an offer should always
@@ -405,7 +456,7 @@ export function aiWeeklyTransferTick(state: GameState, cfg: TuningConfig): boole
               // of spendable cash and the wages out of income. An offer the
               // buyer could never honour is noise on the user's screen.
               canAfford(state, t, p.value, wageDemand(state, p, cfg), cfg) &&
-              t.reputation >= state.teams[state.userTeamId].reputation - 25
+              t.reputation >= state.teams[state.userTeamId].reputation - 35
           )
           .map((t) => {
             const need = squadNeeds(state, t, cfg).find((n) => p.positions.includes(n.pos));
@@ -421,7 +472,7 @@ export function aiWeeklyTransferTick(state: GameState, cfg: TuningConfig): boole
           // an inbox note rather than an offer, because it isn't a decision.
           const clause = p.contract?.releaseClause;
           if (clause && spendableBudget(state, buyer, cfg) >= clause) {
-            completeTransfer(state, p.id, buyer.id, clause);
+            completeTransfer(state, p.id, buyer.id, clause, undefined, "clause");
             state.news.unshift(`${buyer.name} trigger ${p.name}'s ${fmtFee(clause)} release clause.`);
             state.inbox.unshift({
               id: uid("inb"),

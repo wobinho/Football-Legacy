@@ -14,7 +14,7 @@ import { devPhase, seasonGrowth, seasonGrowthEstimate, seasonAttrFocus } from "@
 import { trainingNextCost, type TrainingFacility } from "@/lib/economy";
 import { formatMoney } from "@/lib/value";
 import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan, type TrainingPlanDef } from "@/lib/config/training";
-import { Card, Flag, GhostButton, GoldButton, Ovr, PosBadge, Tabs, UpgradeCard } from "../ui";
+import { Card, Flag, GhostButton, GoldButton, Ovr, PlayerCard, PlayerGrid, PosBadge, Tabs, UpgradeCard, usePlayerView, ViewToggle } from "../ui";
 import StaffPanel from "./StaffPanel";
 
 const ATTR_LABELS: [keyof PlayerBio["attrs"], string][] = [
@@ -74,6 +74,7 @@ function TrainingPlansTab() {
   const autoAssign = useGame((s) => s.autoAssignTrainingPlan);
   const viewPlayer = useGame((s) => s.viewPlayer);
   const [open, setOpen] = useState<string | null>(null);
+  const [view, setView] = usePlayerView("development");
   const ctx = devContext(game);
   const team = game.teams[game.userTeamId];
 
@@ -112,11 +113,67 @@ function TrainingPlansTab() {
             )}
           </div>
         </div>
-        <GoldButton onClick={() => autoAssign()} disabled={suboptimal === 0} className="shrink-0 !py-1.5 text-xs">
-          AUTO-ASSIGN ALL
-        </GoldButton>
+        <div className="flex shrink-0 items-center gap-3">
+          <ViewToggle view={view} onChange={setView} />
+          <GoldButton onClick={() => autoAssign()} disabled={suboptimal === 0} className="!py-1.5 text-xs">
+            AUTO-ASSIGN ALL
+          </GoldButton>
+        </div>
       </Card>
 
+      {view === "grid" ? (
+        <PlayerGrid>
+          {squad.map((p) => {
+            const plan = resolveTrainingPlan(p.trainingPlan, p.positions[0]);
+            const options = plansForPosition(p.positions[0]);
+            const best = optimalTrainingPlan(p);
+            const isOptimal = plan.id === best.id;
+            const growing = p.age <= TUNING.growthEndAge;
+            const last = p.devLog && p.devLog.length ? p.devLog[p.devLog.length - 1] : null;
+            return (
+              <PlayerCard
+                key={p.id}
+                p={p}
+                onOpen={() => viewPlayer(p.id)}
+                ovr={<Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />}
+                sub={<span className="truncate">{growing ? "Still developing" : "Settled"}</span>}
+                stats={
+                  last && last.toOverall !== last.fromOverall ? (
+                    <span className={`tnum ${last.toOverall > last.fromOverall ? "text-win" : "text-loss"}`}>
+                      {last.toOverall > last.fromOverall ? "+" : ""}
+                      {last.toOverall - last.fromOverall} last season
+                    </span>
+                  ) : (
+                    <span className="text-faint">—</span>
+                  )
+                }
+                actions={
+                  <span className="flex w-full items-center gap-1.5">
+                    <span
+                      className={`shrink-0 text-[10px] leading-none ${isOptimal ? "text-win" : "text-gold"}`}
+                      title={isOptimal ? "Optimal training focus" : `Recommended: ${best.name}`}
+                    >
+                      {isOptimal ? "●" : "○"}
+                    </span>
+                    <select
+                      value={plan.id}
+                      onChange={(e) => setPlan(p.id, e.target.value)}
+                      className="min-w-0 flex-1 truncate rounded-md border border-line bg-raised px-2 py-1 text-xs text-ink focus:border-gold focus:outline-none"
+                      title={plan.blurb}
+                    >
+                      {options.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.name}
+                        </option>
+                      ))}
+                    </select>
+                  </span>
+                }
+              />
+            );
+          })}
+        </PlayerGrid>
+      ) : (
       <Card className="divide-y divide-line/50">
         <div className={`grid ${PLAN_GRID} items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-faint`}>
           <span>Pos</span>
@@ -250,6 +307,7 @@ function TrainingPlansTab() {
           );
         })}
       </Card>
+      )}
     </div>
   );
 }
@@ -348,6 +406,18 @@ function FacilitiesTab() {
         "Improves fitness recovery between matches and softens the extra fatigue older players (30+) pick up, so your squad can play more often.",
       effectNow: `+${((team.medicalLevel ?? 0) * TUNING.medicalFacilityRecoveryPerLevel).toFixed(1)} fitness / day`,
       effectNext: `+${(((team.medicalLevel ?? 0) + 1) * TUNING.medicalFacilityRecoveryPerLevel).toFixed(1)} fitness / day`,
+    },
+    {
+      key: "gymnasium",
+      title: "Gymnasium",
+      icon: "🏋️",
+      accent: "#c96a6a", // clay red
+      level: team.gymnasiumLevel ?? 0,
+      maxLevel: TUNING.trainingFacilityMaxLevel,
+      influence:
+        "Strength and conditioning for the whole squad, every age. A broad development boost that stacks on top of the Training Centre — the Training Centre only helps your under-25s, this lifts everyone.",
+      effectNow: `+${Math.round((team.gymnasiumLevel ?? 0) * TUNING.gymnasiumGrowthPerLevel * 100)}% development (all ages)`,
+      effectNext: `+${Math.round(((team.gymnasiumLevel ?? 0) + 1) * TUNING.gymnasiumGrowthPerLevel * 100)}% development (all ages)`,
     },
     {
       key: "academy",

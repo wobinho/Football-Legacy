@@ -142,26 +142,28 @@ export function trackBiggestWin(state: GameState, fixture: { homeId: string; awa
 /** All-time club records computed from careers on demand (no extra store). */
 export function clubAllTimeRecords(state: GameState, teamId: string) {
   const teamName = state.teams[teamId].name;
-  const totals = new Map<string, { id: string; name: string; apps: number; goals: number }>();
-  const add = (playerId: string, name: string, apps: number, goals: number) => {
-    const t = totals.get(playerId) ?? { id: playerId, name, apps: 0, goals: 0 };
+  const totals = new Map<string, { id: string; name: string; apps: number; goals: number; assists: number }>();
+  const add = (playerId: string, name: string, apps: number, goals: number, assists: number) => {
+    const t = totals.get(playerId) ?? { id: playerId, name, apps: 0, goals: 0, assists: 0 };
     t.apps += apps;
     t.goals += goals;
+    t.assists += assists;
     totals.set(playerId, t);
   };
   for (const c of Object.values(state.careers)) {
     for (const row of c.seasons) {
-      if (row.clubName === teamName) add(c.playerId, state.players[c.playerId]?.name ?? "?", row.apps, row.goals);
+      if (row.clubName === teamName) add(c.playerId, state.players[c.playerId]?.name ?? "?", row.apps, row.goals, row.assists);
     }
   }
   // include current season running stats
   for (const pid of state.teams[teamId].playerIds) {
     const p = state.players[pid];
-    if (p) add(p.id, p.name, p.stats.apps, p.stats.goals);
+    if (p) add(p.id, p.name, p.stats.apps, p.stats.goals, p.stats.assists);
   }
   const rows = [...totals.values()];
   return {
     topScorers: rows.slice().sort((a, b) => b.goals - a.goals).slice(0, 10),
+    topAssists: rows.slice().sort((a, b) => b.assists - a.assists).slice(0, 10),
     mostAppearances: rows.slice().sort((a, b) => b.apps - a.apps).slice(0, 10),
   };
 }

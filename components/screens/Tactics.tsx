@@ -527,6 +527,7 @@ export default function TacticsScreen() {
                     }`}
                   >
                     <PosBadge pos={p.positions[0]} />
+                    <Flag nat={p.nationality} size={12} />
                     <span className="flex-1 truncate">
                       {p.name}
                       {used && <span className="ml-2 text-[10px] text-faint">in XI</span>}

@@ -145,6 +145,16 @@ export function scoutMarketTick(state: GameState, cfg: TuningConfig) {
   refreshScoutMarket(state, cfg);
 }
 
+/** Periodic full turnover of the scout for-hire shortlist (v20): a fresh, fully
+ * available crop of six, so the department's hiring pool doesn't go stale. */
+export function refreshScoutMarketFull(state: GameState, cfg: TuningConfig) {
+  state.scoutMarket = generateScoutCandidates(
+    mulberry32(state.seed ^ (state.currentDay * 0x85ebca6b)),
+    cfg,
+    6
+  );
+}
+
 // ── The two ratings, sampled ──────────────────────────────────────────────
 
 function starRow(table: number[][], stars: number): number[] {

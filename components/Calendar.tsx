@@ -10,6 +10,7 @@ import type { Fixture } from "@/lib/types";
 import { dayMonth, monthGrid, monthLabel, dayOfMonth, formatDay } from "@/lib/calendar";
 import { isSeasonComplete } from "@/lib/gameloop";
 import { Crest } from "./ui";
+import GateModal from "./GateModal";
 
 const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
 
@@ -54,7 +55,9 @@ export default function Calendar() {
   const runSim = (target: number) => {
     simulateToDay(target);
     setConfirm(null);
-    setView(dayMonth(Math.min(target, game.schedule.seasonEndDay)));
+    // A progress gate may have paused the sim before `target`, so snap the view
+    // to where the calendar actually landed rather than the intended day.
+    setView(dayMonth(Math.min(target, game.currentDay, game.schedule.seasonEndDay)));
   };
 
   return (
@@ -194,6 +197,10 @@ export default function Calendar() {
           </div>
         </div>
       )}
+
+      {/* Progress gate (§3): a multi-day sim paused before an important calendar
+          day. The user acts on it, keeps going, or stays here. */}
+      <GateModal />
     </div>
   );
 }

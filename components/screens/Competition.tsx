@@ -5,9 +5,16 @@
 import { createContext, useContext, useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { Fixture, TableRow } from "@/lib/types";
-import { computeTable } from "@/lib/season";
+import { computeTable, computeForm, type FormResult } from "@/lib/season";
 import { formatDayShort } from "@/lib/calendar";
 import { Card, CountryFlag, Crest, Modal, Section, Tabs } from "../ui";
+
+/** A team's country, resolved through its league — teams carry no country of
+ * their own, so the flag comes from the division they play in. */
+function teamCountry(game: import("@/lib/types").GameState, teamId: string): string | undefined {
+  const t = game.teams[teamId];
+  return t ? game.leagues[t.leagueId]?.country : undefined;
+}
 import TeamCard from "./TeamCard";
 
 /** Competition colour coding for Match History. Keyed by the competition's role
@@ -96,7 +103,41 @@ export default function CompetitionScreen() {
   );
 }
 
-function TableCard({ rows, highlight, note }: { rows: TableRow[]; highlight?: string; note?: (teamId: string, pos: number) => string }) {
+/** The five little result pills that make up a form guide (oldest→newest). */
+function FormGuide({ form }: { form: FormResult[] }) {
+  if (!form.length) return <span className="text-[11px] text-faint">—</span>;
+  const tone: Record<FormResult, string> = {
+    W: "bg-win/20 text-win",
+    D: "bg-draw/20 text-draw",
+    L: "bg-loss/20 text-loss",
+  };
+  return (
+    <span className="flex items-center justify-center gap-1">
+      {form.map((r, i) => (
+        <span
+          key={i}
+          className={`display flex h-4 w-4 items-center justify-center rounded-[3px] text-[9px] font-bold leading-none ${tone[r]}`}
+          title={r === "W" ? "Win" : r === "D" ? "Draw" : "Loss"}
+        >
+          {r}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function TableCard({
+  rows,
+  highlight,
+  note,
+  form,
+}: {
+  rows: TableRow[];
+  highlight?: string;
+  note?: (teamId: string, pos: number) => string;
+  /** Last-5 form per team (playable leagues only); omit to hide the column. */
+  form?: Record<string, FormResult[]>;
+}) {
   const game = useGame((s) => s.game)!;
   const openTeam = useContext(OpenTeam);
   return (
@@ -106,8 +147,10 @@ function TableCard({ rows, highlight, note }: { rows: TableRow[]; highlight?: st
           division with longer club names — or one that reaches position 10 —
           shifted every stat column and the table visibly jumped when switching
           tabs. Fixed layout + an explicit width per column makes the grid
-          identical across all of them; the club cell absorbs the slack. */}
-      <table className="w-full min-w-[480px] table-fixed text-sm">
+          identical across all of them; the club cell absorbs the slack.
+          The Form column (v23) is hidden below sm so the phone layout keeps the
+          same compact stat grid it always had; the table scrolls when shown. */}
+      <table className={`w-full table-fixed text-sm ${form ? "min-w-[560px]" : "min-w-[480px]"}`}>
         <colgroup>
           <col className="w-10" />
           <col />
@@ -117,6 +160,7 @@ function TableCard({ rows, highlight, note }: { rows: TableRow[]; highlight?: st
           <col className="w-9" />
           <col className="w-12" />
           <col className="w-12" />
+          {form && <col className="hidden w-28 sm:table-column" />}
         </colgroup>
         <thead>
           <tr className="border-b border-line text-[11px] uppercase tracking-widest text-faint">
@@ -128,6 +172,7 @@ function TableCard({ rows, highlight, note }: { rows: TableRow[]; highlight?: st
             <th className="py-2 text-center">L</th>
             <th className="py-2 text-center">GD</th>
             <th className="py-2 pr-3 text-right">Pts</th>
+            {form && <th className="hidden py-2 pr-3 text-center sm:table-cell">Form</th>}
           </tr>
         </thead>
         <tbody>
@@ -146,6 +191,7 @@ function TableCard({ rows, highlight, note }: { rows: TableRow[]; highlight?: st
                 <td className="min-w-0 py-1.5">
                   <span className={`flex min-w-0 items-center gap-2 ${mine ? "font-semibold" : ""}`}>
                     <Crest colors={t.colors} short={t.short} size={20} />
+                    <CountryFlag country={game.leagues[t.leagueId]?.country ?? ""} size={11} />
                     <span className="truncate">{t.name}</span>
                     {flag && <span className="shrink-0 text-[10px] text-faint">{flag}</span>}
                   </span>
@@ -156,6 +202,11 @@ function TableCard({ rows, highlight, note }: { rows: TableRow[]; highlight?: st
                 <td className="py-1.5 text-center tnum text-dim">{row.lost}</td>
                 <td className="py-1.5 text-center tnum text-dim">{row.gf - row.ga > 0 ? "+" : ""}{row.gf - row.ga}</td>
                 <td className={`py-1.5 pr-3 text-right tnum font-semibold ${mine ? "gold-text" : ""}`}>{row.points}</td>
+                {form && (
+                  <td className="hidden py-1.5 pr-3 sm:table-cell">
+                    <FormGuide form={form[row.teamId] ?? []} />
+                  </td>
+                )}
               </tr>
             );
           })}
@@ -170,6 +221,7 @@ function LeagueView({ leagueId }: { leagueId: string }) {
   const viewPlayer = useGame((s) => s.viewPlayer);
   const league = game.leagues[leagueId];
   const table = computeTable(game.fixtures, leagueId, league.teamIds);
+  const form = computeForm(game.fixtures, leagueId, league.teamIds);
 
   const recent = game.fixtures
     .filter((f) => f.competition === leagueId && f.played)
@@ -185,6 +237,11 @@ function LeagueView({ leagueId }: { leagueId: string }) {
     .sort((a, b) => b.stats.goals - a.stats.goals)
     .slice(0, 10);
 
+  const assisters = Object.values(game.players)
+    .filter((p) => p.clubId && game.teams[p.clubId]?.leagueId === leagueId && p.stats.assists > 0)
+    .sort((a, b) => b.stats.assists - a.stats.assists)
+    .slice(0, 10);
+
   const n = table.length;
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
@@ -193,6 +250,7 @@ function LeagueView({ leagueId }: { leagueId: string }) {
           <TableCard
             rows={table}
             highlight={game.userTeamId}
+            form={form}
             note={(_, pos) => {
               // The ladder may be 1–3 deep (v12): a middle tier has BOTH a
               // promotion zone at the top and a relegation zone at the bottom.
@@ -210,19 +268,18 @@ function LeagueView({ leagueId }: { leagueId: string }) {
       </div>
       <div className="space-y-6">
         <Section title="Top Scorers">
-          <Card className="p-2">
-            {scorers.length === 0 && <div className="p-2 text-sm text-faint">No goals yet.</div>}
-            {scorers.map((p, i) => (
-              <button key={p.id} onClick={() => viewPlayer(p.id)} className="flex w-full items-center justify-between rounded px-2 py-1 text-sm hover:bg-hover">
-                <span className="truncate">
-                  <span className="mr-2 tnum text-faint">{i + 1}</span>
-                  {p.name}
-                  <span className="ml-1.5 text-[10px] text-faint">{p.clubId ? game.teams[p.clubId].short : ""}</span>
-                </span>
-                <span className="display tnum font-semibold">{p.stats.goals}</span>
-              </button>
-            ))}
-          </Card>
+          <StatLeaders
+            rows={scorers.map((p) => ({ id: p.id, name: p.name, short: p.clubId ? game.teams[p.clubId].short : "", value: p.stats.goals }))}
+            emptyLabel="No goals yet."
+            onView={viewPlayer}
+          />
+        </Section>
+        <Section title="Top Assists">
+          <StatLeaders
+            rows={assisters.map((p) => ({ id: p.id, name: p.name, short: p.clubId ? game.teams[p.clubId].short : "", value: p.stats.assists }))}
+            emptyLabel="No assists yet."
+            onView={viewPlayer}
+          />
         </Section>
         <Section title="Results">
           <FixtureList fixtures={recent} />
@@ -232,6 +289,33 @@ function LeagueView({ leagueId }: { leagueId: string }) {
         </Section>
       </div>
     </div>
+  );
+}
+
+/** A ranked leaderboard (top scorers / top assists): rank, name, club, tally. */
+function StatLeaders({
+  rows,
+  emptyLabel,
+  onView,
+}: {
+  rows: { id: string; name: string; short: string; value: number }[];
+  emptyLabel: string;
+  onView: (id: string) => void;
+}) {
+  return (
+    <Card className="p-2">
+      {rows.length === 0 && <div className="p-2 text-sm text-faint">{emptyLabel}</div>}
+      {rows.map((r, i) => (
+        <button key={r.id} onClick={() => onView(r.id)} className="flex w-full items-center justify-between rounded px-2 py-1 text-sm hover:bg-hover">
+          <span className="truncate">
+            <span className="mr-2 tnum text-faint">{i + 1}</span>
+            {r.name}
+            <span className="ml-1.5 text-[10px] text-faint">{r.short}</span>
+          </span>
+          <span className="display tnum font-semibold">{r.value}</span>
+        </button>
+      ))}
+    </Card>
   );
 }
 
@@ -351,11 +435,16 @@ function CupBracket({ rounds }: { rounds: BracketRound[] }) {
 
   return (
     <Card className="overflow-x-auto p-3">
-      <div className="flex snap-x snap-mandatory gap-3">
+      {/* Because the ties render only 3-letter abbreviations (never full names),
+          each round column can be narrow — narrow enough that on a desktop the
+          whole bracket, final included, fits without horizontal scroll. The
+          columns keep a small minimum so they stay legible and become
+          scroll-snap targets when the screen is too small to hold them all. */}
+      <div className="flex snap-x snap-mandatory gap-2 sm:gap-3">
         {drawn.map((r) => (
-          <div key={r.name} className="min-w-[15rem] flex-1 shrink-0 snap-start">
+          <div key={r.name} className="w-[8.5rem] shrink-0 grow snap-start sm:w-auto sm:flex-1">
             <div className="mb-2 border-b border-line pb-1.5">
-              <div className="display text-[11px] font-semibold uppercase tracking-widest text-dim">{r.name}</div>
+              <div className="display truncate text-[11px] font-semibold uppercase tracking-widest text-dim">{r.name}</div>
               <div className="text-[10px] text-faint">{formatDayShort(r.day)}</div>
             </div>
             {/* Ties are spread down the column so a round with few matches (the
@@ -400,8 +489,9 @@ function BracketTie({ f }: { f: Fixture }) {
         title={t.name}
       >
         <Crest colors={t.colors} short={t.short} size={16} />
-        <span className={`min-w-0 flex-1 truncate ${won ? "font-semibold text-ink" : ""} ${mine ? "font-semibold" : ""}`}>
-          {t.short}
+        <span className={`flex min-w-0 flex-1 items-center gap-1 truncate ${won ? "font-semibold text-ink" : ""} ${mine ? "font-semibold" : ""}`}>
+          <CountryFlag country={teamCountry(game, teamId) ?? ""} size={9} />
+          <span className="truncate">{t.short}</span>
         </span>
         {f.played && <span className={`display tnum ${won ? "gold-text font-bold" : ""}`}>{goals}</span>}
       </button>
@@ -686,7 +776,8 @@ function SimLeagueView({ leagueId }: { leagueId: string }) {
           </div>
         )}
         <div className="display mb-2 text-lg text-dim">NO TABLE YET</div>
-        Sim leagues resolve twice a season, just before each transfer window opens.
+        Sim leagues resolve at the start of the season, when the winter window
+        opens, and once more after their final round.
       </div>
     );
   }
@@ -694,30 +785,34 @@ function SimLeagueView({ leagueId }: { leagueId: string }) {
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
       <div className="xl:col-span-2">
         <Section
-          title={`Table — ${result.half === 1 ? "mid-season" : "final"} (Season ${result.season})`}
+          title={`Table — ${result.half === 1 ? "in progress" : "final"} (Season ${result.season})`}
           right={league && <span className="flex items-center gap-1.5 text-xs text-faint"><CountryFlag country={league.country} size={14} />{league.country}</span>}
         >
           <TableCard rows={result.table} />
         </Section>
       </div>
-      <Section title="Top Scorers">
-        <Card className="p-2">
-          {result.topScorers.map((s, i) => {
-            const p = game.players[s.playerId];
-            if (!p) return null;
-            return (
-              <button key={s.playerId} onClick={() => viewPlayer(p.id)} className="flex w-full items-center justify-between rounded px-2 py-1 text-sm hover:bg-hover">
-                <span className="truncate">
-                  <span className="mr-2 tnum text-faint">{i + 1}</span>
-                  {p.name}
-                  <span className="ml-1.5 text-[10px] text-faint">{p.clubId ? game.teams[p.clubId].short : ""}</span>
-                </span>
-                <span className="display tnum font-semibold">{s.goals}</span>
-              </button>
-            );
-          })}
-        </Card>
-      </Section>
+      <div className="space-y-6">
+        <Section title="Top Scorers">
+          <StatLeaders
+            rows={result.topScorers
+              .map((s) => ({ p: game.players[s.playerId], value: s.goals }))
+              .filter((r) => r.p)
+              .map((r) => ({ id: r.p.id, name: r.p.name, short: r.p.clubId ? game.teams[r.p.clubId].short : "", value: r.value }))}
+            emptyLabel="No goals recorded."
+            onView={viewPlayer}
+          />
+        </Section>
+        <Section title="Top Assists">
+          <StatLeaders
+            rows={(result.topAssists ?? [])
+              .map((s) => ({ p: game.players[s.playerId], value: s.assists }))
+              .filter((r) => r.p)
+              .map((r) => ({ id: r.p.id, name: r.p.name, short: r.p.clubId ? game.teams[r.p.clubId].short : "", value: r.value }))}
+            emptyLabel="No assists recorded."
+            onView={viewPlayer}
+          />
+        </Section>
+      </div>
     </div>
   );
 }
