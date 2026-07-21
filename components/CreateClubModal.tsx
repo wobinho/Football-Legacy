@@ -21,7 +21,10 @@ export interface CustomClub {
   rep: number;
   /** Generated-squad strength (1–100), independent of reputation. */
   squadQuality: number;
-  /** Index into the top division's club list — the club being replaced. */
+  /** Division the created club joins — the id of the tier it takes a slot in
+   * (v1.43). Undefined means the top authored division, for older prefills. */
+  divisionId?: string;
+  /** Index into the target division's club list — the club being replaced. */
   replaceIndex: number;
 }
 
@@ -89,12 +92,18 @@ function Slider({
 
 export default function CreateClubModal({
   clubs,
+  divisionId,
+  divisionName,
   initial,
   onSave,
   onClose,
 }: {
-  /** The playable top division's ORIGINAL clubs (replacement candidates). */
+  /** The chosen start division's ORIGINAL clubs (replacement candidates). */
   clubs: ClubSeed[];
+  /** Id of the division the created club joins (v1.43 — lower divisions too). */
+  divisionId: string;
+  /** Display name of that division, for the modal copy. */
+  divisionName: string;
   initial: CustomClub | null;
   onSave: (club: CustomClub) => void;
   onClose: () => void;
@@ -194,9 +203,11 @@ export default function CreateClubModal({
         />
 
         <div>
-          <span className="display text-xs font-semibold tracking-widest text-faint">CLUB TO REPLACE</span>
+          <span className="display text-xs font-semibold tracking-widest text-faint">
+            CLUB TO REPLACE — {divisionName}
+          </span>
           <p className="mb-2 mt-0.5 text-[11px] text-faint">
-            Your club takes this club&apos;s place in the top division — the league keeps its size.
+            Your club takes this club&apos;s place in {divisionName} — the league keeps its size.
           </p>
           <div className="grid max-h-48 grid-cols-2 gap-2 overflow-y-auto pr-1">
             {clubs.map((c, i) => (
@@ -230,6 +241,7 @@ export default function CreateClubModal({
                 stadium: stadium.trim(),
                 rep,
                 squadQuality,
+                divisionId,
                 replaceIndex,
               })
             }

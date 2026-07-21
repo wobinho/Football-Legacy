@@ -222,13 +222,14 @@ function makeOffer(state: GameState, teamId: string, slot: SponsorSlot, cfg: Tun
     };
   }
 
-  // minor: weekly income, at most one season
+  // minor: weekly income, at most one season. v1.43: weekly partnerships pay a
+  // reduced fraction of the raw offer amount.
   return {
     id: uid("spo"),
     slot,
     kind,
     brand: pick(rng, BRANDS[slot]),
-    weeklyAmount: equivalentWeekly,
+    weeklyAmount: Math.round((equivalentWeekly * cfg.sponsorMinorWeeklyMult) / 1000) * 1000,
     upfront: 0,
     seasons: 1,
     tier: TIER_NAMES[tierIndex],

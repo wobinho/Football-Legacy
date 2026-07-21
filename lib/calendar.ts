@@ -124,6 +124,10 @@ export function buildSeasonSchedule(season: number): SeasonSchedule {
     // their peers. Kept clear of the cup final (two weeks later) and season end.
     simResolveDay1: winterOpenDay,
     simResolveDay2: leagueRoundDays[37] + 3,
+    // The day after the cup final — the last fixture in the world — starts the
+    // dead week. With no games left to play, the season's individual honours are
+    // handed out here (v1.44), a week before the rollover formally closes it.
+    accoladesDay: cupRoundDays[5] + 1,
     seasonEndDay: cupRoundDays[5] + 7, // season review, then jump to next Jul 1
     intakeDay: nextWeekday(dateToDay(startYear + 1, 2, 10), 3), // Wed mid-March (§18)
   };

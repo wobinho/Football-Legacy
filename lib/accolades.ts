@@ -243,3 +243,54 @@ export function computeSeasonAccolades(state: GameState): SeasonAccolades {
 
   return result;
 }
+
+/**
+ * Dead-week awards ceremony (v1.44). Fires once, on `accoladesDay` — the day
+ * after the last game of the season, while the tables are final and this
+ * season's stats are still intact, but a full week before the rollover. It
+ * computes and STAMPS every honour (so the permanent cabinets are already
+ * filled when the player browses profiles in the dead week), parks the result on
+ * `state.pendingAccolades` for the rollover's summary to fold in without
+ * recomputing, and posts an inbox announcement of the headline winners.
+ *
+ * Idempotent: if it has already run this season (pendingAccolades present, or a
+ * summary for this season already exists) it does nothing, so it can't
+ * double-stamp on a save/reload landing on the same day.
+ */
+export function runSeasonAwardsCeremony(state: GameState): void {
+  if (state.pendingAccolades) return; // already awarded this season
+  if (state.recordBook.seasons.some((s) => s.season === state.season)) return;
+
+  const accolades = computeSeasonAccolades(state);
+  state.pendingAccolades = accolades;
+
+  // Headline the user's own division plus the two save-wide legacy honours.
+  const userLeagueId = state.teams[state.userTeamId]?.leagueId;
+  const block = userLeagueId ? accolades.byLeague[userLeagueId] : undefined;
+  const leagueName = userLeagueId ? state.leagues[userLeagueId]?.name ?? "your league" : "your league";
+  const line = (label: string, w?: AwardWinner) => (w ? `${label}: ${w.name} (${w.teamName}).` : "");
+  const body = [
+    `The season's individual honours have been decided with the final ball kicked.`,
+    ``,
+    `— ${leagueName} —`,
+    line("Player of the Season", block?.playerOfSeason),
+    line("Young Player of the Season", block?.youngPlayerOfSeason),
+    line("Golden Boot", block?.goldenBoot),
+    line("Golden Playmaker", block?.goldenPlaymaker),
+    line("Golden Glove", block?.goldenGlove),
+    ``,
+    line("Legacy Player of the Year", accolades.legacyPlayerOfSeason),
+    `The full slate — every league's Team of the Season — is in the season review when you close the campaign.`,
+  ].join("\n");
+
+  (state.inbox ??= []).unshift({
+    id: `inb_accolades_${state.season}`,
+    day: state.currentDay,
+    season: state.season,
+    type: "award",
+    title: `Season ${state.season} awards`,
+    body,
+    read: false,
+  });
+  state.inbox = state.inbox.slice(0, 120);
+}

@@ -54,10 +54,14 @@ export function buildSeasonSummary(state: GameState): SeasonSummary {
   }
 
   // Season honours (v24): every league's individual awards + Team of the Season,
-  // plus the two save-wide legacy awards. This STAMPS the winning players'
-  // permanent cabinets, so it must run once, here at the rollover, while this
-  // season's stats are still intact.
-  const accolades = computeSeasonAccolades(state);
+  // plus the two save-wide legacy awards. Stamping a winner's permanent cabinet
+  // must happen exactly once per season. Since v1.44 the dead-week awards
+  // ceremony (accoladesDay) computes and stamps these a week early and parks the
+  // result on `state.pendingAccolades`; reuse it here so the rollover never
+  // re-stamps. Only if that never ran (a pre-v1.44 schedule, or an old save) do
+  // we compute — and stamp — here at the rollover as before.
+  const accolades = state.pendingAccolades ?? computeSeasonAccolades(state);
+  state.pendingAccolades = undefined;
 
   // The summary's headline Player / Young Player fields (kept for old readers and
   // the inbox line) come from the playable top division's accolade block.

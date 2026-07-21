@@ -19,13 +19,13 @@ import {
   weeklyProgressTick,
 } from "./development";
 import { weeklyEconomyTick, applySeasonPrizes, facilityGrowthMult } from "./economy";
-import { aiWeeklyTransferTick, refreshValues } from "./transfers";
+import { aiWeeklyTransferTick, refreshValues, simLeagueTransferWindow } from "./transfers";
 import { activePlayers, pruneRetired } from "./archive";
 import { refreshClubStances } from "./ai/strategy";
 import { rolloverContracts, ensureContracts } from "./contracts";
 import { resolveSimLeagues } from "./simresolver";
 import { buildSeasonSummary, trackBiggestWin } from "./recordbook";
-import { ACCOLADE_META } from "./accolades";
+import { ACCOLADE_META, runSeasonAwardsCeremony } from "./accolades";
 import { generateStaffMarket, staffMarketTick, refreshStaffMarket } from "./staff";
 import { scoutMarketTick, refreshScoutMarketFull } from "./scouts";
 import { refreshAiCommercial, refreshSponsorOffers, rolloverSponsors } from "./sponsors";
@@ -294,10 +294,17 @@ function advanceDay(state: GameState): StopReason | null {
   // window boundary news + sim league resolution before each window (§4)
   if (day === sched.simResolveDay1) resolveSimLeagues(state, 1, cfg);
   if (day === sched.simResolveDay2) resolveSimLeagues(state, 2, cfg);
+  // Dead-week awards ceremony (v1.44): the day after the last game, with the
+  // tables final and no fixtures left, the season's honours are handed out — a
+  // week before END SEASON closes the campaign.
+  if (sched.accoladesDay !== undefined && day === sched.accoladesDay) runSeasonAwardsCeremony(state);
   if (day === sched.winterOpenDay) {
     refreshValues(state, cfg);
     // Clubs reassess their season and set a market stance for the window (§10).
     refreshClubStances(state, cfg);
+    // Sim (non-playable) leagues do their own window's business now (v1.44), so
+    // foreign squads visibly turn over between windows rather than staying frozen.
+    simLeagueTransferWindow(state, cfg);
     pushInbox(state, "window", "Winter transfer window open", "The winter window is open until 1 February. Sim leagues have updated tables and form to browse.");
     loanMidseasonReports(state);
   }
@@ -620,6 +627,10 @@ export function runSeasonRollover(state: GameState) {
   // after their final round (full), so sim tables track the player's own progress
   // rather than jumping straight to a half-played season on day one.
   resolveSimLeagues(state, 0, cfg);
+  // Summer window for the sim leagues (v1.44): with fresh values and stances set
+  // above, each non-playable league does its intra-league business now, so a new
+  // season's foreign squads have already turned over when the player first looks.
+  simLeagueTransferWindow(state, cfg);
   rolloverSponsors(state); // expire deals that have run their course (v6)
   state.offers = [];
   state.lineup = {};

@@ -707,6 +707,11 @@ export interface SeasonSchedule {
   winterCloseDay: number; // Feb 1
   simResolveDay1: number; // just before winter window
   simResolveDay2: number; // just before season end
+  /** Season awards day (v1.44): the day after the final game (cup final), in the
+   * dead week before the rollover — no fixtures remain, so the individual honours
+   * and Teams of the Season are handed out here rather than only at END SEASON.
+   * Optional so pre-v1.44 saves fall back to awarding at the rollover. */
+  accoladesDay?: number;
   seasonEndDay: number; // review + rollover
   /** Youth intake day (§18): mid-March, once per season. Optional (v4). */
   intakeDay?: number;
@@ -1007,4 +1012,9 @@ export interface GameState {
    * deal that completes is appended (newest first) and rendered as a filterable
    * ledger. Optional for old saves — backfilled empty at migration. */
   transferNews?: TransferNewsItem[];
+  /** Season honours computed at the dead-week awards ceremony (v1.44), held here
+   * until the rollover folds them into the season summary. Present only between
+   * `accoladesDay` and END SEASON; cleared once the summary is built. Optional so
+   * saves that predate the ceremony simply compute honours at the rollover. */
+  pendingAccolades?: SeasonAccolades;
 }

@@ -137,6 +137,15 @@ export interface TuningConfig {
   youthPotentialFloor: number; // growing players' potential is pulled up to at least this
   youthPotentialBandTop: number; // …and spread up toward this (capped by potentialAbsoluteCap)
 
+  // Elite squad generation (superstars): the plain reputation curve tops the very
+  // best clubs out around the mid-80s, so a fresh world holds no genuine 90-rated
+  // stars. These lift a handful of the top clubs' first-choice players into
+  // world-class territory, so the marquee names exist to chase and sign.
+  eliteClubRepThreshold: number; // clubs at/above this reputation seed superstars
+  eliteStarterBoostMax: number; // overall added to a top club's best starters, tapering by rep
+  eliteStarterCount: number; // how many of a club's first-choice slots get the boost
+  eliteHardCap: number; // no generated senior may exceed this overall (headroom for stars)
+
   // Player quality floor (balance): no generated player is ever weaker than this
   // overall. Keeps the world free of hopeless 38-rated bodies — every player is at
   // least a rough professional, and every prospect is worth developing.
@@ -278,6 +287,9 @@ export interface TuningConfig {
   // minors run at most one season and pay weekly.
   sponsorMajorSlots: string[]; // which slots are lump-sum majors
   sponsorMajorUpfrontMult: number; // incentive multiplier on the equivalent-weekly lump
+  /** Multiplier on a minor (weekly) deal's income (v1.43): the weekly partnerships
+   * pay this fraction of their raw offer amount. */
+  sponsorMinorWeeklyMult: number;
   sponsorMajorLengthMin: number; // shortest major deal (seasons)
   sponsorMajorLengthMax: number; // longest major deal (seasons)
   // Investment deadlines & slot discipline (v11). An offer is a real decision:
@@ -408,6 +420,13 @@ export interface TuningConfig {
   aiKeyPlayerPremium: number; // starters demand more
   aiBidChancePerWeek: number; // chance an AI club bids on a user player
   freeAgentSigningFee: number;
+  // ── Ask-price compression (v1.43+) ──
+  // The selling-club signals (stance, key-player, youth) still order who costs a
+  // little more, but the whole ask spread is squashed toward the player's market
+  // value and clamped, so a listed player always asks *near* his value.
+  askValueCompression: number; // 0 = every ask is exactly 1.0× value; 1 = uncompressed
+  askValueMinMult: number; // lowest an ask can fall relative to value
+  askValueMaxMult: number; // highest an ask can rise relative to value
   // Incoming-offer negotiation (EA-FC-style). A buyer opens below its ceiling and
   // the user can counter with any number; the AI accepts at/under the ceiling,
   // counters back toward the midpoint, or walks if pushed too far / too long.
@@ -452,6 +471,9 @@ export interface TuningConfig {
   aiMaxBudgetSharePerDeal: number; // most of its budget a club commits to one player
   // Market volume.
   aiDealsPerWeek: number; // base AI↔AI deals attempted each week a window is open
+  aiFreeAgentSignChance: number; // chance an acting club with no target signs a free agent
+  aiRenewChance: number; // chance per window an AI club renews a final-year first-teamer
+  aiSimDealsPerLeaguePerWindow: number; // intra-league AI↔AI deals each sim league does per window (v1.44)
 
   // ── AI financial discipline (v19) ──
   // AI clubs must live within their means: a fee has to clear the budget with
@@ -716,6 +738,17 @@ export const TUNING: TuningConfig = {
   youthPotentialFloor: 88,
   youthPotentialBandTop: 96,
 
+  // Elite generation (superstars). A rep-90 giant lifts its top ~4 starters by up
+  // to +6, so its best players land in the high 80s / low 90s (the world-class
+  // core a title side is built around); the boost tapers to nothing by rep 78, so
+  // only genuine giants produce stars. The hard cap sits at 94 so a boosted star
+  // plus attribute spread can reach the low 90s without any single senior breaking
+  // 94 on generation — the 95+ ceiling is reserved for players who earn it in-game.
+  eliteClubRepThreshold: 78,
+  eliteStarterBoostMax: 8,
+  eliteStarterCount: 4,
+  eliteHardCap: 94,
+
   heightFullAge: 19,
   heightPerYoungYear: 0.012,
 
@@ -774,23 +807,24 @@ export const TUNING: TuningConfig = {
   cupWinBonus: 10_000_000,
 
   facilityMaxLevel: 5,
-  stadiumUpgradeCost: [9_000_000, 21_000_000, 42_000_000, 74_000_000, 125_000_000],
+  // Income-facility upgrade prices carry a +75% premium over their original
+  // pay-back-tuned values, lengthening the payback so a full income stack is a
+  // long-term investment rather than an early-game land grab.
+  stadiumUpgradeCost: [15_750_000, 36_750_000, 73_500_000, 129_500_000, 218_750_000],
   stadiumIncomePerLevel: 90_000,
-  commercialUpgradeCost: [7_000_000, 16_000_000, 32_000_000, 58_000_000, 100_000_000],
+  commercialUpgradeCost: [12_250_000, 28_000_000, 56_000_000, 101_500_000, 175_000_000],
   commercialIncomePerLevel: 70_000,
-  mediaUpgradeCost: [5_000_000, 12_000_000, 25_000_000, 45_000_000, 76_000_000],
+  mediaUpgradeCost: [8_750_000, 21_000_000, 43_750_000, 78_750_000, 133_000_000],
   mediaIncomePerLevel: 55_000,
-  hospitalityUpgradeCost: [8_000_000, 18_000_000, 35_000_000, 62_000_000, 105_000_000],
+  hospitalityUpgradeCost: [14_000_000, 31_500_000, 61_250_000, 108_500_000, 183_750_000],
   hospitalityIncomePerLevel: 75_000,
-  retailUpgradeCost: [6_000_000, 14_000_000, 28_000_000, 50_000_000, 85_000_000],
+  retailUpgradeCost: [10_500_000, 24_500_000, 49_000_000, 87_500_000, 148_750_000],
   retailIncomePerLevel: 60_000,
-  // Each pays back in roughly 60–75 weeks at level 1, in line with the five
-  // above, but at a low enough entry price to be a realistic first purchase.
-  membershipUpgradeCost: [2_500_000, 6_000_000, 13_000_000, 24_000_000, 42_000_000],
+  membershipUpgradeCost: [4_375_000, 10_500_000, 22_750_000, 42_000_000, 73_500_000],
   membershipIncomePerLevel: 35_000,
-  eventsUpgradeCost: [3_500_000, 8_500_000, 18_000_000, 33_000_000, 57_000_000],
+  eventsUpgradeCost: [6_125_000, 14_875_000, 31_500_000, 57_750_000, 99_750_000],
   eventsIncomePerLevel: 45_000,
-  academyPartnerUpgradeCost: [3_000_000, 7_000_000, 15_000_000, 28_000_000, 48_000_000],
+  academyPartnerUpgradeCost: [5_250_000, 12_250_000, 26_250_000, 49_000_000, 84_000_000],
   academyPartnerIncomePerLevel: 40_000,
 
   staffRefreshDays: 2,
@@ -830,7 +864,11 @@ export const TUNING: TuningConfig = {
   sponsorOfferExpiryDays: 21,
   sponsorRefreshDays: 5,
   sponsorMajorSlots: ["shirt", "apparel", "stadium", "backOfShirt"],
-  sponsorMajorUpfrontMult: 1.15,
+  // v1.43: major (lump-sum) offers trimmed 15% — the old 1.15 incentive multiplier
+  // × 0.85 lands at ~0.98, so a major now pays a touch under its equivalent-weekly
+  // term rather than a touch over.
+  sponsorMajorUpfrontMult: 0.9775,
+  sponsorMinorWeeklyMult: 0.85, // v1.43: minor weekly partnerships pay 15% less
   sponsorMajorLengthMin: 2,
   sponsorMajorLengthMax: 4,
   // A major is a 12-day decision; minors linger a little longer since they're
@@ -925,10 +963,17 @@ export const TUNING: TuningConfig = {
 
   valueCurve: { base: 9_600, exponent: 0.104 }, // v1.42: −20% across the board to unstick the transfer market
   youthPotentialValueBoost: 1.8,
-  aiAcceptThreshold: 1.1,
-  aiKeyPlayerPremium: 1.35,
+  aiAcceptThreshold: 1.05, // v1.43: asks land nearer market value
+  aiKeyPlayerPremium: 1.2, // v1.43: softened from 1.35 (and no longer stacked twice)
   aiBidChancePerWeek: 0.14,
   freeAgentSigningFee: 0,
+  // Ask sits right on market value. With 0.25 compression the raw ~1.9× a title
+  // club's star used to reach collapses to ~1.22×, and the ±band then caps it at
+  // 1.15× — so a 137M player asks ~150M at most, a fringe player right around
+  // value, and nobody is ever priced several multiples over what they're worth.
+  askValueCompression: 0.25,
+  askValueMinMult: 0.9,
+  askValueMaxMult: 1.15,
   negotiationBuyerCeilingMult: 1.6,
   negotiationMaxRounds: 6, // hard backstop; patience normally binds first
   negotiationWalkAwayOver: 1.6,
@@ -957,10 +1002,27 @@ export const TUNING: TuningConfig = {
   aiHealthyBudgetRatio: 0.065,
   aiDepthUrgencyWeight: 4,
   aiNeedScoreWeight: 0.08,
-  aiMinUpgradeGain: 1.5,
-  aiAgeBandFalloff: 0.78,
-  aiMaxBudgetSharePerDeal: 0.45,
-  aiDealsPerWeek: 3,
+  // v1.43+: the market ran too quiet — the upgrade bar and age-band falloff were
+  // strict enough that most clubs found no target worth signing. Loosening the
+  // gain floor and softening the age falloff lets clubs act on marginal upgrades
+  // and shop a little outside their ideal age band, so windows are visibly busier.
+  aiMinUpgradeGain: 0.8,
+  aiAgeBandFalloff: 0.85,
+  aiMaxBudgetSharePerDeal: 0.55,
+  aiDealsPerWeek: 6,
+  // Chance an acting AI club, having found no club-to-club target, signs a free
+  // agent for a needy position instead. Free agents cost only wages, so this keeps
+  // the market moving even for clubs that can't fund a fee.
+  aiFreeAgentSignChance: 0.6,
+  // Sim leagues each churn a handful of players between their own clubs per
+  // window (v1.44) so browsing a foreign league across seasons shows real squad
+  // movement, not a frozen roster. Runs once per window, not weekly, so the
+  // whole world stays cheap even at 15+ leagues.
+  aiSimDealsPerLeaguePerWindow: 4,
+  // Chance per window an AI club proactively renews a first-team player who is in
+  // the final year of his deal, rather than risk losing him for nothing. Keeps AI
+  // squads intact and mirrors the contract pressure the user feels.
+  aiRenewChance: 0.5,
 
   // Financial discipline (v19, retuned v21). Clubs are still genuinely wary of
   // their books — they hold a real cash reserve and keep weeks of wages in hand —
@@ -968,10 +1030,10 @@ export const TUNING: TuningConfig = {
   // reserve drops to a sixth and the wage cushion to six weeks, which frees more
   // deals to clear while leaving a club that can't cover its wages a forced
   // seller (15% under asking). Wage bills stay capped at three-quarters of income.
-  aiBudgetReserveRatio: 0.16,
-  aiWageReserveWeeks: 6,
+  aiBudgetReserveRatio: 0.1,
+  aiWageReserveWeeks: 4,
   aiDistressSellDiscount: 0.85,
-  aiMaxWageToIncomeRatio: 0.75,
+  aiMaxWageToIncomeRatio: 0.85,
 
   squadCap: 50,
   matchdaySquad: 18,

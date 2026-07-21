@@ -5,8 +5,9 @@
 // values. Valuation formula details and richer AI behavior are the knobs
 // the future session should revisit — all logic is isolated in this module.
 
-import type { GameState, PlayerBio, TransferNewsItem, TransferOffer } from "./types";
+import type { GameState, PlayerBio, Pos, Team, TransferNewsItem, TransferOffer } from "./types";
 import type { TuningConfig } from "./config/tuning";
+import { positionFit } from "./config/positions";
 import { TUNING } from "./config/tuning";
 import { transferWindowState } from "./calendar";
 import { mulberry32, deriveSeed, pickWeighted, uid } from "./rng";
@@ -25,6 +26,7 @@ import {
   canAfford,
   isDistressed,
   spendableBudget,
+  type PositionNeed,
 } from "./ai/strategy";
 import { wageDemand } from "./contracts";
 
@@ -47,21 +49,30 @@ export function askPrice(state: GameState, p: PlayerBio, cfg: TuningConfig): num
   if (p.contract?.releaseClause) return p.contract.releaseClause;
 
   let mult = cfg.aiAcceptThreshold;
-  if (isKeyPlayer(state, p)) mult *= cfg.aiKeyPlayerPremium;
-  if (p.age <= 22 && p.potential - p.overall >= 6) mult *= 1.2;
+  const key = isKeyPlayer(state, p);
+  if (key) mult *= cfg.aiKeyPlayerPremium;
+  if (p.age <= 22 && p.potential - p.overall >= 6) mult *= 1.15;
   // The selling club's stance sets how badly it wants to keep him: a side going
   // for the title prices its players out of the market, one rebuilding is happy
-  // to cash in (§10).
+  // to cash in (§10). v1.43: the key-player premium is applied ONCE (above); a
+  // club unwilling to sell starters names a firmer price through a single small
+  // bump here rather than stacking the full premium a second time.
   if (p.clubId && p.clubId !== state.userTeamId) {
     const seller = state.teams[p.clubId];
     if (seller) {
       const profile = STANCE_PROFILE[stanceOf(state, seller, cfg)];
       mult *= profile.sellAsk;
-      // A club that won't sell starters at all names a prohibitive price.
-      if (isKeyPlayer(state, p) && !profile.sellsStarters) mult *= cfg.aiKeyPlayerPremium;
+      if (key && !profile.sellsStarters) mult *= 1.15;
     }
   }
-  return Math.round((p.value * mult) / 100_000) * 100_000;
+  // v1.43+: the ask must sit RIGHT ON the player's market value — a 137M player
+  // should cost ~120M–150M, not several multiples of it. The signals above still
+  // decide the *ordering* (a title club's star asks a touch more than a fringe
+  // squad player), but the whole spread is compressed hard toward 1.0× value and
+  // then clamped to a tight band, so buying at value is always realistic.
+  const compressed = 1 + (mult - 1) * cfg.askValueCompression;
+  const clamped = Math.max(cfg.askValueMinMult, Math.min(cfg.askValueMaxMult, compressed));
+  return Math.round((p.value * clamped) / 100_000) * 100_000;
 }
 
 function ensureCareer(state: GameState, playerId: string) {
@@ -590,7 +601,13 @@ function aiSquadBuilding(state: GameState, rng: RNG, cfg: TuningConfig) {
         if (!best || score > best.score) best = { player: p, score, price };
       }
     }
-    if (!best) continue;
+    if (!best) {
+      // No club-to-club deal to be had — try the free-agent market instead. A
+      // free signing costs only wages, so a club that can't (or won't) pay a fee
+      // can still address a hole here, which keeps the window from going quiet.
+      if (rng() < cfg.aiFreeAgentSignChance) aiSignFreeAgent(state, buyer, need, cfg);
+      continue;
+    }
 
     const target = best.player;
     const seller = state.teams[target.clubId!];
@@ -606,6 +623,138 @@ function aiSquadBuilding(state: GameState, rng: RNG, cfg: TuningConfig) {
     state.news.unshift(
       `${target.name} joins ${buyer.name} from ${seller.name} for ${fmtFee(fee)} — ${why.toLowerCase()}.`
     );
+  }
+
+  aiRenewContracts(state, rng, cfg);
+}
+
+/**
+ * Sim-league transfer window (v1.44). The weekly `aiSquadBuilding` pass only
+ * ever touched playable-league clubs, so every non-playable league in the world
+ * — often a dozen of them — had a permanently frozen transfer market: a player
+ * browsing a foreign division saw the exact same squads season after season.
+ *
+ * This runs ONCE per window (called when the summer/winter window opens), and
+ * for each sim league does a bounded number of intra-league deals: a buyer acts
+ * on its worst position and signs the best improver another club in the SAME
+ * league is willing to sell. Keeping every move inside one league conserves that
+ * league's money and never lets a sim club raid the player's own division, while
+ * still making foreign squads visibly evolve. It reuses the exact same stance,
+ * needs, valuation and affordability model as the playable market — no separate
+ * rules — so the two markets stay coherent.
+ */
+export function simLeagueTransferWindow(state: GameState, cfg: TuningConfig) {
+  for (const league of Object.values(state.leagues)) {
+    if (league.playable) continue;
+    const clubs = league.teamIds.map((id) => state.teams[id]).filter(Boolean);
+    if (clubs.length < 2) continue;
+    const rng = mulberry32(deriveSeed(state.seed, `simxfer:${league.id}:${state.season}:${state.currentDay}`));
+
+    const attempts = cfg.aiSimDealsPerLeaguePerWindow;
+    for (let i = 0; i < attempts; i++) {
+      const buyer = pickWeighted(rng, clubs, (t) => STANCE_PROFILE[stanceOf(state, t, cfg)].activity);
+      if (buyer.playerIds.length >= cfg.squadCap) continue;
+      if (isDistressed(state, buyer, cfg)) continue;
+      if (spendableBudget(state, buyer, cfg) <= 0) continue;
+
+      const needs = squadNeeds(state, buyer, cfg);
+      if (!needs.length) continue;
+      const need = needs[Math.min(needs.length - 1, Math.floor(rng() * 2))];
+
+      // Shop only the other clubs in this same sim league.
+      let best: { player: PlayerBio; score: number; price: number } | null = null;
+      for (const seller of clubs) {
+        if (seller.id === buyer.id) continue;
+        if (seller.playerIds.length <= cfg.matchdaySquad) continue;
+        const sellerProfile = STANCE_PROFILE[stanceOf(state, seller, cfg)];
+        const distressDiscount = isDistressed(state, seller, cfg) ? cfg.aiDistressSellDiscount : 1;
+        for (const p of saleCandidates(state, seller, cfg)) {
+          if (p.loan) continue;
+          const score = targetScore(state, buyer, need, p, cfg);
+          if (score <= 0) continue;
+          const price =
+            Math.round((p.value * cfg.aiAcceptThreshold * sellerProfile.sellAsk * distressDiscount) / 100_000) * 100_000;
+          if (price > buyBudgetFor(state, buyer, p, cfg)) continue;
+          if (!canAfford(state, buyer, price, wageDemand(state, p, cfg), cfg)) continue;
+          if (!best || score > best.score) best = { player: p, score, price };
+        }
+      }
+      if (!best) continue;
+
+      const target = best.player;
+      const seller = state.teams[target.clubId!];
+      if (!seller || seller.playerIds.length <= cfg.matchdaySquad) continue;
+      completeTransfer(state, target.id, buyer.id, best.price);
+      const why = STANCE_PROFILE[stanceOf(state, buyer, cfg)].label;
+      state.news.unshift(
+        `${target.name} joins ${buyer.name} from ${seller.name} for ${fmtFee(best.price)} — ${why.toLowerCase()}.`
+      );
+    }
+  }
+  state.news = state.news.slice(0, 24);
+}
+
+/**
+ * An AI club signs the best free agent for a needy position (v1.43+). Free
+ * agents cost no fee, only wages, so the only test is whether the club can
+ * service the wage — which keeps even cash-poor clubs active in the window and
+ * gives released players somewhere to land. The player must actually improve the
+ * position (targetScore > 0), same bar as any other signing.
+ */
+function aiSignFreeAgent(state: GameState, buyer: Team, need: PositionNeed, cfg: TuningConfig) {
+  if (buyer.playerIds.length >= cfg.squadCap) return;
+  let best: { player: PlayerBio; score: number } | null = null;
+  for (const p of activePlayers(state)) {
+    if (p.clubId || p.loan) continue; // free agents only
+    if (!p.positions.includes(need.pos) && !p.positions.some((pos) => positionAdjacent(pos, need.pos))) continue;
+    const score = targetScore(state, buyer, need, p, cfg);
+    if (score <= 0) continue;
+    // Free transfer: no fee, so the wage is the whole affordability question.
+    if (!canAfford(state, buyer, 0, wageDemand(state, p, cfg), cfg)) continue;
+    if (!best || score > best.score) best = { player: p, score };
+  }
+  if (!best) return;
+  completeTransfer(state, best.player.id, buyer.id, 0);
+  state.news.unshift(`${buyer.name} sign free agent ${best.player.name} to bolster their ${need.pos}.`);
+}
+
+/** A player covers a slot if it's a listed position or a direct adjacent one —
+ * a cheap check reusing the same adjacency the fit model uses, without importing
+ * the full positionFit machinery here. */
+function positionAdjacent(from: Pos, to: Pos): boolean {
+  return positionFit([from], to, 1, 0) >= 0.5;
+}
+
+/**
+ * AI contract renewals (v1.43+). Each window a share of clubs proactively tie
+ * down a first-team player whose deal is running out, rather than letting the
+ * rollover's auto-renew be the only thing keeping squads together — this makes
+ * the AI world visibly manage its contracts the way the user must, and stops a
+ * key player drifting toward a free exit. Purely a bookkeeping renewal (no fee,
+ * wage at demand); it just resets the expiry so the player stays put.
+ */
+function aiRenewContracts(state: GameState, rng: RNG, cfg: TuningConfig) {
+  const clubs = Object.values(state.teams).filter(
+    (t) => t.id !== state.userTeamId && state.leagues[t.leagueId]?.playable
+  );
+  for (const club of clubs) {
+    if (rng() >= cfg.aiRenewChance) continue;
+    // The most valuable player entering the final year of his deal is the one
+    // worth locking down first.
+    const finalYear = club.playerIds
+      .map((id) => state.players[id])
+      .filter(
+        (p) => p && !p.retired && !p.loan && p.contract && p.contract.expirySeason <= state.season
+      )
+      .sort((a, b) => b.overall - a.overall);
+    if (!finalYear.length) continue;
+    const p = finalYear[0];
+    // Only renew if the club can carry the wage — a club that can't afford to
+    // keep him lets him run down instead, and he may leave on a free.
+    const wage = wageDemand(state, p, cfg);
+    if (!canAfford(state, club, 0, wage, cfg)) continue;
+    grantDefaultContract(state, p, cfg);
+    state.news.unshift(`${club.name} hand ${p.name} a new contract.`);
   }
 }
 

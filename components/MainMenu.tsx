@@ -245,24 +245,76 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
     return presetDbs[code] ? proceduralFromPreset(presetDbs[code]) : null;
   };
 
-  // The database as worldgen will actually receive it: the chosen source with
-  // the created club spliced into the top division and any created players
-  // appended to their destination club's roster.
+  /** The division id the created club (if any) targets in this country: its
+   * explicit `divisionId`, or the top authored division when unset (older
+   * library prefills, and any club created before a lower tier was picked). */
+  const customClubDivisionId = (base: CountryDatabase): string => {
+    if (customClub?.divisionId) return customClub.divisionId;
+    return [...base.divisions].sort((a, b) => a.tier - b.tier)[0]?.id ?? "";
+  };
+
+  /** Materialize a country's division ladder deep enough that every division any
+   * custom club or player targets actually EXISTS on the returned database
+   * (v1.43). Generated lower tiers are promoted to authored divisions here — keyed
+   * off a club-independent seed from the base database so their clubs are stable
+   * and identical to what worldgen will build — so worldgen honours a created club
+   * or player placed in ANY tier, not just the authored top flight. */
   const effectiveDbFor = (code: string): CountryDatabase | null => {
     const base = dbForChoice(code);
     if (!base) return null;
     const withClub = code === playableCountry && customClub !== null;
     const playersHere = customPlayers.filter((p) => p.country === code);
-    if (!withClub && playersHere.length === 0) return base;
+    // The playable country always materializes its ladder to the chosen depth so
+    // the create-a-player / create-a-club forms can offer EVERY startable division
+    // (not just the authored top tiers). View-only countries keep the fast path
+    // unless they actually carry custom content.
+    const needsLadder = code === playableCountry && depthFor(code, base.divisions.length) > base.divisions.length;
+    if (!withClub && playersHere.length === 0 && !needsLadder) return base;
+
     const db = structuredClone(base);
+    const authored = [...db.divisions].sort((a, b) => a.tier - b.tier);
+
+    // Which division ids does custom content in this country reference?
+    const targetDivIds = new Set<string>();
+    if (withClub && customClub) targetDivIds.add(customClubDivisionId(base));
+    for (const cp of playersHere) targetDivIds.add(cp.divisionId);
+
+    // Promote generated tiers into the database as authored divisions so the
+    // splice/injection below has a real club array to write to, and so worldgen
+    // builds them verbatim rather than regenerating them. We materialize the WHOLE
+    // playable ladder (up to its chosen depth) — not only tiers custom content
+    // touches — off a single club-independent seed. That keeps the tiers stable and
+    // identical between this preview and the world worldgen builds, which is what
+    // lets a created club or player land in any lower division reliably (v1.43).
+    const authoredNames = new Set(authored.flatMap((d) => d.clubs.map((c) => c.name)));
+    const ladderSeed = divisionSeed({ playableCountry: code, viewCountries: [], countryDBs: { [code]: base } });
+    const tierOf = (id: string) => {
+      const m = /(\d+)$/.exec(id);
+      return m ? Number(m[1]) : 0;
+    };
+    const maxTargetTier = Math.max(
+      authored.length,
+      depthFor(code, authored.length),
+      ...[...targetDivIds].map(tierOf).filter((t) => t > 0)
+    );
+    for (let tier = authored.length + 1; tier <= Math.min(MAX_DIVISION_DEPTH, maxTargetTier); tier++) {
+      db.divisions.push({
+        id: `${code}${tier}`,
+        name: DEFAULT_TIER_NAMES[tier] ?? `Division ${tier}`,
+        tier,
+        clubs: generateDivisionClubs(ladderSeed, code, tier, authoredNames),
+      });
+    }
+
     if (withClub && customClub) {
-      const top = [...db.divisions].sort((a, b) => a.tier - b.tier)[0];
-      if (top && customClub.replaceIndex < top.clubs.length) {
+      const targetId = customClubDivisionId(base);
+      const div = db.divisions.find((d) => d.id === targetId);
+      if (div && customClub.replaceIndex < div.clubs.length) {
         const seed = customClubSeed(customClub);
         // A club pulled from the library carries an authored roster; CustomClub
         // itself has no roster field, so re-attach it here.
         if (customClubRoster && customClubRoster.length) seed.players = customClubRoster.map((p) => ({ ...p }));
-        top.clubs[customClub.replaceIndex] = seed;
+        div.clubs[customClub.replaceIndex] = seed;
       }
     }
     for (const cp of playersHere) {
@@ -280,8 +332,15 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
     for (const code of includedCodes) {
       const db = effectiveDbFor(code);
       if (!db) continue;
+      const base = dbForChoice(code);
+      // A materialized playable ladder (deeper than the base authors) must be
+      // passed to worldgen verbatim, or worldgen would regenerate those lower
+      // tiers off a different seed and the preview would no longer match the world.
+      const materialized = !!base && db.divisions.length > base.divisions.length;
       const modified =
-        (code === playableCountry && customClub !== null) || customPlayers.some((p) => p.country === code);
+        (code === playableCountry && customClub !== null) ||
+        customPlayers.some((p) => p.country === code) ||
+        materialized;
       if (choiceFor(code).source !== "default" || defaultNeedsPreset(code) || modified) out[code] = db;
     }
     return out;
@@ -516,9 +575,9 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
           <span className="display text-xs font-semibold tracking-widest text-faint">
             CHOOSE YOUR CLUB — {startDiv?.name ?? ""}
           </span>
-          {/* Create-a-club replaces a top-flight side, so it only applies when
-              you're starting in tier 1. */}
-          {!customClub && !playableLoading && startTier === 1 && (
+          {/* Create-a-club replaces a side in whichever division you're starting
+              in (v1.43 — lower divisions too). */}
+          {!customClub && !playableLoading && (
             <div className="flex items-center gap-3">
               {library.clubs.length > 0 && (
                 <button
@@ -545,7 +604,7 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
             <Crest colors={customClub.colors} short={customClub.short} size={24} />
             <span className="min-w-0 flex-1 truncate text-sm font-medium">{customClub.name}</span>
             <span className="text-[11px] text-faint">
-              replaces {originalTopDiv?.clubs[customClub.replaceIndex]?.name ?? "—"}
+              in {previewLadder.find((d) => d.id === (customClub.divisionId ?? originalTopDiv?.id))?.name ?? "your division"}
             </span>
             <button
               onClick={() => setClubModalOpen(true)}
@@ -749,9 +808,11 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
       </div>
 
       {guideOpen && <CustomDbGuide onClose={() => setGuideOpen(false)} />}
-      {clubModalOpen && originalTopDiv && (
+      {clubModalOpen && startDiv && (
         <CreateClubModal
-          clubs={originalTopDiv.clubs}
+          clubs={startDiv.clubs}
+          divisionId={startDiv.id}
+          divisionName={startDiv.name}
           initial={customClub}
           onSave={(club) => {
             setCustomClub(club);
@@ -826,10 +887,13 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
           onPick={(id) => {
             const lp = library.players.find((p) => p.id === id);
             if (!lp) return;
-            // Default destination: the playable country's first authored division
-            // and first club — the user adjusts it in the create-a-player modal.
+            // Default destination: the club you created (if any), else the division
+            // you're starting in, else the playable country's top division. The user
+            // can still adjust it in the create-a-player modal.
             const destDb = effectiveDbFor(playableCountry);
             const topDiv = destDb ? [...destDb.divisions].sort((a, b) => a.tier - b.tier)[0] : null;
+            const destDivId = customClub?.divisionId ?? startDiv?.id ?? topDiv?.id ?? "";
+            const destClubIndex = customClub ? customClub.replaceIndex : clubIndex ?? 0;
             setPlayerModal({
               id: `cp${Date.now().toString(36)}`,
               name: lp.name,
@@ -841,8 +905,8 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
               archetypeId: lp.archetypeId,
               traits: [...lp.traits],
               country: playableCountry,
-              divisionId: topDiv?.id ?? "",
-              clubIndex: 0,
+              divisionId: destDivId,
+              clubIndex: destClubIndex,
             });
             setLibraryPickerOpen(null);
           }}

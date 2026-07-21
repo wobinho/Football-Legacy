@@ -39,29 +39,35 @@ export interface StanceProfile {
 export const STANCE_PROFILE: Record<ClubStance, StanceProfile> = {
   // Met or beat a big expectation: buy finished players, pay over the odds,
   // keep everyone who matters.
+  // v1.43: sellAsk values pulled down across the board so a fair bid lands near
+  // a player's market value instead of several times over it.
+  // v1.43+: activity raised across every stance and the target age bands widened
+  // so the world does more business each window without losing each stance's
+  // distinct character.
   title: {
-    targetAge: [24, 30], abilityWeight: 1.0, potentialWeight: 0.15,
-    buyPremium: 1.35, sellAsk: 1.8, sellFromAge: 32, sellsStarters: false,
-    activity: 1.15, label: "Going for the title",
+    targetAge: [23, 31], abilityWeight: 1.0, potentialWeight: 0.2,
+    buyPremium: 1.35, sellAsk: 1.3, sellFromAge: 32, sellsStarters: false,
+    activity: 1.5, label: "Going for the title",
   },
   // Roughly where it should be: targeted upgrades, sensible money.
   compete: {
-    targetAge: [22, 29], abilityWeight: 0.8, potentialWeight: 0.45,
-    buyPremium: 1.12, sellAsk: 1.35, sellFromAge: 31, sellsStarters: false,
-    activity: 1.0, label: "Strengthening the squad",
+    targetAge: [21, 30], abilityWeight: 0.8, potentialWeight: 0.5,
+    buyPremium: 1.12, sellAsk: 1.12, sellFromAge: 31, sellsStarters: false,
+    activity: 1.35, label: "Strengthening the squad",
   },
-  // Under where it should be, and the books are tight: trim, don't build.
+  // Under where it should be, and the books are tight: trim, don't build — but
+  // still willing to sell a fringe starter to fund the right upgrade.
   stabilise: {
-    targetAge: [21, 28], abilityWeight: 0.6, potentialWeight: 0.5,
-    buyPremium: 0.95, sellAsk: 1.05, sellFromAge: 29, sellsStarters: false,
-    activity: 0.8, label: "Balancing the books",
+    targetAge: [20, 29], abilityWeight: 0.6, potentialWeight: 0.55,
+    buyPremium: 0.95, sellAsk: 1.0, sellFromAge: 29, sellsStarters: true,
+    activity: 1.05, label: "Balancing the books",
   },
   // Badly under, ageing squad: cash in on anyone with resale value and buy
-  // young. This is the only stance that will part with a starter.
+  // young. The most aggressive seller.
   rebuild: {
-    targetAge: [18, 23], abilityWeight: 0.35, potentialWeight: 1.0,
-    buyPremium: 1.0, sellAsk: 0.9, sellFromAge: 27, sellsStarters: true,
-    activity: 1.1, label: "Rebuilding",
+    targetAge: [17, 24], abilityWeight: 0.35, potentialWeight: 1.0,
+    buyPremium: 1.0, sellAsk: 0.9, sellFromAge: 26, sellsStarters: true,
+    activity: 1.4, label: "Rebuilding",
   },
 };
 
@@ -152,11 +158,12 @@ export function evaluateStance(state: GameState, team: Team, cfg: TuningConfig):
 }
 
 /** Recompute every AI club's stance. Called when a transfer window opens, so a
- * stance is fixed for the duration of that window's business. */
+ * stance is fixed for the duration of that window's business. Covers sim
+ * (non-playable) clubs too (v1.44) — they now do their own window business, so
+ * they need a stance to drive it just like their playable peers. */
 export function refreshClubStances(state: GameState, cfg: TuningConfig) {
   for (const team of Object.values(state.teams)) {
     if (team.id === state.userTeamId) continue;
-    if (!state.leagues[team.leagueId]?.playable) continue;
     team.stance = evaluateStance(state, team, cfg);
     team.stanceSeason = state.season;
   }

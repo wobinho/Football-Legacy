@@ -339,12 +339,35 @@ function generateSquad(
   }
   // Squad strength: an authored squadQuality (create-a-club / modded DBs)
   // overrides reputation as the generated squad's level.
-  const starterAvg = 40 + (club.squadQuality ?? club.rep) * 0.5;
+  const rep = club.squadQuality ?? club.rep;
+  const starterAvg = 40 + rep * 0.5;
+  // Superstar seeding: at a genuine giant, a handful of first-choice players are
+  // lifted into world-class territory so a fresh world actually holds 90-rated
+  // stars. The boost scales with how far the club is above the elite threshold
+  // (0 at the threshold, full at the top of the reputation scale) and is spent on
+  // the club's first `eliteStarterCount` first-choice slots — its marquee spine.
+  const eliteReach = Math.max(0, (rep - cfg.eliteClubRepThreshold) / (99 - cfg.eliteClubRepThreshold));
+  const eliteBoost = eliteReach * cfg.eliteStarterBoostMax;
+  // Spend the superstar quota on the marquee spine first — the positions where a
+  // star is legible (a talismanic ST, a playmaking AM, a match-winning winger)
+  // rather than on whichever slot the template happens to list first. Any quota
+  // left over falls through to the rest of the first-choice XI.
+  const ELITE_PRIORITY: Pos[] = ["ST", "AM", "LW", "RW", "CM", "CB", "GK", "DM", "LB", "RB"];
+  const eliteSlots = new Set<Pos>();
+  if (eliteBoost > 0) {
+    for (const pos of ELITE_PRIORITY) {
+      if (eliteSlots.size >= cfg.eliteStarterCount) break;
+      if (SQUAD_TEMPLATE.some(([p]) => p === pos)) eliteSlots.add(pos);
+    }
+  }
   for (const [pos, count] of SQUAD_TEMPLATE) {
     for (let i = have.get(pos) ?? 0; i < count; i++) {
       // first player per position ≈ starter level, later ones are depth
       const depthPenalty = i === 0 ? 0 : 2.5 + i * 2.5;
-      const overall = starterAvg - depthPenalty + randNormal(rng) * 2.5;
+      // A giant's first-choice slots on the marquee spine get the superstar boost,
+      // so the stars sit clear of the rest of the squad and land where they read.
+      const boost = i === 0 && eliteSlots.has(pos) ? eliteBoost : 0;
+      const overall = Math.min(cfg.eliteHardCap, starterAvg - depthPenalty + boost + randNormal(rng) * 2.5);
       const p = generatePlayer(rng, cfg, {
         pos,
         overall,
@@ -379,7 +402,8 @@ function randomTactic(rng: RNG): Tactic {
 /** Starting transfer budget from reputation. Exported so the new-game setup can
  * preview the budget a created club will open with. v1.42: +25% across all clubs. */
 export function clubBudget(rep: number): number {
-  return Math.max(2_500_000, Math.round(Math.pow(Math.max(0, rep - 40), 2) * 50_000));
+  // v1.43: starting budgets cut 25% across the board to tighten the early economy.
+  return Math.max(1_875_000, Math.round(Math.pow(Math.max(0, rep - 40), 2) * 37_500));
 }
 
 export interface NewGameOptions {

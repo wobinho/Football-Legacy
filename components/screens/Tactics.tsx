@@ -444,11 +444,15 @@ export default function TacticsScreen() {
                           {fit <= TUNING.outOfPositionFloor ? "OUT OF POS" : "adapted"}
                         </span>
                       )}
+                      {/* Spacer pushes everything after it hard to the right, so
+                          the synergy dot and overall stay right-justified even
+                          when the player carries no traits (v1.43 fix). */}
+                      <span className="ml-auto" />
                       {/* traits in their own containers to the RIGHT (v7) so you
                           can see who has the Leader / Dead-Ball trait at a glance */}
                       {p.traits.length > 0 && (
                         <span
-                          className="ml-auto flex flex-wrap items-center justify-end gap-1"
+                          className="flex flex-wrap items-center justify-end gap-1"
                           onClick={(e) => e.stopPropagation()}
                         >
                           {p.traits.map((t) => (

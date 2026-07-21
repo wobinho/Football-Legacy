@@ -201,13 +201,12 @@ export function StarRange({ lo, hi, className = "" }: { lo: number; hi: number; 
   );
 }
 
-/** Potential readout honoring the §18 fog: exact number past the growth age,
- * a star range while the player is still an unknown. */
+/** Potential readout honoring the §18 fog. Always a star bar (never a bare
+ * number): a fogged prospect shows the scout's low–high band, and a settled
+ * player (age ≥ growth end) shows a solid bar where lo === hi. Keeping stars in
+ * both cases means the modal never falls back to a raw potential integer. */
 export function PotentialBadge({ game, p, className = "" }: { game: GameState; p: PlayerBio; className?: string }) {
   const v = potentialView(game, p, TUNING);
-  if (v.exact !== null) {
-    return <span className={`display tnum font-bold ${v.exact > p.overall ? "text-win" : "text-faint"} ${className}`}>{v.exact}</span>;
-  }
   return <StarRange lo={v.loStars} hi={v.hiStars} className={className} />;
 }
 
