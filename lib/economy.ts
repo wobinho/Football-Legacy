@@ -16,8 +16,29 @@ export interface WeeklyBreakdown {
   sponsorIncome: number; // season-long sponsorship deals (v6, user club only)
   wageBill: number;
   staffWages: number;
-  academyUpkeep: number; // §18 — the only thing academy players cost
+  academyUpkeep: number; // §18 — facility running cost
+  academyWages: number; // §18 (v25) — the youth scholarship wage bill
   net: number;
+}
+
+/** A single academy prospect's weekly scholarship wage (v25). Scaled linearly
+ * from `academyWageMin` at `academyWageOverallLo` to `academyWageMax` at
+ * `academyWageOverallHi`, clamped to the band so it always sits in ~£1–5k. */
+export function academyWageFor(overall: number, cfg: TuningConfig): number {
+  const { academyWageMin: lo, academyWageMax: hi, academyWageOverallLo: oLo, academyWageOverallHi: oHi } = cfg;
+  const t = Math.max(0, Math.min(1, (overall - oLo) / Math.max(1, oHi - oLo)));
+  return Math.round((lo + (hi - lo) * t) / 100) * 100;
+}
+
+/** The user club's total weekly academy wage bill (v25) — the sum of every
+ * prospect's youth scholarship. Only the user runs a visible academy, so AI
+ * clubs return 0. */
+export function academyWageBill(state: GameState, teamId: string, cfg: TuningConfig): number {
+  const team = state.teams[teamId];
+  return (team.academyPlayerIds ?? [])
+    .map((id) => state.players[id])
+    .filter((p) => p && !p.retired)
+    .reduce((n, p) => n + academyWageFor(p.overall, cfg), 0);
 }
 
 /** Weekly income from a club's revenue-facility levels (v21: eight facilities). */
@@ -56,6 +77,9 @@ export function weeklyBreakdown(state: GameState, teamId: string, cfg: TuningCon
   const wageBill = squadWageBill(players, cfg);
   const staffWages = teamId === state.userTeamId ? userStaffWages(state) : 0;
   const academyUpkeep = (team.academyLevel ?? 0) * cfg.academyUpkeepPerLevel;
+  // Youth scholarship wages (v25). Only the user runs a visible academy roster,
+  // so AI clubs' academy wage bill is zero — their youth costs are abstracted.
+  const academyWages = teamId === state.userTeamId ? academyWageBill(state, teamId, cfg) : 0;
 
   return {
     tvIncome,
@@ -66,7 +90,9 @@ export function weeklyBreakdown(state: GameState, teamId: string, cfg: TuningCon
     wageBill,
     staffWages,
     academyUpkeep,
-    net: tvIncome + positionBonus + gateIncome + facilities + sponsorIncome - wageBill - staffWages - academyUpkeep,
+    academyWages,
+    net:
+      tvIncome + positionBonus + gateIncome + facilities + sponsorIncome - wageBill - staffWages - academyUpkeep - academyWages,
   };
 }
 
@@ -96,6 +122,20 @@ export function wageBillItems(state: GameState, teamId: string, cfg: TuningConfi
       detail: p.contract
         ? `${p.positions[0]} · ${p.overall} ovr · through S${p.contract.expirySeason}`
         : `${p.positions[0]} · ${p.overall} ovr · no contract`,
+    }))
+    .sort((a, b) => a.amount - b.amount);
+}
+
+/** The prospects behind the academy wage bill, dearest first (v25). */
+export function academyWageItems(state: GameState, teamId: string, cfg: TuningConfig): BreakdownItem[] {
+  const team = state.teams[teamId];
+  return (team.academyPlayerIds ?? [])
+    .map((id) => state.players[id])
+    .filter((p) => p && !p.retired)
+    .map((p) => ({
+      label: p.name,
+      amount: -academyWageFor(p.overall, cfg),
+      detail: `${p.positions[0]} · ${p.overall} ovr · age ${p.age}`,
     }))
     .sort((a, b) => a.amount - b.amount);
 }

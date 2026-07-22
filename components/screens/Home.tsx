@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useGame } from "@/store/gameStore";
 import { formatDay, formatDayShort } from "@/lib/calendar";
 import { computeTable } from "@/lib/season";
+import { INBOX_TAG_META } from "@/lib/inbox";
 import type { Fixture } from "@/lib/types";
 import { Card, Crest, Section, GhostButton } from "../ui";
 import Calendar from "../Calendar";
@@ -15,9 +16,12 @@ export default function HomeScreen() {
   useGame((s) => s.rev);
   const markRead = useGame((s) => s.markRead);
   const markAllRead = useGame((s) => s.markAllRead);
+  const deleteMail = useGame((s) => s.deleteMail);
+  const deleteAllMail = useGame((s) => s.deleteAllMail);
   const setScreen = useGame((s) => s.setScreen);
   // One item open at a time — the inbox is a list of headlines you drill into.
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
 
   const team = game.teams[game.userTeamId];
   const mine = game.fixtures.filter((f) => f.homeId === game.userTeamId || f.awayId === game.userTeamId);
@@ -40,10 +44,38 @@ export default function HomeScreen() {
         <Section
           title="Inbox"
           right={
-            unread > 1 ? (
-              <button onClick={markAllRead} className="text-xs text-faint transition-colors hover:text-dim">
-                Mark all read ({unread})
-              </button>
+            game.inbox.length > 0 ? (
+              <span className="flex items-center gap-3">
+                {unread > 1 && (
+                  <button onClick={markAllRead} className="text-xs text-faint transition-colors hover:text-dim">
+                    Mark all read ({unread})
+                  </button>
+                )}
+                {confirmClearAll ? (
+                  <span className="flex items-center gap-2 text-xs">
+                    <button
+                      onClick={() => {
+                        deleteAllMail();
+                        setConfirmClearAll(false);
+                        setExpanded(null);
+                      }}
+                      className="text-loss transition-colors hover:text-loss/80"
+                    >
+                      Delete all?
+                    </button>
+                    <button onClick={() => setConfirmClearAll(false)} className="text-faint transition-colors hover:text-dim">
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setConfirmClearAll(true)}
+                    className="text-xs text-faint transition-colors hover:text-loss"
+                  >
+                    Delete all
+                  </button>
+                )}
+              </span>
             ) : undefined
           }
         >
@@ -60,29 +92,53 @@ export default function HomeScreen() {
               const open = expanded === item.id;
               return (
                 <Card key={item.id} className={`p-3 ${item.read && !open ? "opacity-60" : ""}`}>
-                  <button
-                    className="w-full text-left"
-                    onClick={() => {
-                      setExpanded(open ? null : item.id);
-                      if (!open && !item.read) markRead(item.id);
-                    }}
-                    aria-expanded={open}
-                    title={open ? "Collapse" : "Read"}
-                  >
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span className={`flex min-w-0 items-baseline gap-1.5 text-sm font-semibold ${!item.read ? "text-ink" : "text-dim"}`}>
-                        {!item.read && <span className="h-1.5 w-1.5 shrink-0 self-center rounded-full bg-gold" aria-label="Unread" />}
-                        {item.type === "offer" && <span className="gold-text">◈</span>}
-                        <span className="min-w-0">{item.title}</span>
-                      </span>
-                      <span className="flex shrink-0 items-baseline gap-2">
-                        <span className="text-[11px] tnum text-faint">{formatDayShort(item.day)}</span>
-                        <span className={`text-[10px] text-faint transition-transform ${open ? "rotate-90" : ""}`} aria-hidden>
-                          ▸
+                  <div className="flex items-baseline gap-2">
+                    <button
+                      className="min-w-0 flex-1 text-left"
+                      onClick={() => {
+                        setExpanded(open ? null : item.id);
+                        if (!open && !item.read) markRead(item.id);
+                      }}
+                      aria-expanded={open}
+                      title={open ? "Collapse" : "Read"}
+                    >
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className={`flex min-w-0 items-baseline gap-1.5 text-sm font-semibold ${!item.read ? "text-ink" : "text-dim"}`}>
+                          {!item.read && <span className="h-1.5 w-1.5 shrink-0 self-center rounded-full bg-gold" aria-label="Unread" />}
+                          {(() => {
+                            const tag = INBOX_TAG_META[item.type];
+                            return tag ? (
+                              <span
+                                className="display shrink-0 self-center rounded-sm border px-1.5 py-px text-[9px] font-bold uppercase tracking-wider"
+                                style={{ color: tag.color, borderColor: `${tag.color}66` }}
+                              >
+                                {tag.label}
+                              </span>
+                            ) : null;
+                          })()}
+                          {item.type === "offer" && <span className="gold-text">◈</span>}
+                          <span className="min-w-0">{item.title}</span>
                         </span>
-                      </span>
-                    </div>
-                  </button>
+                        <span className="flex shrink-0 items-baseline gap-2">
+                          <span className="text-[11px] tnum text-faint">{formatDayShort(item.day)}</span>
+                          <span className={`text-[10px] text-faint transition-transform ${open ? "rotate-90" : ""}`} aria-hidden>
+                            ▸
+                          </span>
+                        </span>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (open) setExpanded(null);
+                        deleteMail(item.id);
+                      }}
+                      className="shrink-0 self-center rounded px-1.5 text-sm leading-none text-faint transition-colors hover:text-loss"
+                      title="Delete this message"
+                      aria-label="Delete message"
+                    >
+                      ✕
+                    </button>
+                  </div>
                   {open && (
                     <>
                       <p className="mt-2 border-t border-line/60 pt-2 text-[13px] leading-relaxed text-dim">{item.body}</p>

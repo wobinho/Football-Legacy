@@ -21,7 +21,12 @@ import { generateScoutMarket } from "./scouts";
 import { resolveSimLeagues } from "./simresolver";
 import { refreshSponsorOffers } from "./sponsors";
 import { initAcademyState, seedInitialAcademy } from "./academy";
-import { ensureContracts } from "./contracts";
+import { emptyProgress } from "./achievements";
+import { baseWage, ensureContracts } from "./contracts";
+
+/** The season a brand-new world is built at. Authored contract terms are anchored
+ * to it so "N years remaining" resolves to an absolute expiry season. */
+const WORLDGEN_SEASON = 1;
 import { assignAllKitNumbers } from "./kitnumbers";
 import type { AcademyState } from "./types";
 
@@ -305,6 +310,18 @@ export function materializePlayer(
   p.potential = Math.max(p.potential, p.overall);
   if (Array.isArray(seed.traits)) p.traits = [...seed.traits];
   p.value = playerValue(p, cfg);
+
+  // Authored contract terms (v1.46): a rostered seed may fix the player's wage
+  // and/or years remaining. The world is built at season 1, so a term of N
+  // seasons runs through season N. ensureContracts() runs after worldgen and
+  // skips any player that already carries a contract, so this stands as authored.
+  // Wage-only authoring still gets a default-length deal; years-only uses the
+  // wage curve for the number.
+  if (seed.wage !== undefined || seed.contractYears !== undefined) {
+    const wage = seed.wage !== undefined ? Math.max(0, Math.round(seed.wage)) : baseWage(p.overall, cfg);
+    const years = Math.max(1, Math.round(seed.contractYears ?? cfg.contractRenewYearsDefault));
+    p.contract = { wage, expirySeason: WORLDGEN_SEASON + years - 1, signedSeason: WORLDGEN_SEASON };
+  }
   return p;
 }
 
@@ -659,6 +676,7 @@ export function generateWorld(opts: NewGameOptions): GameState {
     simResults: [],
     academy: null as unknown as AcademyState, // filled below — needs the state object
     recordBook: { seasons: [], biggestWin: null },
+    progress: emptyProgress(),
     pendingMatchFixtureId: null,
     lastExportSeason: 1,
     news: [],

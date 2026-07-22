@@ -67,6 +67,8 @@ function toWinner(state: GameState, p: PlayerBio, stat?: number): AwardWinner {
     playerId: p.id,
     name: p.name,
     teamName: p.clubId ? state.teams[p.clubId]?.name ?? "—" : "—",
+    teamId: p.clubId ?? undefined,
+    nationality: p.nationality,
     pos: p.positions[0],
     stat,
   };
@@ -102,8 +104,14 @@ function best(pool: PlayerBio[], score: (p: PlayerBio) => number): PlayerBio | n
  * Build the XI of the season from a candidate pool: the highest-rated players
  * respecting the position caps (max 1 GK / 4 DEF / 3 MID / 4 ATT). Filled in two
  * passes — first honouring the caps, then topping up to eleven with the best
- * players left regardless of group, so a pool short in one area still fields a
- * full team. Returns the picks in shape order (GK → DEF → MID → ATT).
+ * players left, so a pool short in one area still fields a full team.
+ *
+ * The XI ALWAYS contains exactly one goalkeeper (v25): the GK cap is a hard cap
+ * the top-up pass respects too, so a keeper-rich pool never sneaks a second
+ * goalkeeper into an outfield slot; and if no keeper cleared the ratings
+ * minimum, the best available keeper is drafted in regardless, so a Team of the
+ * Season is never played without one between the posts. Returns the picks in
+ * shape order (GK → DEF → MID → ATT).
  */
 function pickTeamOfSeason(pool: PlayerBio[]): PlayerBio[] {
   const eligible = pool
@@ -124,14 +132,41 @@ function pickTeamOfSeason(pool: PlayerBio[]): PlayerBio[] {
     used.add(p.id);
     groupCount[g]++;
   }
-  // Pass 2: top up to eleven with whoever's left (caps relaxed) so the XI is
-  // always full even if a group ran dry — a real Team of the Season never fields
-  // ten men because there weren't enough centre backs.
+  // Pass 2: top up to eleven with whoever's left — but the GK cap of one is a
+  // HARD cap here, not just in pass 1. Without that, a pool light on outfielders
+  // could fill an outfield slot with a second goalkeeper. A real XI carries one
+  // keeper and ten outfielders.
   for (const p of eligible) {
     if (chosen.length >= TEAM_SIZE) break;
     if (used.has(p.id)) continue;
+    if (posGroup(p.positions[0]) === "GK" && groupCount.GK >= capOf("GK")) continue;
     chosen.push(p);
     used.add(p.id);
+    groupCount[posGroup(p.positions[0])]++;
+  }
+
+  // Guarantee the one goalkeeper. If none cleared the ratings minimum, draft the
+  // best keeper who played at all (or the best in the pool as a last resort),
+  // dropping the weakest outfielder to make room so the XI stays eleven strong.
+  if (groupCount.GK === 0) {
+    const keeper =
+      best(pool.filter((p) => p.positions[0] === "GK"), avgRating) ??
+      pool.filter((p) => p.positions[0] === "GK").sort((a, b) => b.overall - a.overall)[0];
+    if (keeper && !used.has(keeper.id)) {
+      if (chosen.length >= TEAM_SIZE) {
+        // Drop the lowest-rated outfielder (never another keeper) to free a slot.
+        for (let i = chosen.length - 1; i >= 0; i--) {
+          if (posGroup(chosen[i].positions[0]) !== "GK") {
+            used.delete(chosen[i].id);
+            chosen.splice(i, 1);
+            break;
+          }
+        }
+      }
+      chosen.push(keeper);
+      used.add(keeper.id);
+      groupCount.GK++;
+    }
   }
 
   // Re-order into shape order (GK first, then DEF, MID, ATT) for display.
@@ -245,6 +280,30 @@ export function computeSeasonAccolades(state: GameState): SeasonAccolades {
 }
 
 /**
+ * Did anyone from the user's club win an honour this season? Scans every
+ * individual award and every Team-of-the-Season / Legacy XI slot for a winner
+ * whose `teamId` is the user's club. Used to gate the awards inbox email so the
+ * user only hears about it when it concerns them.
+ */
+function userWonAnAward(state: GameState, accolades: SeasonAccolades): boolean {
+  const userTeamId = state.userTeamId;
+  const isUsers = (w?: AwardWinner) => w?.teamId === userTeamId;
+  for (const block of Object.values(accolades.byLeague)) {
+    if (
+      isUsers(block.playerOfSeason) ||
+      isUsers(block.youngPlayerOfSeason) ||
+      isUsers(block.goldenBoot) ||
+      isUsers(block.goldenPlaymaker) ||
+      isUsers(block.goldenGlove) ||
+      block.teamOfSeason?.some(isUsers)
+    ) {
+      return true;
+    }
+  }
+  return isUsers(accolades.legacyPlayerOfSeason) || (accolades.legacyTeamOfSeason?.some(isUsers) ?? false);
+}
+
+/**
  * Dead-week awards ceremony (v1.44). Fires once, on `accoladesDay` — the day
  * after the last game of the season, while the tables are final and this
  * season's stats are still intact, but a full week before the rollover. It
@@ -263,6 +322,12 @@ export function runSeasonAwardsCeremony(state: GameState): void {
 
   const accolades = computeSeasonAccolades(state);
   state.pendingAccolades = accolades;
+
+  // The awards email only lands if it's actually about the user's club — a
+  // player of theirs took home an individual honour, or made a Team of the
+  // Season / Legacy Team of the Year (v1.44). Awards for other clubs are still
+  // recorded on the season review; they just don't clutter the inbox.
+  if (!userWonAnAward(state, accolades)) return;
 
   // Headline the user's own division plus the two save-wide legacy honours.
   const userLeagueId = state.teams[state.userTeamId]?.leagueId;

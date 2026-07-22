@@ -176,6 +176,13 @@ export interface TuningConfig {
   growthYoungFalloffPerYear: number; // multiplier lost per year BELOW the peak
   growthOldFalloffPerYear: number; // multiplier lost per year ABOVE the peak
   growthAgeMultFloor: number; // the curve never drops below this
+  // Prime-phase growth (§5, v1.44). Players past growthEndAge but not yet in
+  // decline used to only drift a fraction of a point a season, so a late-20s pro
+  // having a standout campaign barely improved. A strong prime season now earns
+  // real overall — scaled by performance and minutes, capped per season, and
+  // still bounded by the player's (dynamic) potential ceiling.
+  primeGrowthPerSeasonMax: number; // max overall a prime player gains on a peak season
+  primeGrowthPerfPivot: number; // avg rating at which prime growth kicks in (below → drift/decay)
   retirementAgeMin: number;
   retirementAgeMax: number;
 
@@ -474,6 +481,7 @@ export interface TuningConfig {
   aiFreeAgentSignChance: number; // chance an acting club with no target signs a free agent
   aiRenewChance: number; // chance per window an AI club renews a final-year first-teamer
   aiSimDealsPerLeaguePerWindow: number; // intra-league AI↔AI deals each sim league does per window (v1.44)
+  aiSimCrossLeagueDealsPerWindow: number; // cross-league AI↔AI deals across the whole sim world per window (v1.44)
 
   // ── AI financial discipline (v19) ──
   // AI clubs must live within their means: a fee has to clear the budget with
@@ -505,6 +513,13 @@ export interface TuningConfig {
   academyMaxLevel: number;
   academyUpgradeCost: number[]; // one-time cost to reach each level
   academyUpkeepPerLevel: number; // weekly cost per academy level
+  // Academy player wages (v25). Prospects are on youth terms — a small weekly
+  // scholarship rather than a full professional contract — so each one draws a
+  // wage inside this band, scaled by his current ability between the two ends.
+  academyWageMin: number; // weekly wage of the rawest prospect
+  academyWageMax: number; // weekly wage of a senior-ready prospect
+  academyWageOverallLo: number; // overall mapped to academyWageMin
+  academyWageOverallHi: number; // overall mapped to academyWageMax
 
   // Intake day (mid-March, once per season)
   intakeClassBase: number; // class size at level 0
@@ -618,6 +633,14 @@ export interface TuningConfig {
   loanMinutesWeightTop: number; // minute weight by destination: tier 1 / tier 2 / sim
   loanMinutesWeightSecond: number;
   loanMinutesWeightSim: number;
+  // Direct academy loans (v1.44): how suitor clubs are picked when a prospect is
+  // sent out. A prospect is loaned to play, so the ideal home sits repMargin
+  // above nothing — targetRep = overall + repMargin — clubs beyond repCeiling
+  // over his level are dropped, and one within starterBand plays him regularly.
+  academyLoanRepMargin: number;
+  academyLoanRepCeiling: number;
+  academyLoanStarterBand: number;
+  academyLoanJitter: number;
 
   // Calibration targets (for the harness printout)
   targetGoalsPerMatch: number;
@@ -772,6 +795,8 @@ export const TUNING: TuningConfig = {
   growthYoungFalloffPerYear: 0.16,
   growthOldFalloffPerYear: 0.09,
   growthAgeMultFloor: 0.35,
+  primeGrowthPerSeasonMax: 2.2,
+  primeGrowthPerfPivot: 6.9,
   retirementAgeMin: 34,
   retirementAgeMax: 37,
 
@@ -951,15 +976,17 @@ export const TUNING: TuningConfig = {
 
   scoutNetworkMaxLevel: 5, // base 2 + 5 levels → up to 7 scouts on assignment
   scoutNetworkBase: 2,
-  scoutNetworkUpgradeCost: [3_500_000, 7_000_000, 12_000_000, 18_000_000, 25_000_000],
+  // v1.44: Academy Upgrade costs raised 8× across all three upgrades.
+  scoutNetworkUpgradeCost: [28_000_000, 56_000_000, 96_000_000, 144_000_000, 200_000_000],
 
-  academySquadSizeBase: 12, // base 12 + 4 levels × 3 → up to 24 prospects
-  academySquadSizePerLevel: 3,
+  academySquadSizeBase: 14, // base 14 + 4 levels × 4 → up to 30 prospects
+  academySquadSizePerLevel: 4,
   academySquadMaxLevel: 4,
-  academySquadUpgradeCost: [2_000_000, 4_500_000, 8_000_000, 13_000_000],
+  // v1.44: Academy Upgrade costs raised 8× across all three upgrades.
+  academySquadUpgradeCost: [16_000_000, 36_000_000, 64_000_000, 104_000_000],
 
   focusSlotMaxLevel: 7, // base 3 + 7 levels → up to 10 focus slots
-  focusSlotUpgradeCost: [1_500_000, 3_000_000, 5_000_000, 7_500_000, 10_500_000, 14_000_000, 18_000_000],
+  focusSlotUpgradeCost: [12_000_000, 24_000_000, 40_000_000, 60_000_000, 84_000_000, 112_000_000, 144_000_000],
 
   valueCurve: { base: 9_600, exponent: 0.104 }, // v1.42: −20% across the board to unstick the transfer market
   youthPotentialValueBoost: 1.8,
@@ -1006,10 +1033,14 @@ export const TUNING: TuningConfig = {
   // strict enough that most clubs found no target worth signing. Loosening the
   // gain floor and softening the age falloff lets clubs act on marginal upgrades
   // and shop a little outside their ideal age band, so windows are visibly busier.
-  aiMinUpgradeGain: 0.8,
-  aiAgeBandFalloff: 0.85,
-  aiMaxBudgetSharePerDeal: 0.55,
-  aiDealsPerWeek: 6,
+  // v25: transfers between clubs made more aggressive. A club acts on a slimmer
+  // upgrade (0.5 vs 0.8 overall), shops further outside its ideal age band, and
+  // will commit more of its budget to one deal — so squads reshape faster and
+  // the market visibly churns each window.
+  aiMinUpgradeGain: 0.5,
+  aiAgeBandFalloff: 0.9,
+  aiMaxBudgetSharePerDeal: 0.65,
+  aiDealsPerWeek: 11,
   // Chance an acting AI club, having found no club-to-club target, signs a free
   // agent for a needy position instead. Free agents cost only wages, so this keeps
   // the market moving even for clubs that can't fund a fee.
@@ -1018,7 +1049,10 @@ export const TUNING: TuningConfig = {
   // window (v1.44) so browsing a foreign league across seasons shows real squad
   // movement, not a frozen roster. Runs once per window, not weekly, so the
   // whole world stays cheap even at 15+ leagues.
-  aiSimDealsPerLeaguePerWindow: 4,
+  // v25: raised alongside the playable-league volume so foreign divisions churn
+  // just as visibly across seasons.
+  aiSimDealsPerLeaguePerWindow: 7,
+  aiSimCrossLeagueDealsPerWindow: 14,
   // Chance per window an AI club proactively renews a first-team player who is in
   // the final year of his deal, rather than risk losing him for nothing. Keeps AI
   // squads intact and mirrors the contract pressure the user feels.
@@ -1045,6 +1079,12 @@ export const TUNING: TuningConfig = {
   academyMaxLevel: 5,
   academyUpgradeCost: [2_000_000, 5_000_000, 10_000_000, 18_000_000, 32_000_000],
   academyUpkeepPerLevel: 20_000,
+  // Youth scholarship wages: a raw ~50-overall kid earns £1k/wk, a senior-ready
+  // ~72-overall prospect £5k/wk, scaled linearly between and clamped to the band.
+  academyWageMin: 1_000,
+  academyWageMax: 5_000,
+  academyWageOverallLo: 50,
+  academyWageOverallHi: 72,
 
   intakeClassBase: 3,
   intakeClassPerLevel: 0.5,
@@ -1172,6 +1212,10 @@ export const TUNING: TuningConfig = {
   loanMinutesWeightTop: 1.0,
   loanMinutesWeightSecond: 0.9,
   loanMinutesWeightSim: 0.8,
+  academyLoanRepMargin: 8, // a prospect drops ~a rung to get minutes
+  academyLoanRepCeiling: 12, // clubs more than this over his level don't bite
+  academyLoanStarterBand: 4, // a club within this of his level plays him
+  academyLoanJitter: 6, // deterministic tie-break spread on the five offered
 
   targetGoalsPerMatch: 2.7,
   targetHomeWinPct: 45,

@@ -39,6 +39,12 @@ export interface PlayerSeed {
   potential?: number; // default = overall + age headroom
   archetypeId?: string; // default: random archetype valid for the primary pos
   traits?: string[]; // default: rolled by position eligibility
+  /** Weekly wage for the initial contract, honored verbatim when the player is
+   * placed on a club (a roster member). Omit to let the wage curve set it. */
+  wage?: number;
+  /** Seasons remaining on the initial contract when the world is built (1..N).
+   * Only meaningful for a rostered player; omit for the default staggered term. */
+  contractYears?: number;
 }
 
 /** A club, optionally with an explicit roster. */
@@ -213,6 +219,13 @@ function validatePlayerSeed(p: unknown, where: string, push: (m: string) => void
     push(`${where}.overall must be a number 40–99.`);
   if (seed.age !== undefined && (typeof seed.age !== "number" || seed.age < 15 || seed.age > 40))
     push(`${where}.age must be a number 15–40.`);
+  if (seed.wage !== undefined && (typeof seed.wage !== "number" || seed.wage < 0))
+    push(`${where}.wage must be a non-negative number (weekly wage).`);
+  if (
+    seed.contractYears !== undefined &&
+    (typeof seed.contractYears !== "number" || seed.contractYears < 1 || seed.contractYears > 6)
+  )
+    push(`${where}.contractYears must be a number 1–6 (seasons remaining).`);
 }
 
 /** A downloadable JSON template for the custom-database guide. Small but

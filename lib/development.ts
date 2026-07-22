@@ -140,9 +140,25 @@ export function developPlayer(
     delta = Math.max(0, delta);
   } else if (p.age < declineOnset) {
     phase = "prime";
-    // Prime: small performance-driven drift, still bounded by the (dynamic) ceiling
-    delta = perf * 0.8 + randRange(rng, -0.5, 0.5);
-    delta = Math.min(delta, Math.max(0, newPotential - p.overall));
+    // Prime (v1.44): a player past the youth window can still meaningfully
+    // improve on a strong campaign — a late-20s pro who has a standout season,
+    // playing regularly and rating well, should climb, not merely tread water.
+    // Growth scales with how far his rating cleared the pivot and how much he
+    // actually played, is capped per season, and stays bounded by the (dynamic)
+    // potential ceiling. A merely-average or poor season still just drifts.
+    const primePerf = (avgRating - cfg.primeGrowthPerfPivot) / 1.2; // >0 when he outperformed
+    const headroom = Math.max(0, newPotential - p.overall);
+    if (primePerf > 0 && headroom > 0) {
+      const earned =
+        cfg.primeGrowthPerSeasonMax *
+        Math.min(1, primePerf) *
+        (0.4 + 0.6 * minutesFactor) *
+        randRange(rng, 0.7, 1.1);
+      delta = Math.min(headroom, earned);
+    } else {
+      // Neutral-to-poor season: the old gentle drift, still ceiling-bounded.
+      delta = Math.min(primePerf * 0.8 + randRange(rng, -0.5, 0.5), headroom);
+    }
   } else {
     phase = "decline";
     // Decline: harder for pace-reliant archetypes, softened by performance/usage

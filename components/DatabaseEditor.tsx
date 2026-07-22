@@ -9,9 +9,10 @@
 // compose: build players, then assemble clubs from them. Placement into a world
 // happens later, at new-game setup — nothing here touches a running save.
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { LibraryClub, LibraryPlayer } from "@/lib/customdb";
+import { libraryId } from "@/lib/customdb";
 import { NAME_POOLS } from "@/lib/config/names";
 import { COUNTRIES } from "@/lib/config/countries";
 import { PRESETS } from "@/lib/config/presets";
@@ -43,14 +44,52 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
   const [clubModal, setClubModal] = useState<LibraryClub | "new" | null>(null);
   const [playerModal, setPlayerModal] = useState<LibraryPlayer | "new" | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  // Create-a-player launched from INSIDE the club modal (v1.45): the club modal
+  // stays mounted underneath, and the id of the just-saved player is handed back
+  // via `autoAddPlayerId` so it lands straight in the club's roster. `nestedPlayer`
+  // being non-null renders the player modal ON TOP of the club modal.
+  const [nestedPlayer, setNestedPlayer] = useState(false);
+  const [autoAddPlayerId, setAutoAddPlayerId] = useState<string | null>(null);
+
+  // Search both libraries by name (and clubs by short code); empty = show all.
+  const q = query.trim().toLowerCase();
+  const shownClubs = useMemo(
+    () =>
+      !q
+        ? library.clubs
+        : library.clubs.filter((c) => c.name.toLowerCase().includes(q) || c.short.toLowerCase().includes(q)),
+    [library.clubs, q]
+  );
+  const shownPlayers = useMemo(
+    () =>
+      !q
+        ? library.players
+        : library.players.filter(
+            (p) => p.name.toLowerCase().includes(q) || p.positions[0].toLowerCase().includes(q) || p.nationality.toLowerCase().includes(q)
+          ),
+    [library.players, q]
+  );
+
+  /** Save a copy of a library entry under a new id so the user can spin a variant
+   * (a B-team, an alternate Haaland) without rebuilding it. */
+  const duplicateClub = (c: LibraryClub) => {
+    saveLibraryClub({ ...c, id: libraryId("club"), name: `${c.name} (copy)` });
+    showToast(`Copied ${c.name}.`);
+  };
+  const duplicatePlayer = (p: LibraryPlayer) => {
+    saveLibraryPlayer({ ...p, id: libraryId("player"), name: `${p.name} (copy)` });
+    showToast(`Copied ${p.name}.`);
+  };
 
   return (
     <div className="space-y-6">
       <div>
         <div className="display text-xs font-semibold tracking-widest text-faint">DATABASE EDITOR</div>
         <p className="mt-1 text-sm text-dim">
-          Build custom clubs and players once, save them, and drop any of them into a new legacy. Your library lives on
-          this device, tied to your key.
+          Build custom clubs and players once, save them, and drop any of them into a new legacy. Attach players to a club
+          — even create new ones for it — to author a whole team (a Man City with your Haaland) that plugs into any save
+          intact. Your library lives on this device, tied to your key.
         </p>
       </div>
 
@@ -69,6 +108,16 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
         ))}
       </div>
 
+      {/* Library search — filters whichever tab is active. */}
+      {(library.clubs.length > 0 || library.players.length > 0) && (
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={tab === "clubs" ? "Search clubs…" : "Search players…"}
+          className="w-full rounded-md border border-line bg-raised px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-gold focus:outline-none"
+        />
+      )}
+
       {tab === "clubs" ? (
         <section className="space-y-2">
           <div className="flex items-center justify-between">
@@ -79,12 +128,16 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
           </div>
           {library.clubs.length === 0 ? (
             <EmptyState label="No custom clubs yet." action="Create your first club" onClick={() => setClubModal("new")} />
+          ) : shownClubs.length === 0 ? (
+            <p className="rounded-md border border-dashed border-line bg-surface px-4 py-6 text-center text-sm text-faint">
+              No clubs match &ldquo;{query}&rdquo;.
+            </p>
           ) : (
             <div className="space-y-2">
-              {library.clubs.map((c) => (
+              {shownClubs.map((c) => (
                 <div key={c.id} className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface px-3 py-2">
                   <Crest colors={c.colors} short={c.short} size={30} />
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 basis-40">
                     <div className="truncate text-sm font-medium">{c.name}</div>
                     <div className="text-[11px] text-faint">
                       Rep {c.rep} · Squad {c.squadQuality ?? c.rep}
@@ -93,6 +146,7 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
                   </div>
                   <RowActions
                     onEdit={() => setClubModal(c)}
+                    onDuplicate={() => duplicateClub(c)}
                     confirming={confirmDelete === c.id}
                     onAskDelete={() => setConfirmDelete(c.id)}
                     onCancelDelete={() => setConfirmDelete(null)}
@@ -116,13 +170,17 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
           </div>
           {library.players.length === 0 ? (
             <EmptyState label="No custom players yet." action="Create your first player" onClick={() => setPlayerModal("new")} />
+          ) : shownPlayers.length === 0 ? (
+            <p className="rounded-md border border-dashed border-line bg-surface px-4 py-6 text-center text-sm text-faint">
+              No players match &ldquo;{query}&rdquo;.
+            </p>
           ) : (
             <div className="space-y-2">
-              {library.players.map((p) => (
+              {shownPlayers.map((p) => (
                 <div key={p.id} className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface px-3 py-2">
                   <Flag nat={p.nationality} size={13} />
                   <PosBadge pos={p.positions[0]} />
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 basis-32">
                     <div className="truncate text-sm font-medium">{p.name}</div>
                     <div className="text-[11px] text-faint tnum">
                       Age {p.age} · Potential {p.potential}
@@ -131,6 +189,7 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
                   <Ovr value={overallFromAttrs(p.attrs, p.positions[0])} size="sm" />
                   <RowActions
                     onEdit={() => setPlayerModal(p)}
+                    onDuplicate={() => duplicatePlayer(p)}
                     confirming={confirmDelete === p.id}
                     onAskDelete={() => setConfirmDelete(p.id)}
                     onCancelDelete={() => setConfirmDelete(null)}
@@ -154,16 +213,24 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
         <LibraryClubModal
           libraryPlayers={library.players}
           initial={clubModal === "new" ? null : clubModal}
-          onSave={(club, rosterIds) => {
-            const roster = rosterSeedsFor(rosterIds, library.players);
+          onSave={(club, rosterIds, rosterTerms) => {
+            const roster = rosterSeedsFor(rosterIds, library.players, rosterTerms);
             saveLibraryClub({ ...club, players: roster.length ? roster : undefined });
             setClubModal(null);
+            setAutoAddPlayerId(null);
             showToast(clubModal === "new" ? `${club.name} added to your library.` : `${club.name} updated.`);
           }}
-          onClose={() => setClubModal(null)}
+          onClose={() => {
+            setClubModal(null);
+            setAutoAddPlayerId(null);
+          }}
+          onCreatePlayer={() => setNestedPlayer(true)}
+          autoSelectId={autoAddPlayerId}
         />
       )}
-      {playerModal !== null && (
+      {/* Standalone create/edit player (Players tab) — hidden while a nested
+          create-a-player is open over the club modal so only one shows at a time. */}
+      {playerModal !== null && !nestedPlayer && (
         <LibraryPlayerModal
           natOptions={NAT_OPTIONS}
           initial={playerModal === "new" ? null : playerModal}
@@ -175,30 +242,51 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
           onClose={() => setPlayerModal(null)}
         />
       )}
+      {/* Nested create-a-player launched from the club modal (v1.45): renders on
+          top of the still-open club modal. On save, the new player is added to the
+          library and its id handed to the club modal to auto-select in the roster. */}
+      {nestedPlayer && (
+        <LibraryPlayerModal
+          natOptions={NAT_OPTIONS}
+          initial={null}
+          onSave={(player) => {
+            const id = saveLibraryPlayer(player);
+            setAutoAddPlayerId(id);
+            setNestedPlayer(false);
+            showToast(`${player.name} added — attached to this club.`);
+          }}
+          onClose={() => setNestedPlayer(false)}
+        />
+      )}
     </div>
   );
 }
 
 function RowActions({
   onEdit,
+  onDuplicate,
   confirming,
   onAskDelete,
   onCancelDelete,
   onConfirmDelete,
 }: {
   onEdit: () => void;
+  onDuplicate?: () => void;
   confirming: boolean;
   onAskDelete: () => void;
   onCancelDelete: () => void;
   onConfirmDelete: () => void;
 }) {
+  // Tap targets sized for a phone (min 32px high) while staying compact on
+  // desktop. The action cluster can wrap to its own line on a narrow row.
+  const btn = "rounded border px-2.5 py-1.5 text-[11px] min-h-[32px]";
   if (confirming) {
     return (
       <div className="flex items-center gap-1.5">
-        <button onClick={onConfirmDelete} className="rounded border border-loss px-2 py-1 text-[11px] text-loss hover:bg-hover">
+        <button onClick={onConfirmDelete} className={`${btn} border-loss text-loss hover:bg-hover`}>
           Delete
         </button>
-        <button onClick={onCancelDelete} className="rounded border border-line px-2 py-1 text-[11px] text-dim hover:text-ink">
+        <button onClick={onCancelDelete} className={`${btn} border-line text-dim hover:text-ink`}>
           Keep
         </button>
       </div>
@@ -206,12 +294,17 @@ function RowActions({
   }
   return (
     <div className="flex items-center gap-1.5">
-      <button onClick={onEdit} className="rounded border border-line px-2 py-1 text-[11px] text-dim hover:text-ink">
+      <button onClick={onEdit} className={`${btn} border-line text-dim hover:text-ink`}>
         Edit
       </button>
+      {onDuplicate && (
+        <button onClick={onDuplicate} className={`${btn} border-line text-dim hover:text-ink`} title="Save a copy">
+          Copy
+        </button>
+      )}
       <button
         onClick={onAskDelete}
-        className="rounded border border-line px-2 py-1 text-[11px] text-faint hover:text-loss"
+        className={`${btn} border-line text-faint hover:text-loss`}
         title="Remove from library"
       >
         ✕

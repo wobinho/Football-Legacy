@@ -26,6 +26,7 @@ import { rolloverContracts, ensureContracts } from "./contracts";
 import { resolveSimLeagues } from "./simresolver";
 import { buildSeasonSummary, trackBiggestWin } from "./recordbook";
 import { ACCOLADE_META, runSeasonAwardsCeremony } from "./accolades";
+import { trackUserMatch, trackRollover, syncProgress, userPlayerAwardsIn, achievementTitles } from "./achievements";
 import { generateStaffMarket, staffMarketTick, refreshStaffMarket } from "./staff";
 import { scoutMarketTick, refreshScoutMarketFull } from "./scouts";
 import { refreshAiCommercial, refreshSponsorOffers, rolloverSponsors } from "./sponsors";
@@ -156,7 +157,9 @@ function sideInputFor(state: GameState, teamId: string, fixedLineup?: { slotId: 
   const coachMult = teamId === state.userTeamId ? headCoachMult(coachStars, cfg) : 1;
   // Only the user sets assignments (captain + set-piece takers); AI sides field none.
   const assignments = teamId === state.userTeamId ? t.assignments : undefined;
-  return buildSideInput(teamId, t.name, t.short, players, t.tactic, cfg, fixedLineup, coachMult, assignments);
+  // Only the user picks a bench (v25); AI sides auto-derive theirs.
+  const fixedBench = teamId === state.userTeamId ? state.userBench : undefined;
+  return buildSideInput(teamId, t.name, t.short, players, t.tactic, cfg, fixedLineup, coachMult, assignments, fixedBench);
 }
 
 /** Apply a finished match to the world: stats, fatigue, form, table data. */
@@ -196,6 +199,17 @@ export function applyMatchResult(state: GameState, fixture: Fixture, result: Mat
     if (s.assistId && state.players[s.assistId]) state.players[s.assistId].stats.assists += 1;
   }
   trackBiggestWin(state, fixture, result.homeGoals, result.awayGoals);
+
+  // Manager accolades (v1.45): record the user club's own matches from their
+  // perspective, then refresh the live high-water marks and unlock any newly-met
+  // achievement. AI-vs-AI fixtures never touch the manager's ledger.
+  const userIsHome = fixture.homeId === state.userTeamId;
+  if (userIsHome || fixture.awayId === state.userTeamId) {
+    const own = userIsHome ? result.homeGoals : result.awayGoals;
+    const opp = userIsHome ? result.awayGoals : result.homeGoals;
+    trackUserMatch(state, own, opp);
+    syncProgress(state);
+  }
 }
 
 function simAiFixture(state: GameState, fixture: Fixture) {
@@ -525,11 +539,26 @@ export function runSeasonRollover(state: GameState) {
   // history first, while stats are intact
   appendCareerRows(state);
 
-  const { promoted, relegated } = applyPromotionRelegation(state);
+  const { promoted, relegated, promotedIds, relegatedIds } = applyPromotionRelegation(state);
   summary.promoted = promoted;
   summary.relegated = relegated;
+  summary.promotedIds = promotedIds;
+  summary.relegatedIds = relegatedIds;
   state.recordBook.seasons.push(summary);
   graduateAwardNews(state);
+
+  // Manager accolades (v1.45): fold this season's honours into the manager's
+  // ledger while the summary is fresh and the club is still in the division it
+  // just played. `syncProgress` (run below, after values settle) then unlocks any
+  // newly-met achievement. `promoted` is club NAMES; match on the user's name.
+  const userName = state.teams[state.userTeamId].name;
+  const userLeague = state.teams[state.userTeamId].leagueId;
+  trackRollover(state, {
+    wonLeague: summary.championsByLeague[userLeague]?.teamId === state.userTeamId,
+    wonCup: summary.cupWinner?.teamId === state.userTeamId,
+    promoted: promoted.includes(userName),
+    playerAwards: userPlayerAwardsIn(state, summary.accolades),
+  });
 
   if (promoted.includes(state.teams[state.userTeamId].name)) {
     state.teams[state.userTeamId].budget += cfg.promotionBonus;
@@ -673,6 +702,20 @@ export function runSeasonRollover(state: GameState) {
 
   // fresh season league summary for the ticker
   state.news.unshift(`${seasonYearLabel(state.season)} season: fixtures released. First matchday ${formatDayShort(state.schedule.leagueRoundDays[0])}.`);
+
+  // Manager accolades (v1.45): with the new season's budget, values and squad in
+  // place, refresh the peaks and unlock any achievement the season just earned
+  // (a title, a promotion, a 90-rated youngster who grew over the summer).
+  const unlocked = syncProgress(state);
+  const titles = achievementTitles(unlocked);
+  if (titles.length) {
+    pushInbox(
+      state,
+      "award",
+      titles.length === 1 ? "Achievement unlocked" : "Achievements unlocked",
+      `You've earned: ${titles.join(", ")}. See them all on the Achievements screen.`
+    );
+  }
 }
 
 /** Auto-fill the user's lineup for the current formation if slots are empty/invalid. */

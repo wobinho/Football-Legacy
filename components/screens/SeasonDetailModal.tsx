@@ -15,10 +15,55 @@
 
 import { useState } from "react";
 import { useGame } from "@/store/gameStore";
-import type { AwardWinner, SeasonSummary } from "@/lib/types";
+import type { AwardWinner, GameState, SeasonSummary } from "@/lib/types";
 import { formatMoney } from "@/lib/value";
 import { ACCOLADE_META } from "@/lib/accolades";
-import { Card, Crest, Modal, PosBadge } from "../ui";
+import { Card, Crest, Flag, Modal, PosBadge } from "../ui";
+
+/** A club badge looked up live by id (cosmetic — see the file header), or null
+ * when the id is unknown/absent (free agency, released, a pruned club). */
+function TeamCrest({ game, teamId, size = 16 }: { game: GameState; teamId?: string; size?: number }) {
+  const t = teamId ? game.teams[teamId] : undefined;
+  if (!t) return null;
+  return <Crest colors={t.colors} short={t.short} size={size} />;
+}
+
+/** A promoted/relegated club list — one row per club with its badge. Falls back
+ * to a plain comma-joined line when the summary predates stored club ids. */
+function MoveList({
+  game,
+  names,
+  ids,
+  arrow,
+  tone,
+}: {
+  game: GameState;
+  names: string[];
+  ids?: string[];
+  arrow: string;
+  tone: string;
+}) {
+  if (!ids?.length) {
+    return (
+      <div className={`mt-0.5 text-[13px] ${tone}`}>
+        {arrow} {names.join(", ")}
+      </div>
+    );
+  }
+  return (
+    <div className="mt-1 space-y-1">
+      {names.map((name, i) => (
+        <div key={`${name}-${i}`} className={`flex items-center gap-1.5 text-[13px] ${tone}`}>
+          <span aria-hidden className="shrink-0">
+            {arrow}
+          </span>
+          <TeamCrest game={game} teamId={ids[i]} size={16} />
+          <span className="truncate">{name}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function SeasonDetailModal({ summary, onClose }: { summary: SeasonSummary; onClose: () => void }) {
   const game = useGame((s) => s.game)!;
@@ -84,12 +129,16 @@ export default function SeasonDetailModal({ summary, onClose }: { summary: Seaso
             name={accolades.legacyPlayerOfSeason.name}
             club={accolades.legacyPlayerOfSeason.teamName}
             stat={fmtRating(accolades.legacyPlayerOfSeason.stat)}
+            nationality={accolades.legacyPlayerOfSeason.nationality}
+            teamId={accolades.legacyPlayerOfSeason.teamId}
+            game={game}
             onClick={() => openProfile(accolades.legacyPlayerOfSeason!.playerId)}
           />
           {accolades.legacyTeamOfSeason?.length ? (
             <TeamOfSeason
               label={`${ACCOLADE_META.legacyTeamOfSeason.emoji} Legacy Team of the Year`}
               xi={accolades.legacyTeamOfSeason}
+              game={game}
               onView={openProfile}
             />
           ) : null}
@@ -102,6 +151,7 @@ export default function SeasonDetailModal({ summary, onClose }: { summary: Seaso
                 label="Player of the Season"
                 name={summary.playerOfSeason.name}
                 club={summary.playerOfSeason.teamName}
+                game={game}
                 onClick={() => openProfile(summary.playerOfSeason!.playerId)}
               />
             )}
@@ -110,6 +160,7 @@ export default function SeasonDetailModal({ summary, onClose }: { summary: Seaso
                 label="Young Player of the Season"
                 name={summary.youngPlayerOfSeason.name}
                 club={summary.youngPlayerOfSeason.teamName}
+                game={game}
                 onClick={() => openProfile(summary.youngPlayerOfSeason!.playerId)}
               />
             )}
@@ -194,16 +245,17 @@ export default function SeasonDetailModal({ summary, onClose }: { summary: Seaso
             {game.leagues[activeId]?.name ?? activeId} — Honours
           </div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <LeagueAward type="playerOfSeason" w={leagueAwards.playerOfSeason} kind="rating" onView={openProfile} />
-            <LeagueAward type="youngPlayerOfSeason" w={leagueAwards.youngPlayerOfSeason} kind="rating" onView={openProfile} />
-            <LeagueAward type="goldenBoot" w={leagueAwards.goldenBoot} kind="goals" onView={openProfile} />
-            <LeagueAward type="goldenPlaymaker" w={leagueAwards.goldenPlaymaker} kind="assists" onView={openProfile} />
-            <LeagueAward type="goldenGlove" w={leagueAwards.goldenGlove} kind="rating" onView={openProfile} />
+            <LeagueAward type="playerOfSeason" w={leagueAwards.playerOfSeason} kind="rating" game={game} onView={openProfile} />
+            <LeagueAward type="youngPlayerOfSeason" w={leagueAwards.youngPlayerOfSeason} kind="rating" game={game} onView={openProfile} />
+            <LeagueAward type="goldenBoot" w={leagueAwards.goldenBoot} kind="goals" game={game} onView={openProfile} />
+            <LeagueAward type="goldenPlaymaker" w={leagueAwards.goldenPlaymaker} kind="assists" game={game} onView={openProfile} />
+            <LeagueAward type="goldenGlove" w={leagueAwards.goldenGlove} kind="rating" game={game} onView={openProfile} />
           </div>
           {leagueAwards.teamOfSeason?.length ? (
             <TeamOfSeason
               label={`${ACCOLADE_META.teamOfSeason.emoji} Team of the Season`}
               xi={leagueAwards.teamOfSeason}
+              game={game}
               onView={openProfile}
             />
           ) : null}
@@ -227,19 +279,33 @@ export default function SeasonDetailModal({ summary, onClose }: { summary: Seaso
         )
       )}
 
-      {/* Promotion / relegation, the season's other structural story. */}
+      {/* Promotion / relegation, the season's other structural story. Each club
+          is listed with its badge; old summaries with no ids fall back to a
+          plain comma-joined line. */}
       {(summary.promoted.length > 0 || summary.relegated.length > 0) && (
         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
           {summary.promoted.length > 0 && (
             <div className="rounded-md border border-win/40 bg-win/[0.06] px-3 py-2">
               <div className="text-[10px] uppercase tracking-widest text-faint">Promoted</div>
-              <div className="mt-0.5 text-[13px] text-win">▲ {summary.promoted.join(", ")}</div>
+              <MoveList
+                game={game}
+                names={summary.promoted}
+                ids={summary.promotedIds}
+                arrow="▲"
+                tone="text-win"
+              />
             </div>
           )}
           {summary.relegated.length > 0 && (
             <div className="rounded-md border border-loss/40 bg-loss/[0.06] px-3 py-2">
               <div className="text-[10px] uppercase tracking-widest text-faint">Relegated</div>
-              <div className="mt-0.5 text-[13px] text-loss">▼ {summary.relegated.join(", ")}</div>
+              <MoveList
+                game={game}
+                names={summary.relegated}
+                ids={summary.relegatedIds}
+                arrow="▼"
+                tone="text-loss"
+              />
             </div>
           )}
         </div>
@@ -251,11 +317,16 @@ export default function SeasonDetailModal({ summary, onClose }: { summary: Seaso
           <div className="mb-1.5 text-[11px] uppercase tracking-widest text-faint">Record deals</div>
           <Card className="divide-y divide-line/50">
             {summary.notableTransfers.map((t, i) => (
-              <div key={`${t.playerName}-${i}`} className="flex flex-wrap items-baseline justify-between gap-2 px-3 py-2 text-[13px]">
-                <span className="min-w-0">
+              <div key={`${t.playerName}-${i}`} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-[13px]">
+                <span className="flex min-w-0 items-center gap-2">
+                  {t.nationality && <Flag nat={t.nationality} size={13} />}
                   <span className="display font-semibold">{t.playerName}</span>
-                  <span className="ml-2 text-[11px] text-faint">
-                    {t.from} → {t.to}
+                  <span className="ml-1 flex items-center gap-1.5 text-[11px] text-faint">
+                    <TeamCrest game={game} teamId={t.fromId} size={15} />
+                    <span className="truncate">{t.from}</span>
+                    <span aria-hidden>→</span>
+                    <TeamCrest game={game} teamId={t.toId} size={15} />
+                    <span className="truncate">{t.to}</span>
                   </span>
                 </span>
                 <span className="display tnum font-semibold text-win">{formatMoney(t.fee)}</span>
@@ -273,12 +344,18 @@ function AwardCard({
   name,
   club,
   stat,
+  nationality,
+  teamId,
+  game,
   onClick,
 }: {
   label: string;
   name: string;
   club: string;
   stat?: string;
+  nationality?: string;
+  teamId?: string;
+  game: GameState;
   onClick: () => void;
 }) {
   return (
@@ -286,13 +363,19 @@ function AwardCard({
       onClick={onClick}
       className="flex w-full items-center justify-between rounded-md border border-line bg-raised px-3 py-2 text-left hover:bg-hover"
     >
-      <span className="min-w-0">
-        <span className="block text-[10px] uppercase tracking-widest text-faint">{label}</span>
-        <span className="display truncate text-sm font-semibold">{name}</span>
+      <span className="flex min-w-0 items-center gap-2">
+        {nationality && <Flag nat={nationality} size={14} />}
+        <span className="min-w-0">
+          <span className="block text-[10px] uppercase tracking-widest text-faint">{label}</span>
+          <span className="display truncate text-sm font-semibold">{name}</span>
+        </span>
       </span>
-      <span className="ml-2 shrink-0 text-right">
-        <span className="block text-[11px] text-faint">{club}</span>
-        {stat && <span className="display block text-[11px] font-semibold gold-text">{stat}</span>}
+      <span className="ml-2 flex shrink-0 items-center gap-2 text-right">
+        <span>
+          <span className="block text-[11px] text-faint">{club}</span>
+          {stat && <span className="display block text-[11px] font-semibold gold-text">{stat}</span>}
+        </span>
+        <TeamCrest game={game} teamId={teamId} size={20} />
       </span>
     </button>
   );
@@ -304,11 +387,13 @@ function LeagueAward({
   type,
   w,
   kind,
+  game,
   onView,
 }: {
   type: keyof typeof ACCOLADE_META;
   w?: AwardWinner;
   kind: "rating" | "goals" | "assists";
+  game: GameState;
   onView: (id: string) => void;
 }) {
   const meta = ACCOLADE_META[type];
@@ -334,13 +419,27 @@ function LeagueAward({
       name={w.name}
       club={w.teamName}
       stat={stat}
+      nationality={w.nationality}
+      teamId={w.teamId}
+      game={game}
       onClick={() => onView(w.playerId)}
     />
   );
 }
 
-/** The XI of the season, grouped GK → DEF → MID → ATT, each pick clickable. */
-function TeamOfSeason({ label, xi, onView }: { label: string; xi: AwardWinner[]; onView: (id: string) => void }) {
+/** The XI of the season, grouped GK → DEF → MID → ATT, each pick clickable.
+ * Each pick shows the player's nationality flag and their club's badge. */
+function TeamOfSeason({
+  label,
+  xi,
+  game,
+  onView,
+}: {
+  label: string;
+  xi: AwardWinner[];
+  game: GameState;
+  onView: (id: string) => void;
+}) {
   return (
     <div>
       <div className="mb-1.5 text-[11px] uppercase tracking-widest text-faint">{label}</div>
@@ -352,10 +451,12 @@ function TeamOfSeason({ label, xi, onView }: { label: string; xi: AwardWinner[];
             className="flex items-center gap-2 rounded px-1.5 py-1 text-left text-[12px] hover:bg-hover"
           >
             {w.pos && <PosBadge pos={w.pos} />}
+            {w.nationality && <Flag nat={w.nationality} size={11} />}
             <span className="min-w-0 flex-1 truncate">
               <span className="font-medium">{w.name}</span>
               <span className="ml-1 text-[10px] text-faint">{w.teamName}</span>
             </span>
+            <TeamCrest game={game} teamId={w.teamId} size={16} />
             {w.stat !== undefined && <span className="display shrink-0 tnum text-[11px] gold-text">{fmtRating(w.stat)}</span>}
           </button>
         ))}

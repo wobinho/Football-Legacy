@@ -10,6 +10,7 @@ import {
   facilityNextCost,
   wageBillItems,
   staffWageItems,
+  academyWageItems,
   facilityIncomeItems,
   sponsorIncomeItems,
   type BreakdownItem,
@@ -31,7 +32,7 @@ import {
   sponsorCooldownUntil,
 } from "@/lib/sponsors";
 import { formatMoney } from "@/lib/value";
-import { Card, GhostButton, GoldButton, Section, Stars, Tabs, UpgradeCard } from "../ui";
+import { Card, Flag, GhostButton, GoldButton, Section, Stars, Tabs, UpgradeCard } from "../ui";
 import SeasonDetailModal from "./SeasonDetailModal";
 
 // v7: staff moved to Development → Staff, so the Club page no longer has a Staff tab.
@@ -159,6 +160,7 @@ function FinancesTab() {
 
   const league = game.leagues[team.leagueId];
   const wageItems = wageBillItems(game, game.userTeamId, TUNING);
+  const academyWageBreakdown = academyWageItems(game, game.userTeamId, TUNING);
   const staffItems = staffWageItems(game);
   const facilityItems = facilityIncomeItems(game, game.userTeamId, TUNING);
   const sponsorItems = sponsorIncomeItems(game, game.userTeamId);
@@ -188,44 +190,96 @@ function FinancesTab() {
       : []),
     { label: "Squad wage bill", amount: -b.wageBill, items: wageItems },
     { label: "Staff wages", amount: -b.staffWages, items: staffItems },
+    ...(b.academyWages > 0
+      ? [
+          {
+            label: "Academy wages",
+            amount: -b.academyWages,
+            items: academyWageBreakdown,
+            note: `Youth scholarships — each prospect earns ${formatMoney(TUNING.academyWageMin)}–${formatMoney(TUNING.academyWageMax)}/wk on youth terms, scaled by ability.`,
+          },
+        ]
+      : []),
     ...(b.academyUpkeep > 0
       ? [
           {
             label: "Academy upkeep",
             amount: -b.academyUpkeep,
-            note: `Level ${team.academyLevel ?? 0} academy × ${formatMoney(TUNING.academyUpkeepPerLevel)}/level. Academy players themselves draw no wages.`,
+            note: `Level ${team.academyLevel ?? 0} academy × ${formatMoney(TUNING.academyUpkeepPerLevel)}/level — the facility running cost.`,
           },
         ]
       : []),
   ];
 
+  // Split the ledger into what comes in and what goes out, so the weekly picture
+  // reads as two columns of a P&L rather than one long undifferentiated list.
+  const incomeRows = rows.filter((r) => r.amount >= 0);
+  const costRows = rows.filter((r) => r.amount < 0);
+  const totalIn = incomeRows.reduce((s, r) => s + r.amount, 0);
+  const totalOut = costRows.reduce((s, r) => s + r.amount, 0);
+
   return (
-    <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-      <Section title="Balance">
-        <Card className="p-5 text-center">
-          <div className="text-[11px] uppercase tracking-widest text-faint">Available budget</div>
-          <div className="display gold-text mt-1 text-5xl font-bold tnum">{formatMoney(team.budget)}</div>
-          <div className={`mt-2 text-sm tnum ${b.net >= 0 ? "text-win" : "text-loss"}`}>
-            {b.net >= 0 ? "+" : ""}
-            {formatMoney(b.net)} / week
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <div className="lg:sticky lg:top-4 lg:self-start">
+        <Section title="Balance">
+          <Card className="overflow-hidden border-gold bg-gradient-to-br from-gold-lo/[0.10] to-transparent p-5 text-center shadow-[0_0_0_1px_rgba(217,164,65,0.15)]">
+            <div className="text-[11px] uppercase tracking-widest text-faint">Available budget</div>
+            <div className="display gold-text mt-1 text-5xl font-bold tnum">{formatMoney(team.budget)}</div>
+            <div
+              className={`display mt-2 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm tnum ${
+                b.net >= 0 ? "border-win/40 text-win" : "border-loss/40 text-loss"
+              }`}
+            >
+              {b.net >= 0 ? "▲" : "▼"} {b.net >= 0 ? "+" : ""}
+              {formatMoney(b.net)} / week
+            </div>
+          </Card>
+          {/* At-a-glance in/out totals — the two halves of the weekly net. */}
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <Card className="p-3 text-center">
+              <div className="text-[10px] uppercase tracking-widest text-faint">Income / wk</div>
+              <div className="display tnum mt-0.5 text-lg font-bold text-win">+{formatMoney(totalIn)}</div>
+            </Card>
+            <Card className="p-3 text-center">
+              <div className="text-[10px] uppercase tracking-widest text-faint">Costs / wk</div>
+              <div className="display tnum mt-0.5 text-lg font-bold text-loss">−{formatMoney(Math.abs(totalOut))}</div>
+            </Card>
           </div>
-        </Card>
-      </Section>
+        </Section>
+      </div>
       <div className="lg:col-span-2">
-      <Section
-        title="Weekly Breakdown"
-        right={<span className="text-xs text-faint">Tap a line to see what makes it up</span>}
-      >
-        <Card className="divide-y divide-line/50">
-          {rows.map((r) => (
-            <LedgerRow key={r.label} label={r.label} amount={r.amount} items={r.items} note={r.note} />
-          ))}
-          <div className="flex items-center justify-between px-4 py-2.5 text-sm font-semibold">
-            <span>Net</span>
-            <span className={`tnum ${b.net >= 0 ? "text-win" : "text-loss"}`}>{formatMoney(b.net)}</span>
-          </div>
-        </Card>
-      </Section>
+        <Section
+          title="Weekly Breakdown"
+          right={<span className="text-xs text-faint">Tap a line to see what makes it up</span>}
+        >
+          <Card className="overflow-hidden">
+            <div className="flex items-center justify-between border-b border-line/50 bg-raised px-4 py-1.5 text-[10px] uppercase tracking-widest text-win">
+              <span>Income</span>
+              <span className="tnum">+{formatMoney(totalIn)}</span>
+            </div>
+            <div className="divide-y divide-line/50">
+              {incomeRows.map((r) => (
+                <LedgerRow key={r.label} label={r.label} amount={r.amount} items={r.items} note={r.note} />
+              ))}
+            </div>
+            <div className="flex items-center justify-between border-y border-line/50 bg-raised px-4 py-1.5 text-[10px] uppercase tracking-widest text-loss">
+              <span>Costs</span>
+              <span className="tnum">−{formatMoney(Math.abs(totalOut))}</span>
+            </div>
+            <div className="divide-y divide-line/50">
+              {costRows.map((r) => (
+                <LedgerRow key={r.label} label={r.label} amount={r.amount} items={r.items} note={r.note} />
+              ))}
+            </div>
+            <div className="flex items-center justify-between border-t-2 border-line bg-base/40 px-4 py-3 text-sm font-semibold">
+              <span className="display uppercase tracking-wide">Net / week</span>
+              <span className={`display tnum text-base ${b.net >= 0 ? "text-win" : "text-loss"}`}>
+                {b.net >= 0 ? "+" : ""}
+                {formatMoney(b.net)}
+              </span>
+            </div>
+          </Card>
+        </Section>
       </div>
     </div>
   );
@@ -322,41 +376,69 @@ function IncomeTab() {
     },
   ];
 
+  // Running totals across every income stream — the headline this page was
+  // missing: what the facilities pay now, and how many are fully built out.
+  const totalNow = facilities.reduce((s, f) => s + f.level * f.perLevel, 0);
+  const maxedCount = facilities.filter((f) => facilityNextCost(game, game.userTeamId, f.key, TUNING) === null).length;
+  const totalLevels = facilities.reduce((s, f) => s + f.level, 0);
+  const capLevels = facilities.length * TUNING.facilityMaxLevel;
+
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">
-      {facilities.map((f) => {
-        const nextCost = facilityNextCost(game, game.userTeamId, f.key, TUNING);
-        const maxed = nextCost === null;
-        const current = f.level * f.perLevel;
-        const afterUpgrade = (f.level + 1) * f.perLevel;
-        const canAfford = nextCost !== null && team.budget >= nextCost;
-        return (
-          <UpgradeCard
-            key={f.key}
-            title={f.title}
-            icon={f.icon}
-            accent={f.accent}
-            level={f.level}
-            maxLevel={TUNING.facilityMaxLevel}
-            blurb={f.blurb}
-            effectNow={`+${formatMoney(current)}/wk`}
-            effectNext={`+${formatMoney(afterUpgrade)}/wk`}
-            cost={maxed ? "—" : formatMoney(nextCost!)}
-            maxed={maxed}
-            canAfford={canAfford}
-            note={
-              maxed
-                ? "Fully upgraded."
-                : canAfford
-                  ? `Pays for itself in about ${Math.ceil(nextCost! / f.perLevel)} weeks.`
-                  : "Not enough budget yet — sell players or climb the table."
-            }
-            onUpgrade={() => upgrade(f.key)}
-          />
-        );
-      })}
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-stretch gap-3">
+        <Card className="flex-1 border-gold bg-gradient-to-br from-gold-lo/[0.10] to-transparent px-4 py-3 shadow-[0_0_0_1px_rgba(217,164,65,0.15)]">
+          <div className="text-[10px] uppercase tracking-widest text-faint">Facilities income</div>
+          <div className="display gold-text text-2xl font-bold tnum">+{formatMoney(totalNow)}/wk</div>
+        </Card>
+        <Card className="px-4 py-3">
+          <div className="text-[10px] uppercase tracking-widest text-faint">Total levels</div>
+          <div className="display text-2xl font-bold tnum">
+            {totalLevels}<span className="text-faint">/{capLevels}</span>
+          </div>
+        </Card>
+        <Card className="px-4 py-3">
+          <div className="text-[10px] uppercase tracking-widest text-faint">Fully built</div>
+          <div className="display text-2xl font-bold tnum">
+            {maxedCount}<span className="text-faint">/{facilities.length}</span>
+          </div>
+        </Card>
       </div>
+
+      <Section title="Income Streams" right={<span className="text-xs text-faint">Each level lifts your weekly income</span>}>
+        <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">
+          {facilities.map((f) => {
+            const nextCost = facilityNextCost(game, game.userTeamId, f.key, TUNING);
+            const maxed = nextCost === null;
+            const current = f.level * f.perLevel;
+            const afterUpgrade = (f.level + 1) * f.perLevel;
+            const canAfford = nextCost !== null && team.budget >= nextCost;
+            return (
+              <UpgradeCard
+                key={f.key}
+                title={f.title}
+                icon={f.icon}
+                accent={f.accent}
+                level={f.level}
+                maxLevel={TUNING.facilityMaxLevel}
+                blurb={f.blurb}
+                effectNow={`+${formatMoney(current)}/wk`}
+                effectNext={`+${formatMoney(afterUpgrade)}/wk`}
+                cost={maxed ? "—" : formatMoney(nextCost!)}
+                maxed={maxed}
+                canAfford={canAfford}
+                note={
+                  maxed
+                    ? "Fully upgraded."
+                    : canAfford
+                      ? `Pays for itself in about ${Math.ceil(nextCost! / f.perLevel)} weeks.`
+                      : "Not enough budget yet — sell players or climb the table."
+                }
+                onUpgrade={() => upgrade(f.key)}
+              />
+            );
+          })}
+        </div>
+      </Section>
     </div>
   );
 }
@@ -603,46 +685,44 @@ function InvestmentsTab() {
     <div className="space-y-6">
       <MarketabilityPanel />
 
-      <div className="flex flex-wrap items-stretch gap-3">
-        <Card className="px-4 py-2">
-          <div className="text-[10px] uppercase tracking-widest text-faint">Weekly from minors</div>
-          <div className="display gold-text text-xl font-bold tnum">+{formatMoney(weekly)}/wk</div>
-          {upfrontThisSeason > 0 && (
-            <div className="mt-0.5 text-[11px] text-win">{formatMoney(upfrontThisSeason)} lump sums this season</div>
-          )}
-        </Card>
-        {/* Portfolio capacity (v19): the landmark assets are each exclusive, the
-            smaller partnerships stack — so both counts are worth showing. */}
-        {(() => {
-          const capacityOf = (kind: "major" | "minor") =>
-            SPONSOR_SLOTS.filter((s) => s.kind === kind).reduce((n, s) => n + slotCapacity(s.slot, TUNING), 0);
-          const majorCap = capacityOf("major");
-          const minorCap = capacityOf("minor");
-          const minorsHeld = deals.filter((d) => d.kind === "minor").length;
-          return (
-            <>
-              <Card className="px-4 py-2">
-                <div className="text-[10px] uppercase tracking-widest text-faint">Major deals</div>
-                <div className="display text-xl font-bold tnum">
-                  {majorsHeld}<span className="text-faint">/{majorCap}</span>
-                </div>
-                <div className="mt-0.5 text-[11px] text-faint">
-                  {majorsHeld >= majorCap ? "Every landmark asset sold" : "Exclusive — one per asset"}
-                </div>
-              </Card>
-              <Card className="px-4 py-2">
-                <div className="text-[10px] uppercase tracking-widest text-faint">Minor partners</div>
-                <div className="display text-xl font-bold tnum">
-                  {minorsHeld}<span className="text-faint">/{minorCap}</span>
-                </div>
-                <div className="mt-0.5 text-[11px] text-faint">
-                  {minorsHeld >= minorCap ? "Portfolio full" : "Several can run at once"}
-                </div>
-              </Card>
-            </>
-          );
-        })()}
-      </div>
+      {/* Portfolio capacity (v19): the landmark assets are each exclusive, the
+          smaller partnerships stack — so both counts are worth showing. */}
+      {(() => {
+        const capacityOf = (kind: "major" | "minor") =>
+          SPONSOR_SLOTS.filter((s) => s.kind === kind).reduce((n, s) => n + slotCapacity(s.slot, TUNING), 0);
+        const majorCap = capacityOf("major");
+        const minorCap = capacityOf("minor");
+        const minorsHeld = deals.filter((d) => d.kind === "minor").length;
+        return (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Card className="border-gold bg-gradient-to-br from-gold-lo/[0.10] to-transparent px-4 py-2.5 shadow-[0_0_0_1px_rgba(217,164,65,0.12)]">
+              <div className="text-[10px] uppercase tracking-widest text-faint">Weekly from minors</div>
+              <div className="display gold-text text-xl font-bold tnum">+{formatMoney(weekly)}/wk</div>
+              {upfrontThisSeason > 0 && (
+                <div className="mt-0.5 text-[11px] text-win">{formatMoney(upfrontThisSeason)} lump sums this season</div>
+              )}
+            </Card>
+            <Card className="px-4 py-2.5">
+              <div className="text-[10px] uppercase tracking-widest text-faint">Major deals</div>
+              <div className="display text-xl font-bold tnum">
+                {majorsHeld}<span className="text-faint">/{majorCap}</span>
+              </div>
+              <div className="mt-0.5 text-[11px] text-faint">
+                {majorsHeld >= majorCap ? "Every landmark asset sold" : "Exclusive — one per asset"}
+              </div>
+            </Card>
+            <Card className="px-4 py-2.5">
+              <div className="text-[10px] uppercase tracking-widest text-faint">Minor partners</div>
+              <div className="display text-xl font-bold tnum">
+                {minorsHeld}<span className="text-faint">/{minorCap}</span>
+              </div>
+              <div className="mt-0.5 text-[11px] text-faint">
+                {minorsHeld >= minorCap ? "Portfolio full" : "Several can run at once"}
+              </div>
+            </Card>
+          </div>
+        );
+      })()}
 
       {/* Active slots panel: every signed deal at a glance (v7) */}
       <Section title="Active Investments" right={<span className="text-xs text-faint">{deals.length} signed</span>}>
@@ -822,25 +902,43 @@ function GraduatesLedger() {
   );
 }
 
-function RecordList({ rows, onView, unit }: { rows: { id: string; name: string; value: number }[]; onView: (id: string) => void; unit: string }) {
+function RecordList({
+  rows,
+  onView,
+  unit,
+}: {
+  rows: { id: string; name: string; nationality?: string; value: number }[];
+  onView: (id: string) => void;
+  unit: string;
+}) {
   if (!rows.length) return <div className="text-sm text-faint">No records yet.</div>;
   return (
-    <Card className="p-2">
-      {rows.map((r, i) => (
-        <button
-          key={r.id}
-          onClick={() => onView(r.id)}
-          className="flex w-full items-center justify-between rounded px-2 py-1 text-left text-sm hover:bg-hover"
-        >
-          <span className="min-w-0 truncate">
-            <span className="mr-2 tnum text-faint">{i + 1}</span>
-            {r.name}
-          </span>
-          <span className="display tnum font-semibold">
-            {r.value} <span className="text-[10px] font-normal text-faint">{unit}</span>
-          </span>
-        </button>
-      ))}
+    <Card className="p-1.5">
+      {rows.map((r, i) => {
+        const rank = i + 1;
+        // The leader carries a gold accent; the rest read as a plain ranked list.
+        const lead = rank === 1;
+        return (
+          <button
+            key={r.id}
+            onClick={() => onView(r.id)}
+            className="group flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-left text-sm hover:bg-hover"
+          >
+            <span
+              className={`display flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-[11px] font-bold tnum ${
+                lead ? "gold-grad text-black" : "text-faint"
+              }`}
+            >
+              {rank}
+            </span>
+            {r.nationality && <Flag nat={r.nationality} size={11} />}
+            <span className="min-w-0 flex-1 truncate transition-colors group-hover:text-gold">{r.name}</span>
+            <span className="display shrink-0 tnum font-semibold">
+              {r.value} <span className="text-[10px] font-normal text-faint">{unit}</span>
+            </span>
+          </button>
+        );
+      })}
     </Card>
   );
 }

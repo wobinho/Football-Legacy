@@ -190,12 +190,14 @@ const PRO_REL_COUNT = 3;
  * Every pair is settled from the SAME pre-shuffle snapshot of final tables, so a
  * club relegated from tier 1 lands in tier 2 without being able to be promoted
  * back out of it in the same pass. */
-export function applyPromotionRelegation(state: GameState): { promoted: string[]; relegated: string[] } {
+export function applyPromotionRelegation(
+  state: GameState
+): { promoted: string[]; relegated: string[]; promotedIds: string[]; relegatedIds: string[] } {
   // De-duplicate defensively: a v11 save could carry [top, top] for a
   // single-division country, which must stay a no-op rather than shuffling a
   // division against itself.
   const ladder = Array.from(new Set(state.divisionIds)).filter((id) => state.leagues[id]);
-  if (ladder.length < 2) return { promoted: [], relegated: [] };
+  if (ladder.length < 2) return { promoted: [], relegated: [], promotedIds: [], relegatedIds: [] };
 
   // Snapshot every division's final table before anything moves.
   const tables = new Map(
@@ -232,10 +234,19 @@ export function applyPromotionRelegation(state: GameState): { promoted: string[]
     for (const tid of [...fromAbove, ...fromBelow]) state.teams[tid].leagueId = id;
   }
 
-  // The record book lists every move on the ladder, top pair first.
+  // The record book lists every move on the ladder, top pair first. Names and
+  // ids are kept parallel so the season review can badge each moving club.
+  const promotedIds: string[] = [];
+  const relegatedIds: string[] = [];
   for (const id of ladder) {
-    for (const tid of goingUp.get(id) ?? []) promotedNames.push(state.teams[tid].name);
-    for (const tid of goingDown.get(id) ?? []) relegatedNames.push(state.teams[tid].name);
+    for (const tid of goingUp.get(id) ?? []) {
+      promotedNames.push(state.teams[tid].name);
+      promotedIds.push(tid);
+    }
+    for (const tid of goingDown.get(id) ?? []) {
+      relegatedNames.push(state.teams[tid].name);
+      relegatedIds.push(tid);
+    }
   }
-  return { promoted: promotedNames, relegated: relegatedNames };
+  return { promoted: promotedNames, relegated: relegatedNames, promotedIds, relegatedIds };
 }

@@ -2,7 +2,7 @@
 
 // Transfers (§15.6): search/browse market, incoming offers, listings, window countdown.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { PlayerBio, Pos } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
@@ -14,7 +14,7 @@ import { seasonGrowth } from "@/lib/development";
 import { wageDemandWithClause, maxLengthFor, evaluateOffer } from "@/lib/contracts";
 import { transferWindowState, formatDayShort, seasonYearLabel } from "@/lib/calendar";
 import { formatMoney } from "@/lib/value";
-import { ArchetypeIcon, Card, ConfirmButton, Crest, Flag, GhostButton, GoldButton, Modal, Money, MoneyInput, Ovr, PlayerCard, PlayerGrid, PosBadge, Tabs, usePlayerView, ViewToggle } from "../ui";
+import { ArchetypeIcon, Card, ConfirmButton, CountryFlag, Crest, Flag, GhostButton, GoldButton, Modal, Money, MoneyInput, Ovr, PlayerCard, PlayerGrid, PosBadge, Tabs, usePlayerView, ViewToggle } from "../ui";
 import ReleaseClauseField from "./ReleaseClauseField";
 
 type Tab = "search" | "offers" | "listed" | "shortlist" | "free" | "news";
@@ -274,8 +274,15 @@ function BidModal({ p, onClose }: { p: PlayerBio; onClose: () => void }) {
   const [clause, setClause] = useState<number | null>(null);
   const demand = wageDemandWithClause(game, p, clause ?? undefined, TUNING);
   const [wage, setWage] = useState(demand);
-  const [feedback, setFeedback] = useState<string | null>(null);
-  const [counter, setCounter] = useState<number | null>(null);
+  // The last response from the far side: a wage rejection/counter from the
+  // player's camp, or a fee rejection/counter from the selling club. Rendered
+  // as a status ribbon so it reads as a reply to the offer, not a bare error.
+  const [reply, setReply] = useState<
+    | { kind: "wage"; tone: "loss" | "gold"; text: string }
+    | { kind: "fee-counter"; counterFee: number }
+    | { kind: "fee-reject"; text: string }
+    | null
+  >(null);
 
   const submit = (amount: number) => {
     const terms = { wage, years, releaseClause: clause ?? undefined };
@@ -283,8 +290,7 @@ function BidModal({ p, onClose }: { p: PlayerBio; onClose: () => void }) {
     // otherwise a signing could complete on terms he'd have refused.
     const verdict = evaluateOffer(game, p, wage, years, TUNING, clause ?? undefined);
     if (verdict.kind !== "accepted") {
-      setFeedback(verdict.message);
-      setCounter(null);
+      setReply({ kind: "wage", tone: verdict.kind === "countered" ? "gold" : "loss", text: verdict.message });
       if (verdict.kind === "countered") setWage(verdict.wage);
       return;
     }
@@ -297,11 +303,9 @@ function BidModal({ p, onClose }: { p: PlayerBio; onClose: () => void }) {
       );
       onClose();
     } else if (out.kind === "countered") {
-      setCounter(out.counterFee);
-      setFeedback(`They want ${formatMoney(out.counterFee)}.`);
+      setReply({ kind: "fee-counter", counterFee: out.counterFee });
     } else {
-      setFeedback(out.reason);
-      setCounter(null);
+      setReply({ kind: "fee-reject", text: out.reason });
     }
   };
 
@@ -354,10 +358,23 @@ function BidModal({ p, onClose }: { p: PlayerBio; onClose: () => void }) {
           </div>
           <div className="mt-2 flex justify-between text-xs text-faint">
             <span>Market value {formatMoney(p.value)}</span>
-            <button className="hover:text-dim" onClick={() => setFee(ask)}>
+            <button className="text-gold hover:text-gold-hi" onClick={() => setFee(ask)}>
               {p.contract?.releaseClause ? "Release clause" : "Suggested"}: {formatMoney(ask)}
             </button>
           </div>
+          {/* Quick moves against the two figures that matter — his valuation and
+              the club's asking price — so the common bids are one tap. */}
+          {!p.contract?.releaseClause && (
+            <FeeChips
+              base={ask}
+              value={fee}
+              onSet={setFee}
+              refs={[
+                { label: "Value", amount: p.value },
+                { label: "Ask", amount: ask },
+              ]}
+            />
+          )}
           {/* A clause on the target's deal is the single most useful fact here:
               it's a fixed price his club cannot refuse. */}
           {p.contract?.releaseClause && (
@@ -419,20 +436,52 @@ function BidModal({ p, onClose }: { p: PlayerBio; onClose: () => void }) {
         }}
       />
 
-      {feedback && (
-        <div className="mt-3 rounded-md border border-line bg-raised p-3 text-sm text-dim">
-          {feedback}
-          {counter && (
-            <GoldButton className="ml-3 !py-1 text-xs" onClick={() => submit(counter)}>
+      {/* The far side's reply, rendered as a status ribbon that reads as an
+          answer to the offer. A fee counter surfaces the club's number with a
+          one-tap "Meet it" so accepting their figure is frictionless. */}
+      {reply?.kind === "fee-counter" && (
+        <div className="mt-3 rounded-md border border-gold-lo/40 bg-gold-lo/[0.08] p-3">
+          <div className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-faint">
+            <Crest colors={game.teams[p.clubId!].colors} short={game.teams[p.clubId!].short} size={16} />
+            {game.teams[p.clubId!].name} counter
+          </div>
+          <div className="mt-1.5 flex items-center justify-between">
+            <span className="text-[13px] text-dim">
+              They&apos;ll sell for <Money value={reply.counterFee} className="display font-bold text-gold" />
+            </span>
+            <GoldButton className="!py-1 text-xs" onClick={() => { setFee(reply.counterFee); submit(reply.counterFee); }}>
               MEET IT
             </GoldButton>
-          )}
+          </div>
+        </div>
+      )}
+      {reply?.kind === "fee-reject" && (
+        <div className="mt-3 rounded-md border border-loss/40 bg-loss/[0.07] p-3 text-[13px] text-dim">
+          {reply.text}
+        </div>
+      )}
+      {reply?.kind === "wage" && (
+        <div
+          className={`mt-3 rounded-md border p-3 text-[13px] text-dim ${
+            reply.tone === "gold" ? "border-gold-lo/40 bg-gold-lo/[0.08]" : "border-loss/40 bg-loss/[0.07]"
+          }`}
+        >
+          {reply.text}
         </div>
       )}
 
-      <div className="mt-4 flex justify-end border-t border-line/60 pt-3">
-        <GoldButton onClick={() => submit(fee)}>
-          {isFreeAgent ? `SIGN ON ${formatMoney(wage)}/WK` : "BID"}
+      <div className="mt-4 flex items-center justify-between border-t border-line/60 pt-3">
+        <span className="text-[11px] text-faint">
+          {isFreeAgent ? (
+            <>Total outlay <span className="tnum text-dim">{formatMoney(wage)}/wk</span></>
+          ) : (
+            <>
+              {formatMoney(fee)} fee · <span className="tnum">{formatMoney(wage)}/wk</span>
+            </>
+          )}
+        </span>
+        <GoldButton onClick={() => submit(fee)} disabled={overBudget}>
+          {isFreeAgent ? `SIGN ON ${formatMoney(wage)}/WK` : "SUBMIT BID"}
         </GoldButton>
       </div>
     </Modal>
@@ -501,7 +550,7 @@ function PatienceBar({ offerId, buyerName }: { offerId: string; buyerName: strin
     st.ratio > 0.6 ? "Happy to talk" : st.ratio > 0.3 ? "Getting frustrated" : "About to walk away";
 
   return (
-    <div className="mb-3">
+    <div>
       <div className="mb-1 flex items-baseline justify-between text-[11px]">
         <span className="uppercase tracking-widest text-faint">{buyerName}&apos;s patience</span>
         <span className={st.ratio > 0.3 ? "text-dim" : "text-loss"}>{mood}</span>
@@ -516,16 +565,105 @@ function PatienceBar({ offerId, buyerName }: { offerId: string; buyerName: strin
       >
         <div className={`h-full transition-all duration-300 ${tone}`} style={{ width: `${pct}%` }} />
       </div>
-      <div className="mt-1 text-[10px] text-faint">
-        Every counter costs patience — asking far more than they can afford costs a great deal more.
+    </div>
+  );
+}
+
+// ── Negotiation transcript (v1.44) ──────────────────────────────────────────
+// A running chat-style log of a back-and-forth so the user can see the whole
+// conversation, not just the last line. Each line is one party's move; the
+// club's replies sit left, the user's on the right, mirroring how a messaging
+// thread reads. Outcome lines (deal done / walked away) span the width.
+
+type ChatLine =
+  | { who: "club"; text: string; fee?: number }
+  | { who: "you"; text: string; fee?: number }
+  | { who: "outcome"; text: string; tone: "win" | "loss" };
+
+function ChatBubble({ line, clubName }: { line: ChatLine; clubName: string }) {
+  if (line.who === "outcome") {
+    const cls =
+      line.tone === "win"
+        ? "border-win/40 bg-win/[0.07] text-win"
+        : "border-loss/40 bg-loss/[0.07] text-loss";
+    return (
+      <div className={`display rounded-md border px-3 py-2 text-center text-[13px] font-semibold ${cls}`}>
+        {line.text}
       </div>
+    );
+  }
+  const you = line.who === "you";
+  return (
+    <div className={`flex flex-col ${you ? "items-end" : "items-start"}`}>
+      <span className="mb-0.5 px-1 text-[9px] uppercase tracking-widest text-faint">
+        {you ? "You" : clubName}
+      </span>
+      <div
+        className={`max-w-[85%] rounded-lg px-3 py-2 text-[13px] leading-snug ${
+          you
+            ? "gold-grad rounded-br-sm text-black"
+            : "rounded-bl-sm border border-line bg-raised text-dim"
+        }`}
+      >
+        {line.text}
+        {line.fee !== undefined && (
+          <span className={`display ml-1.5 font-bold tnum ${you ? "text-black" : "text-ink"}`}>
+            {formatMoney(line.fee)}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Quick-adjust chips for a fee field — nudge by a fraction or snap to a
+ * reference figure, so the common moves are one tap. */
+function FeeChips({
+  base,
+  value,
+  onSet,
+  refs,
+}: {
+  base: number;
+  value: number;
+  onSet: (n: number) => void;
+  refs: { label: string; amount: number }[];
+}) {
+  const round = (n: number) => Math.max(0, Math.round(n / 100_000) * 100_000);
+  const nudges = [
+    { label: "−£1M", amount: value - 1_000_000 },
+    { label: "+£1M", amount: value + 1_000_000 },
+    { label: "+10%", amount: base * 1.1 },
+    { label: "+25%", amount: base * 1.25 },
+  ];
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {refs.map((r) => (
+        <button
+          key={r.label}
+          onClick={() => onSet(round(r.amount))}
+          className="rounded border border-gold-lo/40 bg-gold-lo/[0.08] px-2 py-1 text-[11px] text-gold transition-colors hover:bg-gold-lo/20"
+        >
+          {r.label}
+        </button>
+      ))}
+      {nudges.map((n) => (
+        <button
+          key={n.label}
+          onClick={() => onSet(round(n.amount))}
+          className="rounded border border-line px-2 py-1 text-[11px] text-dim transition-colors hover:border-gold hover:text-ink"
+        >
+          {n.label}
+        </button>
+      ))}
     </div>
   );
 }
 
 /** EA-FC-style negotiation over an incoming offer: accept the fee on the table,
  * name a counter and let the buyer's AI decide, or reject. The buyer can counter
- * back until its (per-deal, dynamic) patience runs out. */
+ * back until its (per-deal, dynamic) patience runs out. The whole exchange is
+ * shown as a running transcript so the haggling reads as a conversation. */
 function NegotiateModal({ offerId, onClose }: { offerId: string; onClose: () => void }) {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
@@ -536,7 +674,18 @@ function NegotiateModal({ offerId, onClose }: { offerId: string; onClose: () => 
   // Seed the ask a notch above their current offer (rounded to £100k).
   const suggested = offer ? Math.round((offer.fee * 1.25) / 100_000) * 100_000 : 0;
   const [ask, setAsk] = useState(suggested);
-  const [note, setNote] = useState<string | null>(null);
+  // The conversation so far — opens with the buyer's bid on the table.
+  const [chat, setChat] = useState<ChatLine[]>(() =>
+    offer
+      ? [{ who: "club", text: "We'd like to make an offer of", fee: offer.fee }]
+      : []
+  );
+  const [done, setDone] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [chat.length]);
 
   if (!offer || offer.status !== "pending") {
     // Resolved (sold / withdrawn) — nothing more to do here.
@@ -553,96 +702,155 @@ function NegotiateModal({ offerId, onClose }: { offerId: string; onClose: () => 
   const p = game.players[offer.playerId];
   const buyer = game.teams[offer.fromClubId];
   const round = offer.negotiationRound ?? 0;
+  const overValue = offer.fee - p.value;
+
+  const push = (line: ChatLine) => setChat((c) => [...c, line]);
 
   const doAccept = () => {
+    const feeNow = offer.fee;
+    push({ who: "you", text: "We accept your offer of", fee: feeNow });
     const out = respondOffer(offer.id, "accept");
-    setNote(out.message);
-    setTimeout(onClose, 900);
+    push({ who: "outcome", text: out.message, tone: "win" });
+    setDone(true);
+    setTimeout(onClose, 1400);
   };
   const doReject = () => {
+    push({ who: "you", text: "Thanks, but he's not for sale at that price." });
     respondOffer(offer.id, "reject");
-    onClose();
+    push({ who: "outcome", text: `Talks with ${buyer.name} ended.`, tone: "loss" });
+    setDone(true);
+    setTimeout(onClose, 1100);
   };
   const doCounter = () => {
+    if (ask <= offer.fee) return;
+    push({ who: "you", text: "We'd want", fee: ask });
     const out = respondOffer(offer.id, "counter", ask);
     if (out.kind === "countered") {
       // The buyer came back with what it CAN do. Pre-fill the next ask only
       // slightly above that — their reply is close to their real limit, so a
       // small nudge is the move that might still land, and the user can always
       // type something bolder if they want to gamble the patience.
-      setNote(out.message);
+      push({ who: "club", text: "We can't reach that, but we'll go to", fee: out.counterFee });
       setAsk(Math.round((out.counterFee * 1.06) / 100_000) * 100_000);
     } else if (out.kind === "accepted") {
-      setNote(out.message);
-      setTimeout(onClose, 1000);
+      push({ who: "club", text: "Agreed. He's yours for", fee: out.fee });
+      push({ who: "outcome", text: out.message, tone: "win" });
+      setDone(true);
+      setTimeout(onClose, 1400);
     } else {
-      setNote(out.message);
-      setTimeout(onClose, 1300);
+      push({ who: "outcome", text: out.message, tone: "loss" });
+      setDone(true);
+      setTimeout(onClose, 1600);
     }
   };
 
   return (
     <Modal title={`Negotiate — ${p.name}`} onClose={onClose}>
-      <div className="mb-3 flex items-center justify-between text-sm text-dim">
-        <span>
-          {getArchetype(p.archetypeId).name} · {p.age}y · <Ovr value={p.overall} size="sm" />
-        </span>
-        <button className="text-xs text-faint hover:text-dim" onClick={() => viewPlayer(p.id)}>
-          Full profile →
-        </button>
-      </div>
+      {/* Player identity header */}
+      <button
+        onClick={() => viewPlayer(p.id)}
+        className="group mb-3 flex w-full items-center gap-3 rounded-md border border-line bg-raised px-3 py-2.5 text-left transition-colors hover:border-gold-lo/50"
+      >
+        <PosBadge pos={p.positions[0]} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 truncate font-semibold transition-colors group-hover:text-gold">
+            <Flag nat={p.nationality} size={13} />
+            {p.name}
+          </div>
+          <div className="truncate text-[11px] text-faint">
+            {getArchetype(p.archetypeId).name} · {p.age}y
+          </div>
+        </div>
+        <div className="text-right">
+          <Ovr value={p.overall} size="sm" />
+          <div className="mt-0.5 text-[10px] text-faint">Full profile →</div>
+        </div>
+      </button>
 
-      <div className="mb-3 flex items-center justify-between rounded-md border border-line bg-raised px-3 py-2">
-        <span className="text-[11px] uppercase tracking-widest text-faint">
-          {buyer.name}&apos;s offer on the table
-        </span>
-        <Money value={offer.fee} className="display font-semibold text-ink" />
-      </div>
-      <div className="mb-3 flex justify-between text-xs text-faint">
-        <span>Market value {formatMoney(p.value)}</span>
-        <span>Talks: round {round}</span>
+      {/* Key figures: the live offer vs. what he's worth. */}
+      <div className="mb-3 grid grid-cols-2 gap-2">
+        <div className="rounded-md border border-gold-lo/40 bg-gold-lo/[0.06] px-3 py-2">
+          <div className="text-[10px] uppercase tracking-widest text-faint">On the table</div>
+          <Money value={offer.fee} className="display text-lg font-bold text-gold" />
+        </div>
+        <div className="rounded-md border border-line bg-raised px-3 py-2">
+          <div className="text-[10px] uppercase tracking-widest text-faint">Market value</div>
+          <div className="flex items-baseline gap-1.5">
+            <Money value={p.value} className="display text-lg font-bold text-ink" />
+            {Math.abs(overValue) >= 100_000 && (
+              <span className={`text-[10px] tnum ${overValue > 0 ? "text-win" : "text-loss"}`}>
+                {overValue > 0 ? "+" : ""}
+                {formatMoney(overValue)}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Buyer patience (v19) — every deal has its own, so the bar tells the user
-          how much room THIS negotiation has left rather than counting rounds
-          against a fixed limit. An unreasonable ask drains it far faster than a
-          measured one. */}
-      <PatienceBar offerId={offerId} buyerName={buyer.name} />
-
-      <div className="mb-1 flex items-baseline justify-between text-[11px] uppercase tracking-widest text-faint">
-        <span>Your counter (ask)</span>
-        <span className="tnum text-dim">{formatMoney(ask)}</span>
+          how much room THIS negotiation has left. An unreasonable ask drains it
+          far faster than a measured one. */}
+      <div className="mb-3">
+        <PatienceBar offerId={offerId} buyerName={buyer.name} />
       </div>
-      <div className="flex gap-2">
-        <span className="relative flex flex-1 items-center">
-          <span className="pointer-events-none absolute left-3 text-dim">£</span>
-          <MoneyInput
+
+      {/* The conversation so far. */}
+      <div className="mb-3 max-h-56 space-y-2 overflow-y-auto rounded-md border border-line/60 bg-surface/60 p-3">
+        {chat.map((line, i) => (
+          <ChatBubble key={i} line={line} clubName={buyer.name} />
+        ))}
+        <div ref={chatEndRef} />
+      </div>
+
+      {!done && (
+        <>
+          <div className="mb-1 flex items-baseline justify-between text-[11px] uppercase tracking-widest text-faint">
+            <span>Your counter-offer</span>
+            <span className="tnum text-dim">Round {round + 1}</span>
+          </div>
+          <div className="flex gap-2">
+            <span className="relative flex flex-1 items-center">
+              <span className="pointer-events-none absolute left-3 text-dim">£</span>
+              <MoneyInput
+                value={ask}
+                onChange={(n) => setAsk(Math.max(0, n))}
+                min={offer.fee}
+                className="w-full rounded-md border border-line bg-raised py-2 pl-7 pr-3 tnum focus:border-gold focus:outline-none"
+              />
+            </span>
+            <GhostButton
+              onClick={doCounter}
+              disabled={ask <= offer.fee}
+              className="!py-2 whitespace-nowrap"
+            >
+              Send counter
+            </GhostButton>
+          </div>
+          <FeeChips
+            base={p.value}
             value={ask}
-            onChange={(n) => setAsk(Math.max(0, n))}
-            min={offer.fee}
-            className="w-full rounded-md border border-line bg-raised py-2 pl-7 pr-3 tnum focus:border-gold focus:outline-none"
+            onSet={setAsk}
+            refs={[
+              { label: "Value", amount: p.value },
+              { label: "+15%", amount: p.value * 1.15 },
+            ]}
           />
-        </span>
-        <GhostButton onClick={doCounter} className="!py-2 whitespace-nowrap">
-          Counter
-        </GhostButton>
-      </div>
-      <div className="mt-1.5 text-[11px] text-faint">
-        Name your price — they&apos;ll accept if it&apos;s within reach, haggle back, or walk if you push too hard.
-      </div>
+          {ask <= offer.fee && (
+            <div className="mt-1.5 text-[11px] text-faint">
+              Ask above the current offer to counter — or simply accept what&apos;s on the table.
+            </div>
+          )}
 
-      {note && (
-        <div className="mt-3 rounded-md border border-gold-lo/40 bg-raised p-3 text-sm text-dim">{note}</div>
+          <div className="mt-4 flex items-center justify-between border-t border-line/60 pt-3">
+            <GhostButton onClick={doReject} className="!py-1.5 !border-loss/40 !text-loss">
+              Reject
+            </GhostButton>
+            <GoldButton onClick={doAccept} className="!py-1.5">
+              Accept {formatMoney(offer.fee)}
+            </GoldButton>
+          </div>
+        </>
       )}
-
-      <div className="mt-4 flex items-center justify-between border-t border-line/60 pt-3">
-        <GhostButton onClick={doReject} className="!py-1.5 !border-loss/40 !text-loss">
-          Reject
-        </GhostButton>
-        <GoldButton onClick={doAccept} className="!py-1.5">
-          Accept {formatMoney(offer.fee)}
-        </GoldButton>
-      </div>
     </Modal>
   );
 }
@@ -828,7 +1036,7 @@ function FreeAgentsTab() {
 // flags anything that isn't a straight cash transfer (free, release clause,
 // loan). The user's own business is tinted gold so it stands out of the flow.
 
-type NewsFilter = "all" | "mine";
+type NewsFilter = "all" | "league" | "mine";
 
 /** Visual treatment per deal kind — a compact badge in the game's accent
  * vocabulary. A plain cash transfer carries no badge (the fee says it all). */
@@ -846,10 +1054,27 @@ function TransferNewsTab() {
   const [filter, setFilter] = useState<NewsFilter>("all");
 
   const feed = game.transferNews ?? [];
-  const rows = useMemo(
-    () => (filter === "mine" ? feed.filter((n) => n.involvesUser) : feed),
-    [feed, filter]
-  );
+
+  // The league the user manages, and a tester for whether a deal touched it: a
+  // move is "in your league" when either club currently sits in that league.
+  // Look-up is live (news items don't store leagueId), so a deal survives here
+  // only while both clubs are still in the world — fine, since the league view
+  // is about the current-season market around the user.
+  const userLeagueId = game.teams[game.userTeamId]?.leagueId;
+  const inUserLeague = useMemo(() => {
+    const tester = (n: (typeof feed)[number]) => {
+      const fromL = n.fromClubId ? game.teams[n.fromClubId]?.leagueId : undefined;
+      const toL = n.toClubId ? game.teams[n.toClubId]?.leagueId : undefined;
+      return fromL === userLeagueId || toL === userLeagueId;
+    };
+    return tester;
+  }, [game.teams, userLeagueId]);
+
+  const rows = useMemo(() => {
+    if (filter === "mine") return feed.filter((n) => n.involvesUser);
+    if (filter === "league") return feed.filter(inUserLeague);
+    return feed;
+  }, [feed, filter, inUserLeague]);
 
   // Group by the season the deal happened in, so a long save reads as chapters
   // rather than one endless column. Newest season first (the feed is already
@@ -865,6 +1090,14 @@ function TransferNewsTab() {
   }, [rows]);
 
   const mineCount = useMemo(() => feed.filter((n) => n.involvesUser).length, [feed]);
+  const leagueCount = useMemo(() => feed.filter(inUserLeague).length, [feed, inUserLeague]);
+  const userLeagueName = userLeagueId ? game.leagues[userLeagueId]?.name : undefined;
+
+  const FILTERS: { id: NewsFilter; label: string; count?: number }[] = [
+    { id: "all", label: "ALL CLUBS" },
+    { id: "league", label: "LEAGUE", count: leagueCount },
+    { id: "mine", label: "MY CLUB", count: mineCount },
+  ];
 
   return (
     <div>
@@ -872,19 +1105,26 @@ function TransferNewsTab() {
         <div>
           <div className="display text-sm font-semibold">Market Wire</div>
           <div className="text-[11px] text-faint">
-            {feed.length} deal{feed.length === 1 ? "" : "s"} across the world · newest first
+            {rows.length} deal{rows.length === 1 ? "" : "s"}
+            {filter === "all"
+              ? " across the world"
+              : filter === "league"
+                ? ` in ${userLeagueName ?? "your league"}`
+                : " involving your club"}{" "}
+            · newest first
           </div>
         </div>
         <div className="flex overflow-hidden rounded-md border border-line">
-          {(["all", "mine"] as const).map((f) => (
+          {FILTERS.map((f) => (
             <button
-              key={f}
-              onClick={() => setFilter(f)}
+              key={f.id}
+              onClick={() => setFilter(f.id)}
               className={`display px-3 py-1 text-[11px] font-semibold transition-colors ${
-                filter === f ? "gold-grad text-black" : "text-faint hover:text-dim"
+                filter === f.id ? "gold-grad text-black" : "text-faint hover:text-dim"
               }`}
             >
-              {f === "all" ? "ALL CLUBS" : `MY CLUB${mineCount ? ` (${mineCount})` : ""}`}
+              {f.label}
+              {f.count ? ` (${f.count})` : ""}
             </button>
           ))}
         </div>
@@ -895,7 +1135,9 @@ function TransferNewsTab() {
           <div className="display mb-2 text-lg text-dim">THE WIRE IS QUIET</div>
           {filter === "mine"
             ? "None of your own deals yet. Buy or sell a player and it lands here."
-            : "No transfers have gone through yet. Deals appear here the moment a window opens and clubs start doing business."}
+            : filter === "league"
+              ? `No deals in ${userLeagueName ?? "your league"} yet. When a club here buys or sells, it lands on the wire.`
+              : "No transfers have gone through yet. Deals appear here the moment a window opens and clubs start doing business."}
         </Card>
       ) : (
         <div className="space-y-5">
@@ -921,7 +1163,8 @@ function TransferNewsTab() {
   );
 }
 
-/** One deal on the wire: selling club → player → buying club, fee on the right. */
+/** One deal on the wire: player (with flag) on the left, the club move
+ * (from → to, each with its country flag) in the middle, fee on the right. */
 function TransferNewsRow({
   n,
   onView,
@@ -934,24 +1177,39 @@ function TransferNewsRow({
   const to = n.toClubId ? game.teams[n.toClubId] : null;
   const badge = NEWS_KIND[n.kind];
   // The player may still be in the world (clickable through to his card) or long
-  // gone from a pruned long save — fall back to the denormalised name either way.
-  const playerLive = !!game.players[n.playerId];
+  // gone from a pruned long save — fall back to the denormalised name/flag either
+  // way. Older saves have no denormalised nat, so read it off the live player.
+  const live = game.players[n.playerId];
+  const playerLive = !!live;
+  const playerNat = n.playerNat ?? live?.nationality;
 
-  const clubChip = (club: typeof from, fallback: string, align: "left" | "right") => (
-    <span className={`flex min-w-0 items-center gap-1.5 ${align === "right" ? "flex-row-reverse text-right" : ""}`}>
-      {club ? <Crest colors={club.colors} short={club.short} size={18} /> : <span className="text-faint">—</span>}
-      <span className="truncate text-[12px] text-dim">{club?.name ?? fallback}</span>
-    </span>
-  );
+  // A club's country flag comes from its league (leagues carry the country). A
+  // pruned club falls back to no flag rather than a wrong one.
+  const countryOf = (club: typeof from) =>
+    club ? game.leagues[club.leagueId]?.country : undefined;
+
+  const clubChip = (club: typeof from, fallback: string, align: "left" | "right") => {
+    const country = countryOf(club);
+    return (
+      <span
+        className={`flex min-w-0 flex-1 items-center gap-1.5 ${align === "right" ? "flex-row-reverse text-right" : ""}`}
+      >
+        {club ? <Crest colors={club.colors} short={club.short} size={18} /> : <span className="text-faint">—</span>}
+        {country && <CountryFlag country={country} size={11} className="shrink-0" />}
+        <span className="truncate text-[12px] text-dim">{club?.name ?? fallback}</span>
+      </span>
+    );
+  };
 
   return (
-    <div className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 ${n.involvesUser ? "bg-hover/40" : ""}`}>
-      {/* Player + move direction — the sentence of the deal. */}
-      <div className="flex min-w-0 flex-1 basis-[15rem] items-center gap-2">
+    <div className={`flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3 py-2.5 ${n.involvesUser ? "bg-hover/40" : ""}`}>
+      {/* Player — the subject of the deal, with his flag and any kind badge. */}
+      <div className="flex min-w-0 flex-1 basis-[14rem] items-center gap-2">
+        {playerNat && <Flag nat={playerNat} size={13} className="shrink-0" />}
         <button
           onClick={onView}
           disabled={!playerLive}
-          className={`display shrink-0 text-sm font-semibold ${playerLive ? "hover:text-gold" : "text-dim"} ${
+          className={`display min-w-0 truncate text-sm font-semibold ${playerLive ? "hover:text-gold" : "text-dim"} ${
             n.involvesUser ? "gold-text" : ""
           }`}
           title={playerLive ? "View player" : undefined}
@@ -965,7 +1223,8 @@ function TransferNewsRow({
         )}
       </div>
 
-      <div className="flex min-w-0 flex-1 basis-[16rem] items-center gap-2">
+      {/* The move: from club → to club, each flagged by country. */}
+      <div className="flex min-w-0 flex-[1.4] basis-[18rem] items-center gap-2">
         {clubChip(from, n.fromName, "right")}
         <span className="shrink-0 text-faint" aria-hidden>
           →

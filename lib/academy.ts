@@ -938,7 +938,7 @@ export function releaseFromAcademy(state: GameState, playerId: string): string |
   p.loan = undefined;
   clearKitNumber(p);
   if (!state.careers[playerId]) state.careers[playerId] = { playerId, seasons: [], transfers: [] };
-  state.careers[playerId].transfers.push({ season: state.season, day: state.currentDay, from: team.name, to: "Released", fee: 0 });
+  state.careers[playerId].transfers.push({ season: state.season, day: state.currentDay, from: team.name, to: "Released", fee: 0, fromId: team.id });
   return null;
 }
 
@@ -965,7 +965,8 @@ export function addScoutAssignment(
   positions: ScoutPosGroup,
   cfg: TuningConfig,
   archetypes: string[] = [],
-  scoutId?: string
+  scoutId?: string,
+  durationMonths?: number
 ): string | null {
   const ac = state.academy;
   if (!hasScout(state)) return "Hire a scout in the Academy → Staff tab before sending one out.";
@@ -979,6 +980,10 @@ export function addScoutAssignment(
       ? "That scout is already out on an assignment."
       : "Every scout is already out — recall one, or hire more (Max Scouts caps the department).";
   }
+  // The user may cap the trip's length (v25): a scout sent for N months files
+  // reports until the window closes, then comes home automatically. 0/undefined
+  // means open-ended — the scout stays out until recalled.
+  const months = durationMonths && durationMonths > 0 ? Math.round(durationMonths) : undefined;
   ac.assignments.push({
     id: uid("asg"),
     scoutId: scout.id,
@@ -986,9 +991,16 @@ export function addScoutAssignment(
     positions,
     archetypes: archetypes.length ? [...archetypes] : undefined,
     nextReportDay: state.currentDay + 7 + Math.round(reportCadence(state, cfg, scout) * 0.4),
+    durationMonths: months,
+    endsDay: months ? state.currentDay + months * DAYS_PER_MONTH : undefined,
   });
   return null;
 }
+
+/** Calendar days a scouting "month" stands for (v25). Assignment durations are
+ * chosen in months and stored as an end day; the sim's day counter is calendar
+ * days, so a month is ~30 of them. */
+const DAYS_PER_MONTH = 30;
 
 export function updateScoutAssignment(
   state: GameState,
@@ -1001,6 +1013,31 @@ export function updateScoutAssignment(
 
 export function removeScoutAssignment(state: GameState, id: string) {
   state.academy.assignments = state.academy.assignments.filter((a) => a.id !== id);
+}
+
+/** End every assignment whose fixed duration has elapsed (v25). The scout is
+ * brought home (its brief removed, freeing the slot) and a single note per
+ * finished trip lands in the inbox. Open-ended briefs (no `endsDay`) are left
+ * alone — only a duration the user set can expire. */
+export function expireScoutAssignments(state: GameState) {
+  const done = state.academy.assignments.filter(
+    (a) => a.endsDay !== undefined && state.currentDay > a.endsDay
+  );
+  if (!done.length) return;
+  state.academy.assignments = state.academy.assignments.filter(
+    (a) => a.endsDay === undefined || state.currentDay <= a.endsDay
+  );
+  for (const a of done) {
+    const scout = scoutById(state, a.scoutId);
+    const who = scout?.name ?? "The scout";
+    pushInbox(
+      state,
+      "scout",
+      `${who} returns from ${a.region}`,
+      `${who} has completed the ${a.durationMonths ?? ""}${a.durationMonths ? "-month " : ""}assignment in ${a.region} and is back at the club. ` +
+        `Any prospects they filed are still on the board until the trail goes cold — send them out again from the Academy screen whenever you're ready.`
+    );
+  }
 }
 
 /** Keep the assignment list honest (v14): every brief must belong to a scout
@@ -1100,7 +1137,13 @@ export function dailyScoutTick(state: GameState, cfg: TuningConfig) {
   if (!hasScout(state) || ac.assignments.length === 0) return;
   clampScoutAssignments(state, cfg);
 
+  // Auto-end any assignment whose fixed window has closed (v25). The scout comes
+  // home and the brief is removed so its slot frees up; a short note lets the
+  // user know the trip is over and the scout is available again.
+  expireScoutAssignments(state);
+
   for (const a of ac.assignments) {
+    if (a.endsDay !== undefined && state.currentDay > a.endsDay) continue;
     if (state.currentDay < a.nextReportDay) continue;
     const scout = scoutById(state, a.scoutId);
     if (!scout) continue; // clamped away next pass
@@ -1175,11 +1218,15 @@ export function signProspect(state: GameState, reportId: string, cfg: TuningConf
   const p = report.player;
   p.clubId = team.id;
   p.academyClubId = team.id;
+  // Carry the scout's prospect tier onto the player as its academy rarity badge,
+  // so a scouted signing wears the same Bronze→Diamond label an intake kid does
+  // — and keeps it until promotion clears it (parity with runIntakeDay above).
+  if (report.tier) p.u21Tier = report.tier;
   state.players[p.id] = p;
   (team.academyPlayerIds ??= []).push(p.id);
   assignKitNumber(state, p);
   state.careers[p.id] = { playerId: p.id, seasons: [], transfers: [] };
-  state.careers[p.id].transfers.push({ season: state.season, day: state.currentDay, from: "Youth football", to: team.name, fee: 0 });
+  state.careers[p.id].transfers.push({ season: state.season, day: state.currentDay, from: "Youth football", to: team.name, fee: 0, toId: team.id });
   ac.reports = ac.reports.filter((r) => r.id !== reportId);
   state.news.unshift(`${team.name} sign ${p.age}-year-old ${p.name} for the academy.`);
   return null;
@@ -1297,6 +1344,8 @@ export function signU21Prospect(state: GameState, playerId: string, cfg: TuningC
     from: from?.name ?? opp.name,
     to: team.name,
     fee: quote.price,
+    fromId: from?.id ?? opp.clubId,
+    toId: team.id,
   });
   pushInbox(
     state,
@@ -1346,11 +1395,115 @@ function loanWeightFor(state: GameState, club: Team, cfg: TuningConfig): number 
   return league.tier === 1 ? cfg.loanMinutesWeightTop : cfg.loanMinutesWeightSecond;
 }
 
+// ── Direct academy loans (§18 v1.44) ──────────────────────────────────────
+// Rather than list a prospect and wait for the weekly AI tick, the user can
+// send an academy player out on the spot: the game finds clubs across the whole
+// world — every playable and sim-only league — that can and want a development
+// loanee, and the user picks one. The parent club keeps paying the wages, so a
+// suitor is never priced out; the only thing that varies is the FIT — a club
+// wants a prospect roughly a rung below its own level, where he'd actually play.
+
+export interface LoanSuitor {
+  clubId: string;
+  name: string;
+  short: string;
+  colors: [string, string];
+  reputation: number;
+  leagueName: string;
+  /** Projected role at this club, from the rep gap — the pitch to the user. */
+  role: "Regular starter" | "Squad rotation";
+  /** Development weight of a minute here (higher tier = more valuable). */
+  minutesWeight: number;
+}
+
+/** Up to five clubs, across every league, that would take this academy prospect
+ * on a development loan. A prospect goes out to get minutes, so the ideal home
+ * sits a rung below him (targetRep = overall + margin) and a club well above his
+ * level is dropped — he'd only warm their bench. Deterministic per player/day so
+ * the same click always offers the same five until something changes. */
+export function academyLoanSuitors(state: GameState, playerId: string, cfg: TuningConfig): LoanSuitor[] {
+  const p = state.players[playerId];
+  if (!p) return [];
+  const rng = mulberry32(deriveSeed(state.seed, `loanpick:${playerId}:${state.currentDay}`));
+  const targetRep = p.overall + cfg.academyLoanRepMargin;
+  const suitors = Object.values(state.teams)
+    .filter((t) => t.id !== state.userTeamId)
+    // A prospect learns nothing warming the bench of a side far above him, so
+    // clubs more than a band over his level don't come into it.
+    .filter((t) => t.reputation <= p.overall + cfg.academyLoanRepCeiling)
+    .map((t) => {
+      const gap = Math.abs(t.reputation - targetRep);
+      // small deterministic jitter so equally-good fits don't always tie-break
+      // the same way, and the five offered feel picked rather than sorted.
+      return { t, score: gap + rng() * cfg.academyLoanJitter };
+    })
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 5)
+    .map(({ t }): LoanSuitor => {
+      const league = state.leagues[t.leagueId];
+      // A club at or below the prospect's level plays him; one above rotates him.
+      const starter = t.reputation <= p.overall + cfg.academyLoanStarterBand;
+      return {
+        clubId: t.id,
+        name: t.name,
+        short: t.short,
+        colors: t.colors,
+        reputation: t.reputation,
+        leagueName: league?.name ?? "—",
+        role: starter ? "Regular starter" : "Squad rotation",
+        minutesWeight: loanWeightFor(state, t, cfg),
+      };
+    });
+  return suitors;
+}
+
+/** Send an academy prospect out on loan to a specific club, immediately. The
+ * club is one the user chose from academyLoanSuitors; wages stay with the parent
+ * club, so nothing here charges a fee or checks a budget. Mirrors the state a
+ * weekly AI uptake would have produced. */
+export function sendAcademyLoan(state: GameState, playerId: string, clubId: string, cfg: TuningConfig): string | null {
+  const p = state.players[playerId];
+  if (!p || !isUserPlayer(state, playerId)) return "Not your player.";
+  if (p.loan) return "Already out on loan.";
+  if (p.retired) return "That player has retired.";
+  if ((state.academy.u21.registered ?? []).includes(playerId)) {
+    return "Registered for the U21 competition — he can't go out on loan until the next registration window.";
+  }
+  const dest = state.teams[clubId];
+  if (!dest || dest.id === state.userTeamId) return "That club can't take him.";
+  const w = transferWindowState(state.currentDay, state.schedule);
+  if (!w.open) return "Loans can only be arranged while a transfer window is open.";
+
+  p.loan = { toClubId: dest.id, startDay: state.currentDay, minutesWeight: loanWeightFor(state, dest, cfg) };
+  state.academy.loanList = state.academy.loanList.filter((x) => x !== playerId);
+  for (const [slot, pid] of Object.entries(state.lineup)) {
+    if (pid === playerId) delete state.lineup[slot];
+  }
+  pushInbox(
+    state,
+    "academy",
+    `${p.name} joins ${dest.name} on loan`,
+    `${p.name} (${p.age}) moves to ${dest.name} until the end of the season to play regular football. We keep paying his wages; progress reports will follow.`
+  );
+  return null;
+}
+
 function userLoanees(state: GameState): PlayerBio[] {
   const t = userTeam(state);
   return [...t.playerIds, ...(t.academyPlayerIds ?? [])]
     .map((id) => state.players[id])
     .filter((p) => p && p.loan) as PlayerBio[];
+}
+
+/** Every one of the user's players currently out on loan — academy prospects and
+ * senior pros alike. Feeds the Loaned Players tab (v1.44). */
+export function loanedOutPlayers(state: GameState): PlayerBio[] {
+  return userLoanees(state);
+}
+
+/** Whether a loaned player is on the user's academy books (vs the senior squad). */
+export function isAcademyLoanee(state: GameState, playerId: string): boolean {
+  return (userTeam(state).academyPlayerIds ?? []).includes(playerId);
 }
 
 /** Weekly (Monday) loan machinery: AI uptake of listed players while a window

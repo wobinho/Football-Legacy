@@ -96,14 +96,40 @@ export function buildSideInput(
   cfg: TuningConfig,
   fixedLineup?: { slotId: string; player: PlayerBio }[],
   coachMult = 1,
-  assignments?: TeamAssignments
+  assignments?: TeamAssignments,
+  /** Explicit, ordered bench (v25, user team). Ids are honoured in order, then
+   * topped up to the matchday cap with the best of whoever remains — so a
+   * partial bench still fields a full squad. Ignored for AI sides. */
+  fixedBench?: string[]
 ): SideInput {
   const formation = getFormation(tactic.formationId);
   const picked = fixedLineup ?? pickLineup(players, formation, cfg).lineup;
   const usedIds = new Set(picked.map((e) => e.player.id));
-  const bench = fixedLineup
-    ? players.filter((p) => !usedIds.has(p.id) && !p.retired).sort((a, b) => b.overall - a.overall).slice(0, cfg.matchdaySquad - 11)
-    : pickLineup(players, formation, cfg).bench;
+  const benchCap = cfg.matchdaySquad - 11;
+  let bench: PlayerBio[];
+  if (fixedBench) {
+    const byId = new Map(players.map((p) => [p.id, p]));
+    // The user's chosen subs, in their order, filtering anyone unavailable or
+    // already starting.
+    bench = fixedBench
+      .map((id) => byId.get(id))
+      .filter((p): p is PlayerBio => !!p && !p.retired && !usedIds.has(p.id));
+    // Top up to the cap with the best of the rest so a short bench is never a
+    // penalty — the auto-fill mirrors the old behaviour.
+    const chosen = new Set(bench.map((p) => p.id));
+    const fill = players
+      .filter((p) => !p.retired && !usedIds.has(p.id) && !chosen.has(p.id))
+      .sort((a, b) => b.overall - a.overall);
+    for (const p of fill) {
+      if (bench.length >= benchCap) break;
+      bench.push(p);
+    }
+    bench = bench.slice(0, benchCap);
+  } else {
+    bench = fixedLineup
+      ? players.filter((p) => !usedIds.has(p.id) && !p.retired).sort((a, b) => b.overall - a.overall).slice(0, benchCap)
+      : pickLineup(players, formation, cfg).bench;
+  }
 
   const slotById = new Map(formation.slots.map((s) => [s.id, s]));
   const lineup: LineupEntry[] = picked.map((e) => ({

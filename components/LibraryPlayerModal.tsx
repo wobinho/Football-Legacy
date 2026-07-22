@@ -71,7 +71,7 @@ export default function LibraryPlayerModal({
     setSecondaries((s) => (s.includes(pos) ? s.filter((x) => x !== pos) : s.length >= 2 ? s : [...s, pos]));
 
   const toggleTrait = (id: string) =>
-    setTraits((t) => (t.includes(id) ? t.filter((x) => x !== id) : t.length >= 2 ? t : [...t, id]));
+    setTraits((t) => (t.includes(id) ? t.filter((x) => x !== id) : t.length >= 3 ? t : [...t, id]));
 
   const valid = name.trim().length > 0;
 
@@ -226,7 +226,7 @@ export default function LibraryPlayerModal({
         </label>
 
         <div>
-          <span className={labelCls}>TRAITS (up to 2)</span>
+          <span className={labelCls}>TRAITS (up to 3)</span>
           <div className="mt-1 flex flex-wrap gap-1.5">
             {eligibleTraits.map((t) => {
               const on = traits.includes(t.id);

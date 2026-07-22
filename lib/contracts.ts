@@ -218,7 +218,7 @@ export function rolloverContracts(state: GameState, cfg: TuningConfig): string[]
       p.loan = undefined;
       released.push(p.name);
       if (!state.careers[p.id]) state.careers[p.id] = { playerId: p.id, seasons: [], transfers: [] };
-      state.careers[p.id].transfers.push({ season: state.season, day: state.currentDay, from: team.name, to: "Contract expired", fee: 0 });
+      state.careers[p.id].transfers.push({ season: state.season, day: state.currentDay, from: team.name, to: "Contract expired", fee: 0, fromId: team.id });
     } else {
       // AI: renew at demand so no AI club loses a player to admin
       grantDefaultContract(state, p, cfg);

@@ -14,7 +14,7 @@ import { seasonGrowth } from "@/lib/development";
 import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan } from "@/lib/config/training";
 import { MAX_KIT_NUMBER, MIN_KIT_NUMBER, squadNumbersFor } from "@/lib/kitnumbers";
 import { ACCOLADE_META } from "@/lib/accolades";
-import type { Accolade, AccoladeType } from "@/lib/types";
+import type { Accolade, AccoladeType, GameState } from "@/lib/types";
 import { ArchetypeIcon, AttrGrid, Card, ConfirmButton, Crest, Flag, FitnessBar, FormChip, GhostButton, GoldButton, GrowthBadge, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip } from "../ui";
 import ContractModal from "./ContractModal";
 
@@ -474,11 +474,14 @@ export default function PlayerProfileModal() {
               ) : (
                 <Card className="divide-y divide-line/50 text-sm">
                   {career.transfers.slice().reverse().map((t, i) => (
-                    <div key={i} className="flex items-center justify-between px-4 py-2">
-                      <span className="text-dim">
-                        S{t.season} · {t.from} → <span className="text-ink">{t.to}</span>
-                      </span>
-                      <span className="tnum">{t.fee > 0 ? formatMoney(t.fee) : "Free"}</span>
+                    <div key={i} className="flex items-center gap-3 px-4 py-2.5">
+                      <span className="w-10 shrink-0 text-[11px] tnum text-faint">S{t.season}</span>
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <TransferEndpoint game={game} clubId={t.fromId} name={t.from} />
+                        <span className="shrink-0 text-faint">→</span>
+                        <TransferEndpoint game={game} clubId={t.toId} name={t.to} strong />
+                      </div>
+                      <span className="shrink-0 tnum">{t.fee > 0 ? formatMoney(t.fee) : "Free"}</span>
                     </div>
                   ))}
                 </Card>
@@ -490,6 +493,32 @@ export default function PlayerProfileModal() {
         {contractOpen && <ContractModal p={p} onClose={() => setContractOpen(false)} />}
       </div>
     </div>
+  );
+}
+
+/** One end of a transfer row: a club crest + its name. When the row carries a
+ * club id (v1.44+) the real club colours/short are used; older rows and
+ * non-club endpoints (free agency, released, youth football) fall back to a
+ * neutral crest built from the stored name. */
+function TransferEndpoint({
+  game,
+  clubId,
+  name,
+  strong,
+}: {
+  game: GameState;
+  clubId?: string;
+  name: string;
+  strong?: boolean;
+}) {
+  const club = clubId ? game.teams[clubId] : undefined;
+  const short = club?.short ?? name.slice(0, 3).toUpperCase();
+  const colors = club?.colors ?? (["#2a2c33", "#8a8f9a"] as [string, string]);
+  return (
+    <span className="flex min-w-0 items-center gap-1.5" title={name}>
+      <Crest colors={colors} short={short} size={20} />
+      <span className={`truncate ${strong ? "text-ink" : "text-dim"}`}>{name}</span>
+    </span>
   );
 }
 

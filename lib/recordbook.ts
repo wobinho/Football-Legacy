@@ -80,7 +80,16 @@ export function buildSeasonSummary(state: GameState): SeasonSummary {
   for (const c of Object.values(state.careers)) {
     for (const t of c.transfers) {
       if (t.season === state.season && t.fee > 0) {
-        notable.push({ playerName: state.players[c.playerId]?.name ?? "?", from: t.from, to: t.to, fee: t.fee });
+        const player = state.players[c.playerId];
+        notable.push({
+          playerName: player?.name ?? "?",
+          from: t.from,
+          to: t.to,
+          fee: t.fee,
+          nationality: player?.nationality,
+          fromId: t.fromId,
+          toId: t.toId,
+        });
       }
     }
   }
@@ -139,9 +148,9 @@ export function trackBiggestWin(state: GameState, fixture: { homeId: string; awa
 /** All-time club records computed from careers on demand (no extra store). */
 export function clubAllTimeRecords(state: GameState, teamId: string) {
   const teamName = state.teams[teamId].name;
-  const totals = new Map<string, { id: string; name: string; apps: number; goals: number; assists: number }>();
-  const add = (playerId: string, name: string, apps: number, goals: number, assists: number) => {
-    const t = totals.get(playerId) ?? { id: playerId, name, apps: 0, goals: 0, assists: 0 };
+  const totals = new Map<string, { id: string; name: string; nationality?: string; apps: number; goals: number; assists: number }>();
+  const add = (playerId: string, name: string, nationality: string | undefined, apps: number, goals: number, assists: number) => {
+    const t = totals.get(playerId) ?? { id: playerId, name, nationality, apps: 0, goals: 0, assists: 0 };
     t.apps += apps;
     t.goals += goals;
     t.assists += assists;
@@ -149,13 +158,16 @@ export function clubAllTimeRecords(state: GameState, teamId: string) {
   };
   for (const c of Object.values(state.careers)) {
     for (const row of c.seasons) {
-      if (row.clubName === teamName) add(c.playerId, state.players[c.playerId]?.name ?? "?", row.apps, row.goals, row.assists);
+      if (row.clubName === teamName) {
+        const p = state.players[c.playerId];
+        add(c.playerId, p?.name ?? "?", p?.nationality, row.apps, row.goals, row.assists);
+      }
     }
   }
   // include current season running stats
   for (const pid of state.teams[teamId].playerIds) {
     const p = state.players[pid];
-    if (p) add(p.id, p.name, p.stats.apps, p.stats.goals, p.stats.assists);
+    if (p) add(p.id, p.name, p.nationality, p.stats.apps, p.stats.goals, p.stats.assists);
   }
   const rows = [...totals.values()];
   return {

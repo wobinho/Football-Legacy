@@ -4,13 +4,16 @@
 // potential, the background U21 league, the scouting pipeline, and loans —
 // all the "grow your own" decisions in one place.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { Pos, PlayerBio, ScoutPosGroup, ScoutRegion, U21Opponent } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
 import { ARCHETYPES, getArchetype } from "@/lib/config/archetypes";
 import {
+  academyLoanSuitors,
   academyPlayers,
+  isAcademyLoanee,
+  loanedOutPlayers,
   focusSlots,
   potentialView,
   scoutCapacity,
@@ -28,7 +31,8 @@ import {
 } from "@/lib/academy";
 import { POS_GROUP_COLORS, POS_LABELS, POS_ORDER, posGroup } from "@/lib/config/positions";
 import { academySquadCap, trainingNextCost } from "@/lib/economy";
-import { plansForPosition, resolveTrainingPlan } from "@/lib/config/training";
+import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan, type TrainingPlanDef } from "@/lib/config/training";
+import { devPhase, seasonAttrFocus, seasonGrowth, seasonGrowthEstimate } from "@/lib/development";
 import { SCOUT_WORLD, locateTarget, scoutRegion } from "@/lib/config/scouting";
 import {
   expectedReportSize,
@@ -42,21 +46,24 @@ import {
 import { transferWindowState, formatDayShort } from "@/lib/calendar";
 import { formatMoney } from "@/lib/value";
 import { staffSlotsForDept } from "@/lib/staff";
-import { Card, ConfirmButton, Flag, GhostButton, GoldButton, Modal, Ovr, PlayerCard, PlayerGrid, PosBadge, PotentialBadge, Section, Stars, StarRange, Tabs, UpgradeCard, usePlayerView, ViewToggle } from "../ui";
+import { Card, ConfirmButton, Crest, Flag, GhostButton, GoldButton, Modal, Ovr, PlayerCard, PlayerGrid, PosBadge, PotentialBadge, Section, Stars, StarRange, Tabs, UpgradeCard, usePlayerView, ViewToggle } from "../ui";
 
-type Tab = "squad" | "u21" | "scouting" | "staff" | "upgrades";
+type Tab = "squad" | "development" | "loaned" | "u21" | "scouting" | "staff" | "upgrades";
 
 export default function AcademyScreen() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const [tab, setTab] = useState<Tab>("squad");
   const reports = game.academy.reports.filter((r) => r.expiresDay > game.currentDay);
+  const loanedCount = loanedOutPlayers(game).length;
 
   return (
     <div>
       <Tabs
         tabs={[
           { id: "squad", label: "Academy Squad" },
+          { id: "development", label: "Development" },
+          { id: "loaned", label: "Loaned Players", badge: loanedCount },
           { id: "u21", label: "U21 League" },
           { id: "scouting", label: "Scouting", badge: reports.length },
           { id: "staff", label: "Staff" },
@@ -66,6 +73,8 @@ export default function AcademyScreen() {
         onChange={setTab}
       />
       {tab === "squad" && <SquadTab />}
+      {tab === "development" && <AcademyDevelopmentTab />}
+      {tab === "loaned" && <LoanedTab />}
       {tab === "u21" && <U21Tab />}
       {tab === "scouting" && <ScoutingTab />}
       {tab === "staff" && <AcademyStaffTab />}
@@ -404,6 +413,124 @@ function statusChips(game: NonNullable<ReturnType<typeof useGame.getState>["game
   return chips;
 }
 
+// ── Academy squad filters (v1.45) ──────────────────────────────────────────
+// The squad list can grow past a screenful, so it's filterable by position and
+// name and sortable by the columns that matter (name, age, overall, potential).
+
+type SquadSort = "name" | "age" | "overall" | "potential";
+
+const SQUAD_SORTS: { key: SquadSort; label: string }[] = [
+  { key: "potential", label: "Potential" },
+  { key: "overall", label: "Overall" },
+  { key: "age", label: "Age" },
+  { key: "name", label: "Name A–Z" },
+];
+
+/** Roster comparator for the chosen sort key. Potential/overall/age go high→low
+ * (best first), except Age which reads youngest-first, and Name is alphabetical.
+ * Potential uses the fogged star view — the same signal shown in the row. */
+function squadCompare(
+  game: NonNullable<ReturnType<typeof useGame.getState>["game"]>,
+  a: PlayerBio,
+  b: PlayerBio,
+  key: SquadSort
+): number {
+  switch (key) {
+    case "name":
+      return a.name.localeCompare(b.name);
+    case "age":
+      return a.age - b.age || b.overall - a.overall;
+    case "overall":
+      return b.overall - a.overall || a.name.localeCompare(b.name);
+    case "potential":
+    default: {
+      const va = potentialView(game, a, TUNING);
+      const vb = potentialView(game, b, TUNING);
+      return vb.hiStars - va.hiStars || vb.loStars - va.loStars || b.overall - a.overall;
+    }
+  }
+}
+
+/** The filter/sort bar above the academy squad: a position dropdown, a name
+ * search box, and a sort selector. Compact enough to sit on one row on desktop
+ * and wrap gracefully on a phone. */
+function SquadFilters({
+  posFilter,
+  onPos,
+  nameQuery,
+  onName,
+  sortKey,
+  onSort,
+  shown,
+  total,
+}: {
+  posFilter: "ALL" | Pos;
+  onPos: (p: "ALL" | Pos) => void;
+  nameQuery: string;
+  onName: (q: string) => void;
+  sortKey: SquadSort;
+  onSort: (k: SquadSort) => void;
+  shown: number;
+  total: number;
+}) {
+  const selCls =
+    "display rounded border border-line bg-raised px-2 py-1.5 text-xs text-ink outline-none transition-colors hover:border-faint focus:border-gold-lo/60";
+  const filtered = shown !== total;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {/* Name search */}
+      <div className="relative">
+        <input
+          value={nameQuery}
+          onChange={(e) => onName(e.target.value)}
+          placeholder="Search name…"
+          className="w-44 rounded border border-line bg-raised px-2.5 py-1.5 text-xs text-ink outline-none transition-colors placeholder:text-faint hover:border-faint focus:border-gold-lo/60"
+        />
+        {nameQuery && (
+          <button
+            onClick={() => onName("")}
+            title="Clear"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 text-sm leading-none text-faint hover:text-ink"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      {/* Position filter */}
+      <label className="flex items-center gap-1.5">
+        <span className="text-[10px] uppercase tracking-widest text-faint">Pos</span>
+        <select value={posFilter} onChange={(e) => onPos(e.target.value as "ALL" | Pos)} className={selCls}>
+          <option value="ALL">All positions</option>
+          {POS_ORDER.map((p) => (
+            <option key={p} value={p}>
+              {POS_LABELS[p]}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {/* Sort */}
+      <label className="flex items-center gap-1.5">
+        <span className="text-[10px] uppercase tracking-widest text-faint">Sort</span>
+        <select value={sortKey} onChange={(e) => onSort(e.target.value as SquadSort)} className={selCls}>
+          {SQUAD_SORTS.map((s) => (
+            <option key={s.key} value={s.key}>
+              {s.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {filtered && (
+        <span className="text-[11px] text-faint">
+          <span className="tnum text-dim">{shown}</span> of {total}
+        </span>
+      )}
+    </div>
+  );
+}
+
 // Shared grid template for the academy squad header + rows, applied from md up.
 // Fixed tracks for the data columns (Age/OVR/Potential/Actions) so the header —
 // a separate grid container from each row — lines its labels up with the values
@@ -418,30 +545,35 @@ function SquadTab() {
   const promote = useGame((s) => s.academyPromote);
   const release = useGame((s) => s.academyRelease);
   const toggleFocus = useGame((s) => s.academyToggleFocus);
-  const toggleLoan = useGame((s) => s.academyToggleLoan);
   const recall = useGame((s) => s.academyRecall);
-  const setPlan = useGame((s) => s.setTrainingPlan);
   const [view, setView] = usePlayerView("academy");
+  // Which prospect (if any) has the "Send on Loan" chooser open.
+  const [loanFor, setLoanFor] = useState<string | null>(null);
 
   const team = game.teams[game.userTeamId];
   const seniorRoom = TUNING.squadCap - team.playerIds.length;
   const windowOpen = transferWindowState(game.currentDay, game.schedule).open;
-  const intakeDay = game.schedule.intakeDay;
-  const intake = game.academy.lastIntake;
   // Prospects locked to the U21 competition can't be promoted mid-competition.
   const u21Registered = new Set(game.academy.u21.registered ?? []);
 
+  // Squad filters (v1.45): a position filter, a live name search, and a sort key.
+  // Held in local state so the roster below is a filtered+sorted view.
+  const [posFilter, setPosFilter] = useState<"ALL" | Pos>("ALL");
+  const [nameQuery, setNameQuery] = useState("");
+  const [sortKey, setSortKey] = useState<SquadSort>("potential");
+
   // The academy squad is exactly your U21 prospects — one consolidated roster.
-  const roster = academyPlayers(game).sort((a, b) => {
-    const va = potentialView(game, a, TUNING);
-    const vb = potentialView(game, b, TUNING);
-    return vb.hiStars - va.hiStars || vb.loStars - va.loStars || b.overall - a.overall;
-  });
+  const allProspects = academyPlayers(game);
+  const query = nameQuery.trim().toLowerCase();
+  const roster = allProspects
+    .filter((p) => (posFilter === "ALL" || p.positions[0] === posFilter))
+    .filter((p) => query === "" || p.name.toLowerCase().includes(query))
+    .sort((a, b) => squadCompare(game, a, b, sortKey));
 
   const stats: { label: string; value: React.ReactNode; hint?: string }[] = [
     {
       label: "Academy places",
-      value: `${roster.length}/${academySquadCap(game, team.id, TUNING)}`,
+      value: `${allProspects.length}/${academySquadCap(game, team.id, TUNING)}`,
       hint: "Prospects in the academy — upgrade Academy Squad Size for more room",
     },
     {
@@ -449,29 +581,36 @@ function SquadTab() {
       value: `${game.academy.focusIds.length}/${focusSlots(game, TUNING)}`,
       hint: "Focus prospects get guaranteed U21 starts and extra coaching",
     },
-    { label: "Senior squad space", value: `${seniorRoom}`, hint: "Open spots in the first team for promotions" },
-    ...(intakeDay !== undefined && intakeDay > game.currentDay
-      ? [{ label: "Next intake class", value: formatDayShort(intakeDay), hint: "A new class of prospects arrives every March" }]
-      : []),
-    ...(intake
-      ? [
-          {
-            label: "Last class",
-            value: (
-              <>
-                {intake.playerIds.length} prospects
-                {intake.golden && <span className="gold-text"> · GOLDEN</span>}
-              </>
-            ),
-          },
-        ]
-      : []),
   ];
 
-  if (view === "grid") return grid();
+  const filterBar = (
+    <SquadFilters
+      posFilter={posFilter}
+      onPos={setPosFilter}
+      nameQuery={nameQuery}
+      onName={setNameQuery}
+      sortKey={sortKey}
+      onSort={setSortKey}
+      shown={roster.length}
+      total={allProspects.length}
+    />
+  );
+
+  const loanModal = loanFor ? (
+    <LoanOfferModal playerId={loanFor} onClose={() => setLoanFor(null)} />
+  ) : null;
+
+  if (view === "grid")
+    return (
+      <>
+        {grid()}
+        {loanModal}
+      </>
+    );
 
   return (
     <div className="space-y-6">
+      {loanModal}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-2">
           {stats.map((s) => (
@@ -484,6 +623,8 @@ function SquadTab() {
         <ViewToggle view={view} onChange={setView} />
       </div>
 
+      {filterBar}
+
       <Card className="divide-y divide-line/50">
         <div className={`hidden ${SQUAD_GRID} items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-faint md:grid`}>
           <span>Pos</span>
@@ -495,13 +636,14 @@ function SquadTab() {
         </div>
         {roster.length === 0 && (
           <div className="px-4 py-6 text-sm text-faint">
-            No academy prospects yet — the first intake class arrives in March, and your scout can find more.
+            {allProspects.length === 0
+              ? "No academy prospects yet — the first intake class arrives in March, and your scout can find more."
+              : "No prospects match these filters."}
           </div>
         )}
         {roster.map((p) => {
           const chips = statusChips(game, p);
           const isFocus = game.academy.focusIds.includes(p.id);
-          const listed = game.academy.loanList.includes(p.id);
           const registered = u21Registered.has(p.id);
           return (
             <div key={p.id} className={`px-4 py-2.5 md:grid ${SQUAD_GRID} md:items-center md:gap-3`}>
@@ -539,13 +681,11 @@ function SquadTab() {
                 <SquadActions
                   p={p}
                   isFocus={isFocus}
-                  listed={listed}
                   registered={registered}
                   windowOpen={windowOpen}
                   seniorRoom={seniorRoom}
-                  onSetPlan={setPlan}
                   onToggleFocus={toggleFocus}
-                  onToggleLoan={toggleLoan}
+                  onLoanClick={setLoanFor}
                   onRecall={recall}
                   onPromote={promote}
                   onRelease={release}
@@ -572,16 +712,18 @@ function SquadTab() {
           </div>
           <ViewToggle view={view} onChange={setView} />
         </div>
+        {filterBar}
         {roster.length === 0 ? (
           <Card className="px-4 py-6 text-sm text-faint">
-            No academy prospects yet — the first intake class arrives in March, and your scout can find more.
+            {allProspects.length === 0
+              ? "No academy prospects yet — the first intake class arrives in March, and your scout can find more."
+              : "No prospects match these filters."}
           </Card>
         ) : (
           <PlayerGrid>
             {roster.map((p) => {
               const chips = statusChips(game, p);
               const isFocus = game.academy.focusIds.includes(p.id);
-              const listed = game.academy.loanList.includes(p.id);
               const registered = u21Registered.has(p.id);
               return (
                 <PlayerCard
@@ -608,13 +750,11 @@ function SquadTab() {
                     <SquadActions
                       p={p}
                       isFocus={isFocus}
-                      listed={listed}
                       registered={registered}
                       windowOpen={windowOpen}
                       seniorRoom={seniorRoom}
-                      onSetPlan={setPlan}
                       onToggleFocus={toggleFocus}
-                      onToggleLoan={toggleLoan}
+                      onLoanClick={setLoanFor}
                       onRecall={recall}
                       onPromote={promote}
                       onRelease={release}
@@ -636,46 +776,30 @@ function SquadTab() {
 function SquadActions({
   p,
   isFocus,
-  listed,
   registered,
   windowOpen,
   seniorRoom,
-  onSetPlan,
   onToggleFocus,
-  onToggleLoan,
+  onLoanClick,
   onRecall,
   onPromote,
   onRelease,
 }: {
   p: PlayerBio;
   isFocus: boolean;
-  listed: boolean;
   registered: boolean;
   windowOpen: boolean;
   seniorRoom: number;
-  onSetPlan: (id: string, planId: string) => void;
   onToggleFocus: (id: string) => void;
-  onToggleLoan: (id: string) => void;
+  onLoanClick: (id: string) => void;
   onRecall: (id: string) => void;
   onPromote: (id: string) => void;
   onRelease: (id: string) => void;
 }) {
-  const plan = resolveTrainingPlan(p.trainingPlan, p.positions[0]);
-  const options = plansForPosition(p.positions[0]);
+  // Training-plan selection lives on the Academy Development tab now, not in the
+  // per-prospect action cluster, so the squad row stays about squad decisions.
   return (
     <>
-      <select
-        value={plan.id}
-        onChange={(e) => onSetPlan(p.id, e.target.value)}
-        title={`Training plan — ${plan.blurb}`}
-        className="display rounded border border-line bg-raised px-2 py-1 text-[11px] font-semibold tracking-wide text-dim transition-colors hover:border-faint hover:text-ink focus:border-gold focus:outline-none"
-      >
-        {options.map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.name}
-          </option>
-        ))}
-      </select>
       <TextBtn
         label={isFocus ? "★ Focus" : "☆ Focus"}
         title={isFocus ? "Remove focus" : "Make focus prospect (guaranteed U21 starts + coaching)"}
@@ -692,10 +816,16 @@ function SquadActions({
         />
       ) : (
         <TextBtn
-          label={listed ? "Loan-listed ✓" : "Send on Loan"}
-          title={listed ? "Remove from the loan list" : "List for a season loan — an AI club may take them for first-team minutes"}
-          active={listed}
-          onClick={() => onToggleLoan(p.id)}
+          label="Send on Loan"
+          title={
+            registered
+              ? "Registered for the U21 competition — can't be loaned out until the next window"
+              : windowOpen
+                ? "Find clubs willing to take them on a development loan"
+                : "Loans can only be arranged during a transfer window"
+          }
+          onClick={() => onLoanClick(p.id)}
+          disabled={!windowOpen || registered}
         />
       )}
       <TextBtn
@@ -753,6 +883,508 @@ function TextBtn({
     >
       {label}
     </button>
+  );
+}
+
+/** The "Send on Loan" chooser (v1.44): clicking Send on Loan resolves, on the
+ * spot, which clubs across the whole world — playable and sim-only leagues alike
+ * — would take this prospect on a development loan. The parent club keeps paying
+ * his wages, so no club is priced out; the user just picks one of five and he
+ * goes straight out. */
+function LoanOfferModal({ playerId, onClose }: { playerId: string; onClose: () => void }) {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const send = useGame((s) => s.academySendLoan);
+  const p = game.players[playerId];
+  // Recompute per open; deterministic per player/day so it's stable while open.
+  const suitors = useMemo(() => academyLoanSuitors(game, playerId, TUNING), [game, playerId]);
+
+  if (!p) return null;
+
+  return (
+    <Modal title="Send on Loan" onClose={onClose}>
+      <div className="mb-3 flex items-center gap-2.5">
+        <PosBadge pos={p.positions[0]} />
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <Flag nat={p.nationality} size={11} />
+            <span className="truncate font-semibold text-ink">{p.name}</span>
+            <span className="tnum text-sm text-dim">· {p.age}y</span>
+            <Ovr value={p.overall} size="sm" />
+          </div>
+          <div className="text-[11px] text-faint">
+            Clubs that want him for regular football. You keep paying his wages.
+          </div>
+        </div>
+      </div>
+
+      {suitors.length === 0 ? (
+        <Card className="border-dashed p-6 text-center text-sm text-faint">
+          No club is looking for a loanee like him right now — try again next window.
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {suitors.map((s) => (
+            <div
+              key={s.clubId}
+              className="flex items-center gap-3 rounded-md border border-line bg-surface px-3 py-2"
+            >
+              <Crest colors={s.colors} short={s.short} size={30} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium text-ink">{s.name}</div>
+                <div className="truncate text-[11px] text-faint">
+                  {s.leagueName} · Rep {s.reputation}
+                </div>
+              </div>
+              <span
+                className={`display shrink-0 rounded-sm border px-1.5 py-0.5 text-[9px] font-semibold tracking-wide ${
+                  s.role === "Regular starter" ? "border-win/40 text-win" : "border-line text-dim"
+                }`}
+              >
+                {s.role}
+              </span>
+              <GoldButton
+                onClick={() => {
+                  send(playerId, s.clubId);
+                  onClose();
+                }}
+                className="!py-1 text-xs"
+              >
+                Send
+              </GoldButton>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// ── Academy development (v1.46) ─────────────────────────────────────────────
+// The academy's own Training Plans tab: the same per-player development focus
+// the senior squad gets on the Development screen, but scoped to the academy
+// prospects (who were removed from the senior Training Plans tab). Each row
+// expands to show a one-season growth projection, where that growth flows, and
+// the growth history — exactly like the senior tab, so a manager grows a
+// prospect here the same way he grows a first-teamer there.
+
+// Shared grid template for the academy training-plan header + rows. The focus
+// dropdown track narrows on phones so a row still fits a small screen.
+const ACADEMY_PLAN_GRID = "grid-cols-[2rem_1fr_2rem_2.5rem_8rem] sm:grid-cols-[2.25rem_1fr_2.5rem_3rem_11rem]";
+
+const ACADEMY_ATTR_LABELS: [keyof PlayerBio["attrs"], string][] = [
+  ["pac", "PAC"], ["sho", "SHO"], ["pas", "PAS"], ["dri", "DRI"], ["def", "DEF"], ["phy", "PHY"],
+];
+
+function academyDevPhaseChip(phase: "growth" | "prime" | "decline") {
+  const map = {
+    growth: { label: "Growing", cls: "text-win border-win/40" },
+    prime: { label: "Prime", cls: "text-gold border-gold-lo/40" },
+    decline: { label: "Declining", cls: "text-loss border-loss/40" },
+  } as const;
+  const m = map[phase];
+  return <span className={`display rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold ${m.cls}`}>{m.label}</span>;
+}
+
+function AcademyAttrProjection({ p, delta, plan }: { p: PlayerBio; delta: number; plan: TrainingPlanDef }) {
+  const gains = seasonAttrFocus(p, delta, plan);
+  return (
+    <div className="space-y-1.5">
+      {ACADEMY_ATTR_LABELS.map(([k, label]) => {
+        const now = p.attrs[k];
+        const gain = gains[k];
+        const next = Math.min(99, now + gain);
+        return (
+          <div key={k} className="flex items-center gap-2 text-xs">
+            <span className="display w-8 text-faint">{label}</span>
+            <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-line">
+              <div className="absolute inset-y-0 left-0 bg-dim/60" style={{ width: `${now}%` }} />
+              {gain > 0 && (
+                <div className="absolute inset-y-0 gold-grad opacity-70" style={{ left: `${now}%`, width: `${next - now}%` }} />
+              )}
+            </div>
+            <span className="w-14 text-right tnum">
+              {now}
+              {gain > 0 && <span className="text-win"> → {next}</span>}
+            </span>
+          </div>
+        );
+      })}
+      <p className="pt-1 text-[11px] leading-snug text-faint">
+        {delta > 0
+          ? "Where this season's growth is expected to flow — steered by the archetype and the training focus."
+          : "No growth expected this season, so no attribute movement projected."}
+      </p>
+    </div>
+  );
+}
+
+function AcademyDevelopmentTab() {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const setPlan = useGame((s) => s.setTrainingPlan);
+  const viewPlayer = useGame((s) => s.viewPlayer);
+  const [open, setOpen] = useState<string | null>(null);
+  const [view, setView] = usePlayerView("academyDev");
+
+  const team = game.teams[game.userTeamId];
+  const devCoachStars = team.staff.devCoach?.stars ?? 0;
+  const trainingLevel = team.trainingLevel ?? 0;
+
+  // Academy prospects only, ordered position-first (keepers lead) so the list
+  // reads in team-sheet order — the same default as the senior tab.
+  const squad = academyPlayers(game).sort(
+    (a, b) => (POS_ORDER.indexOf(a.positions[0]) - POS_ORDER.indexOf(b.positions[0])) || a.name.localeCompare(b.name)
+  );
+
+  const suboptimal = squad.filter(
+    (p) => resolveTrainingPlan(p.trainingPlan, p.positions[0]).id !== optimalTrainingPlan(p).id
+  );
+
+  const autoAssignAll = () => {
+    for (const p of suboptimal) setPlan(p.id, optimalTrainingPlan(p).id);
+  };
+
+  return (
+    <div className="space-y-5">
+      <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <div className="min-w-0 flex-1">
+          <div className="display font-semibold text-ink">Optimal training focus</div>
+          <div className="text-[12px] leading-relaxed text-faint">
+            {squad.length === 0 ? (
+              "No academy prospects yet — the first intake class arrives in March, and your scout can find more."
+            ) : suboptimal.length > 0 ? (
+              <>
+                <span className="text-gold">{suboptimal.length}</span> prospect{suboptimal.length === 1 ? " is" : "s are"} on a
+                focus that isn&apos;t the best fit. Auto-assign picks the plan that lifts each prospect&apos;s overall
+                fastest, from their archetype, position and how much room each attribute still has.
+              </>
+            ) : (
+              "Every prospect is already training the focus that suits them best."
+            )}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-3">
+          <ViewToggle view={view} onChange={setView} />
+          <GoldButton onClick={autoAssignAll} disabled={suboptimal.length === 0} className="!py-1.5 text-xs">
+            AUTO-ASSIGN ALL
+          </GoldButton>
+        </div>
+      </Card>
+
+      {squad.length === 0 ? null : view === "grid" ? (
+        <PlayerGrid>
+          {squad.map((p) => {
+            const plan = resolveTrainingPlan(p.trainingPlan, p.positions[0]);
+            const options = plansForPosition(p.positions[0]);
+            const best = optimalTrainingPlan(p);
+            const isOptimal = plan.id === best.id;
+            const growing = p.age <= TUNING.growthEndAge;
+            const last = p.devLog && p.devLog.length ? p.devLog[p.devLog.length - 1] : null;
+            return (
+              <PlayerCard
+                key={p.id}
+                p={p}
+                onOpen={() => viewPlayer(p.id)}
+                ovr={<Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />}
+                sub={
+                  <span className="flex items-center gap-1.5 truncate">
+                    <TierTag tier={p.u21Tier} />
+                    <span className="truncate">{growing ? "Still developing" : "Reached maturity"}</span>
+                  </span>
+                }
+                stats={
+                  last && last.toOverall !== last.fromOverall ? (
+                    <span className={`tnum ${last.toOverall > last.fromOverall ? "text-win" : "text-loss"}`}>
+                      {last.toOverall > last.fromOverall ? "+" : ""}
+                      {last.toOverall - last.fromOverall} last season
+                    </span>
+                  ) : (
+                    <span className="text-faint">—</span>
+                  )
+                }
+                actions={
+                  <span className="flex w-full items-center gap-1.5">
+                    <span
+                      className={`shrink-0 text-[10px] leading-none ${isOptimal ? "text-win" : "text-gold"}`}
+                      title={isOptimal ? "Optimal training focus" : `Recommended: ${best.name}`}
+                    >
+                      {isOptimal ? "●" : "○"}
+                    </span>
+                    <select
+                      value={plan.id}
+                      onChange={(e) => setPlan(p.id, e.target.value)}
+                      className="min-w-0 flex-1 truncate rounded-md border border-line bg-raised px-2 py-1 text-xs text-ink focus:border-gold focus:outline-none"
+                      title={plan.blurb}
+                    >
+                      {options.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.name}
+                        </option>
+                      ))}
+                    </select>
+                  </span>
+                }
+              />
+            );
+          })}
+        </PlayerGrid>
+      ) : (
+        <Card className="divide-y divide-line/50">
+          <div className={`grid ${ACADEMY_PLAN_GRID} items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-faint`}>
+            <span>Pos</span>
+            <span>Prospect</span>
+            <span className="text-center">Age</span>
+            <span className="text-center">OVR</span>
+            <span className="text-center">Training focus</span>
+          </div>
+          {squad.map((p) => {
+            const plan = resolveTrainingPlan(p.trainingPlan, p.positions[0]);
+            const options = plansForPosition(p.positions[0]);
+            const best = optimalTrainingPlan(p);
+            const isOptimal = plan.id === best.id;
+            const isOpen = open === p.id;
+            const phase = devPhase(p, TUNING);
+            const season = seasonGrowthEstimate(p, TUNING, devCoachStars, trainingLevel, plan);
+            const last = p.devLog && p.devLog.length ? p.devLog[p.devLog.length - 1] : null;
+
+            return (
+              <div key={p.id}>
+                <div className={`grid ${ACADEMY_PLAN_GRID} items-center gap-3 px-4 py-2.5`}>
+                  <PosBadge pos={p.positions[0]} />
+                  <button
+                    onClick={() => setOpen(isOpen ? null : p.id)}
+                    className="group flex min-w-0 items-center gap-2 text-left"
+                  >
+                    <span className={`shrink-0 text-[10px] text-faint transition-transform ${isOpen ? "rotate-90" : ""}`}>▶</span>
+                    <Flag nat={p.nationality} size={12} />
+                    <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
+                    <TierTag tier={p.u21Tier} />
+                    {last && last.toOverall !== last.fromOverall && (
+                      <span className={`text-[11px] tnum ${last.toOverall > last.fromOverall ? "text-win" : "text-loss"}`}>
+                        {last.toOverall > last.fromOverall ? "+" : ""}{last.toOverall - last.fromOverall} last season
+                      </span>
+                    )}
+                  </button>
+                  <span className="text-center tnum text-sm text-dim">{p.age}</span>
+                  <span className="flex items-center justify-center">
+                    <Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />
+                  </span>
+                  <span className="flex items-center justify-end gap-1.5">
+                    <span
+                      className={`shrink-0 text-[10px] leading-none ${isOptimal ? "text-win" : "text-gold"}`}
+                      title={isOptimal ? "Optimal training focus" : `Recommended: ${best.name}`}
+                    >
+                      {isOptimal ? "●" : "○"}
+                    </span>
+                    <select
+                      value={plan.id}
+                      onChange={(e) => setPlan(p.id, e.target.value)}
+                      className="w-full truncate rounded-md border border-line bg-raised px-2 py-1.5 text-sm text-ink focus:border-gold focus:outline-none"
+                      title={plan.blurb}
+                    >
+                      {options.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.name}
+                        </option>
+                      ))}
+                    </select>
+                  </span>
+                </div>
+
+                {isOpen && (
+                  <div className="border-t border-line/50 bg-raised px-4 py-4">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      <div>
+                        <div className="mb-2 flex items-center gap-2 text-[10px] uppercase tracking-widest text-faint">
+                          This season {academyDevPhaseChip(phase)}
+                        </div>
+                        {season && season.delta > 0 ? (
+                          <div className="space-y-1 text-sm">
+                            <div className="flex items-center justify-between">
+                              <span className="text-faint">Projected OVR</span>
+                              <span className="tnum font-semibold text-win">{p.overall} → {p.overall + season.delta}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-faint">Est. growth this season</span>
+                              <span className="tnum">≈ +{season.delta}</span>
+                            </div>
+                            <p className="pt-1 text-[11px] leading-snug text-faint">
+                              An estimate for the coming season only, at academy game time with your current youth coach
+                              &amp; facilities. More U21 minutes, a better Youth Coach, or a higher Youth Academy all lift it.
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-faint">
+                            {phase === "decline"
+                              ? "Past their peak — unusual for a prospect, but the focus now is managing minutes."
+                              : "Settled — little growth expected this season."}
+                          </p>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="mb-2 text-[10px] uppercase tracking-widest text-faint">
+                          This season&apos;s attribute focus
+                        </div>
+                        <AcademyAttrProjection p={p} delta={season?.delta ?? 0} plan={plan} />
+                      </div>
+
+                      <div>
+                        <div className="mb-2 text-[10px] uppercase tracking-widest text-faint">Growth history</div>
+                        {p.devLog && p.devLog.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {p.devLog.slice().reverse().map((d, i) => {
+                              const delta = d.toOverall - d.fromOverall;
+                              return (
+                                <span key={i} className="rounded-sm border border-line bg-surface px-2 py-1 text-[11px] tnum">
+                                  S{d.season}: {d.fromOverall}
+                                  <span className={delta >= 0 ? "text-win" : "text-loss"}> → {d.toOverall}</span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-faint">No seasons on record yet.</p>
+                        )}
+                        <div className="mt-3">
+                          <GhostButton onClick={() => viewPlayer(p.id)} className="!py-1 text-xs">
+                            Full profile
+                          </GhostButton>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ── Loaned players ─────────────────────────────────────────────────────────
+
+/** The Loaned Players tab (v1.44): a monitor for everyone the club has out on
+ * loan — academy prospects and senior pros alike. Each row shows where he is,
+ * how he's doing (the statistical loan minutes credited to youthStats this
+ * season), and a window-gated Recall. */
+function LoanedTab() {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const viewPlayer = useGame((s) => s.viewPlayer);
+  const recall = useGame((s) => s.academyRecall);
+  const windowOpen = transferWindowState(game.currentDay, game.schedule).open;
+
+  const loanees = loanedOutPlayers(game).sort((a, b) => b.overall - a.overall);
+
+  if (loanees.length === 0) {
+    return (
+      <Card className="border-dashed px-4 py-8 text-center text-sm text-faint">
+        No players out on loan. Send an academy prospect out from the{" "}
+        <b className="text-ink">Academy Squad</b> tab to get them regular football.
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap gap-2">
+        <div className="rounded-md border border-line bg-surface px-3 py-1.5">
+          <div className="text-[9px] uppercase tracking-widest text-faint">Out on loan</div>
+          <div className="display tnum text-sm font-semibold text-ink">{loanees.length}</div>
+        </div>
+        {!windowOpen && (
+          <div className="rounded-md border border-line bg-surface px-3 py-1.5">
+            <div className="text-[9px] uppercase tracking-widest text-faint">Recalls</div>
+            <div className="display text-sm font-semibold text-dim">Window shut</div>
+          </div>
+        )}
+      </div>
+
+      <Card className="divide-y divide-line/50">
+        <div className="hidden grid-cols-[auto_1fr_1.2fr_auto_auto] items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-faint md:grid">
+          <span>Pos</span>
+          <span>Player</span>
+          <span>Loan club</span>
+          <span className="text-center">This season</span>
+          <span className="text-right">Actions</span>
+        </div>
+        {loanees.map((p) => {
+          const dest = game.teams[p.loan!.toClubId];
+          const league = dest ? game.leagues[dest.leagueId] : undefined;
+          const ys = p.youthStats;
+          const avg = ys?.apps ? (ys.ratingSum / ys.apps).toFixed(2) : null;
+          const academy = isAcademyLoanee(game, p.id);
+          return (
+            <div
+              key={p.id}
+              className="grid grid-cols-[auto_1fr_auto] items-center gap-3 px-4 py-2.5 md:grid-cols-[auto_1fr_1.2fr_auto_auto]"
+            >
+              <PosBadge pos={p.positions[0]} />
+              <button onClick={() => viewPlayer(p.id)} className="group min-w-0 text-left">
+                <span className="flex items-center gap-1.5">
+                  <Flag nat={p.nationality} size={11} />
+                  <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
+                  <span
+                    className={`display rounded-sm border px-1 text-[9px] font-semibold ${
+                      academy ? "border-gold-lo/50 text-gold" : "border-line text-dim"
+                    }`}
+                  >
+                    {academy ? "ACADEMY" : "SENIOR"}
+                  </span>
+                </span>
+                <span className="flex items-center gap-1.5 text-[11px] text-faint">
+                  {p.age}y · <Ovr value={p.overall} size="sm" />
+                </span>
+              </button>
+              <div className="col-span-3 mt-1 flex items-center gap-2 md:col-span-1 md:mt-0">
+                {dest ? (
+                  <>
+                    <Crest colors={dest.colors} short={dest.short} size={24} />
+                    <div className="min-w-0">
+                      <div className="truncate text-sm text-ink">{dest.name}</div>
+                      <div className="truncate text-[11px] text-faint">{league?.name ?? "—"}</div>
+                    </div>
+                  </>
+                ) : (
+                  <span className="text-sm text-faint">Unknown club</span>
+                )}
+              </div>
+              <div className="col-span-3 flex items-center gap-3 text-[11px] tnum text-dim md:col-span-1 md:justify-center">
+                {ys?.apps ? (
+                  <>
+                    <span>
+                      <span className="text-faint">Apps</span> {ys.apps}
+                    </span>
+                    <span>
+                      <span className="text-faint">Gls</span> {ys.goals}
+                    </span>
+                    {avg && (
+                      <span className={avg && Number(avg) >= 7.2 ? "gold-text font-semibold" : ""}>
+                        <span className="text-faint">Avg</span> {avg}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-faint">Yet to feature</span>
+                )}
+              </div>
+              <span className="col-span-3 flex justify-end md:col-span-1">
+                <TextBtn
+                  label="Recall"
+                  title={windowOpen ? "Recall from loan — he returns early and is available again" : "Loans can only be recalled during a transfer window"}
+                  onClick={() => recall(p.id)}
+                  disabled={!windowOpen}
+                />
+              </span>
+            </div>
+          );
+        })}
+      </Card>
+    </div>
   );
 }
 
@@ -1125,6 +1757,12 @@ const POS_OPTIONS: { id: ScoutPosGroup; label: string; group?: string }[] = [
   })),
 ];
 
+/** Shared pill-button styling for the scouting selectors (region + duration). */
+const chipClass = (active: boolean) =>
+  `rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors ${
+    active ? "border-gold bg-hover text-ink" : "border-line bg-raised text-dim hover:border-faint hover:text-ink"
+  }`;
+
 // Which positions each brief covers (mirrors POS_GROUPS in lib/academy).
 const GROUP_POSITIONS: Record<ScoutPosGroup, Pos[]> = {
   GK: ["GK"],
@@ -1235,6 +1873,11 @@ function ScoutingTab() {
                             <span className="italic">any player type</span>
                           )}
                           <span className="ml-1">· next report ~{Math.max(1, a.nextReportDay - game.currentDay)}d</span>
+                          {a.endsDay !== undefined && (
+                            <span className="ml-1">
+                              · returns in ~{Math.max(1, Math.round((a.endsDay - game.currentDay) / 7))}w
+                            </span>
+                          )}
                         </div>
                       </div>
                       <button
@@ -1382,10 +2025,7 @@ function RegionPicker({ region, onChange }: { region: ScoutRegion; onChange: (r:
   const continent = SCOUT_WORLD.find((c) => c.id === continentId) ?? SCOUT_WORLD[0];
   const subRegion = continent.regions.find((r) => r.id === regionId) ?? null;
 
-  const chip = (active: boolean) =>
-    `rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors ${
-      active ? "border-gold bg-hover text-ink" : "border-line bg-raised text-dim hover:border-faint hover:text-ink"
-    }`;
+  const chip = chipClass;
 
   return (
     <div className="space-y-2">
@@ -1468,6 +2108,16 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
   const [region, setRegion] = useState<ScoutRegion>("ENG");
   const [positions, setPositions] = useState<ScoutPosGroup>("ANY");
   const [archetypes, setArchetypes] = useState<string[]>([]);
+  // Trip length (v25): 0 = open-ended (stay out until recalled), otherwise the
+  // scout files reports for this many months then comes home automatically.
+  const [durationMonths, setDurationMonths] = useState<number>(3);
+  const DURATION_OPTIONS: { months: number; label: string }[] = [
+    { months: 1, label: "1 month" },
+    { months: 3, label: "3 months" },
+    { months: 6, label: "6 months" },
+    { months: 12, label: "1 season" },
+    { months: 0, label: "Until recalled" },
+  ];
 
   const archOptions = archetypesForGroup(positions);
   const briefPositions = new Set(GROUP_POSITIONS[positions] ?? []);
@@ -1479,7 +2129,7 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
     setArchetypes((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
 
   const confirm = () => {
-    addScout(region, positions, selected, scoutId || undefined);
+    addScout(region, positions, selected, scoutId || undefined, durationMonths);
     onClose();
   };
 
@@ -1553,6 +2203,23 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
           </select>
         </div>
 
+        {/* Trip length (v25): how long the scout stays out before returning. */}
+        <div>
+          <div className="mb-1 text-[10px] uppercase tracking-widest text-faint">Assignment length</div>
+          <div className="flex flex-wrap gap-1.5">
+            {DURATION_OPTIONS.map((o) => (
+              <button key={o.months} onClick={() => setDurationMonths(o.months)} className={chipClass(durationMonths === o.months)}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[11px] leading-snug text-faint">
+            {durationMonths === 0
+              ? "The scout stays out until you recall them."
+              : `The scout files reports for ${durationMonths} month${durationMonths === 1 ? "" : "s"}, then returns automatically.`}
+          </p>
+        </div>
+
         <div>
           <div className="mb-1 flex items-center justify-between">
             <span className="text-[10px] uppercase tracking-widest text-faint">Player type (optional)</span>
@@ -1568,6 +2235,12 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
           <div className="grid max-h-48 grid-cols-1 gap-1.5 overflow-y-auto sm:grid-cols-2">
             {archOptions.map((a) => {
               const on = selected.includes(a.id);
+              // Badge EVERY position in the brief this archetype covers, not just
+              // its first — a wing-back covers LB and RB and a winger LW and RW,
+              // so showing only the first flank made RB/RW look absent from an
+              // "Any position" list. Falls back to the primary if none intersect.
+              const covered = a.positions.filter((p) => briefPositions.has(p));
+              const badges = covered.length > 0 ? covered : [a.positions[0]];
               return (
                 <button
                   key={a.id}
@@ -1577,11 +2250,11 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
                     on ? "border-gold-lo/60 bg-hover text-gold" : "border-line bg-raised text-dim hover:border-faint hover:text-ink"
                   }`}
                 >
-                  {/* Badge the position this brief will actually return, not the
-                      archetype's first — a wing-back covers LB and RB, and
-                      always showing LB made an RB brief look like the wrong
-                      side. */}
-                  <PosBadge pos={a.positions.find((p) => briefPositions.has(p)) ?? a.positions[0]} />
+                  <span className="flex shrink-0 items-center gap-1">
+                    {badges.map((p) => (
+                      <PosBadge key={p} pos={p} />
+                    ))}
+                  </span>
                   <span className="min-w-0 flex-1 truncate font-medium">{a.name}</span>
                   {on && <span className="display text-[10px] font-bold">✓</span>}
                 </button>

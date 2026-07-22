@@ -78,8 +78,9 @@ export default function MatchDayScreen() {
       const players = t.playerIds.map((id) => game.players[id]).filter((p) => p && !p.retired && !p.loan);
       const coach = teamId === game.userTeamId ? headCoachMult(t.staff.headCoach?.stars ?? 0, TUNING) : 1;
       const assignments = teamId === game.userTeamId ? t.assignments : undefined;
+      const bench = teamId === game.userTeamId ? game.userBench : undefined;
       return teamId === game.userTeamId
-        ? buildSideInput(teamId, t.name, t.short, players, t.tactic, TUNING, userLineup, coach, assignments)
+        ? buildSideInput(teamId, t.name, t.short, players, t.tactic, TUNING, userLineup, coach, assignments, bench)
         : buildSideInput(teamId, t.name, t.short, players, t.tactic, TUNING, undefined, coach, assignments);
     };
     return { homeSide: mk(fixture.homeId), awaySide: mk(fixture.awayId) };

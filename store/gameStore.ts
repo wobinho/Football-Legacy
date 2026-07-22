@@ -27,6 +27,7 @@ import { hireScout, fireScout, dismissScoutCandidate } from "@/lib/scouts";
 import { acceptSponsor, declineSponsor } from "@/lib/sponsors";
 import { upgradeFacility, upgradeTrainingFacility, type Facility, type TrainingFacility } from "@/lib/economy";
 import { setKitNumber } from "@/lib/kitnumbers";
+import { deleteInboxItem, clearInbox } from "@/lib/inbox";
 import { optimalTrainingPlan } from "@/lib/config/training";
 import type { StaffSlot, TeamAssignments } from "@/lib/types";
 import {
@@ -38,6 +39,7 @@ import {
   registerU21Squad,
   signU21Prospect,
   toggleLoanList,
+  sendAcademyLoan,
   recallLoan,
   addScoutAssignment,
   updateScoutAssignment,
@@ -122,6 +124,9 @@ interface GameStore {
   setTactic: (t: Partial<Tactic>) => void;
   setLineupSlot: (slotId: string, playerId: string | null) => void;
   clearLineup: () => void;
+  /** Add/remove a player from the user's chosen bench (v25). Toggling a player
+   * already benched removes him; adding respects the matchday bench cap. */
+  toggleBench: (playerId: string) => void;
 
   bid: (playerId: string, fee: number, terms?: { wage: number; years: number; releaseClause?: number }) => BidOutcome;
   respondOffer: (offerId: string, response: "accept" | "reject" | "counter", amount?: number) => OfferResponse;
@@ -134,6 +139,8 @@ interface GameStore {
   upgradeTraining: (facility: TrainingFacility) => void;
   markRead: (inboxId: string) => void;
   markAllRead: () => void;
+  deleteMail: (inboxId: string) => void;
+  deleteAllMail: () => void;
 
   // Sponsors / investments (v6)
   signSponsor: (offerId: string) => void;
@@ -154,8 +161,9 @@ interface GameStore {
   academyRegisterU21: (playerIds: string[]) => void;
   academySignU21Prospect: (playerId: string) => void;
   academyToggleLoan: (playerId: string) => void;
+  academySendLoan: (playerId: string, clubId: string) => void;
   academyRecall: (playerId: string) => void;
-  academyAddScout: (region: ScoutRegion, positions: ScoutPosGroup, archetypes?: string[], scoutId?: string) => void;
+  academyAddScout: (region: ScoutRegion, positions: ScoutPosGroup, archetypes?: string[], scoutId?: string, durationMonths?: number) => void;
   academyUpdateScout: (id: string, patch: { region?: ScoutRegion; positions?: ScoutPosGroup; archetypes?: string[] }) => void;
   academyRemoveScout: (id: string) => void;
   academySign: (reportId: string) => void;
@@ -541,6 +549,23 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
+  toggleBench: (playerId) => {
+    const g = get().game;
+    if (!g) return;
+    const bench = g.userBench ?? [];
+    if (bench.includes(playerId)) {
+      g.userBench = bench.filter((id) => id !== playerId);
+    } else {
+      const cap = TUNING.matchdaySquad - 11;
+      if (bench.length >= cap) {
+        get().showToast(`Your bench is full (${cap} subs).`);
+        return;
+      }
+      g.userBench = [...bench, playerId];
+    }
+    get().bump(true);
+  },
+
   bid: (playerId, fee, terms) => {
     const g = get().game;
     if (!g) return { kind: "error", reason: "No game." } as BidOutcome;
@@ -705,6 +730,20 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(false);
   },
 
+  deleteMail: (inboxId) => {
+    const g = get().game;
+    if (!g) return;
+    deleteInboxItem(g, inboxId);
+    get().bump(true);
+  },
+
+  deleteAllMail: () => {
+    const g = get().game;
+    if (!g) return;
+    clearInbox(g);
+    get().bump(true);
+  },
+
   // ── Youth Academy (§18): thin wrappers, rules live in lib/academy ──
   academyPromote: (playerId) => {
     const g = get().game;
@@ -772,6 +811,14 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
+  academySendLoan: (playerId, clubId) => {
+    const g = get().game;
+    if (!g) return;
+    const err = sendAcademyLoan(g, playerId, clubId, TUNING);
+    if (err) get().showToast(err);
+    get().bump(true);
+  },
+
   academyRecall: (playerId) => {
     const g = get().game;
     if (!g) return;
@@ -780,10 +827,10 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
-  academyAddScout: (region, positions, archetypes = [], scoutId) => {
+  academyAddScout: (region, positions, archetypes = [], scoutId, durationMonths) => {
     const g = get().game;
     if (!g) return;
-    const err = addScoutAssignment(g, region, positions, TUNING, archetypes, scoutId);
+    const err = addScoutAssignment(g, region, positions, TUNING, archetypes, scoutId, durationMonths);
     if (err) get().showToast(err);
     get().bump(true);
   },

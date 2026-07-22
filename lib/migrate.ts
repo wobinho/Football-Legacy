@@ -15,6 +15,7 @@ import { overallFromAttrs } from "./config/positions";
 import { getArchetype, DEFAULT_HEIGHT_CM } from "./config/archetypes";
 import { assignAllKitNumbers } from "./kitnumbers";
 import { trackBiggestWin } from "./recordbook";
+import { ensureProgress, syncProgress, userPlayerAwardsIn } from "./achievements";
 import { deriveSeed, hashString, mulberry32, pickWeighted, randNormal, uid } from "./rng";
 
 /**
@@ -470,6 +471,14 @@ export function migrateSave(state: GameState): GameState {
     migrateV23toV24(state);
     state.schemaVersion = 24;
   }
+  if (state.schemaVersion < 25) {
+    migrateV24toV25(state);
+    state.schemaVersion = 25;
+  }
+  if (state.schemaVersion < 26) {
+    migrateV25toV26(state);
+    state.schemaVersion = 26;
+  }
   // future migrations chain here
   state.schemaVersion = SCHEMA_VERSION;
   return state;
@@ -717,6 +726,70 @@ function migrateV22toV23(state: GameState): void {
  */
 function migrateV23toV24(state: GameState): void {
   void state; // additive/optional — accolades default at read time
+}
+
+/**
+ * v24 → v25: scout-assignment durations, an explicit user bench, youth
+ * scholarship wages, inbox category tags, one guaranteed keeper in every Team of
+ * the Season, and a more aggressive transfer market.
+ *
+ * Every one of these is additive and read-time-safe, so nothing stored needs
+ * rewriting:
+ *  - Scout assignments gain optional `endsDay`/`durationMonths`. An absent
+ *    `endsDay` means "open-ended" — exactly how briefs behaved before — so
+ *    existing assignments simply never auto-expire until re-sent with a duration.
+ *  - `userBench` is absent, which the match builder reads as "auto-pick the
+ *    bench" — the pre-v25 behaviour.
+ *  - Academy wages are derived from each prospect's current overall at read time
+ *    (economy.academyWageFor), so there is no per-player field to backfill.
+ *  - Inbox tags, the Team-of-the-Season keeper rule and the transfer tuning are
+ *    all computed from data already present.
+ *
+ * Kept as an explicit step so the version bump is recorded and the chain stays
+ * honest.
+ */
+function migrateV24toV25(state: GameState): void {
+  void state; // additive/optional — all v25 fields default at read time
+}
+
+/**
+ * v25 → v26: the manager progress ledger (User Accolades + Achievements).
+ *
+ * Backfills a fresh `progress` block, then seeds what history already lets us
+ * recover so a long-running save doesn't open with everything at zero:
+ *
+ *  • `seasonsPlayed` = the number of completed seasons in the record book.
+ *  • `leagueTitles` / `cupsWon` = count the user's club in each season summary's
+ *    champions/cup-winner slots.
+ *  • Live peaks (budget, 90/85-overalls) are seeded from the current squad via
+ *    syncProgress at the end.
+ *
+ * Career match/goal totals and transfer milestones can't be reconstructed — the
+ * fixtures that held them compressed into season summaries long ago — so those
+ * legitimately start from now and accrue going forward. Achievements are then
+ * evaluated once against the seeded ledger, so a save that already qualifies
+ * (a title-winning dynasty, a billion-pound budget) unlocks them on load.
+ */
+function migrateV25toV26(state: GameState): void {
+  const prog = ensureProgress(state);
+  const a = prog.accolades;
+  const userTeamId = state.userTeamId;
+  a.seasonsPlayed = state.recordBook.seasons.length;
+  let titles = 0;
+  let cups = 0;
+  let playerAwards = 0;
+  for (const s of state.recordBook.seasons) {
+    for (const champ of Object.values(s.championsByLeague)) {
+      if (champ.teamId === userTeamId) titles++;
+    }
+    if (s.cupWinner?.teamId === userTeamId) cups++;
+    playerAwards += userPlayerAwardsIn(state, s.accolades);
+  }
+  a.leagueTitles = titles;
+  a.cupsWon = cups;
+  a.playerAwards = playerAwards;
+  // Seed the live peaks + unlock anything the seeded ledger already qualifies for.
+  syncProgress(state);
 }
 
 /** True if the save is a version this build knows how to bring up to date. */

@@ -302,6 +302,89 @@ function Assignments() {
   );
 }
 
+/** Bench (v25): the ordered list of substitutes the manager names for match day.
+ * The engine's auto-subs draw from this bench in order; anything left unpicked is
+ * auto-filled by best-of-the-rest so a full matchday squad is always fielded. */
+function Bench() {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const toggleBench = useGame((s) => s.toggleBench);
+  const team = game.teams[game.userTeamId];
+  const cap = TUNING.matchdaySquad - 11;
+
+  const inLineup = new Set(Object.values(game.lineup));
+  // Squad players available to bench: not in the XI, not on loan, not retired.
+  const available = team.playerIds
+    .map((id) => game.players[id])
+    .filter((p): p is PlayerBio => !!p && !p.retired && !p.loan && !inLineup.has(p.id));
+
+  const benchIds = (game.userBench ?? []).filter((id) => !inLineup.has(id) && game.players[id]);
+  const benched = benchIds.map((id) => game.players[id]).filter((p): p is PlayerBio => !!p);
+  const benchedSet = new Set(benchIds);
+  const rest = available
+    .filter((p) => !benchedSet.has(p.id))
+    .sort((a, b) => b.overall - a.overall);
+
+  return (
+    <Section
+      title="Bench"
+      right={<span className="text-xs text-faint">{benched.length}/{cap} subs · used for substitutions</span>}
+    >
+      <div className="space-y-3">
+        <p className="text-[11px] leading-snug text-faint">
+          Name your substitutes. The bench is used for in-match subs — tired legs come off for the fresher players you pick here,
+          in order. Leave it empty and the best of the rest are benched automatically.
+        </p>
+        {benched.length > 0 ? (
+          <div className="space-y-1">
+            {benched.map((p, i) => (
+              <button
+                key={p.id}
+                onClick={() => toggleBench(p.id)}
+                className="flex w-full items-center gap-3 rounded-md border border-gold-lo/50 bg-hover px-3 py-2 text-left"
+              >
+                <span className="w-4 shrink-0 text-center tnum text-[11px] text-faint">{i + 1}</span>
+                <PosBadge pos={p.positions[0]} />
+                <Flag nat={p.nationality} size={12} />
+                <span className="flex-1 truncate">{p.name}</span>
+                <span className="w-8 text-right tnum text-xs text-dim">{Math.round(p.fitness)}%</span>
+                <Ovr value={p.overall} size="sm" />
+                <span className="shrink-0 text-sm leading-none text-faint" aria-hidden>✕</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-md border border-dashed border-line px-3 py-3 text-sm text-faint">
+            No subs named — the best available players will be benched automatically.
+          </div>
+        )}
+        {rest.length > 0 && benched.length < cap && (
+          <div>
+            <div className="mb-1 text-[10px] uppercase tracking-widest text-faint">Add a substitute</div>
+            <div className="space-y-1">
+              {rest.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => toggleBench(p.id)}
+                  className="flex w-full items-center gap-3 rounded-md border border-line bg-surface px-3 py-2 text-left hover:bg-hover"
+                >
+                  <PosBadge pos={p.positions[0]} />
+                  <Flag nat={p.nationality} size={12} />
+                  <span className="flex-1 truncate">{p.name}</span>
+                  <span className="text-[11px] text-faint">{getArchetype(p.archetypeId).name}</span>
+                  <span className="w-8 text-right tnum text-xs text-dim">{Math.round(p.fitness)}%</span>
+                  <Ovr value={p.overall} size="sm" />
+                  <span className="shrink-0 text-sm leading-none text-gold" aria-hidden>+</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </Section>
+  );
+}
+
 export default function TacticsScreen() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
@@ -509,6 +592,8 @@ export default function TacticsScreen() {
           })}
         </div>
       </Section>
+
+      <Bench />
 
       {pickSlot && (
         <Modal title={`Select ${slotFor(pickSlot).label}`} onClose={() => setPickSlot(null)}>

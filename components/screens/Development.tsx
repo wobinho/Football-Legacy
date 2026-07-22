@@ -37,6 +37,19 @@ function comparePlan(a: PlayerBio, b: PlayerBio, key: PlanSortKey): number {
   }
 }
 
+/** A small badge marking a player who is still in the youth academy (not yet on
+ * the senior squad). Gold-accented, so a prospect reads at a glance. */
+function AcademyTag() {
+  return (
+    <span
+      className="display shrink-0 rounded-sm border border-gold-lo/50 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-gold"
+      title="Still in the youth academy"
+    >
+      Academy
+    </span>
+  );
+}
+
 /** A clickable column header for the Training Plans list. Clicking the active
  * column flips its direction; clicking another switches to it (ascending). */
 function SortHeader({
@@ -132,8 +145,10 @@ function TrainingPlansTab() {
   const ctx = devContext(game);
   const team = game.teams[game.userTeamId];
 
-  // senior squad + academy.
-  const ids = [...team.playerIds, ...(team.academyPlayerIds ?? [])];
+  // Senior squad only — academy prospects have their own development tab on the
+  // Academy screen (their training plans are set there, not here).
+  const academyIds = new Set(team.academyPlayerIds ?? []);
+  const ids = [...team.playerIds];
   const squad = ids
     .map((id) => game.players[id])
     .filter((p): p is PlayerBio => !!p && !p.retired)
@@ -182,6 +197,7 @@ function TrainingPlansTab() {
             const best = optimalTrainingPlan(p);
             const isOptimal = plan.id === best.id;
             const growing = p.age <= TUNING.growthEndAge;
+            const inAcademy = academyIds.has(p.id);
             const last = p.devLog && p.devLog.length ? p.devLog[p.devLog.length - 1] : null;
             return (
               <PlayerCard
@@ -189,7 +205,12 @@ function TrainingPlansTab() {
                 p={p}
                 onOpen={() => viewPlayer(p.id)}
                 ovr={<Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />}
-                sub={<span className="truncate">{growing ? "Still developing" : "Settled"}</span>}
+                sub={
+                  <span className="flex items-center gap-1.5 truncate">
+                    {inAcademy && <AcademyTag />}
+                    <span className="truncate">{growing ? "Still developing" : "Reached maturity"}</span>
+                  </span>
+                }
                 stats={
                   last && last.toOverall !== last.fromOverall ? (
                     <span className={`tnum ${last.toOverall > last.fromOverall ? "text-win" : "text-loss"}`}>
@@ -240,7 +261,7 @@ function TrainingPlansTab() {
           const options = plansForPosition(p.positions[0]);
           const best = optimalTrainingPlan(p);
           const isOptimal = plan.id === best.id;
-          const growing = p.age <= TUNING.growthEndAge;
+          const inAcademy = academyIds.has(p.id);
           const isOpen = open === p.id;
 
           // Potential is hidden from the manager. Everything shown here is a
@@ -260,7 +281,7 @@ function TrainingPlansTab() {
                   <span className={`shrink-0 text-[10px] text-faint transition-transform ${isOpen ? "rotate-90" : ""}`}>▶</span>
                   <Flag nat={p.nationality} size={12} />
                   <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
-                  {!growing && <span className="text-[10px] text-faint">· settled</span>}
+                  {inAcademy && <AcademyTag />}
                   {last && last.toOverall !== last.fromOverall && (
                     <span className={`text-[11px] tnum ${last.toOverall > last.fromOverall ? "text-win" : "text-loss"}`}>
                       {last.toOverall > last.fromOverall ? "+" : ""}{last.toOverall - last.fromOverall} last season

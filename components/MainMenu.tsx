@@ -829,8 +829,13 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
           natOptions={NAT_OPTIONS}
           initial={playerModal === "new" ? null : playerModal}
           onSave={(p) => {
+            // Upsert by id: editing an existing entry replaces it in place, while a
+            // fresh player — whether from "＋ Create" or pulled from the library (which
+            // opens the modal with a brand-new CustomPlayer not yet in the list) —
+            // is appended. Matching on id rather than the "new" sentinel keeps a
+            // library-prefilled player from being silently dropped by list.map.
             setCustomPlayers((list) =>
-              playerModal === "new" ? [...list, p] : list.map((x) => (x.id === p.id ? p : x))
+              list.some((x) => x.id === p.id) ? list.map((x) => (x.id === p.id ? p : x)) : [...list, p]
             );
             setPlayerModal(null);
           }}
@@ -1140,7 +1145,9 @@ function CustomDbGuide({ onClose }: { onClose: () => void }) {
             <code className="text-gold">name</code>, <code className="text-gold">positions</code> (e.g.{" "}
             <code>[&quot;ST&quot;]</code>), <code className="text-gold">overall</code> (40–99), plus optional{" "}
             <code>age</code>, <code>nationality</code>, <code>potential</code>, <code>archetypeId</code>,{" "}
-            <code>traits</code>. Missing fields are filled automatically.
+            <code>traits</code>. A rostered player may also set <code className="text-gold">wage</code> (weekly) and{" "}
+            <code className="text-gold">contractYears</code> (1–6 seasons remaining); leave them off to let the game decide.
+            Missing fields are filled automatically.
           </p>
         </div>
         <p className="text-[12px] text-faint">

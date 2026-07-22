@@ -15,6 +15,7 @@ import { playerValue } from "./value";
 import { grantDefaultContract, makeContract } from "./contracts";
 import { assignKitNumber, clearKitNumber } from "./kitnumbers";
 import { activePlayers } from "./archive";
+import { trackUserTransfer, syncProgress } from "./achievements";
 import type { RNG } from "./rng";
 import {
   STANCE_PROFILE,
@@ -107,6 +108,7 @@ function logTransferNews(
     day: state.currentDay,
     playerId: p.id,
     playerName: p.name,
+    playerNat: p.nationality,
     fromClubId,
     fromName: fromClubId ? state.teams[fromClubId]?.name ?? "—" : "Free agent",
     toClubId,
@@ -169,11 +171,23 @@ export function completeTransfer(
     from: fromClubId ? state.teams[fromClubId].name : "Free agent",
     to: toClubId ? state.teams[toClubId].name : "Released",
     fee,
+    fromId: fromClubId ?? undefined,
+    toId: toClubId ?? undefined,
   });
   // Structured world feed (v22, Transfers → News). Logged for every move a club
   // is party to — a plain release with no club on either side (shouldn't happen)
   // is skipped so the feed stays about clubs doing business.
   if (fromClubId || toClubId) logTransferNews(state, p, fromClubId, toClubId, fee, kind);
+  // Manager accolades (v1.45): a deal the user's club is party to feeds the
+  // transfer-market milestones (biggest signing/sale, career spend/receive). A
+  // buy and a sell are tracked from the user's own side; AI↔AI deals are ignored.
+  if (toClubId === state.userTeamId) {
+    trackUserTransfer(state, "buy", fee);
+    syncProgress(state);
+  } else if (fromClubId === state.userTeamId) {
+    trackUserTransfer(state, "sell", fee);
+    syncProgress(state);
+  }
   // clean up any other pending offers for this player
   state.offers = state.offers.filter((o) => o.playerId !== playerId || o.status !== "pending");
   state.transferList = state.transferList.filter((id) => id !== playerId);
@@ -634,64 +648,103 @@ function aiSquadBuilding(state: GameState, rng: RNG, cfg: TuningConfig) {
  * — often a dozen of them — had a permanently frozen transfer market: a player
  * browsing a foreign division saw the exact same squads season after season.
  *
- * This runs ONCE per window (called when the summer/winter window opens), and
- * for each sim league does a bounded number of intra-league deals: a buyer acts
- * on its worst position and signs the best improver another club in the SAME
- * league is willing to sell. Keeping every move inside one league conserves that
- * league's money and never lets a sim club raid the player's own division, while
- * still making foreign squads visibly evolve. It reuses the exact same stance,
- * needs, valuation and affordability model as the playable market — no separate
- * rules — so the two markets stay coherent.
+ * This runs ONCE per window (called when the summer/winter window opens) in two
+ * passes:
+ *   1. Intra-league — for each sim league, a bounded number of deals where a
+ *      buyer signs the best improver another club in the SAME league will sell.
+ *   2. Cross-league (v1.44) — a bounded number of deals across the whole sim
+ *      world, where a sim buyer signs an improver from ANY other sim league, so
+ *      players move between divisions and the market isn't sealed per league.
+ *
+ * Both passes never touch the player's own playable division (neither as buyer
+ * nor seller), so a sim club can never raid the user's world — the user's market
+ * stays the formal-offer path. Everything reuses the exact same stance, needs,
+ * valuation and affordability model as the playable market — no separate rules —
+ * so the markets stay coherent.
  */
 export function simLeagueTransferWindow(state: GameState, cfg: TuningConfig) {
-  for (const league of Object.values(state.leagues)) {
-    if (league.playable) continue;
+  const simLeagues = Object.values(state.leagues).filter((l) => !l.playable);
+
+  // ── Pass 1: intra-league business ──────────────────────────────────────────
+  for (const league of simLeagues) {
     const clubs = league.teamIds.map((id) => state.teams[id]).filter(Boolean);
     if (clubs.length < 2) continue;
     const rng = mulberry32(deriveSeed(state.seed, `simxfer:${league.id}:${state.season}:${state.currentDay}`));
 
     const attempts = cfg.aiSimDealsPerLeaguePerWindow;
     for (let i = 0; i < attempts; i++) {
-      const buyer = pickWeighted(rng, clubs, (t) => STANCE_PROFILE[stanceOf(state, t, cfg)].activity);
-      if (buyer.playerIds.length >= cfg.squadCap) continue;
-      if (isDistressed(state, buyer, cfg)) continue;
-      if (spendableBudget(state, buyer, cfg) <= 0) continue;
-
-      const needs = squadNeeds(state, buyer, cfg);
-      if (!needs.length) continue;
-      const need = needs[Math.min(needs.length - 1, Math.floor(rng() * 2))];
-
       // Shop only the other clubs in this same sim league.
-      let best: { player: PlayerBio; score: number; price: number } | null = null;
-      for (const seller of clubs) {
-        if (seller.id === buyer.id) continue;
-        if (seller.playerIds.length <= cfg.matchdaySquad) continue;
-        const sellerProfile = STANCE_PROFILE[stanceOf(state, seller, cfg)];
-        const distressDiscount = isDistressed(state, seller, cfg) ? cfg.aiDistressSellDiscount : 1;
-        for (const p of saleCandidates(state, seller, cfg)) {
-          if (p.loan) continue;
-          const score = targetScore(state, buyer, need, p, cfg);
-          if (score <= 0) continue;
-          const price =
-            Math.round((p.value * cfg.aiAcceptThreshold * sellerProfile.sellAsk * distressDiscount) / 100_000) * 100_000;
-          if (price > buyBudgetFor(state, buyer, p, cfg)) continue;
-          if (!canAfford(state, buyer, price, wageDemand(state, p, cfg), cfg)) continue;
-          if (!best || score > best.score) best = { player: p, score, price };
-        }
-      }
-      if (!best) continue;
-
-      const target = best.player;
-      const seller = state.teams[target.clubId!];
-      if (!seller || seller.playerIds.length <= cfg.matchdaySquad) continue;
-      completeTransfer(state, target.id, buyer.id, best.price);
-      const why = STANCE_PROFILE[stanceOf(state, buyer, cfg)].label;
-      state.news.unshift(
-        `${target.name} joins ${buyer.name} from ${seller.name} for ${fmtFee(best.price)} — ${why.toLowerCase()}.`
-      );
+      trySimDeal(state, clubs, clubs, rng, cfg);
     }
   }
+
+  // ── Pass 2: cross-league business (v1.44) ───────────────────────────────────
+  // A pool of every sim club in the world. A buyer drawn from it can sign from
+  // any other sim league, so players move between divisions rather than being
+  // sealed inside one. The playable division is excluded from the pool entirely,
+  // so the user's clubs are never party to a sim-world deal.
+  const allSimClubs = simLeagues.flatMap((l) => l.teamIds.map((id) => state.teams[id]).filter(Boolean));
+  if (allSimClubs.length >= 2) {
+    const rng = mulberry32(deriveSeed(state.seed, `simxfer:cross:${state.season}:${state.currentDay}`));
+    for (let i = 0; i < cfg.aiSimCrossLeagueDealsPerWindow; i++) {
+      trySimDeal(state, allSimClubs, allSimClubs, rng, cfg);
+    }
+  }
+
   state.news = state.news.slice(0, 24);
+}
+
+/**
+ * One AI↔AI sim-market deal attempt (v1.44). A buyer is drawn from `buyerPool`
+ * by stance appetite; it acts on one of its most pressing holes and signs the
+ * best improver any club in `sellerPool` is willing to sell. Shared by the
+ * intra-league and cross-league passes — the only difference between them is the
+ * pool of clubs in scope. Returns true if a deal completed.
+ */
+function trySimDeal(
+  state: GameState,
+  buyerPool: Team[],
+  sellerPool: Team[],
+  rng: RNG,
+  cfg: TuningConfig
+): boolean {
+  const buyer = pickWeighted(rng, buyerPool, (t) => STANCE_PROFILE[stanceOf(state, t, cfg)].activity);
+  if (buyer.playerIds.length >= cfg.squadCap) return false;
+  if (isDistressed(state, buyer, cfg)) return false;
+  if (spendableBudget(state, buyer, cfg) <= 0) return false;
+
+  const needs = squadNeeds(state, buyer, cfg);
+  if (!needs.length) return false;
+  const need = needs[Math.min(needs.length - 1, Math.floor(rng() * 2))];
+
+  let best: { player: PlayerBio; score: number; price: number } | null = null;
+  for (const seller of sellerPool) {
+    if (seller.id === buyer.id) continue;
+    if (seller.playerIds.length <= cfg.matchdaySquad) continue;
+    const sellerProfile = STANCE_PROFILE[stanceOf(state, seller, cfg)];
+    const distressDiscount = isDistressed(state, seller, cfg) ? cfg.aiDistressSellDiscount : 1;
+    for (const p of saleCandidates(state, seller, cfg)) {
+      if (p.loan) continue;
+      const score = targetScore(state, buyer, need, p, cfg);
+      if (score <= 0) continue;
+      const price =
+        Math.round((p.value * cfg.aiAcceptThreshold * sellerProfile.sellAsk * distressDiscount) / 100_000) * 100_000;
+      if (price > buyBudgetFor(state, buyer, p, cfg)) continue;
+      if (!canAfford(state, buyer, price, wageDemand(state, p, cfg), cfg)) continue;
+      if (!best || score > best.score) best = { player: p, score, price };
+    }
+  }
+  if (!best) return false;
+
+  const target = best.player;
+  const seller = state.teams[target.clubId!];
+  if (!seller || seller.playerIds.length <= cfg.matchdaySquad) return false;
+  completeTransfer(state, target.id, buyer.id, best.price);
+  const why = STANCE_PROFILE[stanceOf(state, buyer, cfg)].label;
+  state.news.unshift(
+    `${target.name} joins ${buyer.name} from ${seller.name} for ${fmtFee(best.price)} — ${why.toLowerCase()}.`
+  );
+  return true;
 }
 
 /**

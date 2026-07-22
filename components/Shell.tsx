@@ -17,6 +17,7 @@ import MatchDayScreen from "./screens/MatchDay";
 import CompetitionScreen from "./screens/Competition";
 import TransfersScreen from "./screens/Transfers";
 import ClubScreen from "./screens/Club";
+import AchievementsScreen from "./screens/Achievements";
 import DevelopmentScreen from "./screens/Development";
 import AcademyScreen from "./screens/Academy";
 import PlayerProfileModal from "./screens/PlayerProfile";
@@ -32,6 +33,7 @@ const NAV: { id: ScreenId; label: string }[] = [
   { id: "academy", label: "Academy" },
   { id: "development", label: "Development" },
   { id: "club", label: "Club" },
+  { id: "achievements", label: "Achievements" },
 ];
 
 export default function Shell() {
@@ -210,6 +212,7 @@ export default function Shell() {
           {screen === "academy" && <AcademyScreen />}
           {screen === "development" && <DevelopmentScreen />}
           {screen === "club" && <ClubScreen />}
+          {screen === "achievements" && <AchievementsScreen />}
         </main>
       </div>
 

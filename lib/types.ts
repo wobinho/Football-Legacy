@@ -2,7 +2,7 @@
 // Single source of truth for all game data shapes. Schema-versioned so the
 // save/export format doubles as the modding format (GAME_DESIGN.md §2, §13).
 
-export const SCHEMA_VERSION = 24;
+export const SCHEMA_VERSION = 26;
 
 export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "AM" | "LW" | "RW" | "ST";
 
@@ -78,7 +78,7 @@ export interface PlayerBio {
   form: number; // multiplier, tuning.formMin..formMax
   clubId: string | null; // null = free agent / retired
   value: number; // market value, stored (§10)
-  traits: string[]; // 0-2 trait ids
+  traits: string[]; // 0-3 trait ids
   longevity: number; // hidden 0..1 — aging variance (§5)
   // current-season running stats (compressed into PlayerCareer at rollover)
   stats: SeasonPlayerStats;
@@ -214,6 +214,11 @@ export interface TransferRow {
   from: string;
   to: string;
   fee: number;
+  /** Club ids for badge rendering (v1.44). Undefined on pre-v1.44 rows and for
+   * non-club endpoints (free agency, released, youth football) — the UI falls
+   * back to a name-only crest in those cases. */
+  fromId?: string;
+  toId?: string;
 }
 
 export interface PlayerCareer {
@@ -588,6 +593,10 @@ export interface TransferNewsItem {
   day: number;
   playerId: string;
   playerName: string; // denormalised — survives even if the player is later pruned
+  /** Denormalised player nationality (3-letter code) so the wire can flag him
+   * even after the player is pruned from a long save. Absent on saves logged
+   * before this field shipped — the UI falls back to the live player if present. */
+  playerNat?: string;
   /** Selling club id, or null for a free-agent signing. */
   fromClubId: string | null;
   fromName: string;
@@ -640,6 +649,12 @@ export interface AwardWinner {
   playerId: string;
   name: string;
   teamName: string;
+  /** Club id for badge rendering (v1.44). Undefined on pre-v1.44 summaries and
+   * for clubless winners — the UI falls back to text-only in those cases. */
+  teamId?: string;
+  /** Player nationality (3-letter code) for flag rendering (v1.44). Undefined on
+   * pre-v1.44 summaries — the UI omits the flag. */
+  nationality?: string;
   /** Primary position — lets the record book badge a Team-of-the-Season pick. */
   pos?: Pos;
   /** Headline number for the award (goals / assists / avg rating), if any. */
@@ -684,9 +699,24 @@ export interface SeasonSummary {
   accolades?: SeasonAccolades;
   userTeamId: string;
   userFinish: string; // e.g. "3rd in Premier Division"
-  notableTransfers: { playerName: string; from: string; to: string; fee: number }[];
+  notableTransfers: {
+    playerName: string;
+    from: string;
+    to: string;
+    fee: number;
+    /** Player nationality (3-letter code) for the flag (v1.44). */
+    nationality?: string;
+    /** Club ids of the two endpoints, for badge rendering (v1.44). Undefined for
+     * non-club endpoints (free agency, released) or on pre-v1.44 summaries. */
+    fromId?: string;
+    toId?: string;
+  }[];
   promoted: string[];
   relegated: string[];
+  /** Club ids for the promoted/relegated sides, parallel to the name arrays above
+   * (v1.44) — lets the review badge each move. Undefined on pre-v1.44 summaries. */
+  promotedIds?: string[];
+  relegatedIds?: string[];
 }
 
 export interface RecordBook {
@@ -803,6 +833,14 @@ export interface ScoutAssignment {
   /** How many batches this scout has filed (v12). Stamped onto each report so a
    * scout's finds stay distinguishable as they pile up. */
   reportsFiled?: number;
+  /** Day the assignment automatically ends (v25). The user picks a duration in
+   * months when sending the scout; once `currentDay` passes this, the scout
+   * files no more reports and comes home on the next tick. Absent = open-ended
+   * (legacy saves, or a brief sent before durations existed). */
+  endsDay?: number;
+  /** The duration the user chose, in months (v25). Stored for display so the
+   * assignment card can show "3 months" rather than only a raw end day. */
+  durationMonths?: number;
 }
 
 /** A youth prospect surfaced by the scout (§18). The player object is embedded
@@ -943,9 +981,73 @@ export type ScreenId =
   | "competition"
   | "transfers"
   | "club"
+  | "achievements"
   | "development"
   | "academy"
   | "player";
+
+// ── Manager progress: user accolades & achievements (§ Achievements, v1.45) ──
+
+/** Passively-recorded career milestones for the manager (v1.45). Every field is
+ * a running tally or high-water mark maintained as the save plays out — the
+ * Achievements page reads them directly. Separate from the record book (which is
+ * a per-season museum) and from player accolades (which live on the players):
+ * these are the MANAGER's own numbers, spanning the whole save.
+ *
+ * All optional-with-defaults so the whole block can be backfilled at migration
+ * and grown later without another schema bump. */
+export interface UserAccolades {
+  /** Seasons the manager has fully completed (incremented at each rollover). */
+  seasonsPlayed: number;
+  /** League titles won with the user's club, by division tier reached (any). */
+  leagueTitles: number;
+  /** Domestic cups won by the user's club. */
+  cupsWon: number;
+  /** Promotions earned. */
+  promotions: number;
+  /** Career total matches played by the user's club (all competitions). */
+  matchesPlayed: number;
+  matchesWon: number;
+  matchesDrawn: number;
+  matchesLost: number;
+  /** Career goals for / against across the user's matches. */
+  goalsFor: number;
+  goalsAgainst: number;
+  /** Most players rated 90+ overall the user's squad has held at once. */
+  peak90Overalls: number;
+  /** Most players rated 85+ overall the user's squad has held at once. */
+  peak85Overalls: number;
+  /** Highest club budget ever reached (high-water mark). */
+  peakBudget: number;
+  /** Highest single transfer fee the user's club has ever paid for a signing. */
+  biggestSigningFee: number;
+  /** Highest fee the user's club has ever received for a sale. */
+  biggestSaleFee: number;
+  /** Total spent on incoming transfers across the save. */
+  totalSpent: number;
+  /** Total received from outgoing transfers across the save. */
+  totalReceived: number;
+  /** Individual player honours won by players AT the user's club (Player of the
+   * Season, Golden Boot, etc.) — a running count of silverware in the cabinet. */
+  playerAwards: number;
+}
+
+/** An earned achievement (v1.45): the id of an ACHIEVEMENT_DEFS entry, plus the
+ * season it was unlocked in. Unlock-once and permanent for the save. */
+export interface EarnedAchievement {
+  id: string;
+  season: number;
+}
+
+/** Manager progress block (v1.45): the passively-tracked accolades plus the set
+ * of one-off achievements already earned. Optional on GameState so old saves
+ * migrate in with a fresh, zeroed block. */
+export interface UserProgress {
+  accolades: UserAccolades;
+  /** Earned achievements, keyed by achievement id (so a check is O(1) and an
+   * unlock can't be double-recorded). */
+  earned: Record<string, EarnedAchievement>;
+}
 
 export interface GameState {
   schemaVersion: number;
@@ -981,6 +1083,12 @@ export interface GameState {
   cup: CupState;
   schedule: SeasonSchedule;
   lineup: Record<string, string>; // formation slot id -> playerId (user team)
+  /** The user's chosen bench (v25): an ordered list of senior-squad player ids
+   * the manager has picked as substitutes, best/most-wanted first. The match
+   * engine's auto-subs draw from this bench in order. Empty/absent falls back to
+   * an auto-picked bench (best of the rest), so a manager who never touches it
+   * still fields a full matchday squad. Players in the XI or on loan are ignored. */
+  userBench?: string[];
   inbox: InboxItem[];
   offers: TransferOffer[];
   transferList: string[]; // user players listed for sale
@@ -1017,4 +1125,8 @@ export interface GameState {
    * `accoladesDay` and END SEASON; cleared once the summary is built. Optional so
    * saves that predate the ceremony simply compute honours at the rollover. */
   pendingAccolades?: SeasonAccolades;
+  /** Manager progress (v1.45): passively-tracked user accolades and the set of
+   * one-off achievements earned. Optional so pre-v1.45 saves migrate in with a
+   * fresh, zeroed block; see lib/achievements.ts. */
+  progress?: UserProgress;
 }

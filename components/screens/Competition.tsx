@@ -69,18 +69,13 @@ export default function CompetitionScreen() {
   // dedupe in case a single-division country lists the same id twice.
   const playableIds = useMemo(() => Array.from(new Set(game.divisionIds)), [game.divisionIds]);
 
-  // The tab bar stays deliberately small (v24): only the competitions the user
-  // is actually invested in — their own league, the divisions immediately above
-  // and below it on the ladder, the cup and match history. Every other country's
-  // league is a sim, and with many leagues selected these would swamp the bar,
-  // so they all move into the "Other leagues" dropdown instead.
+  // Every division of the nation the user manages in gets its own tab (v1.45).
+  // These are the real-engine playable divisions — `game.divisionIds` is exactly
+  // the home-nation ladder, top-first — so a manager in the third tier can still
+  // read the first division's table at a glance. Other countries' leagues are
+  // sims and move into the "Other leagues" dropdown so the bar stays home-nation.
   const userLeagueId = game.teams[game.userTeamId]?.leagueId;
-  const focusIds = useMemo(() => {
-    const idx = playableIds.indexOf(userLeagueId);
-    if (idx === -1) return playableIds; // user not on the playable ladder — show all
-    // the user's division plus the one directly above and below it
-    return playableIds.filter((_, i) => Math.abs(i - idx) <= 1);
-  }, [playableIds, userLeagueId]);
+  const focusIds = playableIds;
 
   const tabs = useMemo(() => {
     return [
@@ -270,7 +265,7 @@ function TableCard({
           identical across all of them; the club cell absorbs the slack.
           The Form column (v23) is hidden below sm so the phone layout keeps the
           same compact stat grid it always had; the table scrolls when shown. */}
-      <table className={`w-full table-fixed text-sm ${form ? "min-w-[560px]" : "min-w-[480px]"}`}>
+      <table className={`w-full table-fixed text-sm ${form ? "min-w-[620px]" : "min-w-[540px]"}`}>
         <colgroup>
           <col className="w-10" />
           <col />
@@ -278,7 +273,9 @@ function TableCard({
           <col className="w-9" />
           <col className="w-9" />
           <col className="w-9" />
-          <col className="w-12" />
+          <col className="w-9" />
+          <col className="w-9" />
+          <col className="w-9" />
           <col className="w-12" />
           {form && <col className="hidden w-28 sm:table-column" />}
         </colgroup>
@@ -290,6 +287,8 @@ function TableCard({
             <th className="py-2 text-center">W</th>
             <th className="py-2 text-center">D</th>
             <th className="py-2 text-center">L</th>
+            <th className="py-2 text-center">GF</th>
+            <th className="py-2 text-center">GA</th>
             <th className="py-2 text-center">GD</th>
             <th className="py-2 pr-3 text-right">Pts</th>
             {form && <th className="hidden py-2 pr-3 text-center sm:table-cell">Form</th>}
@@ -320,6 +319,8 @@ function TableCard({
                 <td className="py-1.5 text-center tnum text-dim">{row.won}</td>
                 <td className="py-1.5 text-center tnum text-dim">{row.drawn}</td>
                 <td className="py-1.5 text-center tnum text-dim">{row.lost}</td>
+                <td className="py-1.5 text-center tnum text-dim">{row.gf}</td>
+                <td className="py-1.5 text-center tnum text-dim">{row.ga}</td>
                 <td className="py-1.5 text-center tnum text-dim">{row.gf - row.ga > 0 ? "+" : ""}{row.gf - row.ga}</td>
                 <td className={`py-1.5 pr-3 text-right tnum font-semibold ${mine ? "gold-text" : ""}`}>{row.points}</td>
                 {form && (
