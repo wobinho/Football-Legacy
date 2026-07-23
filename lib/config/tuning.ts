@@ -183,6 +183,26 @@ export interface TuningConfig {
   // still bounded by the player's (dynamic) potential ceiling.
   primeGrowthPerSeasonMax: number; // max overall a prime player gains on a peak season
   primeGrowthPerfPivot: number; // avg rating at which prime growth kicks in (below → drift/decay)
+  /** Share of a full season's prime growth that can be earned DURING the season
+   * (v1.51). Prime players were excluded from the weekly progression tick
+   * entirely, so a 25+ player's rating could not move until the summer — and,
+   * because the potential ceiling had usually collapsed onto his overall by
+   * then, often not even then. Prime players now drift up in-season on the same
+   * weekly tick youngsters use, at this share of their seasonal allowance. */
+  primeInSeasonShare: number;
+  /** Headroom a prime player is granted above his current overall (v1.51), so a
+   * player whose dynamic potential has converged onto his rating can still
+   * improve on a strong campaign. Without this, `recalcPotential`'s
+   * `max(overall, …)` floor leaves zero headroom and the prime branch is a
+   * no-op — the "nobody over 24 ever grows" bug. Bounded by
+   * `primeHeadroomCapOverall` so it never manufactures superstars. */
+  primeHeadroomFloor: number;
+  /** Overall above which the prime headroom floor tapers to nothing. A 70-rated
+   * pro has room to become good; a 92-rated one is already at the ceiling. */
+  primeHeadroomCapOverall: number;
+  /** Overall at or below which a prime player carries the FULL headroom floor.
+   * Above it the floor tapers linearly to zero at `primeHeadroomCapOverall`. */
+  primeHeadroomFullBelow: number;
   retirementAgeMin: number;
   retirementAgeMax: number;
 
@@ -331,8 +351,25 @@ export interface TuningConfig {
    * clubs don't all bank identical money. */
   aiCommercialVariance: number;
   /** An AI club's seasonal lump-sum investment windfall, as a multiple of its
-   * weekly commercial income — the AI-side analogue of a major deal. */
+   * weekly commercial income. Fallback only (v1.5): a club that actually holds
+   * major deals banks those instead, and this covers a club whose majors have
+   * all lapsed so a barren season isn't a total commercial blackout. */
   aiInvestmentWindfallWeeks: number;
+
+  // AI sponsor portfolios (v1.5). AI clubs now hold real SponsorDeal objects in
+  // the same shape the user signs, resolved automatically at the rollover: the
+  // majors pay their lump sum into the budget, the minors set the weekly
+  // commercial income. What the AI can't do is *decline* — it takes what the
+  // market offers, which is what "passive" means here.
+  /** Chance an AI club fills an open major slot in a given season. Below 1 so
+   * portfolios differ: not every club has a naming-rights partner. */
+  aiSponsorMajorFillChance: number;
+  /** Chance an AI club fills each open minor slot place in a given season. */
+  aiSponsorMinorFillChance: number;
+  /** Multiplier on the offer value an AI club is quoted, against the same
+   * reputation/tier maths the user's offers use. Slightly under 1: the user
+   * negotiates their book, the AI simply accepts what lands. */
+  aiSponsorValueMult: number;
 
   // Training facilities (Player Development). One-time upgrade cost per level;
   // no weekly income — they speed development / recovery instead. Costs are a
@@ -426,6 +463,15 @@ export interface TuningConfig {
   aiAcceptThreshold: number; // accept if bid >= value * threshold (fringe)
   aiKeyPlayerPremium: number; // starters demand more
   aiBidChancePerWeek: number; // chance an AI club bids on a user player
+  /** Most incoming offers that can land on the user in a single week (v1.51).
+   * The tick used to stop at the first one, so the user saw at most one approach
+   * a week however many clubs wanted their players. */
+  aiMaxOffersPerWeek: number;
+  /** Most clubs that can have a live bid in for the SAME player at once (v1.51)
+   * — a bidding war the user can play off against itself. */
+  aiMaxBiddersPerPlayer: number;
+  /** Chance each additional rival joins the bidding once one club has moved. */
+  aiRivalBidChance: number;
   freeAgentSigningFee: number;
   // ── Ask-price compression (v1.43+) ──
   // The selling-club signals (stance, key-player, youth) still order who costs a
@@ -480,6 +526,8 @@ export interface TuningConfig {
   aiDealsPerWeek: number; // base AI↔AI deals attempted each week a window is open
   aiFreeAgentSignChance: number; // chance an acting club with no target signs a free agent
   aiRenewChance: number; // chance per window an AI club renews a final-year first-teamer
+  aiWindowDealsPerLeague: number; // AI↔AI deals each playable division attempts when a window opens (v1.51)
+  freeAgentPoolFloor: number; // free agents the AI leaves unsigned, so the user's tab is never empty (v1.51)
   aiSimDealsPerLeaguePerWindow: number; // intra-league AI↔AI deals each sim league does per window (v1.44)
   aiSimCrossLeagueDealsPerWindow: number; // cross-league AI↔AI deals across the whole sim world per window (v1.44)
 
@@ -498,6 +546,19 @@ export interface TuningConfig {
   /** Most a club will let its wage bill grow, as a multiple of its weekly
    * income — signings that blow this are refused regardless of the fee. */
   aiMaxWageToIncomeRatio: number;
+
+  // ── Squad-quality income scaling (v1.51) ───────────────────────────────────
+  // Wages grow exponentially with overall, but tier income is a flat constant.
+  // With a database rated above the built-in one, whole divisions ended up
+  // permanently over `aiMaxWageToIncomeRatio`, so `canAfford` refused every deal
+  // and the transfer market went silent. `weeklyIncomeEstimate` therefore scales
+  // a club's income by its squad's standard, using the SAME exponent as the wage
+  // curve so the two move together and the ratio is database-independent.
+  /** Squad average overall at which the quality multiplier is exactly 1.0. */
+  wageIncomeBaselineOverall: number;
+  /** Clamps on that multiplier, so a modded outlier can't run income away. */
+  wageIncomeQualityMultMin: number;
+  wageIncomeQualityMultMax: number;
 
   /** AI squad size ceiling. The user's first team is uncapped (v14) — the wage
    * bill is what limits hoarding — so this only bounds AI roster building. */
@@ -652,7 +713,7 @@ export const TUNING: TuningConfig = {
 
   segmentsPerMatch: 6,
   minutesPerSegment: 15,
-  baseChancesPerSegment: 1.73,
+  baseChancesPerSegment: 1.87,
   goalProbFloor: 0.08,
   goalProbCeil: 0.4,
   chanceQualitySlope: 11.0,
@@ -777,7 +838,13 @@ export const TUNING: TuningConfig = {
 
   minOverall: 50,
 
-  growthEndAge: 24,
+  // v1.51: 24 → 26. The youth curve's own age falloff already tapers growth
+  // toward the top of the band, so extending it two years smooths the hard cliff
+  // a player used to fall off on his 25th birthday — the most visible half of the
+  // "nobody over 24 develops" complaint. Players past this age still develop, on
+  // the prime curve. This lifts squad quality world-wide, so
+  // `baseChancesPerSegment` is re-calibrated alongside it to hold ~2.7 goals.
+  growthEndAge: 26,
   primeEndAge: 31,
   declineOnsetAge: 32,
   declineOnsetLongevitySwing: 2,
@@ -795,8 +862,22 @@ export const TUNING: TuningConfig = {
   growthYoungFalloffPerYear: 0.16,
   growthOldFalloffPerYear: 0.09,
   growthAgeMultFloor: 0.35,
-  primeGrowthPerSeasonMax: 2.2,
-  primeGrowthPerfPivot: 6.9,
+  // v1.51: prime growth loosened so players over 24 visibly develop. The pivot
+  // drops to 6.7 (a solid regular now improves, not only a standout), the per-
+  // season ceiling rises, and prime players join the weekly in-season tick.
+  primeGrowthPerSeasonMax: 3.0,
+  // 6.55 sits just under the median regular's rating (~6.65), so an ordinary
+  // first-teamer having a normal season edges forward while a squad player who
+  // rates below the median still stagnates. At the old 6.9 only ~12% of players
+  // cleared the bar at all, which is why nobody over 24 appeared to develop.
+  primeGrowthPerfPivot: 6.55,
+  primeInSeasonShare: 0.45,
+  // A 6-point floor tapering out at 92 keeps a mid-70s pro improving for several
+  // seasons on good form, while a 90-rated star has almost nothing left — the
+  // last few points of a great career have to come from the youth curve.
+  primeHeadroomFloor: 6,
+  primeHeadroomCapOverall: 92,
+  primeHeadroomFullBelow: 78,
   retirementAgeMin: 34,
   retirementAgeMax: 37,
 
@@ -929,6 +1010,17 @@ export const TUNING: TuningConfig = {
   aiCommercialTierMult: [1.6, 1.0],
   aiCommercialVariance: 0.18,
   aiInvestmentWindfallWeeks: 26,
+  // Most big clubs carry a shirt sponsor and a kit maker; naming rights and
+  // back-of-shirt are commoner at the top than the bottom (reputation feeds the
+  // roll itself), so a flat chance here still produces varied books.
+  aiSponsorMajorFillChance: 0.55,
+  aiSponsorMinorFillChance: 0.45,
+  // Calibrated (v1.5) so the AI world's TOTAL commercial income lands on the
+  // old abstract model's, not several times over it. A club now holds ~9 real
+  // deals where it used to hold one notional figure, so each is quoted a
+  // fraction of a user-facing offer — otherwise every AI club's wage headroom
+  // and transfer affordability would silently inflate.
+  aiSponsorValueMult: 0.34,
 
   // 10× the old costs (v15). Training infrastructure is now a genuine
   // long-horizon investment weighed against the transfer market, not a cheap
@@ -993,6 +1085,9 @@ export const TUNING: TuningConfig = {
   aiAcceptThreshold: 1.05, // v1.43: asks land nearer market value
   aiKeyPlayerPremium: 1.2, // v1.43: softened from 1.35 (and no longer stacked twice)
   aiBidChancePerWeek: 0.14,
+  aiMaxOffersPerWeek: 4,
+  aiMaxBiddersPerPlayer: 3,
+  aiRivalBidChance: 0.45,
   freeAgentSigningFee: 0,
   // Ask sits right on market value. With 0.25 compression the raw ~1.9× a title
   // club's star used to reach collapses to ~1.22×, and the ±band then caps it at
@@ -1045,6 +1140,16 @@ export const TUNING: TuningConfig = {
   // agent for a needy position instead. Free agents cost only wages, so this keeps
   // the market moving even for clubs that can't fund a fee.
   aiFreeAgentSignChance: 0.6,
+  // v1.51: the user's own division rivals now get a burst of business the moment
+  // a window opens, not just the Monday ticks — before this, foreign leagues
+  // visibly reshaped their squads every window while the clubs the user actually
+  // plays against barely moved a player. Multiplied by the ladder depth, so a
+  // three-tier pyramid churns proportionally more than a single division.
+  aiWindowDealsPerLeague: 10,
+  // The AI stops raiding the free-agent pool once it's down to this many. With
+  // both the weekly tick and the window burst shopping it, the pool could
+  // otherwise be cleared out and the user's Free Agents tab would stay empty.
+  freeAgentPoolFloor: 12,
   // Sim leagues each churn a handful of players between their own clubs per
   // window (v1.44) so browsing a foreign league across seasons shows real squad
   // movement, not a frozen roster. Runs once per window, not weekly, so the
@@ -1067,7 +1172,20 @@ export const TUNING: TuningConfig = {
   aiBudgetReserveRatio: 0.1,
   aiWageReserveWeeks: 4,
   aiDistressSellDiscount: 0.85,
-  aiMaxWageToIncomeRatio: 0.85,
+  // v1.51: raised from 0.85. The stock world's median club sat AT 0.85, so half
+  // of every division was locked out of the market before a ball was kicked —
+  // `canAfford` refused every signing and the window went silent. Wages are a
+  // small share of this economy next to fees, so a more permissive ceiling costs
+  // little and is what actually lets clubs trade.
+  aiMaxWageToIncomeRatio: 1.35,
+  // 68 is the built-in default database's tier-1 squad average, so the stock
+  // world's economy is unchanged and only richer/poorer databases are corrected.
+  // The floor is 1.0: a squad BELOW the baseline never has its income cut (that
+  // would just re-freeze the weaker clubs this fix exists to unblock) — the
+  // scaling only ever compensates upward for a stronger-than-default database.
+  wageIncomeBaselineOverall: 68,
+  wageIncomeQualityMultMin: 1.0,
+  wageIncomeQualityMultMax: 4.0,
 
   squadCap: 50,
   matchdaySquad: 18,

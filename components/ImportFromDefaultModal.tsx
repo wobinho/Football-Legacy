@@ -17,6 +17,7 @@ import type { LibraryClub, LibraryPlayer } from "@/lib/customdb";
 import { seedToLibraryClub, seedToLibraryPlayer } from "@/lib/customdb";
 import { PRESETS, loadPreset } from "@/lib/config/presets";
 import { overallFromAttrs } from "@/lib/config/positions";
+import { matchesPlayerName, matchesText } from "@/lib/search";
 import { CountryFlag, Crest, Flag, Modal, Ovr, PosBadge } from "./ui";
 
 /** A club row flattened out of the loaded country database. */
@@ -105,20 +106,20 @@ export default function ImportFromDefaultModal({
     return rows.sort((a, b) => b.overall - a.overall);
   }, [db]);
 
-  const q = query.trim().toLowerCase();
+  // Accent-insensitive (v1.5), and player search covers the seed's full name so
+  // "Desire Doue" finds the row the list renders as "D. Doué".
+  const q = query.trim();
   // Long lists are capped: 18k players can't render, and a search narrows fast.
   const LIMIT = 60;
   const shownClubs = useMemo(
-    () => (!q ? clubRows : clubRows.filter((c) => c.seed.name.toLowerCase().includes(q))).slice(0, LIMIT),
+    () => (!q ? clubRows : clubRows.filter((c) => matchesText(c.seed.name, q))).slice(0, LIMIT),
     [clubRows, q]
   );
   const shownPlayers = useMemo(
     () =>
       (!q
         ? playerRows
-        : playerRows.filter(
-            (p) => p.seed.name.toLowerCase().includes(q) || p.clubName.toLowerCase().includes(q)
-          )
+        : playerRows.filter((p) => matchesPlayerName(p.seed, q) || matchesText(p.clubName, q))
       ).slice(0, LIMIT),
     [playerRows, q]
   );

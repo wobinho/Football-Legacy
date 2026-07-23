@@ -2,7 +2,7 @@
 
 // Tactics (§15.3): formation preset, mentality, style, lineup, synergy hints.
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { DefLine, Focus, Mentality, PlayerBio, Press, Style, TeamAssignments, Tempo, Width } from "@/lib/types";
 import { FORMATIONS, getFormation, MENTALITY_OPTIONS, STYLE_OPTIONS, styleLabel } from "@/lib/config/formations";
@@ -302,86 +302,477 @@ function Assignments() {
   );
 }
 
-/** Bench (v25): the ordered list of substitutes the manager names for match day.
- * The engine's auto-subs draw from this bench in order; anything left unpicked is
- * auto-filled by best-of-the-rest so a full matchday squad is always fielded. */
-function Bench() {
+// ── Drag & drop (v1.5) ─────────────────────────────────────────────────────
+// Lineup and substitutions are now arranged by dragging players — a pitch token
+// onto another pitch token to swap the two, a bench/squad player onto a pitch
+// slot to field him, a starter onto the bench to drop him out.
+//
+// This is deliberately hand-rolled on pointer events rather than the HTML5 drag
+// API. HTML5 drag doesn't fire on touch at all, and this game is played on
+// phones as much as desktops (there's a dedicated mobile UI test); pointer
+// events are one code path for mouse, touch and pen. The cost is that we render
+// our own drag image, which is the floating token below.
+//
+// Everything remains reachable without dragging: every slot and bench row is
+// still a button that opens the existing picker modal, so keyboard and
+// screen-reader users lose nothing.
+
+/** What is being dragged: a player, and where he came from. */
+type DragSource =
+  | { kind: "slot"; playerId: string; slotId: string }
+  | { kind: "bench"; playerId: string; index: number }
+  | { kind: "squad"; playerId: string };
+
+/** Where a drag is currently hovering. */
+type DropTarget = { kind: "slot"; slotId: string } | { kind: "bench"; index: number } | null;
+
+interface DragState {
+  source: DragSource;
+  /** Viewport coords of the floating token. */
+  x: number;
+  y: number;
+  /** True once the pointer has moved past the slop threshold — below it the
+   * gesture is still a tap and should open the picker instead. */
+  active: boolean;
+  target: DropTarget;
+}
+
+/** Pointer travel (px) before a press becomes a drag rather than a tap. Small
+ * enough to feel immediate, large enough that a jittery tap still counts as a
+ * tap on a touchscreen. */
+const DRAG_SLOP = 6;
+
+/** Drop zones register themselves here by DOM node, so hit-testing is a plain
+ * geometric scan — no dependency on pointer-events or elementFromPoint, which
+ * the floating drag token would otherwise sit on top of and block. */
+type ZoneMap = Map<Element, Exclude<DropTarget, null>>;
+
+/**
+ * The whole drag interaction, as one hook.
+ *
+ * Returns `begin` (call from onPointerDown on anything draggable), the live
+ * drag state for rendering, and `registerZone` (a ref callback drop zones use to
+ * publish their bounds). The drop itself is delegated to `onDrop` so the store
+ * actions stay in the component that owns them.
+ */
+function useLineupDrag(onDrop: (source: DragSource, target: Exclude<DropTarget, null>) => void) {
+  const [drag, setDrag] = useState<DragState | null>(null);
+  const zones = useRef<ZoneMap>(new Map());
+  // The live drag lives in a ref as well as state: the pointer handlers are
+  // bound once and must read the current value without re-subscribing on frame.
+  const dragRef = useRef<DragState | null>(null);
+  const setDragBoth = useCallback((next: DragState | null) => {
+    dragRef.current = next;
+    setDrag(next);
+  }, []);
+
+  const registerZone = useCallback((target: Exclude<DropTarget, null>) => {
+    return (node: HTMLElement | null) => {
+      // Re-registering the same target on re-render: drop the stale node first
+      // so the map never accumulates detached elements.
+      for (const [el, t] of zones.current) {
+        if (t.kind === target.kind && (t as { slotId?: string; index?: number }).slotId === (target as { slotId?: string }).slotId && (t as { index?: number }).index === (target as { index?: number }).index) {
+          zones.current.delete(el);
+        }
+      }
+      if (node) zones.current.set(node, target);
+    };
+  }, []);
+
+  /** Which registered zone is under (x, y), if any. */
+  const hitTest = useCallback((x: number, y: number): DropTarget => {
+    for (const [el, target] of zones.current) {
+      const r = el.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return target;
+    }
+    return null;
+  }, []);
+
+  const begin = useCallback(
+    (source: DragSource, e: React.PointerEvent) => {
+      // Left button / touch / pen only — a right-click must not start a drag.
+      if (e.button !== 0) return;
+      setDragBoth({ source, x: e.clientX, y: e.clientY, active: false, target: null });
+    },
+    [setDragBoth]
+  );
+
+  useEffect(() => {
+    if (!drag) return;
+    const origin = { x: drag.x, y: drag.y };
+
+    const move = (e: PointerEvent) => {
+      const cur = dragRef.current;
+      if (!cur) return;
+      const far =
+        cur.active || Math.hypot(e.clientX - origin.x, e.clientY - origin.y) > DRAG_SLOP;
+      setDragBoth({
+        ...cur,
+        x: e.clientX,
+        y: e.clientY,
+        active: far,
+        target: far ? hitTest(e.clientX, e.clientY) : null,
+      });
+    };
+
+    const up = (e: PointerEvent) => {
+      const cur = dragRef.current;
+      setDragBoth(null);
+      if (!cur || !cur.active) return; // a tap — the button's onClick handles it
+      const target = hitTest(e.clientX, e.clientY);
+      if (target) onDrop(cur.source, target);
+    };
+
+    const cancel = () => setDragBoth(null);
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+    };
+    // Bound once per drag gesture; movement updates flow through the ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drag?.source.playerId, hitTest, onDrop, setDragBoth]);
+
+  // While dragging, suppress the browser's own touch scrolling and text
+  // selection — otherwise a drag down the pitch scrolls the page instead.
+  useEffect(() => {
+    if (!drag?.active) return;
+    const prevTouch = document.body.style.touchAction;
+    const prevSelect = document.body.style.userSelect;
+    document.body.style.touchAction = "none";
+    document.body.style.userSelect = "none";
+    return () => {
+      document.body.style.touchAction = prevTouch;
+      document.body.style.userSelect = prevSelect;
+    };
+  }, [drag?.active]);
+
+  return { drag: drag?.active ? drag : null, pending: drag, begin, registerZone };
+}
+
+/** The token that follows the pointer during a drag. Rendered fixed to the
+ * viewport and pointer-transparent so it never becomes its own drop target. */
+function DragGhost({ p, x, y }: { p: PlayerBio; x: number; y: number }) {
+  return (
+    <div
+      className="pointer-events-none fixed z-[100] -translate-x-1/2 -translate-y-1/2"
+      style={{ left: x, top: y }}
+    >
+      <div className="flex items-center gap-2 rounded-full border border-gold-lo bg-raised px-2.5 py-1.5 shadow-2xl ring-2 ring-gold/30">
+        <span className="display flex h-8 w-8 items-center justify-center rounded-full bg-hover text-sm font-bold text-ink tnum">
+          {p.overall}
+        </span>
+        <span className="max-w-32 truncate pr-1 text-xs font-semibold text-ink">{p.name}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Colour a player token by how well he fits the slot he's standing in. */
+function fitRing(fit: number): string {
+  if (fit >= 1) return "border-gold-lo bg-raised";
+  if (fit > TUNING.outOfPositionFloor) return "border-draw/60 bg-raised";
+  return "border-loss/70 bg-raised";
+}
+
+/**
+ * The lineup board (v1.5): the pitch, the bench and the rest of the squad as one
+ * drag-and-drop surface, in the EA-FC idiom.
+ *
+ * Three gestures, one mental model — a player is a token, and you put tokens
+ * where you want them:
+ *   • pitch → pitch  swaps the two players' slots
+ *   • bench/squad → pitch  fields him; whoever he displaced takes his place
+ *   • pitch → bench  drops him out of the XI and into the subs, in that order
+ *
+ * Tapping instead of dragging still opens the picker modal, so nothing here is
+ * drag-only — that matters for keyboard users and for anyone who simply prefers
+ * a list. The bench order is meaningful: the engine's auto-subs work down it.
+ */
+function LineupBoard({
+  onPickSlot,
+  onOpenPlayer,
+}: {
+  onPickSlot: (slotId: string) => void;
+  onOpenPlayer: (playerId: string) => void;
+}) {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
+  const swapLineup = useGame((s) => s.swapLineup);
+  const moveBench = useGame((s) => s.moveBench);
   const toggleBench = useGame((s) => s.toggleBench);
+  const bump = useGame((s) => s.bump);
+
   const team = game.teams[game.userTeamId];
+  const tactic = team.tactic;
+  const formation = getFormation(tactic.formationId);
   const cap = TUNING.matchdaySquad - 11;
 
   const inLineup = new Set(Object.values(game.lineup));
-  // Squad players available to bench: not in the XI, not on loan, not retired.
-  const available = team.playerIds
-    .map((id) => game.players[id])
-    .filter((p): p is PlayerBio => !!p && !p.retired && !p.loan && !inLineup.has(p.id));
-
   const benchIds = (game.userBench ?? []).filter((id) => !inLineup.has(id) && game.players[id]);
   const benched = benchIds.map((id) => game.players[id]).filter((p): p is PlayerBio => !!p);
   const benchedSet = new Set(benchIds);
-  const rest = available
-    .filter((p) => !benchedSet.has(p.id))
+  const rest = team.playerIds
+    .map((id) => game.players[id])
+    .filter(
+      (p): p is PlayerBio =>
+        !!p && !p.retired && !p.loan && !inLineup.has(p.id) && !benchedSet.has(p.id)
+    )
     .sort((a, b) => b.overall - a.overall);
+
+  const handleDrop = useCallback(
+    (source: DragSource, target: Exclude<DropTarget, null>) => {
+      if (target.kind === "slot") {
+        // Dropping a player back on the slot he already occupies is a no-op.
+        if (source.kind === "slot" && source.slotId === target.slotId) return;
+        swapLineup(target.slotId, source.playerId);
+      } else {
+        moveBench(source.playerId, target.index);
+      }
+    },
+    [swapLineup, moveBench]
+  );
+
+  const { drag, begin, registerZone } = useLineupDrag(handleDrop);
+  const dragging = drag?.source.playerId ?? null;
+  const dragged = dragging ? game.players[dragging] : null;
+
+  const autoPick = () => {
+    game.lineup = {};
+    ensureUserLineup(game);
+    bump(true);
+  };
+
+  const filled = Object.values(game.lineup).filter((id) => game.players[id]).length;
 
   return (
     <Section
-      title="Bench"
-      right={<span className="text-xs text-faint">{benched.length}/{cap} subs · used for substitutions</span>}
+      title="Lineup"
+      right={
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-faint">
+            <span className="display tnum text-sm text-ink">{filled}</span>/11 picked
+          </span>
+          <GhostButton onClick={autoPick} className="!px-3 !py-1 text-xs">
+            Auto-pick
+          </GhostButton>
+        </div>
+      }
     >
-      <div className="space-y-3">
-        <p className="text-[11px] leading-snug text-faint">
-          Name your substitutes. The bench is used for in-match subs — tired legs come off for the fresher players you pick here,
-          in order. Leave it empty and the best of the rest are benched automatically.
-        </p>
-        {benched.length > 0 ? (
-          <div className="space-y-1">
-            {benched.map((p, i) => (
+      <p className="mb-3 text-[11px] leading-snug text-faint">
+        Drag a player onto a position to field him — drag one shirt onto another to swap them, or down to the bench to take him out.
+        Tap a position instead to pick from a list.
+      </p>
+
+      {/* ── The pitch ─────────────────────────────────────────────────── */}
+      <div
+        className="relative mx-auto aspect-[3/4] w-full max-w-md select-none overflow-hidden rounded-md border border-line"
+        style={{ background: "linear-gradient(180deg, #0e1512 0%, #0c110e 100%)" }}
+      >
+        {/* pitch markings */}
+        <div className="absolute inset-x-[12%] top-0 h-[14%] rounded-b border border-t-0 border-white/10" />
+        <div className="absolute inset-x-[12%] bottom-0 h-[14%] rounded-t border border-b-0 border-white/10" />
+        <div className="absolute inset-x-0 top-1/2 h-px bg-white/10" />
+        <div className="absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/10" />
+
+        {formation.slots.map((slot) => {
+          const pid = game.lineup[slot.id];
+          const p = pid ? game.players[pid] : null;
+          const fit = p
+            ? positionFit(p.positions, slot.pos, TUNING.adjacentPositionMult, TUNING.outOfPositionFloor)
+            : 1;
+          const isTarget = drag?.target?.kind === "slot" && drag.target.slotId === slot.id;
+          const isSource = !!p && p.id === dragging;
+          return (
+            <div
+              key={slot.id}
+              ref={registerZone({ kind: "slot", slotId: slot.id })}
+              className="absolute -translate-x-1/2 translate-y-1/2"
+              style={{ left: `${slot.x}%`, bottom: `${slot.y}%` }}
+            >
+              <button
+                onPointerDown={(e) => {
+                  if (p) begin({ kind: "slot", playerId: p.id, slotId: slot.id }, e);
+                }}
+                onClick={() => onPickSlot(slot.id)}
+                title={p ? `${p.name} — drag to move, tap to change` : `Tap to pick a ${slot.label}`}
+                className={`flex w-16 touch-none flex-col items-center ${drag ? "cursor-grabbing" : p ? "cursor-grab" : "cursor-pointer"}`}
+              >
+                <span
+                  className={`display flex h-10 w-10 items-center justify-center rounded-full border text-sm font-bold transition-all ${
+                    p ? fitRing(fit) : "border-dashed border-line bg-surface text-faint"
+                  } ${
+                    isTarget
+                      ? "scale-110 border-gold ring-2 ring-gold/60"
+                      : isSource
+                        ? "opacity-30"
+                        : ""
+                  } ${p ? "text-ink" : ""}`}
+                >
+                  {p ? p.overall : slot.label}
+                </span>
+                <span className="mt-0.5 w-full truncate text-center text-[10px] leading-tight text-dim">
+                  {p ? p.name.split(" ").slice(-1)[0] : slot.label}
+                </span>
+                {p && fit < 1 && (
+                  <span className="text-[8px] uppercase leading-none tracking-wide text-loss">
+                    {fit <= TUNING.outOfPositionFloor ? "out of pos" : "adapted"}
+                  </span>
+                )}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Legend — what the ring colours mean, so a red token reads as a warning
+          rather than decoration. */}
+      <div className="mt-2 flex flex-wrap items-center justify-center gap-3 text-[10px] text-faint">
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-full border border-gold-lo" /> natural
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-full border border-draw/60" /> adapted
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-full border border-loss/70" /> out of position
+        </span>
+      </div>
+
+      {/* ── The bench ─────────────────────────────────────────────────── */}
+      <div className="mt-5">
+        <div className="mb-1.5 flex items-baseline justify-between gap-2">
+          <span className="text-[11px] uppercase tracking-widest text-faint">Bench</span>
+          <span className="text-[10px] text-faint">
+            <span className="tnum">{benched.length}</span>/{cap} subs · used in order
+          </span>
+        </div>
+
+        <div className="space-y-1">
+          {benched.map((p, i) => (
+            <BenchRow
+              key={p.id}
+              p={p}
+              index={i}
+              registerZone={registerZone}
+              isTarget={drag?.target?.kind === "bench" && drag.target.index === i}
+              isSource={p.id === dragging}
+              onPointerDown={(e) => begin({ kind: "bench", playerId: p.id, index: i }, e)}
+              onClick={() => onOpenPlayer(p.id)}
+              onRemove={() => toggleBench(p.id)}
+            />
+          ))}
+
+          {/* Tail drop zone: always present so there is somewhere to drop a
+              player when the bench is empty, and so dropping past the last row
+              appends rather than missing entirely. */}
+          {benched.length < cap && (
+            <div
+              ref={registerZone({ kind: "bench", index: benched.length })}
+              className={`rounded-md border border-dashed px-3 py-2.5 text-center text-[11px] transition-colors ${
+                drag?.target?.kind === "bench" && drag.target.index === benched.length
+                  ? "border-gold bg-hover text-ink"
+                  : "border-line text-faint"
+              }`}
+            >
+              {benched.length === 0
+                ? "Drop a player here to name your substitutes — or leave it empty and the best of the rest are benched automatically."
+                : "Drop here to add a substitute"}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── The rest of the squad ─────────────────────────────────────── */}
+      {rest.length > 0 && (
+        <div className="mt-5">
+          <div className="mb-1.5 text-[11px] uppercase tracking-widest text-faint">
+            Rest of squad
+          </div>
+          <div className="max-h-72 space-y-1 overflow-y-auto pr-0.5">
+            {rest.map((p) => (
               <button
                 key={p.id}
-                onClick={() => toggleBench(p.id)}
-                className="flex w-full items-center gap-3 rounded-md border border-gold-lo/50 bg-hover px-3 py-2 text-left"
+                onPointerDown={(e) => begin({ kind: "squad", playerId: p.id }, e)}
+                onClick={() => onOpenPlayer(p.id)}
+                className={`flex w-full touch-none cursor-grab items-center gap-3 rounded-md border border-line bg-surface px-3 py-2 text-left hover:bg-hover ${
+                  p.id === dragging ? "opacity-30" : ""
+                }`}
               >
-                <span className="w-4 shrink-0 text-center tnum text-[11px] text-faint">{i + 1}</span>
                 <PosBadge pos={p.positions[0]} />
                 <Flag nat={p.nationality} size={12} />
-                <span className="flex-1 truncate">{p.name}</span>
-                <span className="w-8 text-right tnum text-xs text-dim">{Math.round(p.fitness)}%</span>
+                <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                <span className="hidden text-[11px] text-faint sm:inline">
+                  {getArchetype(p.archetypeId).name}
+                </span>
+                <SynergyDot p={p} style={tactic.style} />
+                <span className="w-8 shrink-0 text-right tnum text-xs text-dim">
+                  {Math.round(p.fitness)}%
+                </span>
                 <Ovr value={p.overall} size="sm" />
-                <span className="shrink-0 text-sm leading-none text-faint" aria-hidden>✕</span>
               </button>
             ))}
           </div>
-        ) : (
-          <div className="rounded-md border border-dashed border-line px-3 py-3 text-sm text-faint">
-            No subs named — the best available players will be benched automatically.
-          </div>
-        )}
-        {rest.length > 0 && benched.length < cap && (
-          <div>
-            <div className="mb-1 text-[10px] uppercase tracking-widest text-faint">Add a substitute</div>
-            <div className="space-y-1">
-              {rest.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => toggleBench(p.id)}
-                  className="flex w-full items-center gap-3 rounded-md border border-line bg-surface px-3 py-2 text-left hover:bg-hover"
-                >
-                  <PosBadge pos={p.positions[0]} />
-                  <Flag nat={p.nationality} size={12} />
-                  <span className="flex-1 truncate">{p.name}</span>
-                  <span className="text-[11px] text-faint">{getArchetype(p.archetypeId).name}</span>
-                  <span className="w-8 text-right tnum text-xs text-dim">{Math.round(p.fitness)}%</span>
-                  <Ovr value={p.overall} size="sm" />
-                  <span className="shrink-0 text-sm leading-none text-gold" aria-hidden>+</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {drag && dragged && <DragGhost p={dragged} x={drag.x} y={drag.y} />}
     </Section>
+  );
+}
+
+/** One named substitute. Draggable to reorder or to promote into the XI. */
+function BenchRow({
+  p,
+  index,
+  registerZone,
+  isTarget,
+  isSource,
+  onPointerDown,
+  onClick,
+  onRemove,
+}: {
+  p: PlayerBio;
+  index: number;
+  registerZone: (t: Exclude<DropTarget, null>) => (node: HTMLElement | null) => void;
+  isTarget: boolean;
+  isSource: boolean;
+  onPointerDown: (e: React.PointerEvent) => void;
+  onClick: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div
+      ref={registerZone({ kind: "bench", index })}
+      className={`flex items-center gap-3 rounded-md border bg-hover px-3 py-2 transition-colors ${
+        isTarget ? "border-gold ring-1 ring-gold/50" : "border-gold-lo/50"
+      } ${isSource ? "opacity-30" : ""}`}
+    >
+      <button
+        onPointerDown={onPointerDown}
+        onClick={onClick}
+        className="flex min-w-0 flex-1 cursor-grab touch-none items-center gap-3 text-left"
+      >
+        <span className="w-4 shrink-0 text-center tnum text-[11px] text-faint">{index + 1}</span>
+        <PosBadge pos={p.positions[0]} />
+        <Flag nat={p.nationality} size={12} />
+        <span className="min-w-0 flex-1 truncate">{p.name}</span>
+        <span className="w-8 shrink-0 text-right tnum text-xs text-dim">{Math.round(p.fitness)}%</span>
+        <Ovr value={p.overall} size="sm" />
+      </button>
+      <button
+        onClick={onRemove}
+        title="Remove from the bench"
+        aria-label={`Remove ${p.name} from the bench`}
+        className="shrink-0 text-sm leading-none text-faint hover:text-loss"
+      >
+        ✕
+      </button>
+    </div>
   );
 }
 
@@ -390,7 +781,7 @@ export default function TacticsScreen() {
   useGame((s) => s.rev);
   const setTactic = useGame((s) => s.setTactic);
   const setLineupSlot = useGame((s) => s.setLineupSlot);
-  const bump = useGame((s) => s.bump);
+  const viewPlayer = useGame((s) => s.viewPlayer);
   const [pickSlot, setPickSlot] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
@@ -408,12 +799,6 @@ export default function TacticsScreen() {
   const inLineup = new Set(Object.values(game.lineup));
 
   const slotFor = (slotId: string) => formation.slots.find((s) => s.id === slotId)!;
-
-  const autoPick = () => {
-    game.lineup = {};
-    ensureUserLineup(game);
-    bump(true);
-  };
 
   // Average archetype synergy of the picked XI in the chosen style, as a
   // percentage — the headline number for "does this style suit my squad?".
@@ -492,17 +877,18 @@ export default function TacticsScreen() {
           </div>
         </Section>
 
+        {/* The picked XI in detail. The pitch is where the lineup is ARRANGED;
+            this is where it's read — traits, synergy and position fit per slot,
+            which don't fit on a 40px token. */}
         <Section
-          title="Lineup"
+          title="Starting XI"
           right={
-            <div className="flex items-baseline gap-3">
-              <span className="text-xs text-faint">
-                effective ≈ <span className="display tnum text-sm text-ink">{startersScore ? startersScore.toFixed(1) : "—"}</span>
+            <span className="text-xs text-faint">
+              effective ≈{" "}
+              <span className="display tnum text-sm text-ink">
+                {startersScore ? startersScore.toFixed(1) : "—"}
               </span>
-              <GhostButton onClick={autoPick} className="!px-3 !py-1 text-xs">
-                Auto-pick
-              </GhostButton>
-            </div>
+            </span>
           }
         >
           <div className="space-y-1">
@@ -558,42 +944,10 @@ export default function TacticsScreen() {
         <Assignments />
       </div>
 
-      {/* pitch view */}
-      <Section title="Shape">
-        <div
-          className="relative mx-auto aspect-[3/4] w-full max-w-md overflow-hidden rounded-md border border-line"
-          style={{ background: "linear-gradient(180deg, #0e1512 0%, #0c110e 100%)" }}
-        >
-          {/* pitch markings */}
-          <div className="absolute inset-x-[12%] top-0 h-[14%] rounded-b border border-t-0 border-white/10" />
-          <div className="absolute inset-x-[12%] bottom-0 h-[14%] rounded-t border border-b-0 border-white/10" />
-          <div className="absolute inset-x-0 top-1/2 h-px bg-white/10" />
-          <div className="absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/10" />
-          {formation.slots.map((slot) => {
-            const pid = game.lineup[slot.id];
-            const p = pid ? game.players[pid] : null;
-            return (
-              <button
-                key={slot.id}
-                onClick={() => setPickSlot(slot.id)}
-                className="absolute -translate-x-1/2 translate-y-1/2 text-center"
-                style={{ left: `${slot.x}%`, bottom: `${slot.y}%` }}
-              >
-                <div
-                  className={`display mx-auto flex h-10 w-10 items-center justify-center rounded-full border text-sm font-bold ${
-                    p ? "border-gold-lo bg-raised text-ink" : "border-dashed border-line bg-surface text-faint"
-                  }`}
-                >
-                  {p ? p.overall : slot.label}
-                </div>
-                <div className="mt-0.5 max-w-16 truncate text-[10px] text-dim">{p ? p.name.split(" ").slice(-1)[0] : ""}</div>
-              </button>
-            );
-          })}
-        </div>
-      </Section>
-
-      <Bench />
+      {/* The drag-and-drop board: pitch, bench and squad as one surface. */}
+      <div>
+        <LineupBoard onPickSlot={setPickSlot} onOpenPlayer={viewPlayer} />
+      </div>
 
       {pickSlot && (
         <Modal title={`Select ${slotFor(pickSlot).label}`} onClose={() => setPickSlot(null)}>

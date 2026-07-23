@@ -28,18 +28,45 @@ function TeamCrest({ game, teamId, size = 16 }: { game: GameState; teamId?: stri
   return <Crest colors={t.colors} short={t.short} size={size} />;
 }
 
-/** A promoted/relegated club list — one row per club with its badge. Falls back
- * to a plain comma-joined line when the summary predates stored club ids. */
+/** One club's move — badge plus name, under whichever division heading it
+ * belongs to. */
+function MoveRow({ game, name, id, arrow, tone }: { game: GameState; name: string; id?: string; arrow: string; tone: string }) {
+  return (
+    <div className={`flex items-center gap-1.5 text-[13px] ${tone}`}>
+      <span aria-hidden className="shrink-0">
+        {arrow}
+      </span>
+      <TeamCrest game={game} teamId={id} size={16} />
+      <span className="truncate">{name}</span>
+    </div>
+  );
+}
+
+/**
+ * A promotion/relegation list, GROUPED BY DIVISION (v1.5). With a two- or
+ * three-tier pyramid a single flat list can't say which division a club climbed
+ * out of or dropped into, which is the whole story of a lower-tier season — so
+ * each group is headed by the league the clubs came FROM ("Championship ▲"),
+ * with the destination named alongside.
+ *
+ * Grouping needs the summary's `from`/`to` league ids; summaries written before
+ * v1.5 (and pre-v1.44 ones with no club ids at all) don't carry them, so both
+ * older shapes fall back to the ungrouped rendering they always had.
+ */
 function MoveList({
   game,
   names,
   ids,
+  from,
+  to,
   arrow,
   tone,
 }: {
   game: GameState;
   names: string[];
   ids?: string[];
+  from?: string[];
+  to?: string[];
   arrow: string;
   tone: string;
 }) {
@@ -50,17 +77,55 @@ function MoveList({
       </div>
     );
   }
+
+  // Pre-v1.5 summary, or a ladder shallow enough that every move shares one
+  // division — a heading would just repeat itself, so render the plain list.
+  const grouped = from?.length === names.length;
+  const distinctFrom = grouped ? new Set(from) : new Set<string>();
+  if (!grouped || distinctFrom.size <= 1) {
+    return (
+      <div className="mt-1 space-y-1">
+        {names.map((name, i) => (
+          <MoveRow key={`${name}-${i}`} game={game} name={name} id={ids[i]} arrow={arrow} tone={tone} />
+        ))}
+      </div>
+    );
+  }
+
+  // Group in first-seen order — applyPromotionRelegation walks the ladder
+  // top-first, so the divisions come out in pyramid order for free.
+  const groups: { leagueId: string; toId?: string; rows: number[] }[] = [];
+  names.forEach((_, i) => {
+    const leagueId = from![i];
+    const g = groups.find((x) => x.leagueId === leagueId);
+    if (g) g.rows.push(i);
+    else groups.push({ leagueId, toId: to?.[i], rows: [i] });
+  });
+
+  const leagueName = (id?: string) => (id ? game.leagues[id]?.name : undefined);
+
   return (
-    <div className="mt-1 space-y-1">
-      {names.map((name, i) => (
-        <div key={`${name}-${i}`} className={`flex items-center gap-1.5 text-[13px] ${tone}`}>
-          <span aria-hidden className="shrink-0">
-            {arrow}
-          </span>
-          <TeamCrest game={game} teamId={ids[i]} size={16} />
-          <span className="truncate">{name}</span>
-        </div>
-      ))}
+    <div className="mt-1.5 space-y-2.5">
+      {groups.map((g) => {
+        const dest = leagueName(g.toId);
+        return (
+          <div key={g.leagueId}>
+            <div className="mb-0.5 flex items-baseline gap-1.5 text-[10px] uppercase tracking-widest text-faint">
+              <span className="truncate">{leagueName(g.leagueId) ?? "—"}</span>
+              {dest && (
+                <span className="truncate normal-case tracking-normal text-[10px] opacity-70">
+                  → {dest}
+                </span>
+              )}
+            </div>
+            <div className="space-y-1">
+              {g.rows.map((i) => (
+                <MoveRow key={`${names[i]}-${i}`} game={game} name={names[i]} id={ids[i]} arrow={arrow} tone={tone} />
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -291,6 +356,8 @@ export default function SeasonDetailModal({ summary, onClose }: { summary: Seaso
                 game={game}
                 names={summary.promoted}
                 ids={summary.promotedIds}
+                from={summary.promotedFrom}
+                to={summary.promotedTo}
                 arrow="▲"
                 tone="text-win"
               />
@@ -303,6 +370,8 @@ export default function SeasonDetailModal({ summary, onClose }: { summary: Seaso
                 game={game}
                 names={summary.relegated}
                 ids={summary.relegatedIds}
+                from={summary.relegatedFrom}
+                to={summary.relegatedTo}
                 arrow="▼"
                 tone="text-loss"
               />

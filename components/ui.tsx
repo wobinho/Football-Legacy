@@ -224,6 +224,21 @@ export function PosBadge({ pos }: { pos: Pos | string }) {
   );
 }
 
+/**
+ * A player's name at full length (v27) — "Gianluigi Donnarumma" where a list row
+ * shows "G. Donnarumma".
+ *
+ * Only the real-world databases author a separate full name; generated players
+ * and old saves carry one name only, so this falls back to `name` and the two
+ * read identically. Use it wherever a player has a whole row/header to himself
+ * (the profile modal); keep `p.name` for lists, tables and the pitch view, where
+ * the abbreviated form is what keeps a column narrow.
+ */
+export function displayFullName(p: Pick<PlayerBio, "name" | "fullName">): string {
+  const full = p.fullName?.trim();
+  return full ? full : p.name;
+}
+
 /** Nationality flag (from a 3-letter code) as a small rounded chip. */
 export function Flag({ nat, size = 16, className = "" }: { nat: string; size?: number; className?: string }) {
   const src = flagForNat(nat);
@@ -750,6 +765,7 @@ export function PlayerCard({
   badges,
   stats,
   actions,
+  fullName = false,
 }: {
   p: PlayerBio;
   onOpen?: () => void;
@@ -760,6 +776,10 @@ export function PlayerCard({
   badges?: React.ReactNode;
   stats?: React.ReactNode;
   actions?: React.ReactNode;
+  /** Render the player's full name rather than the list abbreviation (v1.5).
+   * Opt-in per screen: Transfers is browsing unfamiliar players and wants the
+   * whole name, while a squad list the user already knows stays compact. */
+  fullName?: boolean;
 }) {
   return (
     <div className="group flex flex-col rounded-md border border-line bg-surface p-3 transition-colors hover:border-faint">
@@ -773,7 +793,7 @@ export function PlayerCard({
           <span className="flex items-center gap-1.5">
             <Flag nat={p.nationality} size={12} />
             <span className={`truncate font-semibold ${onOpen ? "transition-colors group-hover:text-gold" : ""}`}>
-              {p.name}
+              {fullName ? displayFullName(p) : p.name}
             </span>
             <span className="ml-auto shrink-0 tnum text-[11px] text-faint">{p.age}y</span>
           </span>

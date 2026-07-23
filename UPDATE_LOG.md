@@ -7,6 +7,136 @@ Save-schema version is noted where it moved. The game auto-migrates older saves 
 
 ---
 
+## 2026-07-23 — Squad decisions are yours: contract round, academy graduates, livelier AI market
+
+Save schema: **v28 → v29** (`contractResolveDay` on the schedule, plus the `contractResolution`
+and `pendingGraduates` blocks). The migration stamps the new day onto the *current* season's
+schedule, so a save loaded mid-season gets the contract round this year rather than waiting a
+full campaign for it — and a save already parked in the dead week has the round opened on load,
+so nobody loses a squad to the old silent release on their very next rollover.
+
+- **Your squad no longer grows players you didn't sign.** Academy prospects who aged out used
+  to be pushed straight into the senior squad at the rollover, complete with an auto-granted
+  contract — which is why a new season could open with strangers in your squad list. They now
+  wait on the Academy screen ("Ready for the senior squad") until you sign them or let them go.
+  While waiting they're on neither squad list, draw no wage, and can't be bought out from under
+  you. Prospects who graduated under the old rule are already in your squad and are left there —
+  pulling them back out would be a worse surprise than the one being fixed.
+- **End-of-season contract round.** The day after the awards — inside the same dead week, before
+  END SEASON — every expiring deal on your books is put to you in one screen: agree new terms or
+  let him walk on a free. Renewals are negotiated exactly as they are on the Squad screen (wage,
+  length, optional release clause, the player weighs it) but nothing applies until the rollover,
+  so your wage bill only moves when the new season actually starts. The loop stops on this day
+  and a calendar fast-forward can't skip it. Pressing END SEASON with decisions outstanding warns
+  you once and shows the list; press it again and the undecided genuinely leave.
+- **Safety nets, so inattention can't kill a save.** Ignoring the round entirely no longer drains
+  the squad to nothing over a long save. If expiries and retirements would leave you unable to
+  field a matchday side, the club keeps the best of the undecided on standard terms, then calls
+  up your own waiting graduates, then signs free agents — each step reported in the inbox. A
+  manager who keeps a full squad never sees any of it. Measured over 30 seasons of a run that
+  answers *no* prompt at all, the squad holds at 18 where it previously fell to 4.
+- **CPU clubs trade with each other properly.** Your own division's rivals only ever did business
+  on the Mondays a window happened to be open, so foreign leagues visibly reshaped their squads
+  every window while the clubs you actually play against barely moved a player. Playable
+  divisions now get the same window burst the sim world has had since v1.44 — club-to-club deals
+  across the whole ladder (players move up and down the pyramid, not just sideways), free-agent
+  signings, and contract renewals — once when each window opens and once more at the rollover,
+  after contracts settle so everyone released that summer is available to be signed. Your own
+  club is never party to any of it; buying from you still goes through the formal offer path.
+- **The free-agent pool can't be emptied.** With the AI shopping it both weekly and at every
+  window, it could be cleared out entirely and leave your Free Agents tab permanently bare. The
+  AI now stops signing once the pool is down to `freeAgentPoolFloor` (12). Your own emergency
+  backfill deliberately ignores that floor — it only runs when you genuinely can't field a side.
+
+## 2026-07-23 — Accent-insensitive search, AI sponsor books, full names on Transfers
+
+Save schema: **v27 → v28** (AI clubs gain a real sponsorship book; the migration seeds
+one for every AI club without crediting the lump sums, so opening a save can't hand the
+whole world an unearned war chest).
+
+- **Search ignores accents.** Typing `Doue` now finds **Doué**, `Sane` finds **Sané**,
+  `Haland` finds **Håland**. One shared helper (`lib/search.ts`) folds accents, ligatures
+  (æ/œ/ß → ae/oe/ss) and the letters Unicode can't decompose (ø, đ, ł) before matching, so
+  every search box in the game behaves the same way: the transfer market, free agents, the
+  academy roster, the database editor, the club roster modal and the import browser.
+  Matching is symmetric — an accented query also finds unaccented data.
+- **Search covers full names.** The market searches the *whole* name, not just the short
+  form a list renders. Searching `Desire` finds the row shown as "D. Doué" — previously
+  only the surname could ever match, because the first name was never in the searched text.
+- **Transfers shows full names.** The market, free agents, shortlist, listings, the bid and
+  negotiation modals, the incoming-offer cards and the transfer wire now read
+  "Désiré Doué" rather than "D. Doué". Transfers is where you assess players you don't
+  know yet, so the full identity belongs there; squad lists and the pitch view stay
+  abbreviated to keep columns narrow.
+- **Free agents are searchable.** The pool grows all season as clubs release players, so
+  the tab now has its own name search rather than one long unfiltered list.
+- **AI clubs have real sponsors.** Every AI club used to run on one abstract
+  `commercialIncome` number standing in for its entire commercial department. They now
+  hold genuine major and minor deals — the same slots, brands, lengths and money model
+  the user signs — resolved automatically each rollover: no offers, no cooldowns, no
+  decision to make. Majors pay their lump sum into the club's budget exactly as the
+  user's do; the minors set the weekly income that the AI's wage and transfer
+  affordability tests read. A club carries ~9 deals, multi-season majors persist and
+  expire on schedule, and slots that stack (regional partners, boots) genuinely stack.
+  Calibrated so the AI world's **total** commercial income is unchanged — individual
+  clubs now vary (0.7×–1.6×) by which deals they actually hold rather than tracking
+  reputation smoothly, but nobody's transfer budget silently inflated.
+
+### Known issue (pre-existing, unchanged by this release)
+
+- **AI wage bills exceed their own affordability cap.** `aiMaxWageToIncomeRatio` is 0.85,
+  but from season one — before any transfer happens — roughly 11 of 39 AI clubs sit above
+  it, the worst around 1.3–1.5× income. The cap is only enforced in `canAfford`, which
+  gates *incoming* signings; initial squad wages are assigned per player with no reference
+  to the club's income, and `rolloverContracts` auto-renews expiring AI deals
+  unconditionally so no AI club loses a player to admin. The drift is **not** cumulative
+  (the median holds flat across eight seasons), so squads stay stable and the market works
+  — but the ratio is not the constraint it reads as. Fixing it means either income-aware
+  wage assignment at worldgen or an affordability test on renewal, both of which move
+  economy balance and want a design session first.
+
+---
+
+## 2026-07-23 — Drag-and-drop lineups, full names, flag fixes
+
+Save schema: **v26 → v27** (players gain an optional `fullName`; the migration also
+repairs the phantom growth badge described below on saves still in season one).
+
+- **Drag-and-drop lineup & substitutions (Tactics).** The lineup is now arranged on the
+  pitch, EA-FC style. Drag one shirt onto another to **swap** the two players' slots;
+  drag a bench or squad player onto a position to **field** him (whoever he displaces
+  takes his place, inheriting his exact bench spot so the substitution order survives);
+  drag a starter down to the bench to **take him out**. The bench is an ordered drop
+  zone — the engine's auto-subs still work down it — and the rest of the squad sits
+  below it, draggable too. Tokens are ringed by position fit (gold natural, grey
+  adapted, red out of position) with a legend, and the hovered slot highlights while a
+  ghost token follows the cursor. Built on pointer events, so it works with touch as
+  well as mouse; **tapping still opens the old picker list**, so nothing is drag-only.
+  A new **Starting XI** panel keeps the detail a 40px token can't show — traits,
+  synergy and the effective-rating readout.
+- **Full names on the player profile.** Lists stay compact ("G. Donnarumma") while the
+  profile modal now reads the whole name ("Gianluigi Donnarumma"). The FC 26 source
+  already carried both spellings; `npm run build:db` now emits the full one as
+  `fullName` (1,043 of 1,118 Italian players, say — mononyms like "Rodri" carry one
+  name and are left alone). Generated players and old saves fall back to `name`.
+- **Country flags fixed in the picker.** Roughly a third of the shipped countries —
+  Azerbaijan, Bolivia, Chile, China PR, Cyprus, Czechia, Ecuador, Finland, Hungary,
+  India, Korea Republic, Paraguay, Peru, Republic of Ireland, UAE, Uruguay, Venezuela
+  — rendered no flag at all, because the preset's own spelling ("China PR", "Czechia")
+  never matched the lookup table. The table now covers every country the databases can
+  produce under every spelling it can arrive as, matches case-insensitively, and falls
+  back to the 3-letter code. All 47 preset countries now resolve by name *and* by code.
+- **No more phantom "+1" on brand-new saves.** Database players wore a growth badge they
+  hadn't earned: worldgen stamped the season's baseline from its own rolled rating and
+  then overwrote `overall` with the database's authored value without re-stamping. It
+  re-stamps now, and season-one saves are repaired on load. (Season two onward is left
+  alone — there the badge is real progress.)
+- **Club flags when loaning academy players.** The Send-on-Loan chooser and the Loaned
+  Players tab now show each club's country flag beside its league, so a loan abroad is
+  distinguishable from one down the road at a glance.
+
+---
+
 ## 2026-07-21 — Player accolades: end-of-season honours
 
 Save schema: **v23 → v24** (players gain an optional `accolades` cabinet and season

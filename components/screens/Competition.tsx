@@ -16,6 +16,7 @@ function teamCountry(game: import("@/lib/types").GameState, teamId: string): str
   return t ? game.leagues[t.leagueId]?.country : undefined;
 }
 import TeamCard from "./TeamCard";
+import EuropeanView, { OpenTeamCtx } from "./EuropeanView";
 
 /** Competition colour coding for Match History. Keyed by the competition's role
  * rather than its id, so it holds for any playable country (v7 divisions are
@@ -81,9 +82,12 @@ export default function CompetitionScreen() {
     return [
       ...focusIds.map((id) => ({ id, label: game.leagues[id]?.name ?? id })),
       { id: "CUP", label: "Cup" },
+      // Europe only appears when the save actually runs the continental cups,
+      // so a save without them keeps exactly the tab bar it always had.
+      ...(game.european ? [{ id: "EURO", label: "Europe" }] : []),
       { id: "HISTORY", label: "Match History" },
     ];
-  }, [game.leagues, focusIds]);
+  }, [game.leagues, focusIds, game.european]);
 
   // Every non-playable division, grouped for the dropdown — these are the sim
   // leagues that used to clutter the tab bar.
@@ -100,10 +104,11 @@ export default function CompetitionScreen() {
 
   // Whether the current tab is one of the "other leagues" (dropdown) selections,
   // so the dropdown trigger reflects the active choice rather than a tab.
-  const otherSelected = tab !== "CUP" && tab !== "HISTORY" && !focusIds.includes(tab);
+  const otherSelected = tab !== "CUP" && tab !== "EURO" && tab !== "HISTORY" && !focusIds.includes(tab);
 
   return (
     <OpenTeam.Provider value={setTeamCard}>
+      <OpenTeamCtx.Provider value={setTeamCard}>
       <div>
         <div className="mb-4 flex flex-wrap items-end justify-between gap-2 border-b border-line">
           <Tabs<string> tabs={tabs} active={otherSelected ? "" : tab} onChange={setTab} className="!mb-0 !border-0" />
@@ -121,6 +126,8 @@ export default function CompetitionScreen() {
           <MatchHistoryView />
         ) : tab === "CUP" ? (
           <CupView />
+        ) : tab === "EURO" ? (
+          <EuropeanView />
         ) : game.leagues[tab]?.playable ? (
           <LeagueView leagueId={tab} />
         ) : (
@@ -128,6 +135,7 @@ export default function CompetitionScreen() {
         )}
       </div>
       {teamCard && <TeamCard teamId={teamCard} onClose={() => setTeamCard(null)} />}
+      </OpenTeamCtx.Provider>
     </OpenTeam.Provider>
   );
 }

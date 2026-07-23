@@ -2,7 +2,7 @@
 // Single source of truth for all game data shapes. Schema-versioned so the
 // save/export format doubles as the modding format (GAME_DESIGN.md §2, §13).
 
-export const SCHEMA_VERSION = 26;
+export const SCHEMA_VERSION = 30;
 
 export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "LM" | "RM" | "AM" | "LW" | "RW" | "ST";
 
@@ -58,7 +58,15 @@ export interface Attributes {
 // Hot data — always loaded, touched constantly by engine + UI (§5).
 export interface PlayerBio {
   id: string;
+  /** Display name — the short form used everywhere space is tight: squad lists,
+   * lineups, tables, the pitch view ("G. Donnarumma"). */
   name: string;
+  /** Full given + family name (v27), shown where the player gets the whole row
+   * to himself — the profile modal's header ("Gianluigi Donnarumma"). Optional:
+   * procedurally generated players already have a full name in `name`, and old
+   * saves carry none, so the UI falls back to `name` whenever this is absent or
+   * identical. Only the real-world databases author it. */
+  fullName?: string;
   age: number;
   nationality: string; // 3-letter code
   /** Height in centimetres (v15). Stored metric — the UI renders feet/inches.
@@ -358,8 +366,9 @@ export interface Team {
   academyPartnerLevel?: number;
   /** On-pitch responsibilities (v6, captain + set-piece takers). */
   assignments?: TeamAssignments;
-  /** Active season-long sponsorship deals (v6). Only the user's club fills
-   * this; AI clubs run on their abstract income. */
+  /** Active season-long sponsorship deals (v6). Filled for every club since
+   * v1.5: the user signs theirs by accepting offers, AI clubs have theirs
+   * resolved automatically at the rollover (same deal shapes, no decision). */
   sponsors?: SponsorDeal[];
   /** Pending sponsorship offers the user can accept (v6). Regenerated when a
    * slot is empty; expire after a while. */
@@ -368,18 +377,19 @@ export interface Team {
    * an offer lapses or is rejected, so a slot the user passed on goes quiet for
    * a while instead of re-offering the next day. Keyed by SponsorSlot. */
   sponsorCooldowns?: Partial<Record<SponsorSlot, number>>;
-  /** An AI club's abstract weekly commercial income (v19).
+  /** An AI club's weekly commercial income (v19).
    *
-   * AI clubs don't run the interactive offer/slot machinery — that would be a
-   * lot of hidden bookkeeping for something the user never sees. Instead each
-   * gets a single derived figure standing in for its whole sponsorship
-   * portfolio, scaled by reputation and division exactly as the user's offers
-   * are, so a big club out-earns a small one commercially and can back that up
-   * in the market. Recomputed at each season rollover. */
+   * Since v1.5 this is *derived*: it's the sum of the club's signed minor deals,
+   * recomputed at each rollover when its book is resolved. The old abstract
+   * reputation-scaled figure survives only as a floor, for a club whose minors
+   * all lapsed in a given season. AI clubs still don't run the interactive
+   * offer/slot machinery — they simply take what the market quotes them — so
+   * this stays the single number the wage and affordability tests read. */
   commercialIncome?: number;
-  /** Lump-sum investment income an AI club banked this season (v19). Paid at the
-   * rollover as the AI-side equivalent of the user's major deals, so big clubs
-   * periodically get a war chest rather than only a smooth weekly trickle. */
+  /** Lump-sum investment income an AI club banked this season (v19). Since v1.5
+   * this is what the club's newly-signed major deals paid up front — the same
+   * money on the same terms as the user's majors — falling back to the abstract
+   * windfall in a season where it signed none. */
   lastInvestmentWindfall?: number;
 }
 
@@ -510,6 +520,12 @@ export interface Fixture {
   detail?: MatchDetail;
   /** Cup ties that finish level are settled on penalties. */
   shootoutWinnerId?: string;
+  /** European group-stage fixtures (v1.51): which of the 8 groups this belongs
+   * to. Absent on knockout legs and every non-European fixture. */
+  euroGroup?: number;
+  /** European knockout legs (v1.51): the `EuroTie` this leg belongs to, so the
+   * two legs of an aggregate tie can find each other. */
+  euroTieId?: string;
 }
 
 export interface TableRow {
@@ -717,6 +733,14 @@ export interface SeasonSummary {
    * (v1.44) — lets the review badge each move. Undefined on pre-v1.44 summaries. */
   promotedIds?: string[];
   relegatedIds?: string[];
+  /** League ids each moving club left / landed in (v1.5), parallel to the name
+   * arrays — lets the review group promotion and relegation per division instead
+   * of one flat list. Undefined on summaries written before v1.5, which fall
+   * back to the ungrouped rendering. */
+  promotedFrom?: string[];
+  promotedTo?: string[];
+  relegatedFrom?: string[];
+  relegatedTo?: string[];
 }
 
 export interface RecordBook {
@@ -742,9 +766,19 @@ export interface SeasonSchedule {
    * and Teams of the Season are handed out here rather than only at END SEASON.
    * Optional so pre-v1.44 saves fall back to awarding at the rollover. */
   accoladesDay?: number;
+  /** Contract resolution day (v1.51): the day after the awards, still inside the
+   * dead week. Every expiring deal on the user's books is put to them here — renew
+   * or let him walk — so nobody leaves on a free without the manager having had
+   * the choice. Optional so pre-v1.51 saves keep the silent-release rollover. */
+  contractResolveDay?: number;
   seasonEndDay: number; // review + rollover
   /** Youth intake day (§18): mid-March, once per season. Optional (v4). */
   intakeDay?: number;
+  /** European matchdays (v1.51): 6 group days (Sept–Dec) then 7 knockout days
+   * (two legs each of R16/QF/SF, then the final) — 13 midweek dates, all shared
+   * by the three cups and kept clear of the domestic cup. Optional so pre-v1.51
+   * saves simply run no European football. */
+  euroRoundDays?: number[];
 }
 
 export interface CupState {
@@ -753,6 +787,85 @@ export interface CupState {
   currentRound: number; // index into schedule.cupRoundDays
   winnerId: string | null;
   roundNames: string[];
+}
+
+// ── European Cups (v1.51) ─────────────────────────────────────────────────
+// Three continental competitions running alongside the domestic season, in the
+// classic pre-2024 format: 32 teams → 8 groups of 4 (double round-robin) → the
+// top 2 of each group into a two-leg R16/QF/SF → a single-match final.
+//
+// All three cups share the same midweek matchdays (as the real ones do), so a
+// club is only ever in one of them and the user only ever has one European
+// fixture on a given date. Qualification comes from the PREVIOUS season's final
+// league positions, which is why the competitions begin in season 2.
+
+/** Which continental competition. 1 = Champions League, 2 = Europa League,
+ * 3 = Conference League — the index into `europeanCupPrizeByTier` too. */
+export type EuroCupTier = 1 | 2 | 3;
+
+/** How far a club got, for the prize table and the record book. */
+export type EuroStage = "groupStage" | "roundOf16" | "quarterFinal" | "semiFinal" | "runnerUp" | "champion";
+
+/** One club's line in a European group table. Mirrors `TableRow` so the same
+ * table-rendering code can display it. */
+export interface EuroGroupRow extends TableRow {
+  groupIndex: number;
+}
+
+/** A two-legged knockout tie. `legs` holds the fixture ids in order; the winner
+ * is decided on aggregate, and a level aggregate goes straight to penalties
+ * (there is deliberately no away-goals rule). The final is a single leg. */
+export interface EuroTie {
+  id: string;
+  round: number; // 0 = R16, 1 = QF, 2 = SF, 3 = Final
+  /** The two clubs. For a two-leg tie, `teamA` hosts the FIRST leg. */
+  teamAId: string;
+  teamBId: string;
+  legFixtureIds: string[];
+  winnerId: string | null;
+  /** Aggregate once both legs are played, for display. */
+  aggA?: number;
+  aggB?: number;
+  /** Set when a level aggregate was settled on penalties. */
+  shootoutWinnerId?: string;
+}
+
+/** Everything about one of the three cups for the current season. */
+export interface EuroCupState {
+  tier: EuroCupTier;
+  name: string;
+  /** Accent colour for the UI, per the locked spec. */
+  color: string;
+  /** The 32 qualified clubs, in seeded order. */
+  teamIds: string[];
+  /** 8 groups of 4 — indices into nothing; these are team ids. */
+  groups: string[][];
+  /** Live group tables, rebuilt from played fixtures. */
+  groupRows: EuroGroupRow[];
+  /** Knockout ties, appended round by round. */
+  ties: EuroTie[];
+  /** How far the competition has got: 0–5 group matchdays, then knockout rounds. */
+  currentRound: number;
+  winnerId: string | null;
+  /** Stage each club bowed out at, for prizes at the rollover. */
+  exitStage: Record<string, EuroStage>;
+  /** Set once the winner has been announced, so the news/inbox item fires
+   * exactly once however many times the settle pass runs. */
+  announced?: boolean;
+}
+
+/** The whole European layer for the current season. Absent entirely when the
+ * save didn't enable it (or has fewer than the required European countries). */
+export interface EuropeanState {
+  /** How many tiers this save runs (1–3). */
+  tiers: number;
+  /** The cups actually in progress this season. Empty in season 1, since
+   * qualification reads the previous season's final tables. */
+  cups: EuroCupState[];
+  /** Per-nation qualification counts, keyed by country code then cup tier —
+   * e.g. `{ ENG: [4, 2, 1] }` means 4 into the Champions League, 2 into the
+   * Europa League and 1 into the Conference League. */
+  slots: Record<string, [number, number, number]>;
 }
 
 // ── Youth Academy (§18, v4) ───────────────────────────────────────────────
@@ -1081,6 +1194,10 @@ export interface GameState {
   leagues: Record<string, League>;
   fixtures: Fixture[]; // current season, playable competitions
   cup: CupState;
+  /** European competitions (v1.51). Absent when the save didn't enable them.
+   * `cups` is empty during season 1 — qualification reads the previous season's
+   * final tables, so the first European campaign is season 2. */
+  european?: EuropeanState;
   schedule: SeasonSchedule;
   lineup: Record<string, string>; // formation slot id -> playerId (user team)
   /** The user's chosen bench (v25): an ordered list of senior-squad player ids
@@ -1129,4 +1246,51 @@ export interface GameState {
    * one-off achievements earned. Optional so pre-v1.45 saves migrate in with a
    * fresh, zeroed block; see lib/achievements.ts. */
   progress?: UserProgress;
+  /** End-of-season contract resolution (v1.51). Opened on `contractResolveDay`
+   * — after the awards ceremony, before END SEASON — listing every player on the
+   * user's books whose deal expires this summer. The manager renews or releases
+   * each one; the rollover reads the decisions instead of releasing silently.
+   *
+   * Present only between that day and the rollover, which clears it. Optional so
+   * a save made before the step simply never sees it (the rollover falls back to
+   * the old release-everyone behaviour for anything left undecided). */
+  contractResolution?: ContractResolution;
+  /** Academy graduates awaiting the manager's decision (v1.51). A prospect who
+   * ages out of the academy no longer walks into the senior squad on his own —
+   * he lands here at the rollover and the manager signs him or lets him go. */
+  pendingGraduates?: PendingGraduate[];
+}
+
+/** One expiring deal awaiting the manager's call at the end of a season (v1.51). */
+export interface ExpiringContract {
+  playerId: string;
+  /** Where he sits on the books — an academy prospect's "renewal" is simply
+   * keeping him in the youth setup, which costs no wage. */
+  academy: boolean;
+  /** What the manager decided. `undecided` until they act; the rollover treats
+   * anything still undecided as `release`, which is what used to happen anyway. */
+  decision: "undecided" | "renew" | "release";
+  /** The terms a `renew` decision applies at the rollover. Set when the manager
+   * agrees a deal in the resolution modal. */
+  terms?: { wage: number; years: number; releaseClause?: number };
+}
+
+/** The end-of-season contract round (v1.51). */
+export interface ContractResolution {
+  /** The season whose expiries these are — guards against a stale block from an
+   * interrupted rollover being applied to the wrong year. */
+  season: number;
+  /** The day the round opened (`schedule.contractResolveDay`). */
+  openedDay: number;
+  items: ExpiringContract[];
+  /** Set once the manager has been through the list, so the prompt stops
+   * re-opening itself while they finish the rest of the season. */
+  acknowledged?: boolean;
+}
+
+/** An academy prospect who has aged out and needs a senior decision (v1.51). */
+export interface PendingGraduate {
+  playerId: string;
+  /** The season he aged out in, for the inbox copy. */
+  season: number;
 }

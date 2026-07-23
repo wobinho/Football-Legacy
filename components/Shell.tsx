@@ -22,6 +22,7 @@ import DevelopmentScreen from "./screens/Development";
 import AcademyScreen from "./screens/Academy";
 import PlayerProfileModal from "./screens/PlayerProfile";
 import SeasonDetailModal from "./screens/SeasonDetailModal";
+import ContractRoundModal from "./screens/ContractRoundModal";
 
 const NAV: { id: ScreenId; label: string }[] = [
   { id: "home", label: "Home" },
@@ -46,6 +47,8 @@ export default function Shell() {
   const endSeason = useGame((s) => s.endSeason);
   const seasonReview = useGame((s) => s.seasonReview);
   const closeSeasonReview = useGame((s) => s.closeSeasonReview);
+  const contractRoundOpen = useGame((s) => s.contractRoundOpen);
+  const closeContractRound = useGame((s) => s.closeContractRound);
   const quitToMenu = useGame((s) => s.quitToMenu);
   const logout = useGame((s) => s.logout);
   const [navOpen, setNavOpen] = useState(false);
@@ -218,6 +221,11 @@ export default function Shell() {
 
       {/* Player profile floats over whatever screen you're on */}
       <PlayerProfileModal />
+
+      {/* Dead-week contract round (v1.51) — raised when the loop stops on it, and
+          re-openable from Home while decisions remain. Sits under the season
+          review so the rollover's summary always wins if both are somehow up. */}
+      {contractRoundOpen && !seasonReview && <ContractRoundModal onClose={closeContractRound} />}
 
       {/* End-of-season review — shown the moment the rollover is taken. */}
       {seasonReview && <SeasonDetailModal summary={seasonReview} onClose={closeSeasonReview} />}

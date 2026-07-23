@@ -17,10 +17,27 @@ import { NAME_POOLS } from "@/lib/config/names";
 import { COUNTRIES } from "@/lib/config/countries";
 import { PRESETS } from "@/lib/config/presets";
 import { overallFromAttrs } from "@/lib/config/positions";
+import { clubBudget, squadAvgForQuality } from "@/lib/worldgen";
+import { formatMoney } from "@/lib/value";
+import { matchesAny, matchesPlayerName } from "@/lib/search";
 import { Crest, Flag, GhostButton, Ovr, PosBadge } from "./ui";
 import LibraryClubModal, { rosterSeedsFor } from "./LibraryClubModal";
 import LibraryPlayerModal from "./LibraryPlayerModal";
 import ImportFromDefaultModal from "./ImportFromDefaultModal";
+
+/** Squad average for a pre-v1.51 club still on the 1–100 quality dial. Each call
+ * generates probe squads, so memoize per dial value — the club list would
+ * otherwise re-run the whole thing for every row on every render. */
+const legacyAvgCache = new Map<number, number>();
+function legacyAvg(quality: number): number {
+  const key = Math.round(quality);
+  let v = legacyAvgCache.get(key);
+  if (v === undefined) {
+    v = squadAvgForQuality(key);
+    legacyAvgCache.set(key, v);
+  }
+  return v;
+}
 
 /** Nationality codes offered when authoring a player — every name pool plus
  * every selectable country/preset code. */
@@ -57,12 +74,11 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
   const [importOpen, setImportOpen] = useState(false);
 
   // Search both libraries by name (and clubs by short code); empty = show all.
-  const q = query.trim().toLowerCase();
+  // Accent-insensitive throughout (v1.5): "Doue" finds "Doué". Player search
+  // also covers the full name, so a first name the row abbreviates still hits.
+  const q = query.trim();
   const shownClubs = useMemo(
-    () =>
-      !q
-        ? library.clubs
-        : library.clubs.filter((c) => c.name.toLowerCase().includes(q) || c.short.toLowerCase().includes(q)),
+    () => (!q ? library.clubs : library.clubs.filter((c) => matchesAny([c.name, c.short], q))),
     [library.clubs, q]
   );
   const shownPlayers = useMemo(
@@ -70,7 +86,7 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
       !q
         ? library.players
         : library.players.filter(
-            (p) => p.name.toLowerCase().includes(q) || p.positions[0].toLowerCase().includes(q) || p.nationality.toLowerCase().includes(q)
+            (p) => matchesPlayerName(p, q) || matchesAny([p.positions[0], p.nationality], q)
           ),
     [library.players, q]
   );
@@ -156,7 +172,9 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
                   <div className="min-w-0 flex-1 basis-40">
                     <div className="truncate text-sm font-medium">{c.name}</div>
                     <div className="text-[11px] text-faint">
-                      Rep {c.rep} · Squad {c.squadQuality ?? c.rep}
+                      Squad avg{" "}
+                      <span className="tnum">{c.squadAvgOverall ?? legacyAvg(c.squadQuality ?? c.rep)}</span> ·
+                      Budget {formatMoney(c.budget ?? clubBudget(c.rep))}
                       {c.players?.length ? ` · ${c.players.length} authored` : ""}
                     </div>
                   </div>

@@ -5,7 +5,7 @@
 // (the Marketable trait). Sign a deal for a weekly income boost that runs until
 // it expires, at which point a fresh offer arrives.
 
-import type { GameState, SponsorDeal, SponsorKind, SponsorOffer, SponsorSlot } from "./types";
+import type { GameState, SponsorDeal, SponsorKind, SponsorOffer, SponsorSlot, Team } from "./types";
 import type { TuningConfig } from "./config/tuning";
 import { mulberry32, pick, deriveSeed, uid, type RNG } from "./rng";
 import { TRAITS } from "./config/traits";
@@ -279,6 +279,105 @@ export function slotBlockedReason(
     : `You already hold ${cap} ${title} deals, the most that can run at once.`;
 }
 
+/**
+ * Build the sponsorship book an AI club signs for a season (v1.5).
+ *
+ * AI clubs used to carry one abstract `commercialIncome` number standing in for
+ * their whole portfolio. They now hold real `SponsorDeal` objects — the same
+ * type, slots and money model the user signs — resolved automatically here: no
+ * offer machinery, no cooldowns, no decision. A club is simply quoted for each
+ * open slot and takes what it is offered, which is what makes the AI's book
+ * *passive* while still being real: it appears in the world, it pays out on the
+ * same terms, and a big club genuinely out-earns a small one.
+ *
+ * The maths is deliberately the user's maths (`offerAmount`, `rollTier`), so
+ * the two sides of the world can't drift apart — an AI club's shirt deal is
+ * priced by the same reputation/division/tier model the user's offer is.
+ *
+ * Deals already running (a multi-season major signed two seasons ago) are kept;
+ * this only fills what is genuinely open. Returns the lump sum the club banks
+ * from majors signed *this* call, so the caller can credit the budget.
+ */
+function fillAiSponsorBook(state: GameState, team: Team, cfg: TuningConfig, season: number): number {
+  team.sponsors ??= [];
+  // Expire anything that has run its course before measuring what's open.
+  team.sponsors = team.sponsors.filter((d) => d.expirySeason >= season);
+
+  const rng = mulberry32(deriveSeed(state.seed, `aisponsors:${team.id}:${season}`));
+  let banked = 0;
+
+  for (const def of SPONSOR_SLOTS) {
+    const kind = slotKind(def.slot, cfg);
+    const capacity = slotCapacity(def.slot, cfg);
+    const held = team.sponsors.filter((d) => d.slot === def.slot).length;
+    const fillChance = kind === "major" ? cfg.aiSponsorMajorFillChance : cfg.aiSponsorMinorFillChance;
+
+    for (let i = held; i < capacity; i++) {
+      if (rng() >= fillChance) continue;
+      const tierIndex = rollTier(state, team.id, cfg, rng);
+      const equivalentWeekly =
+        offerAmount(state, team.id, def.slot, tierIndex, cfg, rng) * cfg.aiSponsorValueMult;
+
+      if (kind === "major") {
+        const lo = Math.max(cfg.sponsorMajorLengthMin, cfg.sponsorMajorMinSeasons);
+        const hi = Math.max(lo, cfg.sponsorMajorLengthMax);
+        const seasons = lo + Math.floor(rng() * (hi - lo + 1));
+        const upfront =
+          Math.round((equivalentWeekly * 52 * seasons * cfg.sponsorMajorUpfrontMult) / 100_000) * 100_000;
+        team.sponsors.push({
+          id: uid("spd"),
+          slot: def.slot,
+          kind,
+          brand: pick(rng, BRANDS[def.slot]),
+          weeklyAmount: 0,
+          upfront,
+          expirySeason: season + seasons - 1,
+          signedSeason: season,
+          seasons,
+        });
+        banked += upfront;
+      } else {
+        team.sponsors.push({
+          id: uid("spd"),
+          slot: def.slot,
+          kind,
+          brand: pick(rng, BRANDS[def.slot]),
+          weeklyAmount: Math.round((equivalentWeekly * cfg.sponsorMinorWeeklyMult) / 1000) * 1000,
+          upfront: 0,
+          expirySeason: season,
+          signedSeason: season,
+          seasons: 1,
+        });
+      }
+    }
+  }
+  return banked;
+}
+
+/** Weekly income from an AI club's signed minor deals — the portfolio-derived
+ * counterpart to the old abstract figure (v1.5). */
+function aiSponsorWeekly(team: Team): number {
+  return (team.sponsors ?? []).reduce((s, d) => s + (d.kind === "minor" ? d.weeklyAmount : 0), 0);
+}
+
+/**
+ * Give every AI club an opening sponsorship book (v1.5), without paying out the
+ * majors' lump sums. Used at worldgen and when migrating an old save: in both
+ * cases the clubs' budgets are already set to what they should be, so crediting
+ * the upfront money on top would hand the whole world an unearned war chest.
+ * From the next rollover on, `refreshAiCommercial` does pay out — a major
+ * signed then is genuinely new money.
+ */
+export function seedAiSponsorBooks(state: GameState, cfg: TuningConfig) {
+  for (const team of Object.values(state.teams)) {
+    if (team.id === state.userTeamId) continue;
+    if (!state.leagues[team.leagueId]?.playable) continue;
+    fillAiSponsorBook(state, team, cfg, state.season);
+    const weekly = aiSponsorWeekly(team);
+    team.commercialIncome = weekly > 0 ? weekly : aiCommercialIncome(state, team.id, cfg);
+  }
+}
+
 /** Put a slot to sleep for a randomised cooldown after an offer lapses or is
  * turned down, so passing has a cost and offers don't churn daily. */
 function startCooldown(state: GameState, slot: SponsorSlot, cfg: TuningConfig) {
@@ -404,8 +503,12 @@ export function sponsorCooldownUntil(state: GameState, slot: SponsorSlot): numbe
  * and the money has to be real if their transfer budgets are to mean anything. */
 export function sponsorWeeklyIncome(state: GameState, teamId: string): number {
   const team = state.teams[teamId];
-  if (teamId !== state.userTeamId) return team.commercialIncome ?? 0;
-  return (team.sponsors ?? []).reduce((s, d) => s + (d.kind === "minor" ? d.weeklyAmount : 0), 0);
+  // v1.5: AI clubs hold real deals too, so the sum works for either side. The
+  // stored `commercialIncome` is the fallback for a club whose book is empty
+  // (a sim-league club, or a save from before AI portfolios existed).
+  const fromDeals = (team.sponsors ?? []).reduce((s, d) => s + (d.kind === "minor" ? d.weeklyAmount : 0), 0);
+  if (teamId !== state.userTeamId && fromDeals === 0) return team.commercialIncome ?? 0;
+  return fromDeals;
 }
 
 /**
@@ -430,16 +533,37 @@ export function aiCommercialIncome(state: GameState, teamId: string, cfg: Tuning
   return Math.round(base / 1000) * 1000;
 }
 
-/** Refresh every AI club's commercial income, and pay each its seasonal
- * investment windfall — the AI-side analogue of the user's major lump sums, so
- * big clubs periodically get a war chest rather than only a weekly trickle.
- * Called at the season rollover. */
-export function refreshAiCommercial(state: GameState, cfg: TuningConfig) {
+/**
+ * Resolve every AI club's commercial season (v1.5). Called at the rollover.
+ *
+ * Each club's sponsorship book is filled automatically — expired deals drop
+ * out, open slots attract a quoted offer the club simply takes — and the two
+ * money lines fall out of the book itself:
+ *   • majors signed this season pay their lump sum straight into the budget,
+ *     exactly as the user's do on signing;
+ *   • the minors set `commercialIncome`, the weekly figure the AI's wage and
+ *     affordability tests read.
+ *
+ * `commercialIncome` is still written, so every existing consumer
+ * (`weeklyIncomeEstimate`, the economy) keeps working unchanged — it is now
+ * *derived from real deals* rather than conjured from reputation directly.
+ * A club whose minors all happen to lapse falls back to the abstract figure so
+ * its wage tests never see a club with literally no commercial department.
+ */
+export function refreshAiCommercial(state: GameState, cfg: TuningConfig, season = state.season) {
   for (const team of Object.values(state.teams)) {
     if (team.id === state.userTeamId) continue;
     if (!state.leagues[team.leagueId]?.playable) continue;
-    team.commercialIncome = aiCommercialIncome(state, team.id, cfg);
-    const windfall = Math.round(team.commercialIncome * cfg.aiInvestmentWindfallWeeks);
+
+    const banked = fillAiSponsorBook(state, team, cfg, season);
+    const weekly = aiSponsorWeekly(team);
+    // The book is the source of truth; the abstract figure is the floor for a
+    // club that drew no minors at all this season.
+    team.commercialIncome = weekly > 0 ? weekly : aiCommercialIncome(state, team.id, cfg);
+
+    // Majors are the AI's war chest. A club that signed none this season still
+    // gets the old windfall, so a barren year isn't a commercial blackout.
+    const windfall = banked > 0 ? banked : Math.round(team.commercialIncome * cfg.aiInvestmentWindfallWeeks);
     team.budget += windfall;
     team.lastInvestmentWindfall = windfall;
   }

@@ -90,8 +90,16 @@ for (const row of playerRows) {
   const age = Number(row.age);
   const potential = Number(row.potential);
 
+  // The source carries both spellings: `name` is the abbreviated list form
+  // ("G. Donnarumma") and `full_name` the complete one ("Gianluigi Donnarumma").
+  // Ship both so lists stay compact while the profile header reads in full. The
+  // two are identical for mononyms ("Rodri") — carry only one name in that case.
+  const shortName = (row.name || row.full_name || "Unknown Player").trim();
+  const fullName = (row.full_name || "").trim();
+
   const seed: PlayerSeed = {
-    name: row.name || row.full_name || "Unknown Player",
+    name: shortName,
+    fullName: fullName && fullName !== shortName ? fullName : undefined,
     positions,
     attrs,
     age: Number.isFinite(age) ? Math.max(15, Math.min(40, Math.round(age))) : undefined,
@@ -100,6 +108,7 @@ for (const row of playerRows) {
     potential: Number.isFinite(potential) ? Math.max(overall, Math.min(96, Math.round(potential))) : undefined,
   };
   // Drop undefined keys so the emitted JSON stays clean.
+  if (seed.fullName === undefined) delete seed.fullName;
   if (seed.age === undefined) delete seed.age;
   if (seed.potential === undefined) delete seed.potential;
 

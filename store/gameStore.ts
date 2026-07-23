@@ -47,7 +47,14 @@ import {
   signProspect,
   dismissReport,
 } from "@/lib/academy";
-import { evaluateOffer, applyContract, type OfferVerdict } from "@/lib/contracts";
+import {
+  evaluateOffer,
+  applyContract,
+  decideContract,
+  undecidedContractCount,
+  type OfferVerdict,
+} from "@/lib/contracts";
+import { signGraduate, releaseGraduate } from "@/lib/academy";
 import type { ScoutPosGroup, ScoutRegion } from "@/lib/types";
 import {
   loadLibrary,
@@ -127,6 +134,19 @@ interface GameStore {
   /** Add/remove a player from the user's chosen bench (v25). Toggling a player
    * already benched removes him; adding respects the matchday bench cap. */
   toggleBench: (playerId: string) => void;
+  /** Drag-and-drop lineup edit (v1.5): put `playerId` in `slotId`, swapping with
+   * whoever holds it. Unlike `setLineupSlot` — which evicts the incumbent to the
+   * squad — dragging one starter onto another exchanges their two slots, which is
+   * what EA-FC-style pitch dragging means and what the user expects.
+   *
+   * Dropping a benched or squad player onto an occupied slot sends the incumbent
+   * the other way: to the dragged player's bench place if he had one, otherwise
+   * back to the squad. */
+  swapLineup: (slotId: string, playerId: string) => void;
+  /** Drag-and-drop bench edit (v1.5): move the player to bench index `to`,
+   * inserting him if he isn't benched yet (respecting the cap). Order matters —
+   * the engine's auto-subs draw from the bench in order. */
+  moveBench: (playerId: string, to: number) => void;
 
   bid: (playerId: string, fee: number, terms?: { wage: number; years: number; releaseClause?: number }) => BidOutcome;
   respondOffer: (offerId: string, response: "accept" | "reject" | "counter", amount?: number) => OfferResponse;
@@ -151,6 +171,24 @@ interface GameStore {
   // Contracts (§10 v5)
   negotiateContract: (playerId: string, wage: number, years: number, releaseClause?: number) => OfferVerdict;
   renewContract: (playerId: string, wage: number, years: number, releaseClause?: number) => void;
+
+  // ── End-of-season contract round (v1.51) ──
+  /** Whether the dead-week contract modal is open. Raised automatically when the
+   * loop stops on `contracts`, and re-openable from Home while decisions remain. */
+  contractRoundOpen: boolean;
+  openContractRound: () => void;
+  closeContractRound: () => void;
+  /** Record renew/release for one expiring deal. Renewal terms are held and
+   * applied at the rollover — the player is on his old deal until then. */
+  resolveContract: (
+    playerId: string,
+    decision: "renew" | "release",
+    terms?: { wage: number; years: number; releaseClause?: number }
+  ) => void;
+
+  // ── Academy graduates awaiting a senior decision (v1.51) ──
+  graduateSign: (playerId: string, terms?: { wage: number; years: number; releaseClause?: number }) => void;
+  graduateRelease: (playerId: string) => void;
 
   // Youth Academy (§18)
   academyPromote: (playerId: string) => void;
@@ -295,6 +333,7 @@ export const useGame = create<GameStore>((set, get) => ({
   pendingGate: null,
   toast: null,
   seasonReview: null,
+  contractRoundOpen: false,
   library: emptyLibrary(),
 
   boot: async () => {
@@ -408,6 +447,9 @@ export const useGame = create<GameStore>((set, get) => ({
     set({ lastStop: stop });
     if (stop.kind === "matchday") set({ screen: "matchday" });
     else set({ screen: "home" });
+    // The dead-week contract round opened — put it straight in front of the
+    // manager rather than leaving it as one more unread inbox item (v1.51).
+    if (stop.kind === "contracts") set({ contractRoundOpen: true });
     set({ rev: get().rev + 1 });
     scheduleSave(g, true); // advancing time is real progress — persist now
   },
@@ -420,6 +462,7 @@ export const useGame = create<GameStore>((set, get) => ({
     const stop = advanceOneDay(g);
     set({ lastStop: stop });
     if (stop.kind === "matchday") set({ screen: "matchday" });
+    if (stop.kind === "contracts") set({ contractRoundOpen: true });
     set({ rev: get().rev + 1 });
     scheduleSave(g, true);
   },
@@ -440,6 +483,8 @@ export const useGame = create<GameStore>((set, get) => ({
       set({ lastStop: stop, pendingSimTarget: targetDay, pendingGate: stop.gate, screen: "home", rev: get().rev + 1 });
     } else {
       set({ lastStop: stop, pendingSimTarget: null, pendingGate: null, screen: "home", rev: get().rev + 1 });
+      // A force-sim can't run past the contract round either — surface it.
+      if (stop.kind === "contracts") set({ contractRoundOpen: true });
     }
     scheduleSave(g, true);
   },
@@ -452,11 +497,24 @@ export const useGame = create<GameStore>((set, get) => ({
   endSeason: () => {
     const g = get().game;
     if (!g || g.pendingMatchFixtureId || !isSeasonComplete(g)) return;
+    // Contract round still outstanding (v1.51): the rollover would release every
+    // undecided player for nothing, so put the list in front of the manager once
+    // instead. `acknowledged` makes this a single interception — pressing END
+    // SEASON again goes through, which is how a manager deliberately lets a
+    // player walk without having to click through every row.
+    const res = g.contractResolution;
+    if (res && res.season === g.season && !res.acknowledged && undecidedContractCount(g) > 0) {
+      res.acknowledged = true;
+      set({ contractRoundOpen: true, rev: get().rev + 1 });
+      get().showToast("Some contracts are still unresolved — anyone left undecided leaves on a free.");
+      scheduleSave(g, true);
+      return;
+    }
     runSeasonRollover(g);
     // The rollover pushes the just-finished season's summary onto the record
     // book; surface it in the end-of-season review the player sees immediately.
     const review = g.recordBook.seasons[g.recordBook.seasons.length - 1] ?? null;
-    set({ lastStop: null, screen: "home", rev: get().rev + 1, seasonReview: review });
+    set({ lastStop: null, screen: "home", rev: get().rev + 1, seasonReview: review, contractRoundOpen: false });
     scheduleSave(g, true);
   },
 
@@ -549,6 +607,56 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
+  swapLineup: (slotId, playerId) => {
+    const g = get().game;
+    if (!g) return;
+    const incumbent = g.lineup[slotId];
+    if (incumbent === playerId) return;
+    // Where the dragged player came from, so the incumbent can take his place.
+    const fromSlot = Object.entries(g.lineup).find(([, id]) => id === playerId)?.[0];
+    const bench = g.userBench ?? [];
+    const fromBenchIdx = bench.indexOf(playerId);
+
+    g.lineup[slotId] = playerId;
+    if (fromSlot && fromSlot !== slotId) {
+      // Starter → starter: a true exchange of the two slots.
+      if (incumbent) g.lineup[fromSlot] = incumbent;
+      else delete g.lineup[fromSlot];
+    } else if (fromBenchIdx >= 0) {
+      // Bench → XI: the incumbent inherits the exact bench place, so the
+      // substitution order the user set is preserved rather than reshuffled.
+      const next = [...bench];
+      if (incumbent) next[fromBenchIdx] = incumbent;
+      else next.splice(fromBenchIdx, 1);
+      g.userBench = next;
+    } else if (incumbent) {
+      // Squad → XI: the incumbent simply drops out of the matchday XI.
+      g.userBench = bench.filter((id) => id !== incumbent);
+    }
+    // A player can never be both in the XI and on the bench.
+    g.userBench = (g.userBench ?? []).filter((id) => id !== playerId);
+    get().bump(true);
+  },
+
+  moveBench: (playerId, to) => {
+    const g = get().game;
+    if (!g) return;
+    // Coming from the XI, he vacates his slot — you can't be a starter and a sub.
+    for (const [slot, id] of Object.entries(g.lineup)) {
+      if (id === playerId) delete g.lineup[slot];
+    }
+    const bench = (g.userBench ?? []).filter((id) => id !== playerId);
+    if (bench.length >= TUNING.matchdaySquad - 11) {
+      get().showToast(`Your bench is full (${TUNING.matchdaySquad - 11} subs).`);
+      get().bump(true);
+      return;
+    }
+    const idx = Math.max(0, Math.min(bench.length, to));
+    bench.splice(idx, 0, playerId);
+    g.userBench = bench;
+    get().bump(true);
+  },
+
   toggleBench: (playerId) => {
     const g = get().game;
     if (!g) return;
@@ -587,6 +695,44 @@ export const useGame = create<GameStore>((set, get) => ({
     applyContract(g, p, wage, years, TUNING, releaseClause);
     const len = p.contract ? p.contract.expirySeason - g.season + 1 : years;
     get().showToast(`${p.name} re-signed on a ${len}-year deal.`);
+    get().bump(true);
+  },
+
+  // ── End-of-season contract round (v1.51) ──
+  openContractRound: () => set({ contractRoundOpen: true }),
+  closeContractRound: () => set({ contractRoundOpen: false }),
+
+  resolveContract: (playerId, decision, terms) => {
+    const g = get().game;
+    if (!g) return;
+    const name = g.players[playerId]?.name ?? "He";
+    const err = decideContract(g, playerId, decision, terms);
+    if (err) get().showToast(err);
+    else if (decision === "renew") {
+      const len = terms?.years ?? TUNING.contractRenewYearsDefault;
+      get().showToast(`${name} agrees a ${len}-year deal — it starts next season.`);
+    } else {
+      get().showToast(`${name} will leave when his contract expires.`);
+    }
+    get().bump(true);
+  },
+
+  // ── Academy graduates awaiting a senior decision (v1.51) ──
+  graduateSign: (playerId, terms) => {
+    const g = get().game;
+    if (!g) return;
+    const name = g.players[playerId]?.name ?? "The graduate";
+    const err = signGraduate(g, playerId, TUNING, terms);
+    get().showToast(err ?? `${name} signs his first senior contract.`);
+    get().bump(true);
+  },
+
+  graduateRelease: (playerId) => {
+    const g = get().game;
+    if (!g) return;
+    const name = g.players[playerId]?.name ?? "The graduate";
+    const err = releaseGraduate(g, playerId);
+    get().showToast(err ?? `${name} leaves the club as a free agent.`);
     get().bump(true);
   },
 

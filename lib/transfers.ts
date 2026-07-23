@@ -463,10 +463,17 @@ export function aiWeeklyTransferTick(state: GameState, cfg: TuningConfig): boole
     ...user.playerIds.map((id) => state.players[id]).filter((p) => p.overall >= 58 && !p.loan),
     ...listedAcademy,
   ];
+  // How many separate offers landed this week (v1.51). The market used to stop
+  // dead at the first one (`break`), so the user saw at most one approach a week
+  // no matter how many clubs wanted their players — and none at all if that one
+  // roll failed. Several clubs can now come calling in the same week, including
+  // more than one for the SAME player.
+  let offersThisWeek = 0;
   if (userPlayers.length && user.playerIds.length > 14) {
     const listedBoost = (p: PlayerBio) => (state.transferList.includes(p.id) ? 3 : 1);
     const quality = (p: PlayerBio) => Math.max(p.overall, p.age <= 21 ? p.potential - 12 : 0);
     for (const p of userPlayers) {
+      if (offersThisWeek >= cfg.aiMaxOffersPerWeek) break;
       const chance = cfg.aiBidChancePerWeek * listedBoost(p) * (quality(p) - 54) * 0.015;
       if (rng() < chance) {
         // Only clubs with a real hole in this player's position come calling,
@@ -489,16 +496,15 @@ export function aiWeeklyTransferTick(state: GameState, cfg: TuningConfig): boole
           })
           .filter((x): x is { team: (typeof state.teams)[string]; score: number } => !!x && x.score > 0);
         if (interested.length) {
-          const buyer = pickWeighted(rng, interested, (x) => x.score).team;
-
-          // Release clause (v21): if this buyer can cover the clause, it simply
-          // pays it — there is nothing for the user to negotiate, which is the
-          // risk they accepted when they agreed the term. It lands as news and
+          // Release clause (v21): if the keenest suitor can cover the clause, it
+          // simply pays it — there is nothing for the user to negotiate, which is
+          // the risk they accepted when they agreed the term. It lands as news and
           // an inbox note rather than an offer, because it isn't a decision.
+          const front = pickWeighted(rng, interested, (x) => x.score).team;
           const clause = p.contract?.releaseClause;
-          if (clause && spendableBudget(state, buyer, cfg) >= clause) {
-            completeTransfer(state, p.id, buyer.id, clause, undefined, "clause");
-            state.news.unshift(`${buyer.name} trigger ${p.name}'s ${fmtFee(clause)} release clause.`);
+          if (clause && spendableBudget(state, front, cfg) >= clause) {
+            completeTransfer(state, p.id, front.id, clause, undefined, "clause");
+            state.news.unshift(`${front.name} trigger ${p.name}'s ${fmtFee(clause)} release clause.`);
             state.inbox.unshift({
               id: uid("inb"),
               day: state.currentDay,
@@ -506,49 +512,73 @@ export function aiWeeklyTransferTick(state: GameState, cfg: TuningConfig): boole
               type: "offer",
               title: `${p.name} leaves — release clause triggered`,
               body:
-                `${buyer.name} have paid the ${fmtFee(clause)} release clause in ${p.name}'s contract. ` +
+                `${front.name} have paid the ${fmtFee(clause)} release clause in ${p.name}'s contract. ` +
                 `The clause is binding, so the transfer is already done — the fee has been credited to your budget.`,
               read: false,
             });
             interrupt = true;
-            break;
+            continue; // he's gone; move on to the next player
           }
 
-          const raw = p.value * (state.transferList.includes(p.id) ? 0.95 + rng() * 0.2 : 1.0 + rng() * 0.35);
-          // Never open above what the club can actually fund — the roll can land
-          // well over market value, and a bid it couldn't honour is a bad-faith
-          // offer the negotiation would then have to walk back.
-          const fee = Math.min(
-            Math.round(raw / 100_000) * 100_000,
-            Math.round(spendableBudget(state, buyer, cfg) / 100_000) * 100_000
-          );
-          if (fee <= 0) continue;
-          const offer: TransferOffer = {
-            id: uid("off"),
-            day: state.currentDay,
-            playerId: p.id,
-            fromClubId: buyer.id,
-            toClubId: state.userTeamId,
-            fee,
-            direction: "incoming",
-            status: "pending",
-            deadlineDay: state.currentDay + 7,
-            negotiationRound: 0,
-          };
-          ensureNegotiationState(state, offer, p, cfg);
-          state.offers.push(offer);
-          state.inbox.unshift({
-            id: uid("inb"),
-            day: state.currentDay,
-            season: state.season,
-            type: "offer",
-            title: `${buyer.name} bid ${fmtFee(fee)} for ${p.name}`,
-            body: `${buyer.name} have made a formal offer of ${fmtFee(fee)} for ${p.name} (valued at ${fmtFee(p.value)}). The offer expires in a week. Respond from the Transfers screen.`,
-            read: false,
-            offerId: offer.id,
-          });
-          interrupt = true;
-          break; // one offer per week max
+          // ── Competing bidders (v1.51) ─────────────────────────────────────
+          // More than one club can now bid for the SAME player in the same week.
+          // Previously a single buyer was drawn and the loop broke, so a coveted
+          // player never attracted a bidding war and the user never got to play
+          // suitors off against each other. The keenest clubs bid, in order of how
+          // badly they want him, each with its own independent negotiation state —
+          // so the user picks between real, simultaneous offers.
+          const suitors = interested
+            .slice()
+            .sort((a, b) => b.score - a.score)
+            .filter((x) => !state.offers.some((o) => o.status === "pending" && o.playerId === p.id && o.fromClubId === x.team.id));
+          if (!suitors.length) continue;
+          // A hotly-wanted player draws more of them; how many actually move is
+          // still a roll, so it varies week to week.
+          const maxRivals = Math.min(suitors.length, cfg.aiMaxBiddersPerPlayer);
+          let bids = 1;
+          while (bids < maxRivals && rng() < cfg.aiRivalBidChance) bids++;
+
+          for (let b = 0; b < bids && offersThisWeek < cfg.aiMaxOffersPerWeek; b++) {
+            const buyer = suitors[b].team;
+            const raw = p.value * (state.transferList.includes(p.id) ? 0.95 + rng() * 0.2 : 1.0 + rng() * 0.35);
+            // Never open above what the club can actually fund — the roll can land
+            // well over market value, and a bid it couldn't honour is a bad-faith
+            // offer the negotiation would then have to walk back.
+            const fee = Math.min(
+              Math.round(raw / 100_000) * 100_000,
+              Math.round(spendableBudget(state, buyer, cfg) / 100_000) * 100_000
+            );
+            if (fee <= 0) continue;
+            const offer: TransferOffer = {
+              id: uid("off"),
+              day: state.currentDay,
+              playerId: p.id,
+              fromClubId: buyer.id,
+              toClubId: state.userTeamId,
+              fee,
+              direction: "incoming",
+              status: "pending",
+              deadlineDay: state.currentDay + 7,
+              negotiationRound: 0,
+            };
+            ensureNegotiationState(state, offer, p, cfg);
+            state.offers.push(offer);
+            const rivals = bids > 1 ? ` ${bids} clubs are chasing him.` : "";
+            state.inbox.unshift({
+              id: uid("inb"),
+              day: state.currentDay,
+              season: state.season,
+              type: "offer",
+              title: `${buyer.name} bid ${fmtFee(fee)} for ${p.name}`,
+              body:
+                `${buyer.name} have made a formal offer of ${fmtFee(fee)} for ${p.name} (valued at ${fmtFee(p.value)}).` +
+                `${rivals} The offer expires in a week. Respond from the Transfers screen.`,
+              read: false,
+              offerId: offer.id,
+            });
+            offersThisWeek++;
+            interrupt = true;
+          }
         }
       }
     }
@@ -643,6 +673,48 @@ function aiSquadBuilding(state: GameState, rng: RNG, cfg: TuningConfig) {
 }
 
 /**
+ * Playable-league AI window burst (v1.51). The weekly `aiSquadBuilding` tick is
+ * the only thing that ever moved players between the user's own division rivals,
+ * and it only fires on Mondays a window happens to be open — so across a whole
+ * summer the clubs the user actually competes with did a handful of deals while
+ * every foreign league visibly turned its squads over.
+ *
+ * This runs ONCE when a window opens, alongside `simLeagueTransferWindow`, and
+ * gives the playable divisions the same three kinds of business the sim world
+ * gets: club-to-club deals, free-agent signings, and contract renewals. The
+ * user's own club is never party to any of it — buying from the user still goes
+ * through the formal offer path, which is the only way the user gets to decide.
+ */
+export function playableLeagueTransferWindow(state: GameState, cfg: TuningConfig) {
+  const clubs = Object.values(state.teams).filter(
+    (t) => t.id !== state.userTeamId && state.leagues[t.leagueId]?.playable
+  );
+  if (clubs.length < 2) return;
+  const rng = mulberry32(deriveSeed(state.seed, `aixfer:window:${state.season}:${state.currentDay}`));
+
+  for (let i = 0; i < cfg.aiWindowDealsPerLeague * Math.max(1, state.divisionIds.length); i++) {
+    // Same helper the sim world uses — one market model, not two. Buyers and
+    // sellers are both drawn from the playable pool, so players move up and down
+    // the user's own pyramid rather than only sideways within one division.
+    if (!trySimDeal(state, clubs, clubs, rng, cfg)) {
+      // Nothing to buy — a club with a hole still has the free-agent market, and
+      // this is what gives released players somewhere to land.
+      const buyer = pickWeighted(rng, clubs, (t) => STANCE_PROFILE[stanceOf(state, t, cfg)].activity);
+      if (isDistressed(state, buyer, cfg)) continue;
+      const needs = squadNeeds(state, buyer, cfg);
+      if (needs.length && rng() < cfg.aiFreeAgentSignChance) {
+        aiSignFreeAgent(state, buyer, needs[0], cfg);
+      }
+    }
+  }
+
+  // Clubs tie down their own out-of-contract first-teamers as the window opens,
+  // rather than only on the Monday ticks.
+  aiRenewContracts(state, rng, cfg);
+  state.news = state.news.slice(0, 24);
+}
+
+/**
  * Sim-league transfer window (v1.44). The weekly `aiSquadBuilding` pass only
  * ever touched playable-league clubs, so every non-playable league in the world
  * — often a dozen of them — had a permanently frozen transfer market: a player
@@ -695,11 +767,13 @@ export function simLeagueTransferWindow(state: GameState, cfg: TuningConfig) {
 }
 
 /**
- * One AI↔AI sim-market deal attempt (v1.44). A buyer is drawn from `buyerPool`
- * by stance appetite; it acts on one of its most pressing holes and signs the
- * best improver any club in `sellerPool` is willing to sell. Shared by the
- * intra-league and cross-league passes — the only difference between them is the
- * pool of clubs in scope. Returns true if a deal completed.
+ * One AI↔AI market deal attempt (v1.44). A buyer is drawn from `buyerPool` by
+ * stance appetite; it acts on one of its most pressing holes and signs the best
+ * improver any club in `sellerPool` is willing to sell. Shared by the sim
+ * intra-league and cross-league passes and, since v1.51, by the playable-league
+ * window burst — the only difference between them is the pool of clubs in scope,
+ * which is what keeps every market running on one model. Callers must pass pools
+ * that exclude the user's club. Returns true if a deal completed.
  */
 function trySimDeal(
   state: GameState,
@@ -753,12 +827,22 @@ function trySimDeal(
  * service the wage — which keeps even cash-poor clubs active in the window and
  * gives released players somewhere to land. The player must actually improve the
  * position (targetScore > 0), same bar as any other signing.
+ *
+ * v1.51: a floor is left on the pool. With the AI now shopping the free-agent
+ * market at every window open as well as weekly, it could clear the pool
+ * entirely — which would leave the user's Free Agents tab permanently empty and
+ * remove the market's one source of players that costs no fee. The AI stops
+ * signing once the pool is down to `freeAgentPoolFloor`, so there is always
+ * something on that screen. The user's own emergency backfill
+ * (`ensureFieldableSquad`) deliberately ignores this floor — it only runs when
+ * the club genuinely cannot field a side.
  */
 function aiSignFreeAgent(state: GameState, buyer: Team, need: PositionNeed, cfg: TuningConfig) {
   if (buyer.playerIds.length >= cfg.squadCap) return;
+  const pool = activePlayers(state).filter((p) => !p.clubId && !p.loan);
+  if (pool.length <= cfg.freeAgentPoolFloor) return;
   let best: { player: PlayerBio; score: number } | null = null;
-  for (const p of activePlayers(state)) {
-    if (p.clubId || p.loan) continue; // free agents only
+  for (const p of pool) {
     if (!p.positions.includes(need.pos) && !p.positions.some((pos) => positionAdjacent(pos, need.pos))) continue;
     const score = targetScore(state, buyer, need, p, cfg);
     if (score <= 0) continue;
@@ -769,6 +853,54 @@ function aiSignFreeAgent(state: GameState, buyer: Team, need: PositionNeed, cfg:
   if (!best) return;
   completeTransfer(state, best.player.id, buyer.id, 0);
   state.news.unshift(`${buyer.name} sign free agent ${best.player.name} to bolster their ${need.pos}.`);
+}
+
+/**
+ * Keep the user's club able to fulfil its fixtures (v1.51).
+ *
+ * Squad size is the manager's business — except at the point the club can no
+ * longer field a legal side. Contract expiries and retirements both bite at the
+ * rollover, so a manager who stops managing (or an automated run that never
+ * answers a prompt) would otherwise ratchet the squad down to nothing over a
+ * long save. This tops the senior squad back up to `matchdaySquad` from the free
+ * agent pool, cheapest useful body first, and reports what it did.
+ *
+ * Deliberately NOT a quality pass: it signs the best free agent available for
+ * the thinnest position, which is what a real club does in an emergency, and it
+ * only ever runs when the squad is genuinely short. A manager who keeps a full
+ * squad never sees it. Returns the names signed.
+ */
+export function ensureFieldableSquad(state: GameState, cfg: TuningConfig): string[] {
+  const team = state.teams[state.userTeamId];
+  const signed: string[] = [];
+  let guard = 0;
+  while (team.playerIds.filter((id) => !state.players[id]?.retired).length < cfg.matchdaySquad && guard++ < 40) {
+    const needs = squadNeeds(state, team, cfg);
+    const need = needs[0];
+    // A squad this thin always has needs; if it somehow doesn't, stop rather
+    // than loop.
+    if (!need) break;
+
+    let best: { player: PlayerBio; score: number } | null = null;
+    let fallback: PlayerBio | null = null;
+    for (const p of activePlayers(state)) {
+      if (p.clubId || p.loan) continue; // free agents only
+      const covers = p.positions.includes(need.pos) || p.positions.some((pos) => positionAdjacent(pos, need.pos));
+      // The cheapest body who can stand in the position, kept as a last resort
+      // for the case where nobody genuinely improves the side.
+      if (covers && (!fallback || p.overall > fallback.overall)) fallback = p;
+      if (!covers) continue;
+      const score = targetScore(state, team, need, p, cfg);
+      if (score <= 0) continue;
+      if (!best || score > best.score) best = { player: p, score };
+    }
+    const target = best?.player ?? fallback;
+    if (!target) break; // the free-agent pool has nobody for this position
+
+    completeTransfer(state, target.id, team.id, 0);
+    signed.push(target.name);
+  }
+  return signed;
 }
 
 /** A player covers a slot if it's a listed position or a direct adjacent one —

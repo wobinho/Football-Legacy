@@ -15,7 +15,7 @@ import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan } from "@/li
 import { MAX_KIT_NUMBER, MIN_KIT_NUMBER, squadNumbersFor } from "@/lib/kitnumbers";
 import { ACCOLADE_META } from "@/lib/accolades";
 import type { Accolade, AccoladeType, GameState } from "@/lib/types";
-import { ArchetypeIcon, AttrGrid, Card, ConfirmButton, Crest, Flag, FitnessBar, FormChip, GhostButton, GoldButton, GrowthBadge, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip } from "../ui";
+import { ArchetypeIcon, AttrGrid, Card, ConfirmButton, Crest, displayFullName, Flag, FitnessBar, FormChip, GhostButton, GoldButton, GrowthBadge, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip } from "../ui";
 import ContractModal from "./ContractModal";
 
 export default function PlayerProfileModal() {
@@ -84,9 +84,12 @@ export default function PlayerProfileModal() {
             )}
           </div>
           <div className="min-w-0 flex-1">
+            {/* The profile is the one place a player gets the whole row to
+                himself, so it shows the full name ("Gianluigi Donnarumma")
+                where the lists that led here showed the short one. */}
             <div className="display flex items-center gap-2.5 text-2xl font-bold leading-tight">
               <Flag nat={p.nationality} size={22} />
-              {p.name}
+              {displayFullName(p)}
               {p.retired && <span className="text-sm text-faint">RETIRED</span>}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-dim">

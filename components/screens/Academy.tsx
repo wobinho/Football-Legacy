@@ -15,6 +15,7 @@ import {
   isAcademyLoanee,
   loanedOutPlayers,
   focusSlots,
+  pendingGraduates,
   potentialView,
   scoutCapacity,
   u21Eligible,
@@ -45,8 +46,9 @@ import {
 } from "@/lib/scouts";
 import { transferWindowState, formatDayShort } from "@/lib/calendar";
 import { formatMoney } from "@/lib/value";
+import { matchesPlayerName } from "@/lib/search";
 import { staffSlotsForDept } from "@/lib/staff";
-import { Card, ConfirmButton, Crest, Flag, GhostButton, GoldButton, Modal, Ovr, PlayerCard, PlayerGrid, PosBadge, PotentialBadge, Section, Stars, StarRange, Tabs, UpgradeCard, usePlayerView, ViewToggle } from "../ui";
+import { Card, ConfirmButton, CountryFlag, Crest, Flag, GhostButton, GoldButton, Modal, Ovr, PlayerCard, PlayerGrid, PosBadge, PotentialBadge, Section, Stars, StarRange, Tabs, UpgradeCard, usePlayerView, ViewToggle } from "../ui";
 
 type Tab = "squad" | "development" | "loaned" | "u21" | "scouting" | "staff" | "upgrades";
 
@@ -538,6 +540,73 @@ function SquadFilters({
 // line (pos · name · age · OVR · potential) with the actions wrapping beneath.
 const SQUAD_GRID = "md:grid-cols-[2.25rem_1fr_2.5rem_3rem_4.5rem_minmax(0,22rem)]";
 
+/**
+ * Prospects who have outgrown the academy and are waiting on a senior decision
+ * (§18, v1.51).
+ *
+ * They used to be pushed straight into the senior squad at the rollover, which
+ * is what made a manager's squad appear to grow players it never signed. Now
+ * they sit here — off both squad lists, on no wage — until the manager signs
+ * them or lets them go. Rendered above the roster and only when the queue has
+ * someone in it, so it reads as an inbox item that needs clearing rather than
+ * permanent furniture.
+ */
+function GraduatesPanel() {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const viewPlayer = useGame((s) => s.viewPlayer);
+  const sign = useGame((s) => s.graduateSign);
+  const release = useGame((s) => s.graduateRelease);
+
+  const waiting = pendingGraduates(game);
+  if (!waiting.length) return null;
+
+  return (
+    <Section
+      title="Ready for the senior squad"
+      right={
+        <span className="text-xs text-faint">
+          {waiting.length} awaiting a decision
+        </span>
+      }
+    >
+      <p className="mb-3 text-[12px] leading-relaxed text-faint">
+        {waiting.length === 1 ? "This prospect has" : "These prospects have"} outgrown the youth setup.
+        Sign {waiting.length === 1 ? "him" : "them"} to a senior contract or let {waiting.length === 1 ? "him" : "them"} go —
+        nobody joins your squad, or your wage bill, until you decide.
+      </p>
+      <Card className="divide-y divide-line/50">
+        {waiting.map((p) => (
+          <div key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
+            <PosBadge pos={p.positions[0]} />
+            <button
+              onClick={() => viewPlayer(p.id)}
+              className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-ink hover:text-gold"
+            >
+              {p.name}
+            </button>
+            <span className="tnum text-xs text-faint">{p.age}y</span>
+            <Ovr value={p.overall} size="sm" />
+            <PotentialBadge game={game} p={p} />
+            <div className="flex items-center gap-2">
+              <GoldButton onClick={() => sign(p.id)} className="!px-3 !py-1.5 text-xs">
+                SIGN HIM
+              </GoldButton>
+              <ConfirmButton
+                label="Release"
+                confirmLabel="Release?"
+                tone="danger"
+                onConfirm={() => release(p.id)}
+                className="!px-3 !py-1.5 !text-xs"
+              />
+            </div>
+          </div>
+        ))}
+      </Card>
+    </Section>
+  );
+}
+
 function SquadTab() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
@@ -564,10 +633,10 @@ function SquadTab() {
 
   // The academy squad is exactly your U21 prospects — one consolidated roster.
   const allProspects = academyPlayers(game);
-  const query = nameQuery.trim().toLowerCase();
   const roster = allProspects
     .filter((p) => (posFilter === "ALL" || p.positions[0] === posFilter))
-    .filter((p) => query === "" || p.name.toLowerCase().includes(query))
+    // Accent-insensitive, across short and full name (v1.5).
+    .filter((p) => matchesPlayerName(p, nameQuery))
     .sort((a, b) => squadCompare(game, a, b, sortKey));
 
   const stats: { label: string; value: React.ReactNode; hint?: string }[] = [
@@ -603,6 +672,7 @@ function SquadTab() {
   if (view === "grid")
     return (
       <>
+        <GraduatesPanel />
         {grid()}
         {loanModal}
       </>
@@ -611,6 +681,7 @@ function SquadTab() {
   return (
     <div className="space-y-6">
       {loanModal}
+      <GraduatesPanel />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-2">
           {stats.map((s) => (
@@ -932,8 +1003,14 @@ function LoanOfferModal({ playerId, onClose }: { playerId: string; onClose: () =
               <Crest colors={s.colors} short={s.short} size={30} />
               <div className="min-w-0 flex-1">
                 <div className="truncate font-medium text-ink">{s.name}</div>
-                <div className="truncate text-[11px] text-faint">
-                  {s.leagueName} · Rep {s.reputation}
+                {/* Suitors come from every league in the world, so the country
+                    flag is what separates a loan down the road from a loan
+                    abroad at a glance. */}
+                <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-faint">
+                  <CountryFlag country={s.country} size={10} className="shrink-0" />
+                  <span className="truncate">
+                    {s.leagueName} · Rep {s.reputation}
+                  </span>
                 </div>
               </div>
               <span
@@ -1346,7 +1423,10 @@ function LoanedTab() {
                     <Crest colors={dest.colors} short={dest.short} size={24} />
                     <div className="min-w-0">
                       <div className="truncate text-sm text-ink">{dest.name}</div>
-                      <div className="truncate text-[11px] text-faint">{league?.name ?? "—"}</div>
+                      <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-faint">
+                        <CountryFlag country={league?.country ?? ""} size={10} className="shrink-0" />
+                        <span className="truncate">{league?.name ?? "—"}</span>
+                      </div>
                     </div>
                   </>
                 ) : (

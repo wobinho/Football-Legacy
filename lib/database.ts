@@ -28,7 +28,11 @@ export const SUPPORTED_DB_SCHEMAS = ["fl-country-db@2", "fl-country-db@1"] as co
  * If both are present, `attrs` wins and `overall` is ignored. Everything else is
  * optional and defaulted by worldgen. */
 export interface PlayerSeed {
+  /** Short display name, as it reads in a list ("G. Donnarumma"). */
   name: string;
+  /** Full name for the profile header ("Gianluigi Donnarumma"). Optional — omit
+   * it (or repeat `name`) and the UI simply shows the short form everywhere. */
+  fullName?: string;
   positions: Pos[]; // first entry = primary
   /** The six attributes 1..99: { pac, sho, pas, dri, def, phy } (standard FIFA
    * order). For goalkeepers the same six slots carry keeper skills — def =
@@ -56,6 +60,20 @@ export interface ClubSeed extends ClubDef {
    * a big-reputation club with a weak squad or vice versa. Roster players
    * authored in `players` are unaffected. */
   squadQuality?: number;
+  /** Optional target AVERAGE OVERALL (40–94) for the club's generated squad
+   * (v1.51). Unlike `squadQuality` — an abstract 1–100 strength dial — this is
+   * the number the squad actually averages: worldgen solves for the per-slot
+   * level that lands the generated players on this mean. Takes precedence over
+   * `squadQuality`/`rep` when set.
+   *
+   * Authored roster players (`players`) are deliberately EXCLUDED from the
+   * average: the target describes the players the game generates, so adding a
+   * hand-made superstar never drags the rest of the squad down to compensate. */
+  squadAvgOverall?: number;
+  /** Optional starting transfer budget in pounds (v1.51). When set, the club
+   * opens the save with exactly this much rather than the reputation-derived
+   * `clubBudget(rep)`. */
+  budget?: number;
 }
 
 export interface DivisionSeed {
@@ -181,6 +199,13 @@ function validateClub(c: unknown, where: string, push: (m: string) => void) {
   if (typeof club.stadium !== "string" || !club.stadium.trim()) push(`${where}.stadium must be a non-empty string.`);
   if (club.squadQuality !== undefined && (typeof club.squadQuality !== "number" || club.squadQuality < 1 || club.squadQuality > 100))
     push(`${where}.squadQuality must be a number 1–100 (or omitted to use rep).`);
+  if (
+    club.squadAvgOverall !== undefined &&
+    (typeof club.squadAvgOverall !== "number" || club.squadAvgOverall < 40 || club.squadAvgOverall > 94)
+  )
+    push(`${where}.squadAvgOverall must be an average overall 40–94 (or omitted).`);
+  if (club.budget !== undefined && (typeof club.budget !== "number" || !Number.isFinite(club.budget) || club.budget < 0))
+    push(`${where}.budget must be a starting budget of 0 or more (or omitted to derive it from rep).`);
   if (club.players !== undefined) {
     if (!Array.isArray(club.players)) push(`${where}.players must be an array (or omitted for a generated squad).`);
     else club.players.forEach((p, pi) => validatePlayerSeed(p, `${where}.players[${pi}]`, push));

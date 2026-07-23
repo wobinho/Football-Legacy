@@ -7,9 +7,9 @@ import { TUNING, type TuningConfig } from "./config/tuning";
 import { generateScoutMarket } from "./scouts";
 import { buildSeasonSchedule } from "./calendar";
 import { initAcademyState } from "./academy";
-import { ensureContracts } from "./contracts";
+import { ensureContracts, openContractResolution } from "./contracts";
 import { migrateOldRegion } from "./config/scouting";
-import { aiCommercialIncome, refreshSponsorOffers } from "./sponsors";
+import { aiCommercialIncome, refreshSponsorOffers, seedAiSponsorBooks } from "./sponsors";
 import { RETIRED_TRAIT_IDS, TRAIT_MAP } from "./config/traits";
 import { overallFromAttrs } from "./config/positions";
 import { getArchetype, DEFAULT_HEIGHT_CM } from "./config/archetypes";
@@ -479,6 +479,22 @@ export function migrateSave(state: GameState): GameState {
     migrateV25toV26(state);
     state.schemaVersion = 26;
   }
+  if (state.schemaVersion < 27) {
+    migrateV26toV27(state);
+    state.schemaVersion = 27;
+  }
+  if (state.schemaVersion < 28) {
+    migrateV27toV28(state);
+    state.schemaVersion = 28;
+  }
+  if (state.schemaVersion < 29) {
+    migrateV28toV29(state);
+    state.schemaVersion = 29;
+  }
+  if (state.schemaVersion < 30) {
+    migrateV29toV30(state);
+    state.schemaVersion = 30;
+  }
   // future migrations chain here
   state.schemaVersion = SCHEMA_VERSION;
   return state;
@@ -790,6 +806,120 @@ function migrateV25toV26(state: GameState): void {
   a.playerAwards = playerAwards;
   // Seed the live peaks + unlock anything the seeded ledger already qualifies for.
   syncProgress(state);
+}
+
+/**
+ * v26 → v27: full player names, and a repair for the phantom growth badge.
+ *
+ * `fullName` is purely additive — it only ever comes from a real-world database,
+ * and the UI falls back to `name`, so an old save needs nothing there. Existing
+ * saves keep the short name on the profile header until they are rebuilt; there
+ * is no way to recover a full name the save never stored.
+ *
+ * The repair is the real work. `materializePlayer` used to stamp the growth
+ * badge's baseline (`seasonStartOverall`) from the rating `generatePlayer`
+ * rolled, then overwrite `overall` with the database's authored value without
+ * re-stamping — so every database player in a brand-new save wore a "+X this
+ * season" he had not earned. Worldgen now re-stamps; saves already made carry
+ * the bad baseline, and only season one can be fixed safely: before the first
+ * rollover nobody has legitimately developed yet, so any difference is the bug
+ * and clearing it to the current overall is exactly right. From season two on a
+ * baseline is genuine progress and is left alone — silently flattening a real
+ * "+4 this season" would be a worse lie than the one being fixed.
+ */
+function migrateV26toV27(state: GameState): void {
+  if (state.season > 1 || state.recordBook.seasons.length > 0) return;
+  for (const p of Object.values(state.players)) {
+    p.seasonStartOverall = p.overall;
+  }
+}
+
+/**
+ * v27 → v28: AI clubs hold real sponsorship books (v1.5).
+ *
+ * Before this, every AI club's entire commercial department was one abstract
+ * `commercialIncome` number. They now carry actual `SponsorDeal` objects — the
+ * same major/minor shapes the user signs — resolved automatically each season.
+ * An existing save's AI clubs have no book at all, so one is seeded here.
+ *
+ * Deliberately no budget credit: these clubs' budgets are already whatever the
+ * save says they are, and paying out the majors' lump sums on load would hand
+ * the entire AI world a windfall it never earned — inflating the transfer
+ * market the moment a save is opened. The books start signed and paid; only the
+ * NEXT rollover's deals are new money.
+ */
+function migrateV27toV28(state: GameState): void {
+  seedAiSponsorBooks(state, TUNING);
+}
+
+/**
+ * v28 → v29: the end-of-season contract round, and academy graduates who wait
+ * for a decision (v1.51).
+ *
+ * Two behaviours that used to happen silently at the rollover now belong to the
+ * manager, so both need a place in the schedule and the save:
+ *
+ *  • `contractResolveDay` is stamped onto the CURRENT season's schedule (new
+ *    seasons get it from `buildSeasonSchedule`). It sits the day after the
+ *    awards, inside the same dead week. A save loaded mid-season therefore gets
+ *    the round this season rather than having to wait a full year for it.
+ *
+ *    If the save is already PAST that day — loaded during the dead week, or
+ *    parked on the season-end day — the round is opened immediately instead, so
+ *    a manager who is one click from END SEASON still gets the choice their
+ *    squad's expiring deals deserve rather than losing them to the old silent
+ *    release on the very next rollover.
+ *
+ *  • `pendingGraduates` starts empty. Prospects who aged out in previous seasons
+ *    were pushed into the senior squad under the old rule and are already there;
+ *    there is nothing to reconstruct, and pulling them back out would be a far
+ *    worse surprise than the one being fixed. Only age-outs from this rollover on
+ *    wait for a decision.
+ */
+function migrateV28toV29(state: GameState): void {
+  const sched = state.schedule;
+  if (sched.contractResolveDay === undefined) {
+    // Mirror buildSeasonSchedule: the day after the honours. `accoladesDay` is
+    // itself optional on pre-v1.44 saves, so fall back to the cup final +2 and
+    // finally to a couple of days before the rollover — the day must always land
+    // inside the dead week, never on or after seasonEndDay.
+    const cupFinal = sched.cupRoundDays[sched.cupRoundDays.length - 1];
+    const derived =
+      sched.accoladesDay !== undefined
+        ? sched.accoladesDay + 1
+        : cupFinal !== undefined
+          ? cupFinal + 2
+          : sched.seasonEndDay - 2;
+    sched.contractResolveDay = Math.min(derived, sched.seasonEndDay - 1);
+  }
+  state.pendingGraduates ??= [];
+  // Already past the round this season — open it now so the choice isn't lost.
+  if (state.currentDay >= sched.contractResolveDay && !state.contractResolution) {
+    openContractResolution(state);
+  }
+}
+
+/**
+ * v29 → v30: European cups (v1.51).
+ *
+ * The whole European layer is optional: a save without `state.european` simply
+ * runs no continental football, exactly as it did before. So there is nothing to
+ * backfill — an existing save is left with European competitions OFF, which is
+ * the honest outcome. Turning them on mid-save would have to invent a
+ * qualification history the save never played, and would drop 32-club
+ * competitions into a world whose fixtures for the current season are already
+ * generated.
+ *
+ * The one thing that IS added is the schedule's European matchdays, so that a
+ * migrated save which later enables the cups (or simply rolls over into a build
+ * that does) has the dates available rather than a missing field.
+ */
+function migrateV29toV30(state: GameState): void {
+  if (state.schedule.euroRoundDays === undefined) {
+    // Rebuild from the same generator the live schedule uses, so a migrated
+    // save's European dates are identical to a fresh one's for that season.
+    state.schedule.euroRoundDays = buildSeasonSchedule(state.season).euroRoundDays;
+  }
 }
 
 /** True if the save is a version this build knows how to bring up to date. */

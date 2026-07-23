@@ -1,9 +1,16 @@
 "use client";
 
 // Library club editor (v25): design a reusable custom club — identity, colours,
-// reputation, generated-squad strength — and optionally hand-pick a roster from
-// the players already saved in the library. SAVE persists it to the library so
-// it can be dropped into any new legacy later (replacing a top-flight side).
+// starting budget, generated-squad strength — and optionally hand-pick a roster
+// from the players already saved in the library. SAVE persists it to the library
+// so it can be dropped into any new legacy later (replacing a top-flight side).
+//
+// v1.51: the two abstract 1–100 dials (reputation, squad quality) are gone. You
+// now set the two numbers you actually care about — the money the club opens
+// with, and the average overall its generated squad will hold. Reputation is
+// derived from the squad average (see repFromSquadAvg): it still drives academy
+// pull, transfer standing, sponsorships and European seeding, but it's no longer
+// a knob you have to reason about separately.
 //
 // Unlike CreateClubModal (new-game setup) there's no "club to replace" here:
 // placement happens when the club is pulled into a world, not when it's built.
@@ -11,24 +18,35 @@
 import { useEffect, useState } from "react";
 import type { LibraryClub, LibraryPlayer } from "@/lib/customdb";
 import { libraryPlayerToSeed } from "@/lib/customdb";
-import { clubBudget } from "@/lib/worldgen";
+import { clubBudget, squadAvgForQuality, SQUAD_AVG_MIN, SQUAD_AVG_MAX } from "@/lib/worldgen";
 import { formatMoney } from "@/lib/value";
 import { overallFromAttrs } from "@/lib/config/positions";
+import { matchesPlayerName, matchesText } from "@/lib/search";
 import { Crest, Flag, GoldButton, GhostButton, Modal, Ovr, PosBadge } from "./ui";
 
-function qualityLabel(q: number): string {
-  if (q >= 86) return "World class";
-  if (q >= 74) return "Title challengers";
-  if (q >= 60) return "Solid mid-table";
-  if (q >= 46) return "Battlers";
+function qualityLabel(avg: number): string {
+  if (avg >= 82) return "World class";
+  if (avg >= 74) return "Title challengers";
+  if (avg >= 66) return "Solid mid-table";
+  if (avg >= 58) return "Battlers";
   return "Relegation fodder";
 }
 
-function repLabel(r: number): string {
-  if (r >= 86) return "Continental giant";
-  if (r >= 72) return "Established name";
-  if (r >= 55) return "Respected club";
-  return "Unfancied";
+/** Reputation implied by a squad's average overall. Reputation still drives
+ * academy pull, transfer standing, sponsor interest and European seeding, so a
+ * club authored purely by squad strength needs a sensible one — a side averaging
+ * ~87 is a continental giant, a ~50-average side is a minnow. Inverts the old
+ * `starterAvg = 40 + rep * 0.5` curve over the achievable average band. */
+function repFromSquadAvg(avg: number): number {
+  const t = (avg - SQUAD_AVG_MIN) / (SQUAD_AVG_MAX - SQUAD_AVG_MIN);
+  return Math.round(Math.max(30, Math.min(95, 35 + t * 60)));
+}
+
+/** The squad average a club saved before v1.51 was really generating, so
+ * re-editing an old club shows the number it actually builds rather than
+ * resetting it to a default. */
+function legacySquadAvg(c: LibraryClub): number {
+  return Math.max(SQUAD_AVG_MIN, Math.min(SQUAD_AVG_MAX, squadAvgForQuality(c.squadQuality ?? c.rep)));
 }
 
 function Slider({
@@ -101,8 +119,18 @@ export default function LibraryClubModal({
   const [short, setShort] = useState(initial?.short ?? "");
   const [stadium, setStadium] = useState(initial?.stadium ?? "");
   const [colors, setColors] = useState<[string, string]>(initial?.colors ?? ["#b8860b", "#0b0c0f"]);
-  const [rep, setRep] = useState(initial?.rep ?? 60);
-  const [squadQuality, setSquadQuality] = useState(initial?.squadQuality ?? 60);
+  // Squad strength is authored as a straight average overall (v1.51). An older
+  // club saved on the 1–100 quality dial is migrated to the average it was
+  // really generating, so nothing shifts under an existing club on first edit.
+  const [squadAvg, setSquadAvg] = useState(
+    () => initial?.squadAvgOverall ?? (initial ? legacySquadAvg(initial) : 65)
+  );
+  // Starting budget in pounds, set directly. An older club (or a fresh one)
+  // starts from the reputation curve's number so the default is still sensible.
+  const [budget, setBudget] = useState(
+    () => initial?.budget ?? clubBudget(initial?.rep ?? repFromSquadAvg(65))
+  );
+  const rep = repFromSquadAvg(squadAvg);
   // Roster: which saved library players are attached. Stored on the club as full
   // seeds, but tracked here by the library-player id so the picker stays in sync
   // and re-editing a saved club re-selects the right entries by name match.
@@ -148,9 +176,10 @@ export default function LibraryClubModal({
   // so filter it by name / position as you type.
   const [rosterQuery, setRosterQuery] = useState("");
   const filteredPlayers = libraryPlayers.filter((lp) => {
-    const q = rosterQuery.trim().toLowerCase();
+    const q = rosterQuery.trim();
     if (!q) return true;
-    return lp.name.toLowerCase().includes(q) || lp.positions[0].toLowerCase().includes(q);
+    // Accent-insensitive, across the full name too (v1.5).
+    return matchesPlayerName(lp, q) || matchesText(lp.positions[0], q);
   });
 
   const shortClean = short.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4);
@@ -167,7 +196,8 @@ export default function LibraryClubModal({
           <div className="min-w-0">
             <div className="display truncate text-lg font-semibold">{name.trim() || "Your Club"}</div>
             <div className="text-[11px] text-faint">
-              {stadium.trim() || "Your stadium"} · {repLabel(rep)} · Est. budget {formatMoney(clubBudget(rep))}
+              {stadium.trim() || "Your stadium"} · {qualityLabel(squadAvg)} · Squad avg{" "}
+              <span className="tnum">{squadAvg}</span> · Budget {formatMoney(budget)}
             </div>
           </div>
         </div>
@@ -225,25 +255,59 @@ export default function LibraryClubModal({
           </div>
         </div>
 
+        {/* Starting budget, in pounds. Typed rather than a slider — the whole
+            point is naming an exact figure. The quick presets cover the common
+            "give me a war chest" cases without fighting the number field. */}
+        <label className="block">
+          <span className="flex items-baseline justify-between">
+            <span className="display text-xs font-semibold tracking-widest text-faint">STARTING BUDGET</span>
+            <span className="text-[11px] text-dim">{formatMoney(budget)}</span>
+          </span>
+          <div className="mt-1 flex items-center gap-2">
+            <span className="text-[13px] text-faint">£</span>
+            <input
+              type="number"
+              min={0}
+              step={100_000}
+              inputMode="numeric"
+              value={budget}
+              onChange={(e) => setBudget(Math.max(0, Math.round(Number(e.target.value) || 0)))}
+              className="tnum w-full rounded-md border border-line bg-raised px-3 py-2 text-ink focus:border-gold focus:outline-none"
+            />
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {[0, 5_000_000, 25_000_000, 100_000_000, 500_000_000].map((amt) => (
+              <button
+                key={amt}
+                onClick={() => setBudget(amt)}
+                className={`rounded border px-2 py-1 text-[11px] transition-colors ${
+                  budget === amt ? "border-gold text-gold" : "border-line text-dim hover:bg-hover"
+                }`}
+              >
+                {amt === 0 ? "Skint" : formatMoney(amt)}
+              </button>
+            ))}
+          </div>
+        </label>
+
+        {/* Squad strength as a straight average overall — the number the
+            generated squad actually lands on (±1 for seed variance). */}
         <Slider
-          label="REPUTATION"
-          value={rep}
-          min={30}
-          max={95}
-          onChange={setRep}
-          hint={`${repLabel(rep)} · budget ${formatMoney(clubBudget(rep))}`}
+          label="AVERAGE SQUAD OVERALL"
+          value={squadAvg}
+          min={SQUAD_AVG_MIN}
+          max={SQUAD_AVG_MAX}
+          onChange={setSquadAvg}
+          hint={`${qualityLabel(squadAvg)} · generated players only`}
         />
-        <Slider
-          label="SQUAD QUALITY"
-          value={squadQuality}
-          min={30}
-          max={95}
-          onChange={setSquadQuality}
-          hint={`${qualityLabel(squadQuality)} · fills any roster gaps`}
-        />
+        <p className="-mt-2 text-[11px] text-faint">
+          The squad the game generates for this club will average this overall. Players you add to the roster below are
+          authored exactly as you built them and are <span className="text-dim">not</span> counted in the average — a
+          hand-made superstar won&apos;t drag the rest of the squad down.
+        </p>
 
         {/* Optional roster: attach saved library players. Anything not filled by
-            these is generated at the squad-quality strength above. */}
+            these is generated at the average overall above. */}
         <div>
           <div className="flex items-baseline justify-between">
             <span className="display text-xs font-semibold tracking-widest text-faint">ROSTER (OPTIONAL)</span>
@@ -381,8 +445,11 @@ export default function LibraryClubModal({
                   short: shortClean,
                   colors,
                   stadium: stadium.trim(),
+                  // Derived from the squad average — reputation still drives
+                  // academy pull, sponsorships and European seeding.
                   rep,
-                  squadQuality,
+                  squadAvgOverall: squadAvg,
+                  budget,
                 },
                 rosterIds,
                 // Only keep terms for players still on the roster.

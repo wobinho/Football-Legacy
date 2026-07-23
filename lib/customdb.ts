@@ -22,8 +22,9 @@ import { cloudOwner } from "./cloud";
 export const LIBRARY_SCHEMA = "fl-library@1";
 
 /** A saved custom club. Carries the full ClubSeed (identity, reputation,
- * squad-quality, and an optional hand-authored roster) plus library metadata.
- * `squadQuality` and `players` are optional exactly as in ClubSeed. */
+ * starting budget, generated-squad level, and an optional hand-authored roster)
+ * plus library metadata. Everything but the identity fields is optional exactly
+ * as in ClubSeed. */
 export interface LibraryClub {
   id: string;
   name: string;
@@ -31,7 +32,14 @@ export interface LibraryClub {
   colors: [string, string];
   rep: number;
   stadium: string;
+  /** Legacy 1–100 strength dial. Clubs authored from v1.51 on set
+   * `squadAvgOverall` instead; this is still honored for older saved clubs. */
   squadQuality?: number;
+  /** Target average overall of the GENERATED squad (v1.51). Authored roster
+   * players are excluded from the average — see ClubSeed.squadAvgOverall. */
+  squadAvgOverall?: number;
+  /** Starting transfer budget in pounds (v1.51). */
+  budget?: number;
   players?: PlayerSeed[];
   updatedAt: number;
 }
@@ -42,6 +50,9 @@ export interface LibraryClub {
 export interface LibraryPlayer {
   id: string;
   name: string;
+  /** Full name for the profile header (v27). Optional — an entry authored in
+   * the editor normally carries one name, and the UI falls back to `name`. */
+  fullName?: string;
   positions: Pos[]; // [primary, ...secondaries]
   attrs: Attributes;
   age: number;
@@ -72,6 +83,8 @@ export function libraryClubToSeed(c: LibraryClub): ClubSeed {
     rep: c.rep,
     stadium: c.stadium,
     ...(c.squadQuality !== undefined ? { squadQuality: c.squadQuality } : {}),
+    ...(c.squadAvgOverall !== undefined ? { squadAvgOverall: c.squadAvgOverall } : {}),
+    ...(c.budget !== undefined ? { budget: c.budget } : {}),
     ...(c.players && c.players.length ? { players: c.players.map((p) => ({ ...p })) } : {}),
   };
 }
@@ -80,6 +93,7 @@ export function libraryClubToSeed(c: LibraryClub): ClubSeed {
 export function libraryPlayerToSeed(p: LibraryPlayer): PlayerSeed {
   return {
     name: p.name,
+    ...(p.fullName ? { fullName: p.fullName } : {}),
     positions: [...p.positions],
     attrs: { ...p.attrs },
     age: p.age,
@@ -116,6 +130,7 @@ export function seedToLibraryPlayer(seed: PlayerSeed, fallbackNat: string): Libr
   return {
     id: libraryId("player"),
     name: seed.name,
+    ...(seed.fullName ? { fullName: seed.fullName } : {}),
     positions: [...seed.positions],
     attrs,
     age,
@@ -139,6 +154,8 @@ export function seedToLibraryClub(seed: ClubSeed): LibraryClub {
     rep: seed.rep,
     stadium: seed.stadium,
     ...(seed.squadQuality !== undefined ? { squadQuality: seed.squadQuality } : {}),
+    ...(seed.squadAvgOverall !== undefined ? { squadAvgOverall: seed.squadAvgOverall } : {}),
+    ...(seed.budget !== undefined ? { budget: seed.budget } : {}),
     ...(seed.players?.length ? { players: seed.players.map((p) => ({ ...p })) } : {}),
     updatedAt: Date.now(),
   };

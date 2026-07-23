@@ -190,14 +190,34 @@ const PRO_REL_COUNT = 3;
  * Every pair is settled from the SAME pre-shuffle snapshot of final tables, so a
  * club relegated from tier 1 lands in tier 2 without being able to be promoted
  * back out of it in the same pass. */
-export function applyPromotionRelegation(
-  state: GameState
-): { promoted: string[]; relegated: string[]; promotedIds: string[]; relegatedIds: string[] } {
+export function applyPromotionRelegation(state: GameState): {
+  promoted: string[];
+  relegated: string[];
+  promotedIds: string[];
+  relegatedIds: string[];
+  /** Parallel to the arrays above: the division each club left, and the one it
+   * landed in. Lets the season review group the moves per league. */
+  promotedFrom: string[];
+  promotedTo: string[];
+  relegatedFrom: string[];
+  relegatedTo: string[];
+} {
   // De-duplicate defensively: a v11 save could carry [top, top] for a
   // single-division country, which must stay a no-op rather than shuffling a
   // division against itself.
   const ladder = Array.from(new Set(state.divisionIds)).filter((id) => state.leagues[id]);
-  if (ladder.length < 2) return { promoted: [], relegated: [], promotedIds: [], relegatedIds: [] };
+  if (ladder.length < 2) {
+    return {
+      promoted: [],
+      relegated: [],
+      promotedIds: [],
+      relegatedIds: [],
+      promotedFrom: [],
+      promotedTo: [],
+      relegatedFrom: [],
+      relegatedTo: [],
+    };
+  }
 
   // Snapshot every division's final table before anything moves.
   const tables = new Map(
@@ -234,19 +254,40 @@ export function applyPromotionRelegation(
     for (const tid of [...fromAbove, ...fromBelow]) state.teams[tid].leagueId = id;
   }
 
-  // The record book lists every move on the ladder, top pair first. Names and
-  // ids are kept parallel so the season review can badge each moving club.
+  // The record book lists every move on the ladder, top pair first. Names, ids
+  // and the two league endpoints are all kept parallel so the season review can
+  // badge each moving club AND group the moves by division (v1.5) — with a deep
+  // pyramid, one flat "Promoted" list can't say which division a club climbed
+  // out of, which is the whole story of a lower-tier season.
   const promotedIds: string[] = [];
   const relegatedIds: string[] = [];
-  for (const id of ladder) {
+  const promotedFrom: string[] = [];
+  const promotedTo: string[] = [];
+  const relegatedFrom: string[] = [];
+  const relegatedTo: string[] = [];
+  for (let i = 0; i < ladder.length; i++) {
+    const id = ladder[i];
     for (const tid of goingUp.get(id) ?? []) {
       promotedNames.push(state.teams[tid].name);
       promotedIds.push(tid);
+      promotedFrom.push(id);
+      promotedTo.push(ladder[i - 1]);
     }
     for (const tid of goingDown.get(id) ?? []) {
       relegatedNames.push(state.teams[tid].name);
       relegatedIds.push(tid);
+      relegatedFrom.push(id);
+      relegatedTo.push(ladder[i + 1]);
     }
   }
-  return { promoted: promotedNames, relegated: relegatedNames, promotedIds, relegatedIds };
+  return {
+    promoted: promotedNames,
+    relegated: relegatedNames,
+    promotedIds,
+    relegatedIds,
+    promotedFrom,
+    promotedTo,
+    relegatedFrom,
+    relegatedTo,
+  };
 }

@@ -11,6 +11,15 @@ import { buildSideInput, pickLineup, headCoachMult } from "./selection";
 import { simulateMatch } from "./engine/match";
 import { generateLeagueFixtures, drawCupRound, applyPromotionRelegation, initCup } from "./season";
 import {
+  EURO_KO_ROUND_NAMES,
+  applyEuropeanPrizes,
+  drawKnockoutRound,
+  recordGroupExits,
+  refreshGroupTables,
+  settleKnockoutRound,
+  startEuropeanSeason,
+} from "./european";
+import {
   dailyRecovery,
   applyMatchFatigue,
   nudgeForm,
@@ -19,10 +28,16 @@ import {
   weeklyProgressTick,
 } from "./development";
 import { weeklyEconomyTick, applySeasonPrizes, facilityGrowthMult } from "./economy";
-import { aiWeeklyTransferTick, refreshValues, simLeagueTransferWindow } from "./transfers";
+import {
+  aiWeeklyTransferTick,
+  refreshValues,
+  simLeagueTransferWindow,
+  playableLeagueTransferWindow,
+  ensureFieldableSquad,
+} from "./transfers";
 import { activePlayers, pruneRetired } from "./archive";
 import { refreshClubStances } from "./ai/strategy";
-import { rolloverContracts, ensureContracts } from "./contracts";
+import { rolloverContracts, ensureContracts, openContractResolution } from "./contracts";
 import { resolveSimLeagues } from "./simresolver";
 import { buildSeasonSummary, trackBiggestWin } from "./recordbook";
 import { ACCOLADE_META, runSeasonAwardsCeremony } from "./accolades";
@@ -40,6 +55,8 @@ import {
   academyPreDevRollover,
   academyPostDevRollover,
   graduateAwardNews,
+  pruneGraduateQueue,
+  promoteGraduatesToFieldable,
 } from "./academy";
 
 const cfg = TUNING;
@@ -48,6 +65,10 @@ export type StopReason =
   | { kind: "matchday"; fixtureId: string }
   | { kind: "offer" }
   | { kind: "seasonEnd" }
+  /** The dead-week contract round opened (v1.51): `count` deals need resolving
+   * before the season closes. The loop stops here so the prompt can't be
+   * fast-forwarded past — losing a squad to admin is exactly what it prevents. */
+  | { kind: "contracts"; count: number }
   | { kind: "gate"; gate: CalendarGate } // a calendar "simulate ahead" hit an important day
   | { kind: "idle" }; // safety valve
 
@@ -273,6 +294,75 @@ function fmtM(n: number): string {
   return `£${(n / 1_000_000).toFixed(0)}M`;
 }
 
+// ── European cups (v1.51) ────────────────────────────────────────────────
+// The three continental competitions advance on the same day-tick the domestic
+// cup does. The group stage's fixtures are all created up front (at the
+// rollover), so the only thing to drive here is the knockout bracket: draw the
+// next round when its matchday arrives, and settle ties once both legs are in.
+
+/** Draw whichever European knockout round is due today, for every cup. */
+function ensureEuropeanRounds(state: GameState) {
+  const euro = state.european;
+  const days = state.schedule.euroRoundDays;
+  if (!euro?.cups.length || !days) return;
+  // Knockout first legs sit at indices 6, 8, 10 and the final at 12.
+  const round = [6, 8, 10, 12].indexOf(days.indexOf(state.currentDay));
+  if (round === -1) return;
+
+  for (const cup of euro.cups) {
+    // The groups must be finished (and their exits recorded) before the R16 is
+    // drawn from them.
+    if (round === 0) {
+      refreshGroupTables(state, cup);
+      recordGroupExits(cup);
+    }
+    // Already drawn (a re-entered day) — don't duplicate the bracket.
+    if (cup.ties.some((t) => t.round === round)) continue;
+    // Every previous round must have produced its winners first.
+    if (round > 0 && !cup.ties.filter((t) => t.round === round - 1).every((t) => t.winnerId)) continue;
+    const fixtures = drawKnockoutRound(state, cup, round);
+    if (!fixtures.length) continue;
+    state.fixtures.push(...fixtures);
+    cup.currentRound = 6 + round;
+
+    const userTie = fixtures.find((f) => f.homeId === state.userTeamId || f.awayId === state.userTeamId);
+    if (userTie) {
+      const oppId = userTie.homeId === state.userTeamId ? userTie.awayId : userTie.homeId;
+      state.news.unshift(
+        `${cup.name} ${EURO_KO_ROUND_NAMES[round]}: ${state.teams[state.userTeamId].name} drawn against ${state.teams[oppId]?.name ?? "—"}.`
+      );
+    }
+  }
+}
+
+/** Settle any European ties whose legs are all played, and crown a champion. */
+export function maybeSettleEuropean(state: GameState) {
+  const euro = state.european;
+  if (!euro?.cups.length) return;
+  for (const cup of euro.cups) {
+    // Group tables stay live all the way through the group stage.
+    refreshGroupTables(state, cup);
+    for (let round = 0; round <= 3; round++) {
+      if (!cup.ties.some((t) => t.round === round)) continue;
+      settleKnockoutRound(state, cup, round);
+    }
+    if (cup.winnerId && !cup.announced) {
+      cup.announced = true;
+      const winner = state.teams[cup.winnerId];
+      state.news.unshift(`${winner?.name ?? "—"} win the ${cup.name}!`);
+      if (cup.winnerId === state.userTeamId) {
+        const prize = cfg.europeanCupPrizeByTier[cup.tier - 1]?.champion ?? 0;
+        pushInbox(
+          state,
+          "board",
+          `${cup.name.toUpperCase()} WINNERS!`,
+          `${winner.name} are champions of Europe. The board is ecstatic — a ${fmtM(prize)} prize lands in the budget at season's end.`
+        );
+      }
+    }
+  }
+}
+
 /** Advance exactly one day. Returns a stop reason if the player is needed. */
 function advanceDay(state: GameState): StopReason | null {
   state.currentDay += 1;
@@ -312,6 +402,14 @@ function advanceDay(state: GameState): StopReason | null {
   // tables final and no fixtures left, the season's honours are handed out — a
   // week before END SEASON closes the campaign.
   if (sched.accoladesDay !== undefined && day === sched.accoladesDay) runSeasonAwardsCeremony(state);
+  // Contract round (v1.51): the day after the honours, every expiring deal on
+  // the user's books is put to them. Stopping the loop here is the whole point —
+  // the previous behaviour let a squad walk away for nothing while the manager
+  // held Continue. Handled below (after fixtures) so it can't pre-empt a match.
+  let contractsOpened = 0;
+  if (sched.contractResolveDay !== undefined && day === sched.contractResolveDay) {
+    contractsOpened = openContractResolution(state);
+  }
   if (day === sched.winterOpenDay) {
     refreshValues(state, cfg);
     // Clubs reassess their season and set a market stance for the window (§10).
@@ -319,6 +417,9 @@ function advanceDay(state: GameState): StopReason | null {
     // Sim (non-playable) leagues do their own window's business now (v1.44), so
     // foreign squads visibly turn over between windows rather than staying frozen.
     simLeagueTransferWindow(state, cfg);
+    // The user's own division rivals do theirs too (v1.51) — otherwise the only
+    // frozen market in the world would be the one the user can actually see.
+    playableLeagueTransferWindow(state, cfg);
     pushInbox(state, "window", "Winter transfer window open", "The winter window is open until 1 February. Sim leagues have updated tables and form to browse.");
     loanMidseasonReports(state);
   }
@@ -347,6 +448,9 @@ function advanceDay(state: GameState): StopReason | null {
   }
 
   ensureCupRound(state);
+  // European knockout draws happen the morning of their matchday, so the ties
+  // exist before the day's fixtures are collected below.
+  ensureEuropeanRounds(state);
 
   // today's fixtures
   const todays = state.fixtures.filter((f) => f.day === day && !f.played);
@@ -362,6 +466,12 @@ function advanceDay(state: GameState): StopReason | null {
     return { kind: "matchday", fixtureId: userFixture.id };
   }
   maybeSettleCup(state);
+  maybeSettleEuropean(state);
+
+  // The contract round opened today and has decisions in it — hand the day back
+  // so the UI can prompt. Nothing else happens on this day (the dead week has no
+  // fixtures), so this can't swallow a matchday.
+  if (contractsOpened > 0) return { kind: "contracts", count: contractsOpened };
 
   // The season ends *at* this day — park here and let the player press END
   // SEASON. Rolling over inline would silently rebuild the world (new fixtures,
@@ -438,11 +548,14 @@ export function advanceToDay(state: GameState, targetDay: number, ignoreGate?: s
       if (fixture) autoPlayUserFixture(state, fixture);
       state.pendingMatchFixtureId = null;
       maybeSettleCup(state);
+      maybeSettleEuropean(state);
     } else if (stop.kind === "offer") {
       // ignore offers when force-simming; they remain in the inbox to handle later
       continue;
     } else {
-      // seasonEnd / idle — hard stop, the calendar can't span it
+      // seasonEnd / contracts / idle — hard stop, the calendar can't span it.
+      // The contract round in particular must never be force-simmed past: the
+      // whole point is that expiring deals get a decision.
       return stop;
     }
   }
@@ -473,6 +586,7 @@ function autoPlayUserFixture(state: GameState, fixture: Fixture) {
 export function afterUserMatch(state: GameState) {
   state.pendingMatchFixtureId = null;
   maybeSettleCup(state);
+  maybeSettleEuropean(state);
 }
 
 // ── Season rollover (§3 off-season, §13 compression) ─────────────────────
@@ -535,15 +649,24 @@ export function runSeasonRollover(state: GameState) {
 
   // prizes before promotion shuffle (based on final tables)
   applySeasonPrizes(state, cfg);
+  // Continental prize money (v1.51), paid on how far each club went. Must run
+  // before the European state is rebuilt for the new season below, since that
+  // clears the exit stages this reads.
+  const euroPrizes = applyEuropeanPrizes(state, cfg);
 
   // history first, while stats are intact
   appendCareerRows(state);
 
-  const { promoted, relegated, promotedIds, relegatedIds } = applyPromotionRelegation(state);
+  const move = applyPromotionRelegation(state);
+  const { promoted, relegated } = move;
   summary.promoted = promoted;
   summary.relegated = relegated;
-  summary.promotedIds = promotedIds;
-  summary.relegatedIds = relegatedIds;
+  summary.promotedIds = move.promotedIds;
+  summary.relegatedIds = move.relegatedIds;
+  summary.promotedFrom = move.promotedFrom;
+  summary.promotedTo = move.promotedTo;
+  summary.relegatedFrom = move.relegatedFrom;
+  summary.relegatedTo = move.relegatedTo;
   state.recordBook.seasons.push(summary);
   graduateAwardNews(state);
 
@@ -630,10 +753,12 @@ export function runSeasonRollover(state: GameState) {
   pruneRetired(state);
 
   refreshValues(state, cfg);
-  // Re-price every AI club's commercial portfolio for the new season and pay
-  // out its investment windfall (v19), BEFORE stances are set — a club's war
-  // chest is part of the evidence it judges its own ambitions against.
-  refreshAiCommercial(state, cfg);
+  // Resolve every AI club's sponsorship book for the season about to start and
+  // bank what its majors pay (v19, real deals since v1.5) — BEFORE stances are
+  // set, since a club's war chest is part of the evidence it judges its own
+  // ambitions against. `state.season` is still the season just played here, so
+  // the pass is told which season it is signing for.
+  refreshAiCommercial(state, cfg, state.season + 1);
   // Set each club's stance for the summer window while the season just played is
   // still readable in the fixtures — it's the evidence they judge themselves on
   // (§10). The winter window re-evaluates against the live table.
@@ -647,6 +772,25 @@ export function runSeasonRollover(state: GameState) {
     generateLeagueFixtures(id, state.leagues[id].teamIds, state.schedule.leagueRoundDays, state.seed + state.season * (17 + idx * 14))
   );
   state.cup = initCup(playableDivs.flatMap((id) => state.leagues[id].teamIds));
+  // European cups (v1.51): qualification reads the season just played, which has
+  // only now been fully settled (final tables + cup winner) — so this is the
+  // earliest point the new continental season can be drawn. In season 1 there is
+  // no prior season to qualify from, which is why the first campaign is season 2.
+  if (state.european) {
+    const euroFixtures = startEuropeanSeason(state);
+    state.fixtures.push(...euroFixtures);
+    if (euroFixtures.length) {
+      const userCup = state.european.cups.find((c) => c.teamIds.includes(state.userTeamId));
+      if (userCup) {
+        pushInbox(
+          state,
+          "board",
+          `${userCup.name} qualification`,
+          `${state.teams[state.userTeamId].name} have qualified for the ${userCup.name}. The group stage begins in September — six matchdays, with the top two of each group going through to the knockout rounds.`
+        );
+      }
+    }
+  }
   state.currentDay = state.schedule.seasonStartDay;
   state.staffMarket = generateStaffMarket(deriveSeed(state.seed, `staff:${state.season}`));
   state.marketRefreshDay = state.schedule.seasonStartDay + cfg.marketRefreshDays;
@@ -665,14 +809,26 @@ export function runSeasonRollover(state: GameState) {
   state.lineup = {};
   state.pendingMatchFixtureId = null;
 
+  // Clear last summer's undecided graduates who have since retired or left, so
+  // the queue can't accumulate ghosts across a long save (v1.51). Runs before
+  // this year's age-outs are added to it.
+  pruneGraduateQueue(state);
+
   // Academy new-season pass (§18): age-outs (ages are +1 now), AI intake to
   // keep the world stocked, and a fresh U21 season on the new schedule.
   academyPostDevRollover(state, cfg);
 
-  // Contracts (§10 v5): expire deals — user players go to free agency, AI clubs
-  // silently renew — then backfill any contract-less newcomers.
+  // Contracts (§10 v5): settle the user's expiries from the dead-week contract
+  // round (v1.51), auto-renew for AI clubs, then backfill contract-less newcomers.
   const released = rolloverContracts(state, cfg);
   ensureContracts(state, cfg);
+
+  // Summer window for the user's own division rivals (v1.51). Runs LAST of the
+  // rollover's market passes, after contracts settle, so everyone released this
+  // summer — by the user, by an AI club, or by a deal allowed to lapse — is
+  // already a free agent the AI can sign. Before this, the playable divisions
+  // did their entire summer business through the weekly tick alone.
+  playableLeagueTransferWindow(state, cfg);
   if (released.length) {
     pushInbox(
       state,
@@ -683,6 +839,37 @@ export function runSeasonRollover(state: GameState) {
     );
   }
 
+  // Last line of defence (v1.51): expiries and retirements both land at the
+  // rollover, so a squad the manager hasn't topped up can fall below a legal
+  // side. Two sources, in the order a real club would use them.
+  //
+  // The club's OWN graduates come first. They're already on the books awaiting a
+  // decision, they're free, and promoting a kid rather than signing a stranger is
+  // what a short-handed club actually does. This also stops the queue growing
+  // without bound when a manager never answers it.
+  const calledUpGraduates = promoteGraduatesToFieldable(state, cfg);
+  if (calledUpGraduates.length) {
+    pushInbox(
+      state,
+      "academy",
+      "Graduates called up",
+      `With the senior squad too thin to field a side, ${calledUpGraduates.join(", ")} ` +
+        `${calledUpGraduates.length === 1 ? "was" : "were"} given senior contracts from the academy. ` +
+        `Resolve your graduates on the Academy screen if you'd rather choose who steps up.`
+    );
+  }
+  // Only if that still isn't enough does the club go to the free-agent market.
+  const emergencySignings = ensureFieldableSquad(state, cfg);
+  if (emergencySignings.length) {
+    pushInbox(
+      state,
+      "board",
+      "Emergency signings",
+      `Your squad was too thin to field a matchday side, so the club signed ${emergencySignings.join(", ")} ` +
+        `on free transfers to make up the numbers. These are stopgaps — strengthen properly while the window is open.`
+    );
+  }
+
   const champ = summary.championsByLeague[state.divisionIds[0]]?.teamName ?? "—";
   pushInbox(
     state,
@@ -690,6 +877,12 @@ export function runSeasonRollover(state: GameState) {
     `Season ${summary.yearLabel} review`,
     [
       `Champions: ${champ}. Cup winners: ${summary.cupWinner?.teamName ?? "—"}.`,
+      euroPrizes.length
+        ? euroPrizes.map((e) => `${e.cupName}: ${e.winnerName}.`).join(" ") +
+          (euroPrizes.some((e) => e.userPrize > 0)
+            ? ` Your European run earned ${fmtM(euroPrizes.reduce((n, e) => n + e.userPrize, 0))}.`
+            : "")
+        : "",
       `You finished ${summary.userFinish}.`,
       summary.playerOfSeason ? `Player of the Season: ${summary.playerOfSeason.name} (${summary.playerOfSeason.teamName}).` : "",
       summary.youngPlayerOfSeason ? `Young Player of the Season: ${summary.youngPlayerOfSeason.name}.` : "",

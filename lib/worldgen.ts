@@ -19,8 +19,9 @@ import { generateLeagueFixtures, initCup } from "./season";
 import { generateStaffMarket } from "./staff";
 import { generateScoutMarket } from "./scouts";
 import { resolveSimLeagues } from "./simresolver";
-import { refreshSponsorOffers } from "./sponsors";
+import { refreshSponsorOffers, seedAiSponsorBooks } from "./sponsors";
 import { initAcademyState, seedInitialAcademy } from "./academy";
+import { canRunEuropeanCups, initEuropeanState } from "./european";
 import { emptyProgress } from "./achievements";
 import { baseWage, ensureContracts } from "./contracts";
 
@@ -290,6 +291,10 @@ export function materializePlayer(
     age: seed.age,
   });
   p.name = seed.name;
+  // Full name (v27) — only stored when it actually says more than the short
+  // form, so the UI's "fullName ?? name" fallback never renders a duplicate.
+  const full = seed.fullName?.trim();
+  if (full && full !== seed.name.trim()) p.fullName = full;
   // honor explicit multi-position lists (else keep the generated primary+rolled)
   if (seed.positions.length > 1) p.positions = [...seed.positions];
   if (seed.archetypeId && getArchetype(seed.archetypeId).id === seed.archetypeId) p.archetypeId = seed.archetypeId;
@@ -310,6 +315,11 @@ export function materializePlayer(
   }
   // keep the ceiling sane after settling the overall
   p.potential = Math.max(p.potential, p.overall);
+  // Re-stamp the growth baseline against the SETTLED overall. generatePlayer
+  // stamped it against its own rolled rating, which the authored attrs/overall
+  // above then replaced — leaving the two out of step and every database player
+  // wearing a phantom "+X this season" on a brand-new save (v1.5 fix).
+  p.seasonStartOverall = p.overall;
   if (Array.isArray(seed.traits)) p.traits = [...seed.traits];
   p.value = playerValue(p, cfg);
 
@@ -359,7 +369,36 @@ function generateSquad(
   // Squad strength: an authored squadQuality (create-a-club / modded DBs)
   // overrides reputation as the generated squad's level.
   const rep = club.squadQuality ?? club.rep;
-  const starterAvg = 40 + rep * 0.5;
+  // `starterAvg` is the *first-choice* level the slot targets below are built
+  // from — depth penalties, the superstar boost and the youth maturity curve all
+  // pull the realised squad mean below it. An authored `squadAvgOverall` asks
+  // for a specific realised mean instead, so solve for the starter level that
+  // lands there (see solveStarterAvg) rather than using the rep curve.
+  const starterAvg =
+    club.squadAvgOverall !== undefined
+      ? solveStarterAvg(cfg, club.squadAvgOverall, rep, have, homeNat, homeShare, teamId)
+      : 40 + rep * 0.5;
+  for (const p of fillSquad(rng, cfg, starterAvg, rep, have, homeNat, homeShare)) {
+    p.clubId = teamId;
+    players[p.id] = p;
+    ids.push(p.id);
+  }
+  return ids;
+}
+
+/** Generate the procedural players a squad template still needs, at a given
+ * first-choice level. Pure: returns the players without filing them anywhere, so
+ * the squad-average solver can generate throwaway squads through exactly the
+ * same code path the real pass uses. */
+function fillSquad(
+  rng: RNG,
+  cfg: TuningConfig,
+  starterAvg: number,
+  rep: number,
+  have: Map<Pos, number>,
+  homeNat: string,
+  homeShare: number
+): PlayerBio[] {
   // Superstar seeding: at a genuine giant, a handful of first-choice players are
   // lifted into world-class territory so a fresh world actually holds 90-rated
   // stars. The boost scales with how far the club is above the elite threshold
@@ -379,6 +418,7 @@ function generateSquad(
       if (SQUAD_TEMPLATE.some(([p]) => p === pos)) eliteSlots.add(pos);
     }
   }
+  const out: PlayerBio[] = [];
   for (const [pos, count] of SQUAD_TEMPLATE) {
     for (let i = have.get(pos) ?? 0; i < count; i++) {
       // first player per position ≈ starter level, later ones are depth
@@ -387,18 +427,107 @@ function generateSquad(
       // so the stars sit clear of the rest of the squad and land where they read.
       const boost = i === 0 && eliteSlots.has(pos) ? eliteBoost : 0;
       const overall = Math.min(cfg.eliteHardCap, starterAvg - depthPenalty + boost + randNormal(rng) * 2.5);
-      const p = generatePlayer(rng, cfg, {
-        pos,
-        overall,
-        nat: pickNationality(rng, homeNat, homeShare),
-      });
-      p.clubId = teamId;
-      players[p.id] = p;
-      ids.push(p.id);
+      out.push(
+        generatePlayer(rng, cfg, {
+          pos,
+          overall,
+          nat: pickNationality(rng, homeNat, homeShare),
+        })
+      );
     }
   }
-  return ids;
+  return out;
 }
+
+/** Solve for the first-choice level (`starterAvg`) whose generated squad
+ * actually averages `target` overall (v1.51, authored `squadAvgOverall`).
+ *
+ * There's no closed form to invert: between the requested slot level and the
+ * stored overall sit the depth ladder, the superstar boost, the youth maturity
+ * curve, the `minOverall` floor, the elite hard cap and the attribute
+ * re-derivation. So measure instead — generate a throwaway squad, read its mean,
+ * shift by the error, repeat. The response is very nearly 1:1 in the unclamped
+ * middle of the range, so a few passes converge tightly; at the extremes (a
+ * target under the quality floor, or above what the hard cap allows once depth
+ * is priced in) it settles at the closest achievable mean.
+ *
+ * Runs on its own derived RNG so the probing never disturbs the shared
+ * league stream — the caller's `rng` is consumed exactly once, by the real pass,
+ * leaving every other club in the division byte-identical. */
+function solveStarterAvg(
+  cfg: TuningConfig,
+  target: number,
+  rep: number,
+  have: Map<Pos, number>,
+  homeNat: string,
+  homeShare: number,
+  teamId: string
+): number {
+  const SOLVE_PASSES = 8;
+  // Each pass averages several independent probe squads. Fitting a single
+  // sample would chase that sample's noise (a 27-man squad at σ≈2.5 per player
+  // still swings ±0.5 on the mean) and the real pass — which draws a different
+  // stream — would then land systematically off target. Averaging estimates the
+  // *expected* mean instead, which is what actually transfers.
+  const PROBES_PER_PASS = 8;
+  // Start at the target: response is ≈1:1, so the passes only need to price in
+  // the depth ladder, the youth maturity curve and the clamps.
+  let starterAvg = target;
+  let best = starterAvg;
+  let bestErr = Infinity;
+  for (let pass = 0; pass < SOLVE_PASSES; pass++) {
+    let total = 0;
+    let n = 0;
+    for (let s = 0; s < PROBES_PER_PASS; s++) {
+      // A fresh stream per probe: the estimate must not depend on how many
+      // players an earlier probe drew, or the solve would wander with roster size.
+      const probe = mulberry32(deriveSeed(SQUAD_AVG_SOLVE_SEED, `${teamId}:${pass}:${s}`));
+      const squad = fillSquad(probe, cfg, starterAvg, rep, have, homeNat, homeShare);
+      if (!squad.length) return starterAvg; // fully authored roster — nothing to size
+      total += squad.reduce((sum, p) => sum + p.overall, 0);
+      n += squad.length;
+    }
+    const err = target - total / n;
+    if (Math.abs(err) < Math.abs(bestErr)) {
+      bestErr = err;
+      best = starterAvg;
+    }
+    if (Math.abs(err) < 0.02) break;
+    starterAvg += err;
+  }
+  return best;
+}
+
+/** Fixed seed for the squad-average solver's throwaway probe squads. Constant
+ * (not the world seed) so a club authored with a target average generates the
+ * same strength in every save — the number the editor previews is the number the
+ * world builds, regardless of which seed the legacy rolled. */
+const SQUAD_AVG_SOLVE_SEED = 0x5A1F_00D5;
+
+/** The average overall a fully generated squad actually lands on for a legacy
+ * 1–100 `squadQuality`/`rep` dial. The forward direction of solveStarterAvg —
+ * exported so the club editor can migrate a club authored on the old dial to
+ * the equivalent average-overall number without guessing at the curve. */
+export function squadAvgForQuality(quality: number, cfg: TuningConfig = TUNING): number {
+  let total = 0;
+  let n = 0;
+  for (let s = 0; s < 8; s++) {
+    const probe = mulberry32(deriveSeed(SQUAD_AVG_SOLVE_SEED, `preview:${Math.round(quality)}:${s}`));
+    const squad = fillSquad(probe, cfg, 40 + quality * 0.5, quality, new Map(), "ENG", 0.6);
+    total += squad.reduce((sum, p) => sum + p.overall, 0);
+    n += squad.length;
+  }
+  return Math.round(total / n);
+}
+
+/** The band of squad averages worldgen can actually hit, for the editor to bound
+ * its input to. Asking outside it isn't an error — the solver just settles at the
+ * closest achievable mean — but the UI shouldn't offer a number the world can't
+ * build. The floor is the generated-player quality floor (`minOverall`); the
+ * ceiling is what a full 27-man squad can average once the depth ladder and the
+ * `eliteHardCap` are priced in, measured rather than assumed. */
+export const SQUAD_AVG_MIN = TUNING.minOverall;
+export const SQUAD_AVG_MAX = 87;
 
 function randomTactic(rng: RNG): Tactic {
   // The three classic styles stay the backbone of the league (listed twice), with
@@ -449,6 +578,14 @@ export interface NewGameOptions {
   /** Per-country database (default or user-uploaded). Missing entries fall back
    * to the built-in default for that country. Keyed by country code. */
   countryDBs?: Record<string, CountryDatabase>;
+  /** European competitions (v1.51): how many continental tiers to run — 1 =
+   * Champions League only, 2 = + Europa League, 3 = + Conference League. 0 (or
+   * omitted) disables them entirely. Requires at least `EURO_MIN_COUNTRIES`
+   * European countries in the save; below that the setting is ignored.
+   *
+   * The competitions begin in SEASON 2, because qualification is read from the
+   * previous season's final league tables. */
+  europeanTiers?: number;
   seed?: number;
 }
 
@@ -557,7 +694,9 @@ export function generateWorld(opts: NewGameOptions): GameState {
         leagueId: div.id,
         colors: club.colors,
         reputation: club.rep,
-        budget: clubBudget(club.rep),
+        // An authored starting budget (create-a-club / modded DBs) is honored
+        // verbatim; otherwise the reputation curve sets the opening war chest.
+        budget: club.budget !== undefined ? Math.max(0, Math.round(club.budget)) : clubBudget(club.rep),
         playerIds,
         tactic: randomTactic(rng),
         staff: {},
@@ -685,6 +824,13 @@ export function generateWorld(opts: NewGameOptions): GameState {
     transferNews: [],
   };
   state.academy = initAcademyState(state, cfg);
+  // European cups (v1.51). Only attached when the user asked for them AND the
+  // save actually holds enough European countries to fill the competitions.
+  // `cups` starts empty: qualification reads the previous season's final tables,
+  // so the first continental campaign is drawn at the season-1 rollover.
+  if (opts.europeanTiers && opts.europeanTiers > 0 && canRunEuropeanCups(state)) {
+    state.european = initEuropeanState(state, opts.europeanTiers);
+  }
   seedInitialAcademy(state, cfg);
   // Shirt numbers (v15): every squad in the world is numbered once the rosters
   // are final — best players first, so the stars wear the classic low numbers.
@@ -694,6 +840,12 @@ export function generateWorld(opts: NewGameOptions): GameState {
   ensureContracts(state, cfg);
   // Seed opening sponsorship offers for the user's empty slots (v6).
   refreshSponsorOffers(state, cfg);
+  // Every AI club opens the save with a sponsorship book of its own (v1.5),
+  // resolved automatically, so the world's commercial money is real from day
+  // one rather than materialising at the first rollover. No budget credit here:
+  // clubBudget() has already set each club's opening war chest, and banking the
+  // majors on top would double-count the money they start the game with.
+  seedAiSponsorBooks(state, cfg);
   // Resolve the non-playable leagues once up front so a brand-new save already
   // has the season's fresh, not-yet-started tables (teams loaded in strength
   // order, 0 games) for the open summer window. They fill in at the winter window

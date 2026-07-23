@@ -14,7 +14,8 @@ import { seasonGrowth } from "@/lib/development";
 import { wageDemandWithClause, maxLengthFor, evaluateOffer } from "@/lib/contracts";
 import { transferWindowState, formatDayShort, seasonYearLabel } from "@/lib/calendar";
 import { formatMoney } from "@/lib/value";
-import { ArchetypeIcon, Card, ConfirmButton, CountryFlag, Crest, Flag, GhostButton, GoldButton, Modal, Money, MoneyInput, Ovr, PlayerCard, PlayerGrid, PosBadge, Tabs, usePlayerView, ViewToggle } from "../ui";
+import { matchesPlayerName } from "@/lib/search";
+import { ArchetypeIcon, Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, GhostButton, GoldButton, Modal, Money, MoneyInput, Ovr, PlayerCard, PlayerGrid, PosBadge, Tabs, usePlayerView, ViewToggle } from "../ui";
 import ReleaseClauseField from "./ReleaseClauseField";
 
 type Tab = "search" | "offers" | "listed" | "shortlist" | "free" | "news";
@@ -73,7 +74,10 @@ function PlayerRowButton({ p, right, onClick }: { p: PlayerBio; right: React.Rea
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 truncate font-medium">
           <Flag nat={p.nationality} size={13} />
-          {p.name} <span className="ml-1 text-[11px] text-faint">{p.age}y</span>
+          {/* Transfers is the scouting screen — the full name is the identity
+              the user is deciding on, so it wins over the list abbreviation. */}
+          <span className="truncate">{displayFullName(p)}</span>
+          <span className="ml-1 shrink-0 text-[11px] text-faint">{p.age}y</span>
         </div>
         <div className="flex items-center gap-1.5 truncate text-[11px] text-faint">
           <ArchetypeIcon archetypeId={p.archetypeId} size={12} />
@@ -105,6 +109,7 @@ function PlayerCardButton({ p, right, onClick }: { p: PlayerBio; right: React.Re
     <PlayerCard
       p={p}
       onOpen={onClick}
+      fullName
       ovr={<Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />}
       sub={
         <>
@@ -133,8 +138,15 @@ function SearchTab() {
   const [maxValue, setMaxValue] = useState<number>(0);
   const [archetype, setArchetype] = useState<string>("ALL");
   const [trait, setTrait] = useState<string>("ALL");
+  // Where a player plays and where he's from (v1.5) — the three questions a
+  // scout actually asks of a market this size. League and Club cascade: pick a
+  // league and the club picker narrows to that league's sides.
+  const [leagueId, setLeagueId] = useState<string>("ALL");
+  const [clubId, setClubId] = useState<string>("ALL");
+  const [nat, setNat] = useState<string>("ALL");
   const [query, setQuery] = useState("");
   const [target, setTarget] = useState<PlayerBio | null>(null);
+  const [signed, setSigned] = useState<SignedDeal | null>(null);
   const [view, setView] = usePlayerView("transfers");
   const scouted = useScouted();
 
@@ -145,20 +157,53 @@ function SearchTab() {
     [pos]
   );
 
+  // Leagues, in ladder order first (the user's own pyramid is what they browse
+  // most) then the rest of the world alphabetically by country + tier.
+  const leagueOptions = useMemo(() => {
+    const ladder = (game.divisionIds ?? []).filter((id) => game.leagues[id]);
+    const rest = Object.values(game.leagues)
+      .filter((l) => !ladder.includes(l.id))
+      .sort((a, b) => a.country.localeCompare(b.country) || a.tier - b.tier);
+    return [...ladder.map((id) => game.leagues[id]), ...rest];
+  }, [game.leagues, game.divisionIds]);
+
+  // Clubs the user can actually buy from — never their own squad — narrowed to
+  // the selected league when there is one.
+  const clubOptions = useMemo(
+    () =>
+      Object.values(game.teams)
+        .filter((t) => t.id !== game.userTeamId && (leagueId === "ALL" || t.leagueId === leagueId))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [game.teams, game.userTeamId, leagueId]
+  );
+
+  // Nationalities present in the market, so the picker only ever offers codes
+  // that can return a result. Counted over the same pool the search runs on.
+  const natOptions = useMemo(() => {
+    const seen = new Set<string>();
+    for (const p of Object.values(game.players)) {
+      if (!p.retired && p.clubId && p.clubId !== game.userTeamId) seen.add(p.nationality);
+    }
+    return Array.from(seen).sort();
+  }, [game.players, game.userTeamId]);
+
   const results = useMemo(() => {
-    const list = Object.values(game.players).filter(
-      (p) =>
-        !p.retired &&
-        p.clubId &&
-        p.clubId !== game.userTeamId &&
-        (pos === "ALL" || p.positions.includes(pos)) &&
-        (maxValue === 0 || p.value <= maxValue) &&
-        (archetype === "ALL" || p.archetypeId === archetype) &&
-        (trait === "ALL" || p.traits.includes(trait)) &&
-        (query === "" || p.name.toLowerCase().includes(query.toLowerCase()))
-    );
+    const list = Object.values(game.players).filter((p) => {
+      if (p.retired || !p.clubId || p.clubId === game.userTeamId) return false;
+      if (pos !== "ALL" && !p.positions.includes(pos)) return false;
+      if (maxValue !== 0 && p.value > maxValue) return false;
+      if (archetype !== "ALL" && p.archetypeId !== archetype) return false;
+      if (trait !== "ALL" && !p.traits.includes(trait)) return false;
+      if (clubId !== "ALL" && p.clubId !== clubId) return false;
+      if (leagueId !== "ALL" && game.teams[p.clubId]?.leagueId !== leagueId) return false;
+      if (nat !== "ALL" && p.nationality !== nat) return false;
+      // Accent- and form-insensitive (v1.5): "Doue" finds "Doué", and the
+      // query is tested against the full name as well as the abbreviated one,
+      // so a first name the list never renders is still searchable.
+      return matchesPlayerName(p, query);
+    });
     return list.sort((a, b) => b.overall - a.overall).slice(0, 60);
-  }, [game.players, game.userTeamId, pos, maxValue, archetype, trait, query]);
+  }, [game.players, game.teams, game.userTeamId, pos, maxValue, archetype, trait, clubId, leagueId, nat, query]);
 
   return (
     <div>
@@ -218,6 +263,47 @@ function SearchTab() {
             <option key={m} value={m * 1_000_000}>≤ £{m}M</option>
           ))}
         </select>
+        <select
+          value={leagueId}
+          onChange={(e) => {
+            const next = e.target.value;
+            setLeagueId(next);
+            // Drop a club filter the new league doesn't contain, so the two
+            // pickers can never contradict each other into an empty result.
+            if (clubId !== "ALL" && next !== "ALL" && game.teams[clubId]?.leagueId !== next) {
+              setClubId("ALL");
+            }
+          }}
+          className="rounded-md border border-line bg-raised px-2 py-1.5 text-sm text-dim focus:border-gold focus:outline-none"
+          title="Filter by league"
+        >
+          <option value="ALL">All leagues</option>
+          {leagueOptions.map((l) => (
+            <option key={l.id} value={l.id}>{l.name}</option>
+          ))}
+        </select>
+        <select
+          value={clubId}
+          onChange={(e) => setClubId(e.target.value)}
+          className="max-w-[11rem] rounded-md border border-line bg-raised px-2 py-1.5 text-sm text-dim focus:border-gold focus:outline-none"
+          title="Filter by club"
+        >
+          <option value="ALL">All clubs</option>
+          {clubOptions.map((t) => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+        <select
+          value={nat}
+          onChange={(e) => setNat(e.target.value)}
+          className="rounded-md border border-line bg-raised px-2 py-1.5 text-sm text-dim focus:border-gold focus:outline-none"
+          title="Filter by nationality"
+        >
+          <option value="ALL">All nationalities</option>
+          {natOptions.map((n) => (
+            <option key={n} value={n}>{n}</option>
+          ))}
+        </select>
         {!scouted && <span className="text-[11px] text-faint">Hire a Scout for tighter potential reads on young players.</span>}
         <span className="ml-auto">
           <ViewToggle view={view} onChange={setView} />
@@ -254,16 +340,129 @@ function SearchTab() {
           ))}
         </Card>
       )}
-      {target && <BidModal p={target} onClose={() => setTarget(null)} />}
+      {target && <BidModal p={target} onClose={() => setTarget(null)} onSigned={setSigned} />}
+      {signed && <SigningModal deal={signed} onClose={() => setSigned(null)} />}
     </div>
   );
 }
 
-function BidModal({ p, onClose }: { p: PlayerBio; onClose: () => void }) {
+// ── Signing announcement (v1.5) ─────────────────────────────────────────────
+// A completed signing is the biggest moment on this screen, and a toast that
+// fades in three seconds is the wrong shape for it. This is the unveiling: the
+// player presented in club colours with the deal that got him, held on screen
+// until the user dismisses it.
+
+/** Everything the announcement needs, snapshotted at the moment the deal closes
+ * — the transfer has already moved the player, so his selling club can only be
+ * read from before the bid, never from live state afterwards. */
+type SignedDeal = {
+  playerId: string;
+  name: string;
+  nationality: string;
+  pos: Pos;
+  age: number;
+  overall: number;
+  archetypeId: string;
+  /** The club he came from, or null on a free transfer. */
+  fromClubId: string | null;
+  fromName: string;
+  fee: number;
+  wage: number;
+  years: number;
+  releaseClause?: number;
+};
+
+function SigningModal({ deal, onClose }: { deal: SignedDeal; onClose: () => void }) {
+  const game = useGame((s) => s.game)!;
+  const viewPlayer = useGame((s) => s.viewPlayer);
+  const club = game.teams[game.userTeamId];
+  const from = deal.fromClubId ? game.teams[deal.fromClubId] : null;
+  const free = deal.fee <= 0;
+
+  return (
+    <Modal title="Signing confirmed" onClose={onClose}>
+      {/* The unveiling — the new man in his new club's colours. */}
+      <div className="rounded-lg border border-gold-lo/40 bg-gradient-to-br from-gold-lo/[0.14] to-transparent px-4 py-4 text-center">
+        <div className="mb-2 flex items-center justify-center gap-2">
+          <Crest colors={club.colors} short={club.short} size={30} />
+          <span className="display text-[11px] uppercase tracking-widest text-faint">{club.name}</span>
+        </div>
+        <div className="flex items-center justify-center gap-2">
+          <Flag nat={deal.nationality} size={16} />
+          <span className="display text-xl font-bold gold-text">{deal.name}</span>
+        </div>
+        <div className="mt-1.5 flex items-center justify-center gap-2 text-[12px] text-dim">
+          <PosBadge pos={deal.pos} />
+          <span>{getArchetype(deal.archetypeId).name}</span>
+          <span className="text-faint">·</span>
+          <span className="tnum">{deal.age}y</span>
+          <Ovr value={deal.overall} size="sm" />
+        </div>
+        {/* Where he came from — the move itself, read left to right. */}
+        <div className="mt-3 flex items-center justify-center gap-2 text-[12px] text-faint">
+          {from ? (
+            <span className="flex items-center gap-1.5">
+              <Crest colors={from.colors} short={from.short} size={16} />
+              <span className="truncate text-dim">{from.name}</span>
+            </span>
+          ) : (
+            <span className="text-win">{deal.fromName}</span>
+          )}
+          <span aria-hidden>→</span>
+          <span className="flex items-center gap-1.5">
+            <Crest colors={club.colors} short={club.short} size={16} />
+            <span className="truncate text-dim">{club.name}</span>
+          </span>
+        </div>
+      </div>
+
+      {/* The terms of the deal, laid out as the three numbers that define it. */}
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="rounded-md border border-line bg-raised px-3 py-2 text-center">
+          <div className="text-[10px] uppercase tracking-widest text-faint">Fee</div>
+          {free ? (
+            <div className="display mt-0.5 text-sm font-bold text-win">Free</div>
+          ) : (
+            <Money value={deal.fee} className="display mt-0.5 text-sm font-bold text-ink" />
+          )}
+        </div>
+        <div className="rounded-md border border-line bg-raised px-3 py-2 text-center">
+          <div className="text-[10px] uppercase tracking-widest text-faint">Wage</div>
+          <div className="display mt-0.5 text-sm font-bold tnum text-ink">{formatMoney(deal.wage)}<span className="text-[10px] font-normal text-faint">/wk</span></div>
+        </div>
+        <div className="rounded-md border border-line bg-raised px-3 py-2 text-center">
+          <div className="text-[10px] uppercase tracking-widest text-faint">Contract</div>
+          <div className="display mt-0.5 text-sm font-bold tnum text-ink">
+            {deal.years} <span className="text-[10px] font-normal text-faint">yr{deal.years > 1 ? "s" : ""}</span>
+          </div>
+        </div>
+      </div>
+      {deal.releaseClause ? (
+        <div className="mt-2 rounded-md border border-gold-lo/40 bg-gold-lo/[0.08] px-3 py-1.5 text-center text-[11px] text-dim">
+          Release clause agreed at <span className="text-gold">{formatMoney(deal.releaseClause)}</span>.
+        </div>
+      ) : null}
+
+      <div className="mt-4 flex items-center justify-between border-t border-line/60 pt-3">
+        <button
+          className="text-xs text-faint hover:text-dim"
+          onClick={() => {
+            onClose();
+            viewPlayer(deal.playerId);
+          }}
+        >
+          View his profile →
+        </button>
+        <GoldButton onClick={onClose}>DONE</GoldButton>
+      </div>
+    </Modal>
+  );
+}
+
+function BidModal({ p, onClose, onSigned }: { p: PlayerBio; onClose: () => void; onSigned: (d: SignedDeal) => void }) {
   const game = useGame((s) => s.game)!;
   const bid = useGame((s) => s.bid);
   const viewPlayer = useGame((s) => s.viewPlayer);
-  const showToast = useGame((s) => s.showToast);
   // A free agent belongs to nobody, so there is no fee to agree and no selling
   // club to haggle with (v21) — the whole deal is the contract.
   const isFreeAgent = !p.clubId;
@@ -294,14 +493,30 @@ function BidModal({ p, onClose }: { p: PlayerBio; onClose: () => void }) {
       if (verdict.kind === "countered") setWage(verdict.wage);
       return;
     }
+    // Snapshot the selling club BEFORE the bid — a completed transfer moves the
+    // player, so afterwards `p.clubId` is the user's own side.
+    const fromClubId = p.clubId ?? null;
+    const fromName = fromClubId ? game.teams[fromClubId]?.name ?? "—" : "Free agent";
     const out = bid(p.id, amount, terms);
     if (out.kind === "accepted") {
-      showToast(
-        isFreeAgent
-          ? `${p.name} signs on a free — ${formatMoney(wage)}/wk!`
-          : `${p.name} joins for ${formatMoney(amount)} on ${formatMoney(wage)}/wk!`
-      );
+      // The signing gets its own announcement (v1.5) rather than a toast that
+      // fades before the user has read it.
       onClose();
+      onSigned({
+        playerId: p.id,
+        name: displayFullName(p),
+        nationality: p.nationality,
+        pos: p.positions[0],
+        age: p.age,
+        overall: p.overall,
+        archetypeId: p.archetypeId,
+        fromClubId: isFreeAgent ? null : fromClubId,
+        fromName,
+        fee: isFreeAgent ? 0 : amount,
+        wage,
+        years,
+        releaseClause: clause ?? undefined,
+      });
     } else if (out.kind === "countered") {
       setReply({ kind: "fee-counter", counterFee: out.counterFee });
     } else {
@@ -313,7 +528,7 @@ function BidModal({ p, onClose }: { p: PlayerBio; onClose: () => void }) {
   const overBudget = !isFreeAgent && fee > budget;
 
   return (
-    <Modal title={isFreeAgent ? `Sign ${p.name}` : `Bid for ${p.name}`} onClose={onClose}>
+    <Modal title={isFreeAgent ? `Sign ${displayFullName(p)}` : `Bid for ${displayFullName(p)}`} onClose={onClose}>
       <div className="mb-3 flex items-center justify-between text-sm text-dim">
         <span>
           {getArchetype(p.archetypeId).name} · {p.age}y · <Ovr value={p.overall} size="sm" />
@@ -335,7 +550,7 @@ function BidModal({ p, onClose }: { p: PlayerBio; onClose: () => void }) {
         <div className="flex items-center gap-3 rounded-md border border-win/40 bg-win/[0.07] px-3 py-2.5">
           <span className="text-lg">✓</span>
           <div className="text-[13px] leading-relaxed text-dim">
-            <span className="display font-semibold text-win">No transfer fee.</span> {p.name} is out of contract —
+            <span className="display font-semibold text-win">No transfer fee.</span> {displayFullName(p)} is out of contract —
             agree personal terms and he&apos;s yours.
           </div>
         </div>
@@ -503,7 +718,7 @@ function OffersTab() {
           <Card key={o.id} className="flex flex-wrap items-center gap-4 p-4">
             <div className="min-w-0 flex-1">
               <div className="font-semibold">
-                {buyer.name} → <span className="gold-text">{formatMoney(o.fee)}</span> for {p.name}
+                {buyer.name} → <span className="gold-text">{formatMoney(o.fee)}</span> for {displayFullName(p)}
               </div>
               <div className="text-xs text-faint">
                 Valued {formatMoney(p.value)} · Ovr {p.overall} · {p.age}y · expires in {Math.max(0, o.deadlineDay - game.currentDay)}d
@@ -745,7 +960,7 @@ function NegotiateModal({ offerId, onClose }: { offerId: string; onClose: () => 
   };
 
   return (
-    <Modal title={`Negotiate — ${p.name}`} onClose={onClose}>
+    <Modal title={`Negotiate — ${displayFullName(p)}`} onClose={onClose}>
       {/* Player identity header */}
       <button
         onClick={() => viewPlayer(p.id)}
@@ -755,7 +970,7 @@ function NegotiateModal({ offerId, onClose }: { offerId: string; onClose: () => 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 truncate font-semibold transition-colors group-hover:text-gold">
             <Flag nat={p.nationality} size={13} />
-            {p.name}
+            <span className="truncate">{displayFullName(p)}</span>
           </div>
           <div className="truncate text-[11px] text-faint">
             {getArchetype(p.archetypeId).name} · {p.age}y
@@ -893,6 +1108,7 @@ function ListedTab() {
               key={p.id}
               p={p}
               onOpen={() => viewPlayer(p.id)}
+              fullName
               ovr={<Ovr value={p.overall} size="sm" />}
               sub={
                 <>
@@ -913,8 +1129,8 @@ function ListedTab() {
               <button onClick={() => viewPlayer(p.id)} className="group min-w-0 flex-1 text-left">
                 <span className="flex items-center gap-1.5 truncate font-medium">
                   <Flag nat={p.nationality} size={13} />
-                  <span className="truncate transition-colors group-hover:text-gold">{p.name}</span>
-                  <span className="ml-1 text-[11px] text-faint">{p.age}y</span>
+                  <span className="truncate transition-colors group-hover:text-gold">{displayFullName(p)}</span>
+                  <span className="ml-1 shrink-0 text-[11px] text-faint">{p.age}y</span>
                 </span>
                 <span className="flex items-center gap-1.5 truncate text-[11px] text-faint">
                   <ArchetypeIcon archetypeId={p.archetypeId} size={12} />
@@ -936,6 +1152,7 @@ function ShortlistTab() {
   const game = useGame((s) => s.game)!;
   const toggle = useGame((s) => s.toggleShortlist);
   const [target, setTarget] = useState<PlayerBio | null>(null);
+  const [signed, setSigned] = useState<SignedDeal | null>(null);
   const [view, setView] = usePlayerView("transfers");
   // The shortlist stores ids; resolve to live players and drop anyone who's since
   // retired or signed for the user (they no longer belong on a targets list).
@@ -945,11 +1162,16 @@ function ShortlistTab() {
     .sort((a, b) => b.overall - a.overall);
 
   if (!players.length) {
+    // Signing the last man on the list empties it — the announcement still has
+    // to render, so it hangs off the empty state too.
     return (
-      <div className="pt-8 text-center text-sm text-faint">
-        Your shortlist is empty. Open any player&apos;s card and use{" "}
-        <span className="text-dim">Add to Shortlist</span> to track him here.
-      </div>
+      <>
+        <div className="pt-8 text-center text-sm text-faint">
+          Your shortlist is empty. Open any player&apos;s card and use{" "}
+          <span className="text-dim">Add to Shortlist</span> to track him here.
+        </div>
+        {signed && <SigningModal deal={signed} onClose={() => setSigned(null)} />}
+      </>
     );
   }
 
@@ -989,7 +1211,8 @@ function ShortlistTab() {
           ))}
         </Card>
       )}
-      {target && <BidModal p={target} onClose={() => setTarget(null)} />}
+      {target && <BidModal p={target} onClose={() => setTarget(null)} onSigned={setSigned} />}
+      {signed && <SigningModal deal={signed} onClose={() => setSigned(null)} />}
     </>
   );
 }
@@ -997,18 +1220,37 @@ function ShortlistTab() {
 function FreeAgentsTab() {
   const game = useGame((s) => s.game)!;
   const [target, setTarget] = useState<PlayerBio | null>(null);
+  const [signed, setSigned] = useState<SignedDeal | null>(null);
   const [view, setView] = usePlayerView("transfers");
-  const agents = Object.values(game.players)
-    .filter((p) => !p.retired && !p.clubId)
-    .sort((a, b) => b.overall - a.overall);
+  // The free-agent pool grows all season as clubs release players, so it needs
+  // the same name search the market does (v1.5) — accent-insensitive, and over
+  // the full name as well as the short one.
+  const [query, setQuery] = useState("");
+  const agents = useMemo(
+    () =>
+      Object.values(game.players)
+        .filter((p) => !p.retired && !p.clubId && matchesPlayerName(p, query))
+        .sort((a, b) => b.overall - a.overall),
+    [game.players, query]
+  );
   return (
     <>
-      <div className="mb-3 flex justify-end">
-        <ViewToggle view={view} onChange={setView} />
+      <div className="mb-3 flex items-center gap-2">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search free agents…"
+          className="w-48 rounded-md border border-line bg-raised px-3 py-1.5 text-sm placeholder:text-faint focus:border-gold focus:outline-none"
+        />
+        <span className="ml-auto">
+          <ViewToggle view={view} onChange={setView} />
+        </span>
       </div>
       {agents.length === 0 ? (
         <Card>
-          <div className="p-4 text-sm text-faint">No free agents available.</div>
+          <div className="p-4 text-sm text-faint">
+            {query.trim() ? "No free agents match that search." : "No free agents available."}
+          </div>
         </Card>
       ) : view === "grid" ? (
         <PlayerGrid>
@@ -1023,7 +1265,8 @@ function FreeAgentsTab() {
           ))}
         </Card>
       )}
-      {target && <BidModal p={target} onClose={() => setTarget(null)} />}
+      {target && <BidModal p={target} onClose={() => setTarget(null)} onSigned={setSigned} />}
+      {signed && <SigningModal deal={signed} onClose={() => setSigned(null)} />}
     </>
   );
 }
@@ -1182,6 +1425,10 @@ function TransferNewsRow({
   const live = game.players[n.playerId];
   const playerLive = !!live;
   const playerNat = n.playerNat ?? live?.nationality;
+  // Full name on the wire (v1.5), same as everywhere else on this screen. Read
+  // off the live player when he's still in the world; a pruned save keeps only
+  // the denormalised short name, which is what the feed stored at the time.
+  const playerName = live ? displayFullName(live) : n.playerName;
 
   // A club's country flag comes from its league (leagues carry the country). A
   // pruned club falls back to no flag rather than a wrong one.
@@ -1214,7 +1461,7 @@ function TransferNewsRow({
           }`}
           title={playerLive ? "View player" : undefined}
         >
-          {n.playerName}
+          {playerName}
         </button>
         {badge && (
           <span className={`display shrink-0 rounded-sm border px-1 py-0.5 text-[8px] font-bold ${badge.cls}`}>

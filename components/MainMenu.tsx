@@ -18,6 +18,7 @@ import { libraryClubToSeed } from "@/lib/customdb";
 import { divisionSeed, teamIdFor } from "@/lib/worldgen";
 import { DEFAULT_TIER_NAMES, MAX_DIVISION_DEPTH, generateDivisionClubs } from "@/lib/config/divisions";
 import { storedKey } from "@/lib/auth";
+import { EURO_MIN_COUNTRIES, europeanCountryCodes } from "@/lib/european";
 import { NAME_POOLS } from "@/lib/config/names";
 import { overallFromAttrs } from "@/lib/config/positions";
 import { CountryFlag, Crest, Flag, GoldButton, GhostButton, Modal, Ovr, PosBadge } from "./ui";
@@ -204,6 +205,10 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
   const [viewCountries, setViewCountries] = useState<string[]>(
     COUNTRIES.filter((c) => c.code !== "ENG").map((c) => c.code)
   );
+  // European competitions (v1.51): how many continental tiers to run. 0 = off.
+  // Only meaningful once enough European countries are included; the option is
+  // hidden below that threshold rather than offered and silently ignored.
+  const [europeanTiers, setEuropeanTiers] = useState<number>(3);
   // per-country database choice, keyed by country code
   const [dbChoices, setDbChoices] = useState<Record<string, DbChoice>>({});
   // resolved preset databases, keyed by country code (lazy-loaded from /public)
@@ -232,6 +237,15 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
 
   /** A country's chosen depth, defaulting to what its database authors. */
   const depthFor = (code: string, authoredCount: number) => divisionDepths[code] ?? authoredCount;
+
+  // European competitions need a critical mass of European nations to fill three
+  // 32-club competitions. Counted off the same scouting-tree country list the
+  // engine uses, so the setup screen and the world agree on what "European" means.
+  const europeanIncluded = useMemo(() => {
+    const euro = europeanCountryCodes();
+    return includedCodes.filter((c) => euro.has(c));
+  }, [includedCodes]);
+  const euroEligible = europeanIncluded.length >= EURO_MIN_COUNTRIES;
   const setDepth = (code: string, depth: number) => setDivisionDepths((m) => ({ ...m, [code]: depth }));
 
   const choiceFor = (code: string): DbChoice => dbChoices[code] ?? initialChoice(code);
@@ -443,6 +457,7 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
       countryDBs,
       divisionDepths,
       divisionDepth: playableDepth,
+      europeanTiers: euroEligible ? europeanTiers : 0,
       // Only send names the user actually typed; blanks keep the defaults.
       divisionNames: Object.fromEntries(
         Object.entries(divisionNames)
@@ -742,6 +757,48 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
               );
             })}
           </div>
+        )}
+      </div>
+
+      {/* Step 3b: European competitions (v1.51) */}
+      <div>
+        <span className="display text-xs font-semibold tracking-widest text-faint">
+          EUROPEAN COMPETITIONS
+        </span>
+        {euroEligible ? (
+          <>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {[
+                { n: 0, label: "Off" },
+                { n: 1, label: "Champions League" },
+                { n: 2, label: "+ Europa League" },
+                { n: 3, label: "+ Conference League" },
+              ].map((opt) => (
+                <button
+                  key={opt.n}
+                  onClick={() => setEuropeanTiers(opt.n)}
+                  className={`rounded-md border px-3 py-1.5 text-sm ${
+                    europeanTiers === opt.n
+                      ? "border-gold-lo bg-hover text-ink"
+                      : "border-line text-faint hover:text-dim"
+                  }`}
+                >
+                  {europeanTiers === opt.n ? "✓ " : ""}
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-[11px] text-faint">
+              32 clubs per competition &mdash; eight groups of four, then two-legged knockout rounds
+              and a one-off final. Qualification comes from the previous season&apos;s final league
+              tables, so the first European campaign is season two.
+            </p>
+          </>
+        ) : (
+          <p className="mt-2 text-[11px] text-faint">
+            Include at least {EURO_MIN_COUNTRIES} European countries to enable the continental cups
+            &mdash; {europeanIncluded.length} selected so far.
+          </p>
         )}
       </div>
 

@@ -368,5 +368,25 @@ export function weeklyIncomeEstimate(state: GameState, team: Team, cfg: TuningCo
   const tv = cfg.weeklyIncomeByTier[(league?.tier ?? 2) - 1] ?? cfg.weeklyIncomeByTier[cfg.weeklyIncomeByTier.length - 1] ?? 0;
   const gate = team.reputation * cfg.gateIncomePerReputation;
   const commercial = team.commercialIncome ?? 0;
-  return tv + gate + commercial;
+  const base = tv + gate + commercial;
+
+  // Squad-quality scaling (v1.51). The wage curve is EXPONENTIAL in overall while
+  // the tier income above is a flat constant, so a database with better players
+  // than the built-in one inflates every wage bill without moving income at all.
+  // Whole divisions then sat permanently over `aiMaxWageToIncomeRatio`, which made
+  // `canAfford` reject every signing and froze the transfer market — the "I changed
+  // the database and the AI stopped doing transfers" bug.
+  //
+  // Income therefore scales with the standard of football the club actually plays,
+  // using the SAME exponent as the wage curve so the two move together and the
+  // ratio is database-independent. Clamped so a modded outlier can't run away.
+  const squad = team.playerIds.map((id) => state.players[id]).filter((p) => p && !p.retired);
+  if (!squad.length) return base;
+  const avgOverall = squad.reduce((n, p) => n + p.overall, 0) / squad.length;
+  const gap = avgOverall - cfg.wageIncomeBaselineOverall;
+  const mult = Math.max(
+    cfg.wageIncomeQualityMultMin,
+    Math.min(cfg.wageIncomeQualityMultMax, Math.exp(gap * cfg.wagePerOverallCurve.exponent))
+  );
+  return base * mult;
 }

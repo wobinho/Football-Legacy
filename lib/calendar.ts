@@ -107,6 +107,39 @@ export function buildSeasonSchedule(season: number): SeasonSchedule {
 
   const winterOpenDay = dateToDay(startYear + 1, 0, 1);
 
+  // ── European matchdays (v1.51) ──────────────────────────────────────────
+  // 13 midweek dates shared by all three cups: 6 group matchdays from mid-
+  // September to early December, then two legs each of R16/QF/SF through
+  // February–April, and a single-match final in late May.
+  //
+  // Every date is a Tuesday, which keeps them clear of the domestic cup's
+  // Wednesdays automatically — no European tie can ever collide with a cup
+  // round, and neither collides with the league's Saturdays.
+  const tue = (y: number, m0: number, d: number) => nextWeekday(dateToDay(y, m0, d), 2);
+  const euroRoundDays = [
+    // Group stage — six matchdays, roughly a fortnight apart.
+    tue(startYear, 8, 16), // mid-Sep
+    tue(startYear, 8, 30), // end Sep
+    tue(startYear, 9, 20), // late Oct
+    tue(startYear, 10, 3), // early Nov
+    tue(startYear, 10, 24), // late Nov
+    tue(startYear + 0, 11, 8), // early Dec
+    // Round of 16 (two legs)
+    tue(startYear + 1, 1, 10), // mid-Feb
+    tue(startYear + 1, 1, 24), // late Feb
+    // Quarter-finals (two legs)
+    tue(startYear + 1, 2, 10), // mid-Mar
+    tue(startYear + 1, 2, 24), // late Mar
+    // Semi-finals (two legs)
+    tue(startYear + 1, 3, 20), // late Apr
+    tue(startYear + 1, 4, 4), // early May
+  ];
+  // Final — a single match, on the Tuesday at least a week after the second leg
+  // of the semi-finals. Derived from the semi rather than pinned to a date so it
+  // can never be scheduled before the tie that decides who plays in it (which a
+  // fixed early-May date did whenever the season ran late).
+  euroRoundDays.push(nextWeekday(euroRoundDays[11] + 7, 2));
+
   return {
     seasonStartDay,
     leagueRoundDays,
@@ -128,8 +161,14 @@ export function buildSeasonSchedule(season: number): SeasonSchedule {
     // dead week. With no games left to play, the season's individual honours are
     // handed out here (v1.44), a week before the rollover formally closes it.
     accoladesDay: cupRoundDays[5] + 1,
+    // The day after the honours (v1.51): with the season settled and the awards
+    // handed out, the club's own expiring contracts are put to the manager. Sits
+    // inside the same dead week so it's a beat in the wind-down, not an extra
+    // interruption — and comfortably before END SEASON closes the campaign.
+    contractResolveDay: cupRoundDays[5] + 2,
     seasonEndDay: cupRoundDays[5] + 7, // season review, then jump to next Jul 1
     intakeDay: nextWeekday(dateToDay(startYear + 1, 2, 10), 3), // Wed mid-March (§18)
+    euroRoundDays,
   };
 }
 

@@ -28,7 +28,7 @@ import { playerValue } from "./value";
 import { transferWindowState } from "./calendar";
 import { regionNats } from "./config/scouting";
 import { getArchetype } from "./config/archetypes";
-import { grantDefaultContract } from "./contracts";
+import { applyContract, grantDefaultContract } from "./contracts";
 import { academySquadCap } from "./economy";
 import { pushInboxItem } from "./inbox";
 import { assignKitNumber, clearKitNumber } from "./kitnumbers";
@@ -944,6 +944,105 @@ export function releaseFromAcademy(state: GameState, playerId: string): string |
   return null;
 }
 
+// ── Academy graduates awaiting a decision (§18, v1.51) ────────────────────
+// A prospect who ages out of the academy is held here rather than being pushed
+// into the senior squad automatically. Until the manager acts he belongs to the
+// club but sits on neither list — he can't be picked, doesn't draw a wage, and
+// can't be bought. The two calls below are the only ways out of that limbo.
+
+/** The prospects currently waiting on a senior decision, best first. */
+export function pendingGraduates(state: GameState): PlayerBio[] {
+  return (state.pendingGraduates ?? [])
+    .map((g) => state.players[g.playerId])
+    .filter((p): p is PlayerBio => !!p && !p.retired)
+    .sort((a, b) => b.overall - a.overall);
+}
+
+/**
+ * Safety net for a manager who never answers the graduate queue (v1.51).
+ *
+ * Holding graduates for a decision is right, but it can't be allowed to leave
+ * the club unable to field a side — that would replace one silent problem
+ * (players appearing unasked) with a worse one (a squad quietly starving). When
+ * the senior squad is below `matchdaySquad` at the rollover, the best waiting
+ * graduates are given senior contracts until it isn't, and the manager is told.
+ *
+ * Best first, because if the choice is being made for you it should at least be
+ * the choice you'd have made. Returns the names promoted.
+ */
+export function promoteGraduatesToFieldable(state: GameState, cfg: TuningConfig): string[] {
+  const team = userTeam(state);
+  const promoted: string[] = [];
+  // Best first — pendingGraduates is already sorted by overall.
+  for (const p of pendingGraduates(state)) {
+    if (team.playerIds.filter((id) => !state.players[id]?.retired).length >= cfg.matchdaySquad) break;
+    if (!signGraduate(state, p.id, cfg)) promoted.push(p.name);
+  }
+  return promoted;
+}
+
+/** Drop entries whose player has retired or otherwise left the club, so an
+ * undecided graduate can't linger in the list forever. Called at the rollover. */
+export function pruneGraduateQueue(state: GameState) {
+  if (!state.pendingGraduates?.length) return;
+  state.pendingGraduates = state.pendingGraduates.filter((g) => {
+    const p = state.players[g.playerId];
+    return !!p && !p.retired && p.clubId === state.userTeamId;
+  });
+}
+
+/** Sign an aged-out prospect to his first senior contract. Terms are the
+ * manager's if he negotiated them, otherwise a default deal at his demand. */
+export function signGraduate(
+  state: GameState,
+  playerId: string,
+  cfg: TuningConfig,
+  terms?: { wage: number; years: number; releaseClause?: number }
+): string | null {
+  const entry = (state.pendingGraduates ?? []).find((g) => g.playerId === playerId);
+  if (!entry) return "He isn't waiting on a decision.";
+  const p = state.players[playerId];
+  if (!p) return "No such player.";
+  const team = userTeam(state);
+  state.pendingGraduates = (state.pendingGraduates ?? []).filter((g) => g.playerId !== playerId);
+  team.playerIds.push(playerId);
+  p.clubId = team.id;
+  if (terms) applyContract(state, p, terms.wage, terms.years, cfg, terms.releaseClause);
+  else grantDefaultContract(state, p, cfg);
+  clearKitNumber(p);
+  assignKitNumber(state, p);
+  // The prospect tier is an academy label — it comes off on the way up.
+  delete p.u21Tier;
+  return null;
+}
+
+/** Let an aged-out prospect go. He leaves as a free agent, like any release. */
+export function releaseGraduate(state: GameState, playerId: string): string | null {
+  const entry = (state.pendingGraduates ?? []).find((g) => g.playerId === playerId);
+  if (!entry) return "He isn't waiting on a decision.";
+  const p = state.players[playerId];
+  if (!p) return "No such player.";
+  const team = userTeam(state);
+  state.pendingGraduates = (state.pendingGraduates ?? []).filter((g) => g.playerId !== playerId);
+  state.academy.focusIds = state.academy.focusIds.filter((id) => id !== playerId);
+  state.academy.u21Squad = (state.academy.u21Squad ?? []).filter((id) => id !== playerId);
+  state.academy.loanList = state.academy.loanList.filter((id) => id !== playerId);
+  p.clubId = null;
+  p.contract = undefined;
+  p.loan = undefined;
+  clearKitNumber(p);
+  if (!state.careers[playerId]) state.careers[playerId] = { playerId, seasons: [], transfers: [] };
+  state.careers[playerId].transfers.push({
+    season: state.season,
+    day: state.currentDay,
+    from: team.name,
+    to: "Released",
+    fee: 0,
+    fromId: team.id,
+  });
+  return null;
+}
+
 // ── Youth scouting (§18, v5): a department of scouts on country assignments ─
 // The user hires Scouts as staff and the Scouting Network facility sets how
 // many can be out at once (scoutCapacity). Each assignment points a scout at a
@@ -1412,6 +1511,10 @@ export interface LoanSuitor {
   colors: [string, string];
   reputation: number;
   leagueName: string;
+  /** The league's country (v1.5) — suitors are drawn from every league in the
+   * world, so the flag is what tells the user at a glance whether a loan is a
+   * move down the road or a move abroad. Empty when the league is unknown. */
+  country: string;
   /** Projected role at this club, from the rep gap — the pitch to the user. */
   role: "Regular starter" | "Squad rotation";
   /** Development weight of a minute here (higher tier = more valuable). */
@@ -1452,6 +1555,7 @@ export function academyLoanSuitors(state: GameState, playerId: string, cfg: Tuni
         colors: t.colors,
         reputation: t.reputation,
         leagueName: league?.name ?? "—",
+        country: league?.country ?? "",
         role: starter ? "Regular starter" : "Squad rotation",
         minutesWeight: loanWeightFor(state, t, cfg),
       };
@@ -1635,20 +1739,32 @@ export function academyPostDevRollover(state: GameState, cfg: TuningConfig) {
   const team = userTeam(state);
   const academy = team.academyPlayerIds ?? [];
 
-  // Age-out at academyMaxAge+1: everyone who comes through graduates. With the
-  // senior squad cap gone (v14) there's always a pathway, so nobody is released
-  // for want of a slot — trimming the squad is the user's call, not the rule's.
+  // Age-out at academyMaxAge+1 (v1.51): a prospect who outgrows the academy no
+  // longer walks into the senior squad on his own. He leaves the academy and
+  // waits on `pendingGraduates` until the manager signs him or lets him go —
+  // squads should only ever grow because the manager chose it, and a class of
+  // kids appearing in the senior list every summer read as the game generating
+  // players behind their back. The Academy screen surfaces the decision.
+  const graduating: string[] = [];
   for (const id of [...academy]) {
     const p = state.players[id];
     if (!p || p.retired || p.age <= cfg.academyMaxAge) continue;
     team.academyPlayerIds = (team.academyPlayerIds ?? []).filter((x) => x !== id);
-    team.playerIds.push(id);
-    if (!p.contract) grantDefaultContract(state, p, cfg);
-    clearKitNumber(p);
-    assignKitNumber(state, p);
-    // Prospect tier is an academy-only label — drop it on graduation.
-    delete p.u21Tier;
-    pushInbox(state, "academy", `${p.name} steps up`, `${p.name} turns ${p.age} and graduates into the senior squad.`);
+    // Held in limbo: off the academy books, not yet on the senior ones. His
+    // clubId stays put so he can't be signed out from under the manager while
+    // the decision is open.
+    (state.pendingGraduates ??= []).push({ playerId: id, season: state.season });
+    graduating.push(p.name);
+  }
+  if (graduating.length) {
+    pushInbox(
+      state,
+      "academy",
+      graduating.length === 1 ? `${graduating[0]} has outgrown the academy` : `${graduating.length} prospects have outgrown the academy`,
+      `${graduating.join(", ")} ${graduating.length === 1 ? "is" : "are"} now too old for the youth setup. ` +
+        `Sign ${graduating.length === 1 ? "him" : "them"} to a senior contract or release ${graduating.length === 1 ? "him" : "them"} — ` +
+        `the decision is waiting on the Academy screen. Nobody joins the senior squad until you say so.`
+    );
   }
 
   // warn about next summer's age-outs while there's a season to act

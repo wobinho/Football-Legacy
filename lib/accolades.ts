@@ -3,7 +3,10 @@
 // Every season, once the tables are final and before the development pass ages
 // the world, each league hands out its individual honours and picks a Team of
 // the Season; the save as a whole crowns a Legacy Player and a Legacy Team of
-// the Year across every league. The winners are stamped onto the players
+// the Year from the world's TOP DIVISIONS ONLY (v1.5) — every league gives out
+// its own honours, but the two legacy awards are the best in the world, and a
+// dominant second-tier campaign must not outrank a first-division one. The
+// winners are stamped onto the players
 // themselves (PlayerBio.accolades) so a cabinet is permanent — it survives
 // retirement and shows on the profile card forever — and captured on the season
 // summary (SeasonAccolades) so the record book's season review can render the
@@ -34,7 +37,7 @@ export const ACCOLADE_META: Record<AccoladeType, { title: string; emoji: string;
   goldenPlaymaker: { title: "Golden Playmaker", emoji: "🎯", blurb: "Most assists in the league" },
   goldenGlove: { title: "Golden Glove", emoji: "🧤", blurb: "Highest-rated goalkeeper in the league" },
   teamOfSeason: { title: "Team of the Season", emoji: "✨", blurb: "Named in the league's XI of the season" },
-  legacyPlayerOfSeason: { title: "Legacy Player of the Year", emoji: "👑", blurb: "Highest-rated player across all leagues" },
+  legacyPlayerOfSeason: { title: "Legacy Player of the Year", emoji: "👑", blurb: "Highest-rated player in the world's top divisions" },
   legacyTeamOfSeason: { title: "Legacy Team of the Year", emoji: "💎", blurb: "Named in the save's XI of the year" },
 };
 
@@ -196,13 +199,18 @@ export function computeSeasonAccolades(state: GameState): SeasonAccolades {
   const season = state.season;
   const result: SeasonAccolades = { byLeague: {} };
 
-  // Track the whole world's eligible players for the two save-wide legacy awards.
-  const worldPool: PlayerBio[] = [];
+  // Candidates for the two save-wide legacy awards (v1.5): TOP-FLIGHT PLAYERS
+  // ONLY. Every league still hands out its own honours, but the Legacy Player /
+  // Team of the Year are the world's best, and a second- or third-tier season —
+  // where a top-flight-quality player racks up ratings against weaker
+  // opposition — should never outrank a first-division campaign. `tier === 1`
+  // is the test, so it holds for every country in the save, playable or not.
+  const legacyPool: PlayerBio[] = [];
 
   for (const league of Object.values(state.leagues)) {
     const pool = leaguePlayers(state, league.id);
     if (!pool.length) continue;
-    worldPool.push(...pool);
+    if (league.tier === 1) legacyPool.push(...pool);
 
     const leagueRef = { id: league.id, name: league.name };
     const rated = pool.filter((p) => p.stats.apps >= MIN_APPS_FOR_RATING);
@@ -258,8 +266,8 @@ export function computeSeasonAccolades(state: GameState): SeasonAccolades {
     result.byLeague[league.id] = block;
   }
 
-  // ── Save-wide legacy honours ──────────────────────────────────────────────
-  const legacyRated = worldPool.filter((p) => p.stats.apps >= MIN_APPS_FOR_RATING);
+  // ── Save-wide legacy honours (top divisions only) ─────────────────────────
+  const legacyRated = legacyPool.filter((p) => p.stats.apps >= MIN_APPS_FOR_RATING);
 
   const legacyPoty = best(legacyRated, avgRating);
   if (legacyPoty) {
@@ -267,7 +275,7 @@ export function computeSeasonAccolades(state: GameState): SeasonAccolades {
     result.legacyPlayerOfSeason = toWinner(state, legacyPoty, Math.round(avgRating(legacyPoty) * 100) / 100);
   }
 
-  const legacyXi = pickTeamOfSeason(worldPool);
+  const legacyXi = pickTeamOfSeason(legacyPool);
   if (legacyXi.length) {
     result.legacyTeamOfSeason = legacyXi.map((p) => {
       const slot = posGroup(p.positions[0]);

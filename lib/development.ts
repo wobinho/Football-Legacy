@@ -65,6 +65,37 @@ export function ageGrowthMult(age: number, cfg: TuningConfig): number {
   return Math.max(cfg.growthAgeMultFloor, cfg.growthPeakMult - falloff);
 }
 
+/**
+ * Room a PRIME (post-growth, pre-decline) player has left to improve (v1.51).
+ *
+ * `recalcPotential` floors a player's ceiling at his own current overall, and it
+ * stops moving at all past `potentialRecalcAgeMax`. The practical effect was
+ * that by the mid-twenties a player's potential had converged onto his rating,
+ * leaving `newPotential - p.overall === 0` — and since the prime branch requires
+ * headroom, nobody over `growthEndAge` could ever gain a point. That is the
+ * "only 24-and-unders develop" bug.
+ *
+ * A prime player is therefore granted a small floor of headroom on top of his
+ * declared potential, tapering to nothing as he approaches
+ * `primeHeadroomCapOverall`. A 70-rated pro can still become a 78-rated one by
+ * playing well for a few seasons; a 90-rated one is essentially finished. The
+ * player's own potential still wins whenever it is the more generous of the two,
+ * so genuine wonderkids are unaffected.
+ */
+export function primeHeadroom(overall: number, potential: number, cfg: TuningConfig): number {
+  const declared = potential - overall;
+  // The floor holds at full value up to `primeHeadroomFullBelow` and then tapers
+  // linearly to nothing at the cap. Anchoring the taper to that narrow top band
+  // (rather than the whole 50→92 range) is what keeps it meaningful: an ordinary
+  // 75-rated pro carries the full floor and can improve for several seasons,
+  // while the last stretch toward 92 tightens quickly.
+  const full = cfg.primeHeadroomFullBelow;
+  const cap = cfg.primeHeadroomCapOverall;
+  const t = overall <= full ? 1 : Math.max(0, (cap - overall) / Math.max(1, cap - full));
+  const floor = cfg.primeHeadroomFloor * t;
+  return Math.max(0, Math.max(declared, floor));
+}
+
 /** Season performance normalised to -1..1 around the neutral pivot rating. */
 function seasonPerf(p: PlayerBio, cfg: TuningConfig): number {
   const avgRating = p.stats.apps > 0 ? p.stats.ratingSum / p.stats.apps : 6.5;
@@ -147,13 +178,22 @@ export function developPlayer(
     // actually played, is capped per season, and stays bounded by the (dynamic)
     // potential ceiling. A merely-average or poor season still just drifts.
     const primePerf = (avgRating - cfg.primeGrowthPerfPivot) / 1.2; // >0 when he outperformed
-    const headroom = Math.max(0, newPotential - p.overall);
+    // v1.51: headroom comes from primeHeadroom, not the raw potential gap — a
+    // prime player's declared potential has usually collapsed onto his overall,
+    // which used to make this whole branch a no-op.
+    const headroom = primeHeadroom(p.overall, newPotential, cfg);
     if (primePerf > 0 && headroom > 0) {
       const earned =
         cfg.primeGrowthPerSeasonMax *
         Math.min(1, primePerf) *
         (0.4 + 0.6 * minutesFactor) *
-        randRange(rng, 0.7, 1.1);
+        randRange(rng, 0.7, 1.1) *
+        // A coached, well-drilled squad develops its established pros too — the
+        // same levers that accelerate youth apply here at their full weight.
+        (1 + devCoachStars * 0.08) *
+        (1 + trainingLevel * cfg.trainingFacilityGrowthPerLevel) *
+        extraGrowthMult *
+        planGrowthMult;
       delta = Math.min(headroom, earned);
     } else {
       // Neutral-to-poor season: the old gentle drift, still ceiling-bounded.
@@ -228,6 +268,12 @@ export function applySeasonDevelopment(
   const newOverall = Math.round(Math.max(35, Math.min(p.age <= cfg.growthEndAge ? p.potential : 99, p.overall + out.delta)));
   distributeAttrs(p, newOverall - p.overall, plan);
   p.overall = newOverall;
+  // A prime player who grows past his declared ceiling drags it up with him
+  // (v1.51) — potential is a floor-of-expectation here, and leaving it below the
+  // player's actual rating would render as a finished player who is still
+  // improving. Never lowers a potential, and never applies during the youth
+  // phase, where the ceiling is the whole point of the fog-of-war.
+  if (p.age > cfg.growthEndAge && p.potential < p.overall) p.potential = p.overall;
   if (out.retired) {
     p.retired = true;
     p.clubId = null;
@@ -331,14 +377,41 @@ export function applyWeeklyProgress(
     return 0;
   }
 
-  // Past the growth phase: only genuine decline shows in-season, and only for
-  // players who are both old enough and performing poorly.
   const arch = getArchetype(p.archetypeId);
   const declineOnset =
     cfg.declineOnsetAge +
     (p.longevity - 0.5) * 2 * cfg.declineOnsetLongevitySwing -
     arch.paceReliance * cfg.declineOnsetPaceReliancePenalty;
-  if (p.age < declineOnset) return 0;
+
+  // ── Prime, in-season (v1.51) ─────────────────────────────────────────────
+  // This branch used to `return 0` for every player between growthEndAge and
+  // decline onset, so a 25–31-year-old's rating was frozen for the whole season
+  // no matter how well he played. Prime players now climb on the same weekly
+  // tick youngsters use, against the prime headroom and their own (lower)
+  // seasonal allowance — so a well-drilled squad visibly improves rather than
+  // reading as a wall of players who stopped developing on their 25th birthday.
+  if (p.age < declineOnset) {
+    const headroom = primeHeadroom(p.overall, p.potential, cfg);
+    if (headroom <= 0) return 0;
+    const seasonCap = Math.min(headroom, Math.max(1, cfg.primeGrowthPerSeasonMax * cfg.primeInSeasonShare));
+    if (movedThisSeason >= seasonCap) return 0;
+    // Prime growth is earned, not given: it only accrues while the player is
+    // rating above the prime pivot, scaled by how far he has cleared it.
+    const primePerf = (avgRating - cfg.primeGrowthPerfPivot) / 1.2;
+    if (primePerf <= 0) return 0;
+    const coach = 1 + devCoachStars * 0.08;
+    const facility = (1 + trainingLevel * cfg.trainingFacilityGrowthPerLevel) * facilityMult;
+    const rate =
+      ((cfg.primeGrowthPerSeasonMax * cfg.primeInSeasonShare) / 38) *
+      Math.min(1, primePerf) *
+      coach *
+      facility;
+    if (rng() < rate) return 1;
+    return 0;
+  }
+
+  // Past decline onset: only genuine decline shows in-season, and only for
+  // players who are performing poorly.
   const seasonFloor = -Math.max(1, cfg.declinePerSeasonBase * IN_SEASON_GROWTH_SHARE);
   if (movedThisSeason <= seasonFloor) return 0;
   const declineRate = (cfg.declinePerSeasonBase * IN_SEASON_GROWTH_SHARE / 38) * Math.max(0, 0.5 - perf);
@@ -409,7 +482,18 @@ export function seasonGrowthEstimate(
   trainingLevel = 0,
   plan?: TrainingPlanDef
 ): { delta: number } | null {
-  if (p.age > cfg.growthEndAge) return null;
+  // Prime players (v1.51): they develop now, so they get a projection too. Same
+  // shape as developPlayer's prime branch at a good-but-not-exceptional season.
+  if (p.age > cfg.growthEndAge) {
+    if (devPhase(p, cfg) !== "prime") return null;
+    const headroom = primeHeadroom(p.overall, p.potential, cfg);
+    if (headroom <= 0) return { delta: 0 };
+    const coach = 1 + devCoachStars * 0.08;
+    const facility = 1 + trainingLevel * cfg.trainingFacilityGrowthPerLevel;
+    // Assumes a solid campaign: rating ~0.3 over the pivot, near-full minutes.
+    const earned = cfg.primeGrowthPerSeasonMax * Math.min(1, 0.3 / 1.2) * 0.91 * coach * facility * (plan?.growthMult ?? 1);
+    return { delta: Math.max(0, Math.min(headroom, Math.round(earned))) };
+  }
   const headroom = p.potential - p.overall; // hidden — used to bound, never shown
   if (headroom <= 0) return { delta: 0 };
   const minutesFactor = 0.85;
