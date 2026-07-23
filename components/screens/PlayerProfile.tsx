@@ -15,8 +15,10 @@ import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan } from "@/li
 import { MAX_KIT_NUMBER, MIN_KIT_NUMBER, squadNumbersFor } from "@/lib/kitnumbers";
 import { ACCOLADE_META } from "@/lib/accolades";
 import type { Accolade, AccoladeType, GameState } from "@/lib/types";
-import { ArchetypeIcon, AttrGrid, Card, ConfirmButton, Crest, displayFullName, Flag, FitnessBar, FormChip, GhostButton, GoldButton, GrowthBadge, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip } from "../ui";
+import { ArchetypeIcon, AttrGrid, Card, ConfirmButton, Crest, displayFullName, Flag, FitnessBar, FormChip, GhostButton, GoldButton, GrowthBadge, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip, useEscapeKey } from "../ui";
 import ContractModal from "./ContractModal";
+import { LoanOfferModal, SellPlayerModal } from "./SquadMoveModals";
+import { transferWindowState } from "@/lib/calendar";
 
 export default function PlayerProfileModal() {
   const game = useGame((s) => s.game);
@@ -25,12 +27,18 @@ export default function PlayerProfileModal() {
   const close = useGame((s) => s.closePlayer);
   const setTrainingPlan = useGame((s) => s.setTrainingPlan);
   const autoAssignPlan = useGame((s) => s.autoAssignTrainingPlan);
-  const toggleTransferList = useGame((s) => s.toggleTransferList);
   const toggleShortlist = useGame((s) => s.toggleShortlist);
-  const toggleLoan = useGame((s) => s.academyToggleLoan);
   const releaseSenior = useGame((s) => s.releaseSenior);
   const [tab, setTab] = useState<"bio" | "career">("bio");
   const [contractOpen, setContractOpen] = useState(false);
+  // The two direct-move choosers (v1.52). Selling and loaning both resolve
+  // through a club picker rather than a listing flag.
+  const [sellOpen, setSellOpen] = useState(false);
+  const [loanOpen, setLoanOpen] = useState(false);
+  // Escape dismisses the profile — the backdrop no longer does, so this and the
+  // ✕ are the two ways out. Registered before the early return below so the hook
+  // order stays stable.
+  useEscapeKey(close);
 
   // A scouted prospect isn't in the world yet — the report carries the player
   // object, handed in via viewProspect and read here as a read-only preview.
@@ -58,16 +66,20 @@ export default function PlayerProfileModal() {
   const canShortlist = !isPreview && !p.retired && p.clubId !== game.userTeamId;
   const shortlisted = (game.shortlist ?? []).includes(p.id);
   const arch = getArchetype(p.archetypeId);
+  // Both direct moves need an open window — the buttons say so rather than
+  // failing on click.
+  const windowOpen = transferWindowState(game.currentDay, game.schedule).open;
   const career = game.careers[p.id];
   const avgRating = p.stats.apps ? (p.stats.ratingSum / p.stats.apps).toFixed(2) : "—";
   const primaryColor = posColors(p.positions[0]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 sm:p-8" onClick={close}>
-      <div
-        className="relative my-auto w-full max-w-3xl rounded-lg border border-line bg-surface p-5 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 sm:p-8"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="relative my-auto w-full max-w-3xl rounded-lg border border-line bg-surface p-5 shadow-2xl">
         {/* header card */}
         <div className="mb-5 flex flex-wrap items-center gap-5 rounded-lg border border-line bg-raised p-5">
           <div
@@ -147,10 +159,14 @@ export default function PlayerProfileModal() {
               </div>
             )}
           </div>
+          {/* The only way out of the profile now that the backdrop no longer
+              dismisses it — so it shows on phones too, where it used to be
+              hidden and the backdrop was the sole escape. */}
           <button
             onClick={close}
-            className="absolute right-6 top-6 hidden text-faint hover:text-ink sm:block"
+            className="absolute right-4 top-4 rounded px-2 py-1 text-faint transition-colors hover:bg-hover hover:text-ink sm:right-6 sm:top-6"
             aria-label="Close"
+            title="Close"
           >
             ✕
           </button>
@@ -332,48 +348,49 @@ export default function PlayerProfileModal() {
             </Section>
           )}
 
-          {/* Squad actions (v14) — the three ways a player leaves, or is made
-              available to leave. Listing is a visibility flag, not a queue: it
-              tells other clubs he's gettable and offers follow. */}
+          {/* Squad actions (v14, reworked v1.52) — the three ways a player
+              leaves. Selling and loaning both RESOLVE here: they open a chooser
+              of clubs that would actually take him, rather than setting a flag
+              and waiting on the weekly tick to maybe produce something. */}
           {isUserSenior && (
             <Section title="Actions">
               <Card className="divide-y divide-line/50">
                 {(() => {
-                  const listed = game.transferList.includes(p.id);
-                  const loanListed = game.academy.loanList.includes(p.id);
                   return (
                     <>
                       <div className="flex flex-wrap items-center justify-between gap-3 p-4">
                         <div className="min-w-0 flex-1">
-                          <div className="display font-semibold text-ink">
-                            Transfer list
-                            {listed && <span className="ml-2 text-[10px] font-normal text-gold">LISTED</span>}
-                          </div>
+                          <div className="display font-semibold text-ink">Sell player</div>
                           <div className="text-[12px] leading-relaxed text-faint">
-                            {listed
-                              ? "Clubs know he's available — expect more offers, and at a keener price."
-                              : "Let clubs know he can be bought. More offers come in, though they'll bid a little lower."}
+                            {windowOpen
+                              ? "See which clubs would buy him and what each would pay, then pick one. The deal completes immediately."
+                              : "Players can only be sold while a transfer window is open."}
                           </div>
                         </div>
-                        <GhostButton onClick={() => toggleTransferList(p.id)} className="shrink-0 !py-1.5 text-xs">
-                          {listed ? "REMOVE FROM LIST" : "ADD TO TRANSFER LIST"}
+                        <GhostButton
+                          onClick={() => setSellOpen(true)}
+                          disabled={!windowOpen}
+                          className="shrink-0 !py-1.5 text-xs"
+                        >
+                          SELL PLAYER
                         </GhostButton>
                       </div>
 
                       <div className="flex flex-wrap items-center justify-between gap-3 p-4">
                         <div className="min-w-0 flex-1">
-                          <div className="display font-semibold text-ink">
-                            Loan list
-                            {loanListed && <span className="ml-2 text-[10px] font-normal text-win">LISTED</span>}
-                          </div>
+                          <div className="display font-semibold text-ink">Send on loan</div>
                           <div className="text-[12px] leading-relaxed text-faint">
-                            {loanListed
-                              ? "Available for a season-long loan — a club may take him while a window is open."
-                              : "Make him available for a season-long loan. He'll play regular football elsewhere and the minutes count toward his development."}
+                            {windowOpen
+                              ? "Find a club that will play him every week. You keep paying his wages, and the minutes count toward his development — the best route for a young player short of first-team football."
+                              : "Loans can only be arranged while a transfer window is open."}
                           </div>
                         </div>
-                        <GhostButton onClick={() => toggleLoan(p.id)} className="shrink-0 !py-1.5 text-xs">
-                          {loanListed ? "REMOVE FROM LOAN LIST" : "ADD TO LOAN LIST"}
+                        <GhostButton
+                          onClick={() => setLoanOpen(true)}
+                          disabled={!windowOpen}
+                          className="shrink-0 !py-1.5 text-xs"
+                        >
+                          SEND ON LOAN
                         </GhostButton>
                       </div>
 
@@ -494,6 +511,8 @@ export default function PlayerProfileModal() {
         )}
 
         {contractOpen && <ContractModal p={p} onClose={() => setContractOpen(false)} />}
+        {sellOpen && <SellPlayerModal playerId={p.id} onClose={() => setSellOpen(false)} />}
+        {loanOpen && <LoanOfferModal playerId={p.id} onClose={() => setLoanOpen(false)} />}
       </div>
     </div>
   );

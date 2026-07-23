@@ -8,6 +8,7 @@
 
 import { useGame } from "@/store/gameStore";
 import { formatDay } from "@/lib/calendar";
+import { useEscapeKey } from "./ui";
 
 /** Per-gate accent so the prompt reads at a glance as "your youth" vs "the
  * market" vs "the clock". Keyed by the gate id prefix the gameloop stamps. */
@@ -29,6 +30,7 @@ export default function GateModal() {
   const setScreen = useGame((s) => s.setScreen);
   const dismissGate = useGame((s) => s.dismissGate);
   const simulateToDay = useGame((s) => s.simulateToDay);
+  useEscapeKey(dismissGate);
 
   if (!gate) return null;
 
@@ -46,18 +48,26 @@ export default function GateModal() {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={dismissGate}>
+    /* The gate is a stop the game deliberately made; it closes on its own
+       controls (or ✕), never on a stray click into the backdrop. */
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true">
       <div
         className={`w-full max-w-sm rounded-lg border bg-surface p-5 shadow-2xl ${accent.ring}`}
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
         aria-label={gate.title}
       >
         <div className="mb-1 flex items-center gap-2.5">
           <span className="text-2xl leading-none" aria-hidden>
             {accent.icon}
           </span>
-          <div className="display text-base font-semibold">{gate.title}</div>
+          <div className="display flex-1 text-base font-semibold">{gate.title}</div>
+          <button
+            onClick={dismissGate}
+            className="-mr-1 rounded px-2 py-1 text-dim transition-colors hover:bg-hover hover:text-ink"
+            aria-label="Close"
+            title="Close"
+          >
+            ✕
+          </button>
         </div>
         <div className="gold-thread mb-3" />
 

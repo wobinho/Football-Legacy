@@ -10,6 +10,7 @@ import type { ScreenId } from "@/lib/types";
 import { formatDay, seasonYearLabel, transferWindowState } from "@/lib/calendar";
 import { isSeasonComplete } from "@/lib/gameloop";
 import { CountryFlag, Crest, GoldButton, Money } from "./ui";
+import AudioPlayer from "./AudioPlayer";
 import HomeScreen from "./screens/Home";
 import SquadScreen from "./screens/Squad";
 import TacticsScreen from "./screens/Tactics";
@@ -172,6 +173,10 @@ export default function Shell() {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2 sm:gap-5">
+            {/* The soundtrack widget floats in the bottom-right corner now
+                (v1.52) — it's mounted once at the end of this component rather
+                than competing with the date, budget and Continue for header
+                space. */}
             <div className="hidden text-right sm:block">
               <div className="text-[10px] uppercase tracking-widest text-faint">Budget</div>
               <Money value={team.budget} className="display text-base font-semibold" />
@@ -229,6 +234,10 @@ export default function Shell() {
 
       {/* End-of-season review — shown the moment the rollover is taken. */}
       {seasonReview && <SeasonDetailModal summary={seasonReview} onClose={closeSeasonReview} />}
+
+      {/* Floating soundtrack widget, bottom-right (v1.52). Mounted last and at
+          z-40 so it sits over the screens but under any modal. */}
+      <AudioPlayer />
     </div>
   );
 }

@@ -2,15 +2,46 @@
 
 import { useEffect } from "react";
 import { useGame } from "@/store/gameStore";
+import { audio, playClick } from "@/lib/audio";
 import MainMenu from "./MainMenu";
 import Shell from "./Shell";
 import KeyGate from "./KeyGate";
+
+/**
+ * The UI click sound, wired once for the whole app (v1.52).
+ *
+ * A delegated listener on the document beats calling playClick() from every
+ * onClick: there are hundreds of buttons across the ten screens, and any new one
+ * would otherwise arrive silent. Capture phase, so a handler that stops
+ * propagation (the modals do) still clicks.
+ *
+ * Only genuinely interactive elements make a sound — clicking a table cell or a
+ * paragraph should not — and a disabled control stays silent, because nothing
+ * happened.
+ */
+function useClickSound() {
+  useEffect(() => {
+    audio.init();
+    const onClick = (e: MouseEvent) => {
+      const el = (e.target as HTMLElement | null)?.closest?.(
+        "button, a, select, [role='button'], input[type='checkbox'], input[type='radio']"
+      );
+      if (!el) return;
+      if (el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true") return;
+      playClick();
+    };
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, []);
+}
 
 function BootedApp() {
   const booted = useGame((s) => s.booted);
   const hasGame = useGame((s) => s.game !== null);
   const boot = useGame((s) => s.boot);
   const toast = useGame((s) => s.toast);
+
+  useClickSound();
 
   useEffect(() => {
     boot();

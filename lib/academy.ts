@@ -1496,6 +1496,13 @@ function loanWeightFor(state: GameState, club: Team, cfg: TuningConfig): number 
   return league.tier === 1 ? cfg.loanMinutesWeightTop : cfg.loanMinutesWeightSecond;
 }
 
+/** Whether this club would start him or rotate him (v1.52). The same rep-gap
+ * test the loan chooser shows the user, so the role in the pitch is the role
+ * that gets stored on the loan and drives his minutes. */
+function loanRoleFor(p: PlayerBio, club: Team, cfg: TuningConfig): "starter" | "rotation" {
+  return club.reputation <= p.overall + cfg.academyLoanStarterBand ? "starter" : "rotation";
+}
+
 // ── Direct academy loans (§18 v1.44) ──────────────────────────────────────
 // Rather than list a prospect and wait for the weekly AI tick, the user can
 // send an academy player out on the spot: the game finds clubs across the whole
@@ -1530,10 +1537,15 @@ export function academyLoanSuitors(state: GameState, playerId: string, cfg: Tuni
   const p = state.players[playerId];
   if (!p) return [];
   const rng = mulberry32(deriveSeed(state.seed, `loanpick:${playerId}:${state.currentDay}`));
-  const targetRep = p.overall + cfg.academyLoanRepMargin;
+  // A prospect drops a rung to get minutes; a senior pro is loaned out to play
+  // at roughly his own level, which is the same distinction the weekly AI uptake
+  // has always drawn. One chooser now serves both squads (v1.52).
+  const senior = userTeam(state).playerIds.includes(playerId);
+  const margin = senior ? 0 : cfg.academyLoanRepMargin;
+  const targetRep = p.overall + margin;
   const suitors = Object.values(state.teams)
     .filter((t) => t.id !== state.userTeamId)
-    // A prospect learns nothing warming the bench of a side far above him, so
+    // A player learns nothing warming the bench of a side far above him, so
     // clubs more than a band over his level don't come into it.
     .filter((t) => t.reputation <= p.overall + cfg.academyLoanRepCeiling)
     .map((t) => {
@@ -1580,7 +1592,12 @@ export function sendAcademyLoan(state: GameState, playerId: string, clubId: stri
   const w = transferWindowState(state.currentDay, state.schedule);
   if (!w.open) return "Loans can only be arranged while a transfer window is open.";
 
-  p.loan = { toClubId: dest.id, startDay: state.currentDay, minutesWeight: loanWeightFor(state, dest, cfg) };
+  p.loan = {
+    toClubId: dest.id,
+    startDay: state.currentDay,
+    minutesWeight: loanWeightFor(state, dest, cfg),
+    role: loanRoleFor(p, dest, cfg),
+  };
   state.academy.loanList = state.academy.loanList.filter((x) => x !== playerId);
   for (const [slot, pid] of Object.entries(state.lineup)) {
     if (pid === playerId) delete state.lineup[slot];
@@ -1589,7 +1606,8 @@ export function sendAcademyLoan(state: GameState, playerId: string, clubId: stri
     state,
     "academy",
     `${p.name} joins ${dest.name} on loan`,
-    `${p.name} (${p.age}) moves to ${dest.name} until the end of the season to play regular football. We keep paying his wages; progress reports will follow.`
+    `${p.name} (${p.age}) moves to ${dest.name} until the end of the season to play regular football. We keep paying his wages; progress reports will follow.` +
+      ` Regular minutes there count toward his development — a loan is worth far more than a season on our bench.`
   );
   return null;
 }
@@ -1633,7 +1651,12 @@ export function weeklyLoanTick(state: GameState, cfg: TuningConfig) {
         .slice(0, 6);
       if (!candidates.length) continue;
       const dest = pick(rng, candidates);
-      p.loan = { toClubId: dest.id, startDay: state.currentDay, minutesWeight: loanWeightFor(state, dest, cfg) };
+      p.loan = {
+        toClubId: dest.id,
+        startDay: state.currentDay,
+        minutesWeight: loanWeightFor(state, dest, cfg),
+        role: loanRoleFor(p, dest, cfg),
+      };
       ac.loanList = ac.loanList.filter((x) => x !== id);
       for (const [slot, pid] of Object.entries(state.lineup)) {
         if (pid === id) delete state.lineup[slot];
@@ -1861,4 +1884,124 @@ export function graduateAwardNews(state: GameState) {
       `${p.name}, a graduate of your academy, has won ${h.what}${p.clubId ? ` at ${state.teams[p.clubId].name}` : ""}. The production line gets the credit.`
     );
   }
+}
+
+// ── Academy growth tracking (v1.52) ────────────────────────────────────────
+// "I want to see how the youth academy players' overall grows."
+//
+// Every ingredient already existed — `devLog` records each summer's move and
+// `seasonStartOverall` the in-season one — but nothing assembled them into a
+// history a manager could actually read. The academy squad showed a prospect's
+// CURRENT overall and a "+2 last season" chip; a full curve was reachable only
+// by expanding one player at a time on the Development tab.
+//
+// These helpers build that curve, per prospect and across the academy, so the
+// Growth tab can answer "is my academy producing?" at a glance.
+
+/** One point on a prospect's overall-vs-time curve. */
+export interface GrowthPoint {
+  season: number;
+  age: number;
+  overall: number;
+  /** True for the synthetic "now" point — the live rating, mid-season. */
+  live?: boolean;
+}
+
+/** A prospect's tracked growth: the curve plus the headline numbers. */
+export interface ProspectGrowth {
+  player: PlayerBio;
+  /** Oldest → newest. Always ends on the player's live overall. */
+  points: GrowthPoint[];
+  /** Overall the player was first recorded at (the start of the curve). */
+  firstOverall: number;
+  /** Total overall gained since he was first recorded. */
+  totalGain: number;
+  /** Movement so far this season (live vs the season's opening rating). */
+  seasonGain: number;
+  /** Last completed summer's move, or null if he has none on record. */
+  lastSeasonGain: number | null;
+  /** Average overall gained per recorded season — the "rate of climb". */
+  perSeason: number;
+  /** How many completed seasons are on record. */
+  seasons: number;
+}
+
+/**
+ * Build one prospect's growth curve.
+ *
+ * `devLog` holds the completed summers; the live overall is appended as a final
+ * point so an in-progress season is visible too. A prospect signed this season
+ * has no log at all — he still gets a two-point curve (his opening rating and
+ * his current one) so the tab never renders an empty chart.
+ */
+export function prospectGrowth(state: GameState, p: PlayerBio): ProspectGrowth {
+  const log = p.devLog ?? [];
+  const points: GrowthPoint[] = [];
+
+  for (const d of log) {
+    // Each entry's `fromOverall` is where that season started; charting those
+    // plus the live rating gives one point per season boundary without
+    // double-counting the summer's jump.
+    points.push({ season: d.season, age: d.age - 1, overall: d.fromOverall });
+  }
+
+  // Where this season opened. For a player with a log this is the last entry's
+  // `toOverall`; for one without, `seasonStartOverall` is all we have.
+  const openedAt = log.length ? log[log.length - 1].toOverall : (p.seasonStartOverall ?? p.overall);
+  const openSeason = log.length ? log[log.length - 1].season + 1 : state.season;
+  points.push({ season: openSeason, age: p.age, overall: openedAt });
+
+  // The live point — only when it differs, so a flat season doesn't render a
+  // duplicate node on the curve.
+  if (p.overall !== openedAt) {
+    points.push({ season: state.season, age: p.age, overall: p.overall, live: true });
+  } else {
+    points[points.length - 1].live = true;
+  }
+
+  const firstOverall = points[0].overall;
+  const lastEntry = log.length ? log[log.length - 1] : null;
+  const seasons = log.length;
+
+  return {
+    player: p,
+    points,
+    firstOverall,
+    totalGain: p.overall - firstOverall,
+    seasonGain: p.overall - openedAt,
+    lastSeasonGain: lastEntry ? lastEntry.toOverall - lastEntry.fromOverall : null,
+    perSeason: seasons > 0 ? (p.overall - firstOverall) / seasons : 0,
+    seasons,
+  };
+}
+
+/** Academy-wide growth summary — the numbers the Growth tab's header reads. */
+export interface AcademyGrowthSummary {
+  /** Prospects with any growth history at all. */
+  tracked: number;
+  /** Total overall the academy has added across every tracked prospect. */
+  totalGain: number;
+  /** Mean overall gained per prospect per recorded season. */
+  avgPerSeason: number;
+  /** Mean current overall across the academy. */
+  avgOverall: number;
+  /** The prospect who has gained the most since joining, if any. */
+  topRiser: ProspectGrowth | null;
+}
+
+/** Roll every academy prospect's curve up into the squad-level picture. */
+export function academyGrowthSummary(rows: ProspectGrowth[]): AcademyGrowthSummary {
+  const tracked = rows.filter((r) => r.seasons > 0);
+  const totalGain = rows.reduce((n, r) => n + r.totalGain, 0);
+  const seasonSum = tracked.reduce((n, r) => n + r.seasons, 0);
+  const trackedGain = tracked.reduce((n, r) => n + r.totalGain, 0);
+  let topRiser: ProspectGrowth | null = null;
+  for (const r of rows) if (!topRiser || r.totalGain > topRiser.totalGain) topRiser = r;
+  return {
+    tracked: tracked.length,
+    totalGain,
+    avgPerSeason: seasonSum > 0 ? trackedGain / seasonSum : 0,
+    avgOverall: rows.length ? rows.reduce((n, r) => n + r.player.overall, 0) / rows.length : 0,
+    topRiser: topRiser && topRiser.totalGain > 0 ? topRiser : null,
+  };
 }

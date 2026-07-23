@@ -183,6 +183,11 @@ export interface LoanState {
   startDay: number;
   /** How much a loan minute counts toward development vs a senior minute. */
   minutesWeight: number;
+  /** Whether the destination will play him every week or rotate him (v1.52).
+   * Set when the loan is agreed, from the rep gap the user saw in the chooser —
+   * so the role promised at the point of decision is the role he actually gets.
+   * Absent on pre-v1.52 loans, which fall back to rotation. */
+  role?: "starter" | "rotation";
 }
 
 /** One summer's development outcome for a player (Development page, §5). */

@@ -2,11 +2,11 @@
 
 // Shared UI primitives — the design system in miniature.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatMoney, groupDigits, parseMoney } from "@/lib/value";
 import type { GameState, PlayerBio, Pos } from "@/lib/types";
 import { posColors, resolvePos } from "@/lib/config/positions";
-import { flagForNat, flagForCountry } from "@/lib/config/flags";
+import { flagForNat, flagForCountry, nameForNat } from "@/lib/config/flags";
 import { potentialView } from "@/lib/academy";
 import { TRAIT_MAP } from "@/lib/config/traits";
 import { TUNING } from "@/lib/config/tuning";
@@ -286,6 +286,121 @@ export function CountryFlag({ country, size = 16, className = "" }: { country: s
 }
 
 /**
+ * Nationality picker (v1.52) — a country list that reads as countries.
+ *
+ * A native <select> can't render an image inside an <option>, so the create-a-
+ * player and database-editor pickers used to offer a wall of bare 3-letter codes
+ * ("KVX", "CTA") that only the database author could decode. This is the
+ * replacement: a button showing the flag and full name, opening a searchable
+ * list of the same. The value is still the code — only the presentation changes,
+ * so every caller and every stored player record is untouched.
+ *
+ * Search matches the name OR the code, so a manager who knows "BRA" is as fast
+ * as one who types "Brazil".
+ */
+export function NationalityPicker({
+  value,
+  options,
+  onChange,
+  className = "",
+}: {
+  value: string;
+  options: string[];
+  onChange: (nat: string) => void;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Sorted by display name so the list reads alphabetically as a human sees it
+  // ("Ivory Coast" under I), not by the code's spelling (CIV under C).
+  const sorted = useMemo(
+    () => options.map((code) => ({ code, name: nameForNat(code) })).sort((a, b) => a.name.localeCompare(b.name)),
+    [options]
+  );
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return sorted;
+    return sorted.filter((o) => o.name.toLowerCase().includes(q) || o.code.toLowerCase().includes(q));
+  }, [sorted, query]);
+
+  useEffect(() => {
+    if (!open) return;
+    // Focus the search box so typing filters immediately.
+    searchRef.current?.focus();
+    const onDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const pick = (code: string) => {
+    onChange(code);
+    setOpen(false);
+    setQuery("");
+  };
+
+  return (
+    <div ref={wrapRef} className={`relative ${className}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 rounded-md border border-line bg-raised px-2 py-2 text-left text-sm text-ink transition-colors hover:border-faint focus:border-gold focus:outline-none"
+      >
+        <Flag nat={value} size={13} />
+        <span className="min-w-0 flex-1 truncate">{nameForNat(value)}</span>
+        <span className="shrink-0 text-[10px] text-faint">{open ? "▲" : "▼"}</span>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-md border border-line bg-surface shadow-xl">
+          <div className="border-b border-line/60 p-1.5">
+            <input
+              ref={searchRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search country…"
+              className="w-full rounded border border-line bg-raised px-2 py-1.5 text-xs text-ink outline-none placeholder:text-faint focus:border-gold-lo/60"
+            />
+          </div>
+          <div role="listbox" className="max-h-56 overflow-y-auto py-1">
+            {shown.length === 0 && <div className="px-3 py-3 text-xs text-faint">No country matches that.</div>}
+            {shown.map((o) => (
+              <button
+                type="button"
+                key={o.code}
+                role="option"
+                aria-selected={o.code === value}
+                onClick={() => pick(o.code)}
+                className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm transition-colors ${
+                  o.code === value ? "bg-hover text-gold" : "text-dim hover:bg-raised hover:text-ink"
+                }`}
+              >
+                <Flag nat={o.code} size={12} />
+                <span className="min-w-0 flex-1 truncate">{o.name}</span>
+                <span className="display shrink-0 text-[10px] tracking-widest text-faint">{o.code}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Archetype icon slot. Real art will live in /assets/archetypes (currently
  * empty), keyed by archetype id. Until then we render a placeholder ring so the
  * layout, spacing, and "icon before name" pattern are already in place.
@@ -532,17 +647,29 @@ export function Modal({
    * default width wraps into unreadability. */
   size?: "md" | "lg";
 }) {
+  // A modal closes on its ✕ or Escape and nothing else. Clicking the backdrop
+  // used to dismiss it, which meant a stray click beside a dialog threw away
+  // whatever was half-filled in — a mid-negotiation counter, a contract's terms.
+  useEscapeKey(onClose);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      role="dialog"
+      aria-modal="true"
+    >
       <div
         className={`max-h-[85vh] w-full overflow-y-auto rounded-lg border border-line bg-surface p-5 shadow-2xl ${
           size === "lg" ? "max-w-3xl" : "max-w-lg"
         }`}
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-1 flex items-center justify-between">
           <h3 className="display text-lg font-semibold">{title}</h3>
-          <button onClick={onClose} className="px-2 text-dim hover:text-ink" aria-label="Close">
+          <button
+            onClick={onClose}
+            className="-mr-1 rounded px-2 py-1 text-dim transition-colors hover:bg-hover hover:text-ink"
+            aria-label="Close"
+            title="Close"
+          >
             ✕
           </button>
         </div>
@@ -551,6 +678,19 @@ export function Modal({
       </div>
     </div>
   );
+}
+
+/** Close-on-Escape for a dialog. Escape is a deliberate, unambiguous dismiss —
+ * unlike a backdrop click, you can't hit it by accident while reaching for
+ * something inside the dialog. Shared by every overlay in the app. */
+export function useEscapeKey(onClose: () => void) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
 }
 
 export function Tabs<T extends string>({

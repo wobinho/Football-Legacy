@@ -4,14 +4,21 @@
 import type { PlayerBio } from "./types";
 import type { TuningConfig } from "./config/tuning";
 
-/** Age multiplier: peaks in early prime, collapses toward retirement. */
+/** Age multiplier: peaks in early prime, collapses toward retirement.
+ *
+ * Rebalanced in v1.52 to track the decline curve, which moved to 35. The old
+ * shape (1.0 to 28, then 0.75 → 0.5 → 0.28) was written for a model where a
+ * player started losing overall around 30, and it priced a 31-year-old at half
+ * a 28-year-old's fee even though both are now squarely in their prime. The
+ * steep part of the collapse simply shifts later: value holds through the prime,
+ * eases as decline approaches, and falls away once it has arrived. */
 function ageCurve(age: number): number {
   if (age <= 21) return 1.15;
   if (age <= 24) return 1.25;
-  if (age <= 28) return 1.0;
-  if (age <= 30) return 0.75;
-  if (age <= 32) return 0.5;
-  if (age <= 34) return 0.28;
+  if (age <= 29) return 1.0;
+  if (age <= 32) return 0.85;
+  if (age <= 34) return 0.6;
+  if (age <= 36) return 0.3;
   return 0.12;
 }
 

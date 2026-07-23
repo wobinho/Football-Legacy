@@ -21,7 +21,7 @@ import type { Fixture, MatchResult } from "@/lib/types";
 import { saveGame, loadGame, listSaves, deleteSave, exportSave, importSave, type SaveMeta } from "@/lib/save";
 import { cloudOwner } from "@/lib/cloud";
 import { forgetKey, rememberLastSave, lastSave, clearLastSave } from "@/lib/auth";
-import { userBid, respondToOffer, releasePlayer, type BidOutcome, type OfferResponse } from "@/lib/transfers";
+import { userBid, respondToOffer, releasePlayer, sellToClub, type BidOutcome, type OfferResponse } from "@/lib/transfers";
 import { hireStaff, dismissCandidate, fireStaff } from "@/lib/staff";
 import { hireScout, fireScout, dismissScoutCandidate } from "@/lib/scouts";
 import { acceptSponsor, declineSponsor } from "@/lib/sponsors";
@@ -151,6 +151,9 @@ interface GameStore {
   bid: (playerId: string, fee: number, terms?: { wage: number; years: number; releaseClause?: number }) => BidOutcome;
   respondOffer: (offerId: string, response: "accept" | "reject" | "counter", amount?: number) => OfferResponse;
   toggleTransferList: (playerId: string) => void;
+  /** Sell a player outright to one of the clubs `saleSuitors` offered (v1.52).
+   * Resolves immediately — no listing, no waiting for the weekly tick. */
+  sellPlayerTo: (playerId: string, clubId: string) => void;
   toggleShortlist: (playerId: string) => void;
   hire: (candidateId: string) => void;
   dismissStaff: (candidateId: string) => void;
@@ -754,6 +757,16 @@ export const useGame = create<GameStore>((set, get) => ({
     } else {
       g.transferList.push(playerId);
     }
+    get().bump(true);
+  },
+
+  sellPlayerTo: (playerId, clubId) => {
+    const g = get().game;
+    if (!g) return;
+    const name = g.players[playerId]?.name ?? "The player";
+    const clubName = g.teams[clubId]?.name ?? "their new club";
+    const err = sellToClub(g, playerId, clubId, TUNING);
+    get().showToast(err ?? `${name} sold to ${clubName}.`);
     get().bump(true);
   },
 

@@ -15,8 +15,10 @@ import { wageDemandWithClause, maxLengthFor, evaluateOffer } from "@/lib/contrac
 import { transferWindowState, formatDayShort, seasonYearLabel } from "@/lib/calendar";
 import { formatMoney } from "@/lib/value";
 import { matchesPlayerName } from "@/lib/search";
+import { nameForNat } from "@/lib/config/flags";
 import { ArchetypeIcon, Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, GhostButton, GoldButton, Modal, Money, MoneyInput, Ovr, PlayerCard, PlayerGrid, PosBadge, Tabs, usePlayerView, ViewToggle } from "../ui";
 import ReleaseClauseField from "./ReleaseClauseField";
+import { LoanOfferModal, SellPlayerModal } from "./SquadMoveModals";
 
 type Tab = "search" | "offers" | "listed" | "shortlist" | "free" | "news";
 
@@ -42,7 +44,7 @@ export default function TransfersScreen() {
         tabs={[
           { id: "search", label: "Search" },
           { id: "offers", label: "Offers", badge: pendingCount },
-          { id: "listed", label: "My Listings" },
+          { id: "listed", label: "Sell / Loan" },
           { id: "shortlist", label: "Shortlist", badge: shortlistCount },
           { id: "free", label: "Free Agents" },
           { id: "news", label: "Transfer News" },
@@ -184,7 +186,8 @@ function SearchTab() {
     for (const p of Object.values(game.players)) {
       if (!p.retired && p.clubId && p.clubId !== game.userTeamId) seen.add(p.nationality);
     }
-    return Array.from(seen).sort();
+    // Sorted by the name the manager reads, not the code behind it.
+    return Array.from(seen).sort((a, b) => nameForNat(a).localeCompare(nameForNat(b)));
   }, [game.players, game.userTeamId]);
 
   const results = useMemo(() => {
@@ -301,7 +304,7 @@ function SearchTab() {
         >
           <option value="ALL">All nationalities</option>
           {natOptions.map((n) => (
-            <option key={n} value={n}>{n}</option>
+            <option key={n} value={n}>{nameForNat(n)}</option>
           ))}
         </select>
         {!scouted && <span className="text-[11px] text-faint">Hire a Scout for tighter potential reads on young players.</span>}
@@ -1070,35 +1073,70 @@ function NegotiateModal({ offerId, onClose }: { offerId: string; onClose: () => 
   );
 }
 
+/**
+ * Sell / loan out (v1.52, was "My Listings").
+ *
+ * Listing a player and waiting for the market to notice has been replaced by two
+ * direct actions: both open a chooser of clubs that would genuinely take him,
+ * and the move completes as soon as one is picked. A player already out on loan
+ * shows where he is instead of the buttons.
+ */
 function ListedTab() {
   const game = useGame((s) => s.game)!;
-  const toggle = useGame((s) => s.toggleTransferList);
+  useGame((s) => s.rev);
   const viewPlayer = useGame((s) => s.viewPlayer);
   const [view, setView] = usePlayerView("transfers");
+  // Which player has which chooser open. Only one can be up at a time.
+  const [moveFor, setMoveFor] = useState<{ id: string; kind: "sell" | "loan" } | null>(null);
   const team = game.teams[game.userTeamId];
   const players = team.playerIds.map((id) => game.players[id]).filter(Boolean).sort((a, b) => b.overall - a.overall);
+  const windowOpen = transferWindowState(game.currentDay, game.schedule).open;
 
-  const listBtn = (p: PlayerBio) => {
-    const listed = game.transferList.includes(p.id);
+  const moveBtns = (p: PlayerBio) => {
+    if (p.loan) {
+      return (
+        <span className="display shrink-0 text-[10px] font-semibold tracking-wide text-win">
+          ON LOAN · {game.teams[p.loan.toClubId]?.short ?? "?"}
+        </span>
+      );
+    }
+    const btn = "display shrink-0 rounded border px-2 py-1 text-[11px] font-semibold tracking-wide transition-colors disabled:opacity-30";
     return (
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          toggle(p.id);
-        }}
-        title={listed ? "Remove from the transfer list" : "Put on the transfer list to attract offers"}
-        className={`display w-24 rounded px-2 py-1 text-xs font-semibold ${
-          listed ? "gold-grad text-black" : "border border-line text-faint hover:text-dim"
-        }`}
-      >
-        {listed ? "LISTED ✓" : "List"}
-      </button>
+      <span className="flex shrink-0 items-center gap-1.5">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setMoveFor({ id: p.id, kind: "loan" });
+          }}
+          disabled={!windowOpen}
+          title={windowOpen ? "Find a club that will play him every week" : "Loans need an open transfer window"}
+          className={`${btn} border-line text-faint hover:border-win/50 hover:text-win`}
+        >
+          Loan
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setMoveFor({ id: p.id, kind: "sell" });
+          }}
+          disabled={!windowOpen}
+          title={windowOpen ? "See who would buy him and for how much" : "Sales need an open transfer window"}
+          className={`${btn} border-gold-lo/50 text-gold hover:border-gold-lo`}
+        >
+          Sell
+        </button>
+      </span>
     );
   };
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-[11px] leading-relaxed text-faint">
+          {windowOpen
+            ? "Pick a player to sell or loan out — you'll see which clubs want him, and on what terms."
+            : "The transfer window is closed. Sales and loans resume when it reopens."}
+        </p>
         <ViewToggle view={view} onChange={setView} />
       </div>
       {view === "grid" ? (
@@ -1117,7 +1155,7 @@ function ListedTab() {
                 </>
               }
               stats={<Money value={p.value} className="text-dim" />}
-              actions={<span className="flex w-full justify-end">{listBtn(p)}</span>}
+              actions={<span className="flex w-full justify-end">{moveBtns(p)}</span>}
             />
           ))}
         </PlayerGrid>
@@ -1139,11 +1177,14 @@ function ListedTab() {
               </button>
               <Money value={p.value} className="text-dim" />
               <Ovr value={p.overall} size="sm" />
-              {listBtn(p)}
+              {moveBtns(p)}
             </div>
           ))}
         </Card>
       )}
+
+      {moveFor?.kind === "sell" && <SellPlayerModal playerId={moveFor.id} onClose={() => setMoveFor(null)} />}
+      {moveFor?.kind === "loan" && <LoanOfferModal playerId={moveFor.id} onClose={() => setMoveFor(null)} />}
     </>
   );
 }

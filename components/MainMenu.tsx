@@ -25,13 +25,18 @@ import { CountryFlag, Crest, Flag, GoldButton, GhostButton, Modal, Ovr, PosBadge
 import CreateClubModal, { customClubSeed, type CustomClub } from "./CreateClubModal";
 import CreatePlayerModal, { customPlayerSeed, type CustomPlayer } from "./CreatePlayerModal";
 import DatabaseEditor from "./DatabaseEditor";
+import AudioPlayer from "./AudioPlayer";
 
 export default function MainMenu() {
   const [mode, setMode] = useState<"menu" | "new" | "database">("menu");
   const logout = useGame((s) => s.logout);
   const who = storedKey();
   return (
-    <div className="mx-auto flex min-h-screen max-w-3xl flex-col justify-center px-6 py-12">
+    <div className="relative mx-auto flex min-h-screen max-w-3xl flex-col justify-center px-6 py-12">
+      {/* The soundtrack is running before a save is even loaded, so the widget
+          belongs here too. It positions itself (fixed, bottom-right), so it just
+          needs mounting — no wrapper. */}
+      <AudioPlayer />
       <header className="mb-10 text-center">
         <div className="display text-4xl font-bold tracking-wide sm:text-6xl">
           FOOTBALL <span className="gold-text">LEGACY</span>

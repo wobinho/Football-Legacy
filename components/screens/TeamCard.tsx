@@ -14,12 +14,13 @@ import { getArchetype } from "@/lib/config/archetypes";
 import { squadWageBill } from "@/lib/value";
 import { TUNING } from "@/lib/config/tuning";
 import type { Fixture } from "@/lib/types";
-import { ArchetypeIcon, Card, Crest, Flag, Money, Ovr, PosBadge } from "../ui";
+import { ArchetypeIcon, Card, Crest, Flag, Money, Ovr, PosBadge, useEscapeKey } from "../ui";
 
 export default function TeamCard({ teamId, onClose }: { teamId: string; onClose: () => void }) {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const viewPlayer = useGame((s) => s.viewPlayer);
+  useEscapeKey(onClose);
 
   const team = game.teams[teamId];
   const league = game.leagues[team.leagueId];
@@ -83,12 +84,20 @@ export default function TeamCard({ teamId, onClose }: { teamId: string; onClose:
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 sm:p-8" onClick={onClose}>
-      <div
-        className="relative my-auto w-full max-w-2xl rounded-lg border border-line bg-surface p-5 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button onClick={onClose} className="absolute right-5 top-5 text-faint hover:text-ink" aria-label="Close">
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 sm:p-8"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="relative my-auto w-full max-w-2xl rounded-lg border border-line bg-surface p-5 shadow-2xl">
+        {/* The ✕ (and Escape) are the only ways out — a backdrop click no longer
+            dismisses, so a stray click can't close the card. */}
+        <button
+          onClick={onClose}
+          className="absolute right-4 top-4 rounded px-2 py-1 text-faint transition-colors hover:bg-hover hover:text-ink sm:right-5 sm:top-5"
+          aria-label="Close"
+          title="Close"
+        >
           ✕
         </button>
 

@@ -153,7 +153,7 @@ export interface TuningConfig {
 
   // Development (§5)
   growthEndAge: number; // 24
-  primeEndAge: number; // 31
+  primeEndAge: number; // 34 — nominal end of the prime band (declineOnsetAge is what the engine reads)
   declineOnsetAge: number; // 32-33 base
   declineOnsetLongevitySwing: number; // ± years from longevity
   declineOnsetPaceReliancePenalty: number; // years earlier for pace archetypes
@@ -190,6 +190,15 @@ export interface TuningConfig {
    * then, often not even then. Prime players now drift up in-season on the same
    * weekly tick youngsters use, at this share of their seasonal allowance. */
   primeInSeasonShare: number;
+  /** How far below `primeGrowthPerfPivot` (in normalised perf units, the same
+   * -1..1 scale developPlayer uses) a prime season may fall before it costs the
+   * player anything (v1.52). Inside this band an ordinary campaign simply holds
+   * his level — he is not old yet, so nothing should erode automatically. */
+  primeDeclineTolerance: number;
+  /** Most overall a prime player can lose in one genuinely poor season (v1.52).
+   * Scaled by how far past the tolerance he fell and by minutes played, so a
+   * benchwarmer's bad numbers barely register. */
+  primeBadSeasonMaxLoss: number;
   /** Headroom a prime player is granted above his current overall (v1.51), so a
    * player whose dynamic potential has converged onto his rating can still
    * improve on a strong campaign. Without this, `recalcPotential`'s
@@ -702,6 +711,30 @@ export interface TuningConfig {
   academyLoanRepCeiling: number;
   academyLoanStarterBand: number;
   academyLoanJitter: number;
+  // Loan development (v1.52). A loan is the substitute route to growth when
+  // first-team minutes aren't there: the point is that a well-chosen loan gives
+  // a young player a season of RELIABLE football, which is what the development
+  // curve actually rewards. `loanStarterMinutesMult` is what a loanee gets at a
+  // club that will play him every week (role "Regular starter"); a rotation move
+  // gets the rest. `loanGrowthBonus` is the extra growth multiplier a season on
+  // loan carries at the rollover, on top of the minutes themselves — coaching
+  // and competitive football at a level that suits him.
+  loanStarterMinutesMult: number;
+  loanRotationMinutesMult: number;
+  loanGrowthBonus: number;
+  // Direct sales (v1.52). The chooser only means something if the clubs on it
+  // offer genuinely different money, so a suitor's bid is market value moved by
+  // how badly it wants the player (keennessPremium, at full keenness) and a
+  // per-club appetite roll between the two bounds.
+  saleKeennessPremium: number;
+  saleAppetiteMin: number;
+  saleAppetiteMax: number;
+  /** A stretched club bids what it can raise, but drops out entirely below this
+   * share of the player's value — a derisory offer isn't a choice worth showing. */
+  saleMinOfferShare: number;
+  /** Age above which a loan stops being developmental — a veteran on loan is
+   * playing, not growing, so he gets the minutes but not the bonus. */
+  loanGrowthMaxAge: number;
 
   // Calibration targets (for the harness printout)
   targetGoalsPerMatch: number;
@@ -845,10 +878,22 @@ export const TUNING: TuningConfig = {
   // the prime curve. This lifts squad quality world-wide, so
   // `baseChancesPerSegment` is re-calibrated alongside it to hold ~2.7 goals.
   growthEndAge: 26,
-  primeEndAge: 31,
-  declineOnsetAge: 32,
-  declineOnsetLongevitySwing: 2,
-  declineOnsetPaceReliancePenalty: 1.5,
+  primeEndAge: 34,
+  // v1.52 — automatic decline starts at 35, not the early thirties.
+  //
+  // The old base of 32, swung by ±2 for longevity and pulled a further 1.5 years
+  // earlier for a pace-reliant archetype, put the EARLIEST onset at 28.6 and the
+  // typical one at ~31.2. A 30-year-old therefore lost overall every summer no
+  // matter how he played, which is the "players decline at 30" complaint.
+  //
+  // The base moves to 35 and the two modifiers shrink, so the band is now
+  // 34.1 → 36.5: nobody declines before 34, the average pro turns at ~35, and a
+  // durable, low-pace archetype holds on past 36. Between the end of the youth
+  // curve and this age a player is in his PRIME — he moves on merit, up on a
+  // strong campaign and only gently down on a poor one (see developPlayer).
+  declineOnsetAge: 35,
+  declineOnsetLongevitySwing: 1,
+  declineOnsetPaceReliancePenalty: 0.9,
   growthPerSeasonMax: 6,
   declinePerSeasonBase: 1.6,
   growthCatchupBelow: 60,
@@ -872,16 +917,30 @@ export const TUNING: TuningConfig = {
   // cleared the bar at all, which is why nobody over 24 appeared to develop.
   primeGrowthPerfPivot: 6.55,
   primeInSeasonShare: 0.45,
+  // 0.25 in perf units ≈ 0.3 of a rating point below the 6.55 pivot, so anything
+  // from ~6.25 up is treated as an ordinary season and costs nothing. Below that
+  // he sheds at most 1.5 in a season — noticeable, recoverable next year.
+  primeDeclineTolerance: 0.25,
+  primeBadSeasonMaxLoss: 1.5,
   // A 6-point floor tapering out at 92 keeps a mid-70s pro improving for several
   // seasons on good form, while a 90-rated star has almost nothing left — the
   // last few points of a great career have to come from the youth curve.
   primeHeadroomFloor: 6,
   primeHeadroomCapOverall: 92,
   primeHeadroomFullBelow: 78,
-  retirementAgeMin: 34,
-  retirementAgeMax: 37,
+  // v1.52: pushed back two years alongside the decline onset. At 34–37 a player
+  // could retire at the very age decline was starting, so the veteran phase was
+  // over before it began; 36–39 leaves a real two-to-four-season tail in which
+  // an ageing pro visibly fades before hanging them up.
+  retirementAgeMin: 36,
+  retirementAgeMax: 39,
 
-  potentialRecalcAgeMax: 29,
+  // v1.52: 29 → 33. The prime now runs to ~35, and freezing the ceiling at 29
+  // meant a 30-year-old's potential could never respond to how he was actually
+  // playing — his growth was capped by a number set years earlier. It still
+  // stops before decline onset, so a genuinely ageing player doesn't sprout a
+  // new ceiling on the way down.
+  potentialRecalcAgeMax: 33,
   potentialUpMax: 3,
   potentialDownMax: 2,
   potentialPerfPivot: 6.9,
@@ -1334,6 +1393,14 @@ export const TUNING: TuningConfig = {
   academyLoanRepCeiling: 12, // clubs more than this over his level don't bite
   academyLoanStarterBand: 4, // a club within this of his level plays him
   academyLoanJitter: 6, // deterministic tie-break spread on the five offered
+  loanStarterMinutesMult: 1.0, // a club that plays him every week delivers full loan minutes
+  loanRotationMinutesMult: 0.68, // a rotation move is worth noticeably less
+  loanGrowthBonus: 0.15, // +15% growth for a developmental season out on loan
+  saleKeennessPremium: 0.35, // the keenest suitor pays up to +35% over the coldest
+  saleAppetiteMin: 0.88,
+  saleAppetiteMax: 1.16,
+  saleMinOfferShare: 0.75,
+  loanGrowthMaxAge: 24,
 
   targetGoalsPerMatch: 2.7,
   targetHomeWinPct: 45,

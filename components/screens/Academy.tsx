@@ -10,9 +10,11 @@ import type { Pos, PlayerBio, ScoutPosGroup, ScoutRegion, U21Opponent } from "@/
 import { TUNING } from "@/lib/config/tuning";
 import { ARCHETYPES, getArchetype } from "@/lib/config/archetypes";
 import {
-  academyLoanSuitors,
+  academyGrowthSummary,
   academyPlayers,
+  prospectGrowth,
   isAcademyLoanee,
+  type ProspectGrowth,
   loanedOutPlayers,
   focusSlots,
   pendingGraduates,
@@ -49,8 +51,11 @@ import { formatMoney } from "@/lib/value";
 import { matchesPlayerName } from "@/lib/search";
 import { staffSlotsForDept } from "@/lib/staff";
 import { Card, ConfirmButton, CountryFlag, Crest, Flag, GhostButton, GoldButton, Modal, Ovr, PlayerCard, PlayerGrid, PosBadge, PotentialBadge, Section, Stars, StarRange, Tabs, UpgradeCard, usePlayerView, ViewToggle } from "../ui";
+// The loan chooser is shared with the senior squad now (v1.52) — both squads
+// resolve a move the same way, so the modal lives outside this screen.
+import { LoanOfferModal } from "./SquadMoveModals";
 
-type Tab = "squad" | "development" | "loaned" | "u21" | "scouting" | "staff" | "upgrades";
+type Tab = "squad" | "development" | "growth" | "loaned" | "u21" | "scouting" | "staff" | "upgrades";
 
 export default function AcademyScreen() {
   const game = useGame((s) => s.game)!;
@@ -65,6 +70,7 @@ export default function AcademyScreen() {
         tabs={[
           { id: "squad", label: "Academy Squad" },
           { id: "development", label: "Development" },
+          { id: "growth", label: "Growth" },
           { id: "loaned", label: "Loaned Players", badge: loanedCount },
           { id: "u21", label: "U21 League" },
           { id: "scouting", label: "Scouting", badge: reports.length },
@@ -76,6 +82,7 @@ export default function AcademyScreen() {
       />
       {tab === "squad" && <SquadTab />}
       {tab === "development" && <AcademyDevelopmentTab />}
+      {tab === "growth" && <AcademyGrowthTab />}
       {tab === "loaned" && <LoanedTab />}
       {tab === "u21" && <U21Tab />}
       {tab === "scouting" && <ScoutingTab />}
@@ -957,86 +964,6 @@ function TextBtn({
   );
 }
 
-/** The "Send on Loan" chooser (v1.44): clicking Send on Loan resolves, on the
- * spot, which clubs across the whole world — playable and sim-only leagues alike
- * — would take this prospect on a development loan. The parent club keeps paying
- * his wages, so no club is priced out; the user just picks one of five and he
- * goes straight out. */
-function LoanOfferModal({ playerId, onClose }: { playerId: string; onClose: () => void }) {
-  const game = useGame((s) => s.game)!;
-  useGame((s) => s.rev);
-  const send = useGame((s) => s.academySendLoan);
-  const p = game.players[playerId];
-  // Recompute per open; deterministic per player/day so it's stable while open.
-  const suitors = useMemo(() => academyLoanSuitors(game, playerId, TUNING), [game, playerId]);
-
-  if (!p) return null;
-
-  return (
-    <Modal title="Send on Loan" onClose={onClose}>
-      <div className="mb-3 flex items-center gap-2.5">
-        <PosBadge pos={p.positions[0]} />
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            <Flag nat={p.nationality} size={11} />
-            <span className="truncate font-semibold text-ink">{p.name}</span>
-            <span className="tnum text-sm text-dim">· {p.age}y</span>
-            <Ovr value={p.overall} size="sm" />
-          </div>
-          <div className="text-[11px] text-faint">
-            Clubs that want him for regular football. You keep paying his wages.
-          </div>
-        </div>
-      </div>
-
-      {suitors.length === 0 ? (
-        <Card className="border-dashed p-6 text-center text-sm text-faint">
-          No club is looking for a loanee like him right now — try again next window.
-        </Card>
-      ) : (
-        <div className="space-y-2">
-          {suitors.map((s) => (
-            <div
-              key={s.clubId}
-              className="flex items-center gap-3 rounded-md border border-line bg-surface px-3 py-2"
-            >
-              <Crest colors={s.colors} short={s.short} size={30} />
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-medium text-ink">{s.name}</div>
-                {/* Suitors come from every league in the world, so the country
-                    flag is what separates a loan down the road from a loan
-                    abroad at a glance. */}
-                <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-faint">
-                  <CountryFlag country={s.country} size={10} className="shrink-0" />
-                  <span className="truncate">
-                    {s.leagueName} · Rep {s.reputation}
-                  </span>
-                </div>
-              </div>
-              <span
-                className={`display shrink-0 rounded-sm border px-1.5 py-0.5 text-[9px] font-semibold tracking-wide ${
-                  s.role === "Regular starter" ? "border-win/40 text-win" : "border-line text-dim"
-                }`}
-              >
-                {s.role}
-              </span>
-              <GoldButton
-                onClick={() => {
-                  send(playerId, s.clubId);
-                  onClose();
-                }}
-                className="!py-1 text-xs"
-              >
-                Send
-              </GoldButton>
-            </div>
-          ))}
-        </div>
-      )}
-    </Modal>
-  );
-}
-
 // ── Academy development (v1.46) ─────────────────────────────────────────────
 // The academy's own Training Plans tab: the same per-player development focus
 // the senior squad gets on the Development screen, but scoped to the academy
@@ -1338,6 +1265,269 @@ function AcademyDevelopmentTab() {
           })}
         </Card>
       )}
+    </div>
+  );
+}
+
+// ── Academy growth tracking (v1.52) ────────────────────────────────────────
+// The academy's answer to "is this working?".
+//
+// Overall growth was previously only legible one prospect at a time, behind an
+// expander on the Development tab — you could see that a kid was 62, but not
+// that he arrived at 54 and has climbed 8 in two seasons, and certainly not how
+// the intake as a whole was trending. This tab charts every prospect's overall
+// over time and totals it into a few squad-level numbers.
+
+/**
+ * A prospect's overall plotted over the seasons on record.
+ *
+ * Deliberately an inline SVG rather than a charting dependency: the curve is
+ * four or five points, it has to sit inside a table row, and it needs to inherit
+ * the gold accent. The y-axis is scaled to the player's own range (padded), so
+ * the shape shows the climb rather than being flattened against a 1–99 axis.
+ */
+function GrowthSparkline({ g, width = 150, height = 40 }: { g: ProspectGrowth; width?: number; height?: number }) {
+  const pts = g.points;
+  if (pts.length < 2) return <span className="text-[11px] text-faint">No history yet</span>;
+
+  const values = pts.map((p) => p.overall);
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  // Pad a flat line into the middle of the box instead of dividing by zero.
+  const span = Math.max(1, hi - lo);
+  const pad = 4;
+  const x = (i: number) => pad + (i / (pts.length - 1)) * (width - pad * 2);
+  const y = (v: number) => height - pad - ((v - lo) / span) * (height - pad * 2);
+
+  const line = pts.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.overall).toFixed(1)}`).join(" ");
+  const area = `${line} L${x(pts.length - 1).toFixed(1)},${height - pad} L${x(0).toFixed(1)},${height - pad} Z`;
+  const rising = g.totalGain >= 0;
+  const stroke = rising ? "var(--color-gold-hi)" : "#e0576b";
+  const gid = `spark-${g.player.id}`;
+
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="overflow-visible">
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={stroke} stopOpacity="0.28" />
+          <stop offset="100%" stopColor={stroke} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={area} fill={`url(#${gid})`} />
+      <path d={line} fill="none" stroke={stroke} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+      {pts.map((p, i) => (
+        <circle
+          key={i}
+          cx={x(i)}
+          cy={y(p.overall)}
+          r={p.live ? 2.6 : 1.8}
+          fill={p.live ? stroke : "var(--color-surface, #14161b)"}
+          stroke={stroke}
+          strokeWidth="1.2"
+        >
+          <title>{`S${p.season} · age ${p.age} · ${p.overall} OVR`}</title>
+        </circle>
+      ))}
+    </svg>
+  );
+}
+
+/** A signed overall delta, coloured and always explicitly signed. */
+function Delta({ value, suffix = "" }: { value: number; suffix?: string }) {
+  if (!value) return <span className="tnum text-faint">—</span>;
+  return (
+    <span className={`tnum font-semibold ${value > 0 ? "text-win" : "text-loss"}`}>
+      {value > 0 ? "+" : ""}
+      {Math.round(value * 10) / 10}
+      {suffix}
+    </span>
+  );
+}
+
+type GrowthSort = "total" | "season" | "rate" | "overall" | "age";
+
+const GROWTH_SORTS: { key: GrowthSort; label: string }[] = [
+  { key: "total", label: "Total growth" },
+  { key: "season", label: "This season" },
+  { key: "rate", label: "Per season" },
+  { key: "overall", label: "Overall" },
+  { key: "age", label: "Age" },
+];
+
+const GROWTH_GRID = "md:grid-cols-[2.25rem_1fr_2.5rem_9.5rem_3.5rem_4.5rem_4.5rem_4.5rem]";
+
+function AcademyGrowthTab() {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const viewPlayer = useGame((s) => s.viewPlayer);
+  const [sortKey, setSortKey] = useState<GrowthSort>("total");
+
+  const rows = useMemo(() => {
+    const list = academyPlayers(game).map((p) => prospectGrowth(game, p));
+    const cmp: Record<GrowthSort, (a: ProspectGrowth, b: ProspectGrowth) => number> = {
+      total: (a, b) => b.totalGain - a.totalGain || b.player.overall - a.player.overall,
+      season: (a, b) => b.seasonGain - a.seasonGain || b.totalGain - a.totalGain,
+      rate: (a, b) => b.perSeason - a.perSeason || b.totalGain - a.totalGain,
+      overall: (a, b) => b.player.overall - a.player.overall,
+      age: (a, b) => a.player.age - b.player.age || b.player.overall - a.player.overall,
+    };
+    return list.sort(cmp[sortKey]);
+  }, [game, sortKey]);
+
+  const summary = useMemo(() => academyGrowthSummary(rows), [rows]);
+
+  if (rows.length === 0) {
+    return (
+      <Card className="border-dashed px-4 py-8 text-center text-sm text-faint">
+        No academy prospects to track yet — the first intake class arrives in March, and your scout can find more.
+      </Card>
+    );
+  }
+
+  const stats: { label: string; value: React.ReactNode; hint: string }[] = [
+    {
+      label: "Prospects tracked",
+      value: `${summary.tracked}/${rows.length}`,
+      hint: "Prospects with at least one completed season on record",
+    },
+    {
+      label: "Total OVR added",
+      value: <Delta value={summary.totalGain} />,
+      hint: "Overall the academy has added across every prospect since each joined",
+    },
+    {
+      label: "Avg per season",
+      value: <Delta value={Math.round(summary.avgPerSeason * 10) / 10} />,
+      hint: "Mean overall a tracked prospect gains in a season — the academy's rate of climb",
+    },
+    {
+      label: "Avg overall",
+      value: <span className="tnum">{summary.avgOverall.toFixed(1)}</span>,
+      hint: "Mean current overall across the academy squad",
+    },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <Card className="p-4">
+        <div className="display font-semibold text-ink">How your academy is developing</div>
+        <p className="mt-0.5 text-[12px] leading-relaxed text-faint">
+          Every prospect&apos;s overall, season by season. The curve starts where he was first recorded and ends on
+          his rating right now — the filled point is today. Growth comes from U21 minutes, your Youth Coach and the
+          Academy facility, so a flat line usually means a prospect who isn&apos;t playing.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {stats.map((s) => (
+            <div key={s.label} className="rounded-md border border-line bg-surface px-3 py-1.5" title={s.hint}>
+              <div className="text-[9px] uppercase tracking-widest text-faint">{s.label}</div>
+              <div className="display text-sm font-semibold text-ink">{s.value}</div>
+            </div>
+          ))}
+        </div>
+        {summary.topRiser && (
+          <div className="mt-3 flex items-center gap-2 border-t border-line/60 pt-3 text-[12px]">
+            <span className="text-faint">Biggest riser</span>
+            <Flag nat={summary.topRiser.player.nationality} size={11} />
+            <button
+              onClick={() => viewPlayer(summary.topRiser!.player.id)}
+              className="font-semibold text-ink hover:text-gold"
+            >
+              {summary.topRiser.player.name}
+            </button>
+            <span className="tnum text-faint">
+              {summary.topRiser.firstOverall} → {summary.topRiser.player.overall}
+            </span>
+            <Delta value={summary.topRiser.totalGain} />
+          </div>
+        )}
+      </Card>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-1.5">
+          <span className="text-[10px] uppercase tracking-widest text-faint">Sort</span>
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as GrowthSort)}
+            className="display rounded border border-line bg-raised px-2 py-1.5 text-xs text-ink outline-none transition-colors hover:border-faint focus:border-gold-lo/60"
+          >
+            {GROWTH_SORTS.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <Card className="divide-y divide-line/50">
+        <div
+          className={`hidden ${GROWTH_GRID} items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-faint md:grid`}
+        >
+          <span>Pos</span>
+          <span>Prospect</span>
+          <span className="text-center">Age</span>
+          <span className="text-center">Progress</span>
+          <span className="text-center">OVR</span>
+          <span className="text-center" title="Overall gained since he was first recorded">
+            Total
+          </span>
+          <span className="text-center" title="Overall gained so far this season">
+            Season
+          </span>
+          <span className="text-center" title="Average overall gained per completed season">
+            Per yr
+          </span>
+        </div>
+        {rows.map((g) => {
+          const p = g.player;
+          return (
+            <div key={p.id} className={`px-4 py-2.5 md:grid ${GROWTH_GRID} md:items-center md:gap-3`}>
+              <div className="flex items-center gap-2.5 md:contents">
+                <PosBadge pos={p.positions[0]} />
+                <button onClick={() => viewPlayer(p.id)} className="group min-w-0 flex-1 text-left md:flex-none">
+                  <span className="flex items-center gap-1.5">
+                    <Flag nat={p.nationality} size={11} />
+                    <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
+                    <TierTag tier={p.u21Tier} />
+                  </span>
+                  <span className="text-[11px] text-faint">
+                    {g.seasons > 0 ? `${g.seasons} season${g.seasons === 1 ? "" : "s"} on record` : "First season"}
+                  </span>
+                </button>
+                <span className="shrink-0 text-center tnum text-sm text-dim">
+                  {p.age}
+                  <span className="md:hidden">y</span>
+                </span>
+              </div>
+
+              {/* The curve. Full width on phones, where the grid collapses. */}
+              <span className="mt-2 flex justify-center md:mt-0">
+                <GrowthSparkline g={g} />
+              </span>
+
+              <span className="mt-2 flex items-center justify-center md:mt-0">
+                <Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />
+              </span>
+
+              {/* On phones these three collapse into one labelled row. */}
+              <span className="mt-2 flex items-center justify-between gap-3 text-sm md:mt-0 md:contents">
+                <span className="text-center">
+                  <span className="mr-1 text-[10px] uppercase tracking-widest text-faint md:hidden">Total</span>
+                  <Delta value={g.totalGain} />
+                </span>
+                <span className="text-center">
+                  <span className="mr-1 text-[10px] uppercase tracking-widest text-faint md:hidden">Season</span>
+                  <Delta value={g.seasonGain} />
+                </span>
+                <span className="text-center">
+                  <span className="mr-1 text-[10px] uppercase tracking-widest text-faint md:hidden">Per yr</span>
+                  {g.seasons > 0 ? <Delta value={Math.round(g.perSeason * 10) / 10} /> : <span className="tnum text-faint">—</span>}
+                </span>
+              </span>
+            </div>
+          );
+        })}
+      </Card>
     </div>
   );
 }

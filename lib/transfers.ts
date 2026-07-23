@@ -943,6 +943,181 @@ function aiRenewContracts(state: GameState, rng: RNG, cfg: TuningConfig) {
   }
 }
 
+// ── Direct sales (v1.52) ──────────────────────────────────────────────────
+// Transfer-listing used to be a visibility flag: the user ticked a box and waited
+// for the weekly AI tick to maybe produce an offer. That reads as nothing
+// happening. Selling now resolves on the spot, exactly the way the academy loan
+// chooser does (§18 v1.44): the game works out which clubs would actually buy
+// this player, what each of them would pay, and the user picks one.
+//
+// The interest model is the same one every other market path uses — squadNeeds
+// for the hole, targetScore for whether he improves it, canAfford/buyBudgetFor
+// for the money — so a suitor here is a club that would genuinely have bid.
+
+export interface SaleSuitor {
+  clubId: string;
+  name: string;
+  short: string;
+  colors: [string, string];
+  reputation: number;
+  leagueName: string;
+  country: string;
+  /** What this club will actually pay — its own valuation, already affordable. */
+  fee: number;
+  /** The hole he'd fill there, for the pitch to the user. */
+  needPos: Pos;
+  /** Projected standing at the new club, from his level against their side. */
+  role: "Key signing" | "Starter" | "Squad player";
+}
+
+/**
+ * How much this buyer offers for him.
+ *
+ * The whole point of the chooser is that the clubs differ, so the fee has to
+ * carry real spread — a club desperate for this exact player pays over the odds,
+ * a lukewarm one lowballs. Three signals move it off market value:
+ *  - the club's stance premium (a title chaser pays more than a club trimming),
+ *  - how badly it wants him (`want`, the normalised targetScore), and
+ *  - a per-club appetite roll, seeded so the number is stable while the chooser
+ *    is open and can't be re-rolled by closing and reopening it.
+ *
+ * A release clause overrides all of it — that is the number, if they can find it.
+ */
+function offerFeeFrom(
+  state: GameState,
+  buyer: Team,
+  p: PlayerBio,
+  want: number,
+  cfg: TuningConfig
+): number {
+  // The CASH ceiling — what the club could actually hand over for one player.
+  // Deliberately not `buyBudgetFor`, which already folds the stance premium in:
+  // capping a premium-priced offer with a premium-priced budget pins every club
+  // to the identical number and flattens the whole chooser to one price.
+  const ceiling = spendableBudget(state, buyer, cfg) * cfg.aiMaxBudgetSharePerDeal;
+
+  const clause = p.contract?.releaseClause;
+  if (clause) {
+    if (clause > ceiling) return 0;
+    return Math.max(100_000, Math.round(clause / 100_000) * 100_000);
+  }
+  const profile = STANCE_PROFILE[stanceOf(state, buyer, cfg)];
+  const rng = mulberry32(deriveSeed(state.seed, `saleoffer:${p.id}:${buyer.id}:${state.currentDay}`));
+  const keenness = 1 + Math.max(0, Math.min(1, want)) * cfg.saleKeennessPremium;
+  const appetite = cfg.saleAppetiteMin + rng() * (cfg.saleAppetiteMax - cfg.saleAppetiteMin);
+  const willing = p.value * profile.buyPremium * keenness * appetite;
+  // A club stretched by the price bids what it can actually raise rather than
+  // dropping out — that's what makes a big sale a choice between one club's
+  // top dollar and another's better football. It only walks away when even a
+  // full stretch would land embarrassingly short of the player's worth.
+  const offer = Math.min(willing, ceiling);
+  if (offer < p.value * cfg.saleMinOfferShare) return 0;
+  return Math.max(100_000, Math.round(offer / 100_000) * 100_000);
+}
+
+/**
+ * Up to five clubs that would buy this player right now, best offer first.
+ *
+ * Only clubs with a genuine hole he improves come calling (targetScore > 0) and
+ * only those who can fund the fee AND the wage — the same bar the AI applies to
+ * itself, so nothing on this list is an offer the buyer couldn't honour.
+ * Deterministic per player/day, so reopening the chooser shows the same clubs.
+ */
+export function saleSuitors(state: GameState, playerId: string, cfg: TuningConfig): SaleSuitor[] {
+  const p = state.players[playerId];
+  if (!p || p.clubId !== state.userTeamId) return [];
+  const rng = mulberry32(deriveSeed(state.seed, `salepick:${playerId}:${state.currentDay}`));
+  const wage = wageDemand(state, p, cfg);
+
+  // Pass 1: who is interested at all, and how badly. `targetScore` is unbounded,
+  // so the keenness that prices the offer is this player's score normalised
+  // across the interested clubs — "keenest of the suitors", not an absolute.
+  const interested: { team: Team; need: PositionNeed; score: number }[] = [];
+  for (const t of Object.values(state.teams)) {
+    if (t.id === state.userTeamId) continue;
+    if (t.playerIds.length >= cfg.squadCap) continue;
+    if (isDistressed(state, t, cfg)) continue;
+    // The hole he'd fill. No need for his position → no interest, same as the AI.
+    const need = squadNeeds(state, t, cfg).find((n) => p.positions.includes(n.pos));
+    if (!need) continue;
+    const score = targetScore(state, t, need, p, cfg);
+    if (score <= 0) continue;
+    interested.push({ team: t, need, score });
+  }
+  const topScore = interested.reduce((n, x) => Math.max(n, x.score), 0);
+
+  // Pass 2: price it, and drop anyone who can't actually fund their own offer.
+  const rows: { team: Team; fee: number; need: PositionNeed; score: number }[] = [];
+  for (const { team: t, need, score } of interested) {
+    const fee = offerFeeFrom(state, t, p, topScore > 0 ? score / topScore : 0, cfg);
+    if (fee <= 0) continue;
+    if (!canAfford(state, t, fee, wage, cfg)) continue;
+    rows.push({ team: t, fee, need, score });
+  }
+
+  // Best money first; the deterministic jitter only breaks ties between clubs
+  // offering the same figure, so the order still reads as "who pays most".
+  return rows
+    .sort((a, b) => b.fee - a.fee || b.score - a.score || rng() - 0.5)
+    .slice(0, 5)
+    .map(({ team, fee, need }): SaleSuitor => {
+      const league = state.leagues[team.leagueId];
+      const squad = team.playerIds.map((id) => state.players[id]).filter(Boolean);
+      const best = [...squad].sort((a, b) => b.overall - a.overall);
+      // Where he'd rank in their squad is the honest way to describe the move.
+      const rank = best.findIndex((x) => x.overall <= p.overall);
+      const role: SaleSuitor["role"] =
+        rank === 0 ? "Key signing" : rank > 0 && rank < 11 ? "Starter" : "Squad player";
+      return {
+        clubId: team.id,
+        name: team.name,
+        short: team.short,
+        colors: team.colors,
+        reputation: team.reputation,
+        leagueName: league?.name ?? "—",
+        country: league?.country ?? "",
+        fee,
+        needPos: need.pos,
+        role,
+      };
+    });
+}
+
+/** Sell a player to one of the clubs `saleSuitors` returned, immediately. The
+ * fee is the buyer's own number — there is no haggling here, because the point
+ * of this path is that the decision is "who, and for how much", made once. */
+export function sellToClub(
+  state: GameState,
+  playerId: string,
+  clubId: string,
+  cfg: TuningConfig
+): string | null {
+  const p = state.players[playerId];
+  if (!p || p.clubId !== state.userTeamId) return "Not your player.";
+  if (p.loan) return "Recall him from his loan spell first.";
+  if (!windowOpen(state)) return "The transfer window is closed.";
+  const buyer = state.teams[clubId];
+  if (!buyer) return "That club no longer exists.";
+  // Re-resolve rather than trust the id: the world may have moved on since the
+  // chooser was opened (another deal, a wage change), and a stale offer must not
+  // be honourable.
+  const suitor = saleSuitors(state, playerId, cfg).find((s) => s.clubId === clubId);
+  if (!suitor) return `${buyer.name} are no longer interested.`;
+
+  completeTransfer(state, playerId, clubId, suitor.fee);
+  state.news.unshift(`${p.name} joins ${buyer.name} — ${fmtFee(suitor.fee)}.`);
+  state.inbox.unshift({
+    id: uid("inb"),
+    day: state.currentDay,
+    season: state.season,
+    type: "offer",
+    title: `${p.name} sold to ${buyer.name}`,
+    body: `${p.name} completes his move to ${buyer.name} for ${fmtFee(suitor.fee)}. The fee has been credited to your budget.`,
+    read: false,
+  });
+  return null;
+}
+
 /** Refresh values after aging or window openings. */
 export function refreshValues(state: GameState, cfg: TuningConfig) {
   for (const p of activePlayers(state)) {

@@ -12,7 +12,7 @@ import type { LibraryPlayer } from "@/lib/customdb";
 import { archetypesForPosition } from "@/lib/config/archetypes";
 import { traitsForPosition } from "@/lib/config/traits";
 import { overallFromAttrs } from "@/lib/config/positions";
-import { Flag, GhostButton, GoldButton, Modal, Ovr, PosBadge } from "./ui";
+import { Flag, GhostButton, GoldButton, Modal, NationalityPicker, Ovr, PosBadge } from "./ui";
 
 const ALL_POS: Pos[] = ["GK", "CB", "LB", "RB", "DM", "CM", "AM", "LW", "RW", "ST"];
 const ATTR_KEYS = ["pac", "sho", "pas", "dri", "def", "phy"] as const;
@@ -121,16 +121,15 @@ export default function LibraryPlayerModal({
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <label className="block">
+          <div className="block">
             <span className={labelCls}>NATIONALITY</span>
-            <select value={nationality} onChange={(e) => setNationality(e.target.value)} className={selectCls}>
-              {natOptions.map((nat) => (
-                <option key={nat} value={nat}>
-                  {nat}
-                </option>
-              ))}
-            </select>
-          </label>
+            <NationalityPicker
+              value={nationality}
+              options={natOptions}
+              onChange={setNationality}
+              className="mt-1"
+            />
+          </div>
           <label className="block">
             <span className={labelCls}>ARCHETYPE</span>
             <select

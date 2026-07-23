@@ -96,6 +96,30 @@ export function primeHeadroom(overall: number, potential: number, cfg: TuningCon
   return Math.max(0, Math.max(declared, floor));
 }
 
+/**
+ * The age at which THIS player's automatic decline begins (v1.52).
+ *
+ * `cfg.declineOnsetAge` is the base (35); a durable player holds on a little
+ * longer and a pace-reliant archetype turns a little earlier, but the swings are
+ * deliberately small so nobody falls off in their early thirties. Before this
+ * age a player is in his prime and moves on performance alone.
+ *
+ * Extracted because three call sites — the rollover, the weekly in-season tick
+ * and the UI's phase chip — each recomputed it inline, and any drift between
+ * them would show a player "Prime" on his profile while the engine declined him.
+ */
+export function declineOnsetFor(p: PlayerBio, cfg: TuningConfig): number {
+  const arch = getArchetype(p.archetypeId);
+  let longevityBonus = 0;
+  for (const t of p.traits) longevityBonus += TRAIT_MAP[t]?.effects.longevityBonus ?? 0;
+  const longevity = Math.min(1, p.longevity + longevityBonus);
+  return (
+    cfg.declineOnsetAge +
+    (longevity - 0.5) * 2 * cfg.declineOnsetLongevitySwing -
+    arch.paceReliance * cfg.declineOnsetPaceReliancePenalty
+  );
+}
+
 /** Season performance normalised to -1..1 around the neutral pivot rating. */
 function seasonPerf(p: PlayerBio, cfg: TuningConfig): number {
   const avgRating = p.stats.apps > 0 ? p.stats.ratingSum / p.stats.apps : 6.5;
@@ -144,10 +168,7 @@ export function developPlayer(
   for (const t of p.traits) longevityBonus += TRAIT_MAP[t]?.effects.longevityBonus ?? 0;
   const longevity = Math.min(1, p.longevity + longevityBonus);
 
-  const declineOnset =
-    cfg.declineOnsetAge +
-    (longevity - 0.5) * 2 * cfg.declineOnsetLongevitySwing -
-    arch.paceReliance * cfg.declineOnsetPaceReliancePenalty;
+  const declineOnset = declineOnsetFor(p, cfg);
 
   // Recalculate the hidden ceiling BEFORE this season's growth is applied so a
   // breakout season can immediately widen the room to grow into.
@@ -171,12 +192,17 @@ export function developPlayer(
     delta = Math.max(0, delta);
   } else if (p.age < declineOnset) {
     phase = "prime";
-    // Prime (v1.44): a player past the youth window can still meaningfully
-    // improve on a strong campaign — a late-20s pro who has a standout season,
-    // playing regularly and rating well, should climb, not merely tread water.
-    // Growth scales with how far his rating cleared the pivot and how much he
-    // actually played, is capped per season, and stays bounded by the (dynamic)
-    // potential ceiling. A merely-average or poor season still just drifts.
+    // Prime (v1.44, reworked v1.52): a player past the youth window and short of
+    // decline onset moves on MERIT. He is not ageing yet, so nothing here is
+    // automatic — a strong campaign climbs, an ordinary one holds, and only a
+    // genuinely poor season with real minutes costs him anything.
+    //
+    // This branch now covers the whole 27–34 window (decline having moved to 35),
+    // which is why the losing side of it had to change: the old formula applied
+    // `primePerf * 0.8 + randRange(-0.5, 0.5)` to every below-pivot season, so a
+    // squad player who rated 6.4 shed overall every summer from his mid-twenties
+    // on. That read as "players start declining at 30" even though the decline
+    // phase hadn't been reached — an ordinary prime season now costs nothing.
     const primePerf = (avgRating - cfg.primeGrowthPerfPivot) / 1.2; // >0 when he outperformed
     // v1.51: headroom comes from primeHeadroom, not the raw potential gap — a
     // prime player's declared potential has usually collapsed onto his overall,
@@ -195,9 +221,15 @@ export function developPlayer(
         extraGrowthMult *
         planGrowthMult;
       delta = Math.min(headroom, earned);
+    } else if (primePerf < -cfg.primeDeclineTolerance) {
+      // A genuinely poor season — well below the pivot, not merely average — and
+      // only if he actually played enough for it to mean anything. Bounded by
+      // `primeBadSeasonMaxLoss` so a bad year is a setback, never a collapse.
+      const severity = Math.min(1, (-primePerf - cfg.primeDeclineTolerance) / 1.0);
+      delta = -cfg.primeBadSeasonMaxLoss * severity * minutesFactor * randRange(rng, 0.6, 1.0);
     } else {
-      // Neutral-to-poor season: the old gentle drift, still ceiling-bounded.
-      delta = Math.min(primePerf * 0.8 + randRange(rng, -0.5, 0.5), headroom);
+      // An ordinary season at this age: he holds his level. No drift either way.
+      delta = 0;
     }
   } else {
     phase = "decline";
@@ -377,11 +409,7 @@ export function applyWeeklyProgress(
     return 0;
   }
 
-  const arch = getArchetype(p.archetypeId);
-  const declineOnset =
-    cfg.declineOnsetAge +
-    (p.longevity - 0.5) * 2 * cfg.declineOnsetLongevitySwing -
-    arch.paceReliance * cfg.declineOnsetPaceReliancePenalty;
+  const declineOnset = declineOnsetFor(p, cfg);
 
   // ── Prime, in-season (v1.51) ─────────────────────────────────────────────
   // This branch used to `return 0` for every player between growthEndAge and
@@ -390,6 +418,11 @@ export function applyWeeklyProgress(
   // tick youngsters use, against the prime headroom and their own (lower)
   // seasonal allowance — so a well-drilled squad visibly improves rather than
   // reading as a wall of players who stopped developing on their 25th birthday.
+  //
+  // The band runs to ~35 as of v1.52, so this now covers the whole of a career's
+  // middle. It only ever moves a prime player UP: an ordinary season holds, and
+  // the penalty for a genuinely poor one is settled once, at the rollover, so a
+  // player isn't visibly bleeding overall week by week for a mid-table campaign.
   if (p.age < declineOnset) {
     const headroom = primeHeadroom(p.overall, p.potential, cfg);
     if (headroom <= 0) return 0;
@@ -462,9 +495,7 @@ export type DevPhase = "growth" | "prime" | "decline";
 
 export function devPhase(p: PlayerBio, cfg: TuningConfig): DevPhase {
   if (p.age <= cfg.growthEndAge) return "growth";
-  const arch = getArchetype(p.archetypeId);
-  const declineOnset = cfg.declineOnsetAge + (p.longevity - 0.5) * 2 * cfg.declineOnsetLongevitySwing - arch.paceReliance * cfg.declineOnsetPaceReliancePenalty;
-  return p.age < declineOnset ? "prime" : "decline";
+  return p.age < declineOnsetFor(p, cfg) ? "prime" : "decline";
 }
 
 /**

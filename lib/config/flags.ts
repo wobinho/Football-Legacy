@@ -152,6 +152,10 @@ const NAT_TO_FLAG: Record<string, string> = {
   PHI: "ph", // Philippines
   NZL: "nz",
   UZB: "uz", // Uzbekistan
+  // Preset country codes that are also offered as nationalities — without these
+  // the create-a-player picker renders a code-only chip for them.
+  IND: "in", // India
+  UAE: "ae", // United Arab Emirates
 };
 
 /** Full country name (as stored on leagues) → flag file basename.
@@ -337,4 +341,172 @@ export function flagForCountry(country: string): string | null {
     if (code) return `/flags/${code}.svg`;
   }
   return null;
+}
+
+/** 3-letter nationality code → the country's display name.
+ *
+ * Player records store the code (ENG, KVX, …), which is all the engine needs —
+ * but a picker that offers a manager a bare "KVX" to choose from is unreadable.
+ * Every code the nationality dropdowns can offer (every name pool, every
+ * selectable country, every shipped preset) appears here.
+ *
+ * Names follow the everyday spelling rather than the FC source's convention, so
+ * this is intentionally NOT the inverse of COUNTRY_TO_FLAG — that table maps a
+ * league's stored country name (which may be "Korea Republic") to a flag, while
+ * this one answers "what do we call KOR?" ("South Korea"). */
+const NAT_TO_NAME: Record<string, string> = {
+  // Home nations
+  ENG: "England",
+  SCO: "Scotland",
+  WAL: "Wales",
+  NIR: "Northern Ireland",
+  IRL: "Republic of Ireland",
+  // Europe
+  ESP: "Spain",
+  ITA: "Italy",
+  GER: "Germany",
+  FRA: "France",
+  NED: "Netherlands",
+  POR: "Portugal",
+  BEL: "Belgium",
+  SWE: "Sweden",
+  DEN: "Denmark",
+  NOR: "Norway",
+  POL: "Poland",
+  CRO: "Croatia",
+  SUI: "Switzerland",
+  AUT: "Austria",
+  TUR: "Türkiye",
+  GRE: "Greece",
+  RUS: "Russia",
+  UKR: "Ukraine",
+  SRB: "Serbia",
+  CZE: "Czechia",
+  SVK: "Slovakia",
+  HUN: "Hungary",
+  ROU: "Romania",
+  BUL: "Bulgaria",
+  SVN: "Slovenia",
+  ISL: "Iceland",
+  FIN: "Finland",
+  ALB: "Albania",
+  ARM: "Armenia",
+  AZE: "Azerbaijan",
+  BIH: "Bosnia and Herzegovina",
+  BLR: "Belarus",
+  CYP: "Cyprus",
+  EST: "Estonia",
+  GEO: "Georgia",
+  KVX: "Kosovo",
+  LTU: "Lithuania",
+  LUX: "Luxembourg",
+  LVA: "Latvia",
+  MDA: "Moldova",
+  MKD: "North Macedonia",
+  MNE: "Montenegro",
+  // Africa
+  NGA: "Nigeria",
+  SEN: "Senegal",
+  GHA: "Ghana",
+  CIV: "Ivory Coast",
+  CMR: "Cameroon",
+  MAR: "Morocco",
+  EGY: "Egypt",
+  ALG: "Algeria",
+  TUN: "Tunisia",
+  ANG: "Angola",
+  BDI: "Burundi",
+  BEN: "Benin",
+  BFA: "Burkina Faso",
+  CGO: "Congo",
+  COD: "DR Congo",
+  COM: "Comoros",
+  CPV: "Cape Verde",
+  CTA: "Central African Republic",
+  EQG: "Equatorial Guinea",
+  ETH: "Ethiopia",
+  GAB: "Gabon",
+  GAM: "Gambia",
+  GNB: "Guinea-Bissau",
+  GUI: "Guinea",
+  KEN: "Kenya",
+  LBY: "Libya",
+  MAD: "Madagascar",
+  MLI: "Mali",
+  MOZ: "Mozambique",
+  MTN: "Mauritania",
+  NIG: "Niger",
+  RSA: "South Africa",
+  SLE: "Sierra Leone",
+  SOM: "Somalia",
+  TAN: "Tanzania",
+  TOG: "Togo",
+  UGA: "Uganda",
+  ZAM: "Zambia",
+  ZIM: "Zimbabwe",
+  CHA: "Chad",
+  // Americas
+  BRA: "Brazil",
+  ARG: "Argentina",
+  USA: "United States",
+  MEX: "Mexico",
+  CAN: "Canada",
+  COL: "Colombia",
+  URU: "Uruguay",
+  CHI: "Chile",
+  PER: "Peru",
+  ECU: "Ecuador",
+  BOL: "Bolivia",
+  PAR: "Paraguay",
+  VEN: "Venezuela",
+  CRC: "Costa Rica",
+  HON: "Honduras",
+  PAN: "Panama",
+  GUA: "Guatemala",
+  SLV: "El Salvador",
+  DOM: "Dominican Republic",
+  JAM: "Jamaica",
+  TRI: "Trinidad and Tobago",
+  HAI: "Haiti",
+  ATG: "Antigua and Barbuda",
+  GRN: "Grenada",
+  GUY: "Guyana",
+  LCA: "Saint Lucia",
+  PUR: "Puerto Rico",
+  STV: "Saint Vincent and the Grenadines",
+  SUR: "Suriname",
+  CUW: "Curaçao",
+  GLP: "Guadeloupe",
+  GUF: "French Guiana",
+  MTQ: "Martinique",
+  // Asia & Oceania
+  JPN: "Japan",
+  KOR: "South Korea",
+  AUS: "Australia",
+  CHN: "China",
+  IRN: "Iran",
+  IRQ: "Iraq",
+  KSA: "Saudi Arabia",
+  ISR: "Israel",
+  JOR: "Jordan",
+  SYR: "Syria",
+  PLE: "Palestine",
+  IDN: "Indonesia",
+  PHI: "Philippines",
+  NZL: "New Zealand",
+  UZB: "Uzbekistan",
+  IND: "India",
+  UAE: "United Arab Emirates",
+};
+
+/**
+ * Display name for a nationality code — "England" for ENG, "Kosovo" for KVX.
+ *
+ * Falls back to the code itself for anything unmapped (a modded database can
+ * invent one), so a picker always renders something a manager can read rather
+ * than an empty row.
+ */
+export function nameForNat(nat: string): string {
+  if (!nat) return "";
+  return NAT_TO_NAME[nat.toUpperCase()] ?? nat;
 }
