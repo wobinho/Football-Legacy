@@ -13,6 +13,7 @@ import type { Pos, Attributes } from "./types";
 import type { ClubDef } from "./config/names";
 import type { CountryDef } from "./config/countries";
 import { getCountry } from "./config/countries";
+import { POS_ORDER } from "./config/positions";
 
 // v2 (attribute-driven): a player may be authored via the six raw attributes
 // (Pace/Shooting/Passing/Dribbling/Defending/Physical), and `overall` is derived
@@ -103,7 +104,10 @@ export interface ValidationResult {
   db?: CountryDatabase;
 }
 
-const VALID_POS = new Set<string>(["GK", "CB", "LB", "RB", "DM", "CM", "AM", "LW", "RW", "ST"]);
+// Derived from the canonical position list rather than hand-written, so a Pos
+// added to the schema can never go missing here (LM/RM once did, which silently
+// rejected any authored database using the wide-midfield positions).
+const VALID_POS = new Set<string>(POS_ORDER);
 
 /** Validate a parsed JSON object as a CountryDatabase, with friendly messages.
  * Returns the typed database on success so the caller can use it directly. */

@@ -1,0 +1,663 @@
+club_id,club_name,short_code,country,league,league_id,league_level,stadium,stadium_capacity,founded,primary_color,secondary_color
+1,Arsenal,ARS,England,Premier League,13,1,Arsenal Ground,59750,1884,#EF0107,#FFFFFF
+10,Manchester City,MCI,England,Premier League,13,1,Manchester Park,64500,1932,#6CABDD,#FFFFFF
+73,Paris Saint-Germain,PSG,France,Ligue 1,16,1,Stade Saint-Germain,61500,1898,#004170,#DA291C
+44,Inter,INT,Italy,Serie A,31,1,Stadio Comunale Inter,52500,1894,#0068A8,#000000
+240,Atlético Madrid,ATM,Spain,La Liga,53,1,Estadio Nuevo Atletico,52250,1899,#CB3524,#FFFFFF
+9,Liverpool,LIV,England,Premier League,13,1,Liverpool Park,63250,1895,#C8102E,#00B2A9
+243,Real Madrid,RMA,Spain,La Liga,53,1,Estadio Nuevo Madrid,52500,1917,#FFFFFF,#00529F
+2,Aston Villa,AVL,England,Premier League,13,1,Aston Park,51750,1934,#95BFE5,#670E36
+241,FC Barcelona,BAR,Spain,La Liga,53,1,Estadio Barcelona,62500,1920,#A50044,#004D98
+21,FC Bayern München,BAY,Germany,Bundesliga,19,1,Munchen-Park,64500,1936,#DC052D,#0066B2
+18,Tottenham Hotspur,TOT,England,Premier League,13,1,Tottenham Lane,61250,1896,#FFFFFF,#132257
+5,Chelsea,CHE,England,Premier League,13,1,Chelsea Lane,62000,1910,#034694,#FFFFFF
+48,Napoli,NAP,Italy,Serie A,31,1,Stadio Napoli,55000,1882,#12A0D7,#FFFFFF
+45,Juventus,JUV,Italy,Serie A,31,1,Stadio Juventus,66000,1922,#000000,#FFFFFF
+13,Newcastle United,NEW,England,Premier League,13,1,Newcastle Stadium,64750,1897,#241F20,#FFFFFF
+14,Nottingham Forest,NFO,England,Premier League,13,1,Nottingham Ground,59250,1884,#2D5A27,#FFFFFF
+11,Manchester United,MUN,England,Premier League,13,1,Manchester Road,53750,1880,#DA020E,#FBE122
+22,Borussia Dortmund,BVB,Germany,Bundesliga,19,1,Borussia Arena,54000,1926,#FDE100,#000000
+47,AC Milan,MIL,Italy,Serie A,31,1,Stadio Milan,57250,1903,#FB090B,#000000
+448,Athletic Club,ATH,Spain,La Liga,53,1,Estadio Municipal de Athletic,64750,1913,#7A0026,#F5C518
+52,Roma,ROM,Italy,Serie A,31,1,Stadio Roma,53250,1935,#8E1F2F,#F0BC42
+39,Atalanta,ATA,Italy,Serie A,31,1,Stadio Comunale Atalanta,59500,1889,#1D71B8,#000000
+237,Sporting CP,SCP,Portugal,Primeira Liga,308,1,Estádio do Sporting,55500,1939,#008057,#FFFFFF
+144,Fulham FC,FUL,England,Premier League,13,1,Fulham Lane,62000,1880,#1B7F3B,#F2E30F
+457,Real Sociedad,RSO,Spain,La Liga,53,1,Estadio Nuevo Sociedad,53750,1891,#3C1053,#FFFFFF
+1808,Brighton & Hove Albion,BHA,England,Premier League,13,1,Brighton Lane,61250,1935,#006E4E,#FFFFFF
+325,Galatasaray SK,GAL,Türkiye,Süper Lig,68,1,Galatasaray Arena,55750,1916,#A90432,#FBB300
+1043,Flamengo,FLA,Brazil,Série A,7,1,Estádio Flamengo,58250,1912,#E20E0E,#000000
+326,Fenerbahçe SK,FEN,Türkiye,Süper Lig,68,1,Fenerbahce Arena,59000,1902,#FFED00,#00306A
+19,West Ham United,WHU,England,Premier League,13,1,United Ground,57000,1889,#C8102E,#FFFFFF
+1799,Crystal Palace,CRY,England,Premier League,13,1,Crystal Ground,54500,1887,#FF6B00,#000000
+483,Villarreal CF,VIL,Spain,La Liga,53,1,Estadio Villarreal,58500,1897,#1D428A,#C8102E
+32,Bayer 04 Leverkusen,B04,Germany,Bundesliga,19,1,Leverkusen-Park,62000,1939,#E32221,#000000
+7,Everton,EVE,England,Premier League,13,1,Everton Lane,62500,1921,#003399,#FFFFFF
+74,Stade Rennais FC,REN,France,Ligue 1,16,1,Parc Rennais,55500,1925,#FDB913,#000000
+383,Palmeiras,PAL,Brazil,Série A,7,1,Arena Palmeiras,48000,1889,#006437,#FFFFFF
+1035,Atlético Mineiro,CAM,Brazil,Série A,7,1,Arena Atletico,59250,1939,#FDB913,#000000
+112172,RB Leipzig,RBL,Germany,Bundesliga,19,1,Leipzig Stadion,53250,1925,#DD0741,#FFFFFF
+46,Lazio,LAZ,Italy,Serie A,31,1,Stadio Comunale Lazio,52750,1912,#87D8F7,#FFFFFF
+189,Bologna,BOL,Italy,Serie A,31,1,Stadio Bologna,48500,1926,#004C97,#FDB913
+450,RC Celta,RCC,Spain,La Liga,53,1,Estadio Municipal de Celta,55000,1931,#4B0082,#FFD700
+219,Olympique de Marseille,OLM,France,Ligue 1,16,1,Stade Olympique,56000,1913,#2FAEE0,#FFFFFF
+8,Leeds United,LEE,England,Premier League,13,1,United Ground,55500,1886,#8B1A1A,#1B3A6B
+110062,Girona FC,GIR,Spain,La Liga,53,1,Estadio Girona,55250,1883,#96172E,#FFFFFF
+517,Botafogo,BOT,Brazil,Série A,7,1,Estádio Municipal de Botafogo,50500,1919,#BA0C2F,#FFC72C
+69,AS Monaco,MON,France,Ligue 1,16,1,Stade Monaco,62000,1880,#E63946,#FFFFFF
+110,Wolverhampton Wanderers,WOW,England,Premier League,13,1,Wolverhampton Ground,51750,1882,#004C97,#FDB913
+449,Real Betis Balompié,RBB,Spain,La Liga,53,1,Estadio Municipal de Balompie,58000,1937,#C8102E,#FFFFFF
+327,Beşiktaş JK,BJK,Türkiye,Süper Lig,68,1,Besiktas Arena,48250,1939,#000000,#FFFFFF
+175,VfL Wolfsburg,WOL,Germany,Bundesliga,19,1,Wolfsburg Stadion,55000,1891,#582C83,#B5A268
+1824,Eintracht Frankfurt,EIF,Germany,Bundesliga,19,1,Eintracht-Park,50250,1881,#0057B8,#FFD100
+72,OGC Nice,OGN,France,Ligue 1,16,1,Stade Municipal de Nice,49750,1932,#582C83,#B5A268
+1943,AFC Bournemouth,BOU,England,Premier League,13,1,Bournemouth Park,49250,1912,#FF6B00,#000000
+1048,Internacional,NTR,Brazil,Série A,7,1,Arena Internacional,59750,1932,#003DA5,#FFFFFF
+247,PSV,PSV,Netherlands,Eredivisie,10,1,PSV Arena,55500,1927,#ED1C24,#FFFFFF
+453,RCD Mallorca,RCM,Spain,La Liga,53,1,Estadio Municipal de Mallorca,55500,1901,#F4364C,#FFFFFF
+234,SL Benfica,BEN,Portugal,Primeira Liga,308,1,Estádio Municipal de Benfica,50000,1884,#E30613,#FFFFFF
+280,Olympiacos FC,LYM,Greece,Super League,63,1,Olympiacos Stadium,45250,1886,#0B2545,#8DA9C4
+110374,Fiorentina,FIO,Italy,Serie A,31,1,Stadio Comunale Fiorentina,58500,1881,#046A38,#FFB81C
+1745,Como,COM,Italy,Serie A,31,1,Stadio Comunale Como,44500,1924,#7A0026,#F5C518
+1876,River Plate,RIP,Argentina,Liga Profesional de Fútbol,353,1,Estadio River,44500,1880,#2D5A27,#FFFFFF
+461,Valencia CF,VAL,Spain,La Liga,53,1,Estadio Valencia,55000,1904,#4B0082,#FFD700
+1796,Burnley,BUR,England,Premier League,13,1,Burnley Stadium,50500,1901,#78BE20,#000000
+25,SC Freiburg,FRE,Germany,Bundesliga,19,1,Freiburg-Park,53000,1934,#006E4E,#FFFFFF
+65,Lille OSC,LIO,France,Ligue 1,16,1,Parc Lille,44750,1903,#78BE20,#000000
+236,FC Porto,POR,Portugal,Primeira Liga,308,1,Estádio do Porto,55500,1882,#00428C,#FFFFFF
+1041,Corinthians,COR,Brazil,Série A,7,1,Estádio Municipal de Corinthians,49500,1902,#000000,#FFFFFF
+452,RCD Espanyol,RCE,Spain,La Liga,53,1,Estadio Nuevo Espanyol,56500,1910,#582C83,#B5A268
+23,Borussia Mönchengladbach,BOM,Germany,Bundesliga,19,1,Monchengladbach Stadion,46000,1884,#0B2545,#8DA9C4
+479,CA Osasuna,OSA,Spain,La Liga,53,1,Estadio Municipal de Osasuna,53500,1912,#000000,#FFFFFF
+36,VfB Stuttgart,STU,Germany,Bundesliga,19,1,Stuttgart Stadion,48750,1886,#FF6B00,#000000
+598,São Paulo,SAP,Brazil,Série A,7,1,Arena Paulo,55250,1939,#00205B,#FFFFFF
+480,Rayo Vallecano,RAV,Spain,La Liga,53,1,Estadio Vallecano,55500,1883,#1D428A,#C8102E
+278,AEK Athens,AEA,Greece,Super League,63,1,Athens Stadium,52000,1880,#00205B,#FFFFFF
+78,Celtic,CEL,Scotland,Premiership,50,1,Celtic Lane,43750,1889,#018749,#FFFFFF
+481,Sevilla FC,SEV,Spain,La Liga,53,1,Estadio Nuevo Sevilla,56250,1931,#7A0026,#F5C518
+66,Olympique Lyonnais,OLY,France,Ligue 1,16,1,Stade Municipal de Olympique,47500,1914,#FFFFFF,#0B429A
+266,SK Slavia Praha,SLP,Czechia,První liga,319,1,Stadion Slavia,51750,1880,#96172E,#FFFFFF
+1860,Getafe CF,GET,Spain,La Liga,53,1,Estadio Getafe,42250,1886,#C8102E,#FFFFFF
+1925,Brentford,BRE,England,Premier League,13,1,Brentford Lane,46500,1905,#8B1A1A,#1B3A6B
+76,RC Strasbourg Alsace,RSA,France,Ligue 1,16,1,Parc Strasbourg,41000,1929,#046A38,#FFB81C
+1877,Boca Juniors,BOJ,Argentina,Liga Profesional de Fútbol,353,1,Estadio Monumental de Juniors,52500,1881,#0A2A66,#F2C300
+1896,Sporting Clube de Braga,SCB,Portugal,Primeira Liga,308,1,Estádio do Sporting,45250,1931,#000000,#FFFFFF
+1884,Panathinaikos FC,PAN,Greece,Super League,63,1,Panathinaikos Stadium,41500,1894,#FF6B00,#000000
+54,Torino,TOR,Italy,Serie A,31,1,Stadio Comunale Torino,51000,1926,#582C83,#B5A268
+246,Feyenoord,FEY,Netherlands,Eredivisie,10,1,Feyenoord Arena,49500,1930,#DA020E,#FFFFFF
+1831,1. FC Union Berlin,UNB,Germany,Bundesliga,19,1,Berlin-Park,42000,1900,#FDB913,#000000
+463,Deportivo Alavés,DEA,Spain,La Liga,53,1,Estadio Nuevo Deportivo,43500,1899,#FF6B00,#000000
+567,Fluminense,FLU,Brazil,Série A,7,1,Estádio Municipal de Fluminense,44250,1891,#5A1846,#FFFFFF
+100409,FC Augsburg,AUG,Germany,Bundesliga,19,1,Augsburg-Park,48250,1918,#8B1A1A,#1B3A6B
+245,Ajax,AAX,Netherlands,Eredivisie,10,1,Ajax Stadion,43250,1880,#BA0C2F,#FFC72C
+169,1. FSV Mainz 05,FSM,Germany,Bundesliga,19,1,Mainz-Park,41750,1907,#582C83,#B5A268
+111974,Sassuolo,SAS,Italy,Serie A,31,1,Stadio Sassuolo,51000,1929,#3C1053,#FFFFFF
+111817,Paris FC,PAR,France,Ligue 1,16,1,Stade Paris,39250,1912,#046A38,#FFB81C
+106,Sunderland,SUN,England,Premier League,13,1,Sunderland Park,52750,1896,#BA0C2F,#FFC72C
+393,PAOK,PAO,Greece,Super League,63,1,PAOK Stadium,45000,1918,#00693E,#000000
+436,Trabzonspor,TRA,Türkiye,Süper Lig,68,1,Trabzonspor Arena,47500,1911,#8B1A1A,#1B3A6B
+1598,Bahia,BAH,Brazil,Série A,7,1,Arena Bahia,51500,1919,#1B7F3B,#F2E30F
+1629,Grêmio,GRE,Brazil,Série A,7,1,Estádio Municipal de Gremio,51500,1933,#F4364C,#FFFFFF
+568,Cruzeiro,CRU,Brazil,Série A,7,1,Estádio Municipal de Cruzeiro,49250,1927,#C8102E,#FFFFFF
+10029,TSG 1899 Hoffenheim,TSH,Germany,Bundesliga,19,1,Hoffenheim Arena,50000,1923,#00205B,#FFFFFF
+111434,Cremonese,CRE,Italy,Serie A,31,1,Stadio Cremonese,42000,1903,#BA0C2F,#FFC72C
+111052,Fortaleza,FOR,Brazil,Série A,7,1,Arena Fortaleza,48750,1928,#582C83,#B5A268
+64,RC Lens,RCL,France,Ligue 1,16,1,Stade Municipal de Lens,47750,1908,#000000,#FFFFFF
+55,Udinese,UDI,Italy,Serie A,31,1,Stadio Comunale Udinese,42500,1887,#FDB913,#000000
+86,Rangers FC,RNG,Scotland,Premiership,50,1,Rangers Park,39750,1902,#3C1053,#FFFFFF
+378,Stade Brestois 29,STB,France,Ligue 1,16,1,Parc Brestois,47750,1897,#F4364C,#FFFFFF
+38,SV Werder Bremen,WEB,Germany,Bundesliga,19,1,Werder Arena,47750,1901,#96172E,#FFFFFF
+101014,Medipol Başakşehir FK,MEB,Türkiye,Süper Lig,68,1,Basaksehir Stadyumu,48500,1936,#BA0C2F,#FFC72C
+1853,Levante UD,LEU,Spain,La Liga,53,1,Estadio Municipal de Levante,44500,1924,#006E4E,#FFFFFF
+101083,Estudiantes de La Plata,ESP,Argentina,Liga Profesional de Fútbol,353,1,Estadio Monumental de Estudiantes,40500,1928,#00693E,#000000
+267,Sparta Praha,SPP,Czechia,První liga,319,1,Stadion Sparta,42000,1911,#046A38,#FFB81C
+101085,Racing Club,RAC,Argentina,Liga Profesional de Fútbol,353,1,Estadio Monumental de Racing,43250,1915,#C8102E,#FFFFFF
+31,1. FC Köln,KOL,Germany,Bundesliga,19,1,Koln Arena,41000,1937,#0B2545,#8DA9C4
+206,Hellas Verona FC,HEV,Italy,Serie A,31,1,Stadio Hellas,47250,1891,#1B7F3B,#F2E30F
+347,Lecce,LCC,Italy,Serie A,31,1,Stadio Comunale Lecce,44250,1895,#00693E,#000000
+110827,Real Oviedo,REO,Spain,La Liga,53,1,Estadio Oviedo,42750,1894,#C8102E,#FFFFFF
+1842,Cagliari,CAG,Italy,Serie A,31,1,Stadio Comunale Cagliari,42000,1932,#C8102E,#FFFFFF
+217,FC Lorient,LOR,France,Ligue 1,16,1,Stade Lorient,37750,1899,#F4364C,#FFFFFF
+28,Hamburger SV,HAM,Germany,Bundesliga,19,1,Hamburger Arena,43500,1907,#003DA5,#FFFFFF
+101088,Vélez Sarsfield,VES,Argentina,Liga Profesional de Fútbol,353,1,Estadio Sarsfield,47000,1899,#0B2545,#8DA9C4
+101110,Peñarol,PEN,Uruguay,Primera División,338,1,Estadio Penarol,46000,1883,#BA0C2F,#FFC72C
+110468,Viktoria Plzeň,VIP,Czechia,První liga,319,1,Stadion Viktoria,46000,1894,#A6192E,#0C2340
+231,Club Brugge KV,BRK,Belgium,Pro League,4,1,Brugge Stadion,38000,1920,#4B0082,#FFD700
+111235,1. FC Heidenheim 1846,HEI,Germany,Bundesliga,19,1,Heidenheim Arena,37500,1903,#E03C31,#0C2340
+110556,Genoa,GEN,Italy,Serie A,31,1,Stadio Comunale Genoa,44500,1894,#1D428A,#C8102E
+1874,Ferencvárosi Torna Club,FET,Hungary,Nemzeti Bajnokság I,64,1,Ferencvarosi Lane,43250,1927,#FF6B00,#000000
+1516,FC Midtjylland,MDT,Denmark,Superliga,1,1,Midtjylland Park,42500,1917,#96172E,#FFFFFF
+1906,AZ Alkmaar,AZA,Netherlands,Eredivisie,10,1,Alkmaar Arena,35750,1934,#004C97,#FDB913
+71,FC Nantes,NAN,France,Ligue 1,16,1,Parc Nantes,41000,1920,#2D5A27,#FFFFFF
+673,KRC Genk,KRG,Belgium,Pro League,4,1,Stade Genk,38500,1904,#00205B,#FFFFFF
+748,Samsunspor,SAM,Türkiye,Süper Lig,68,1,Samsunspor Stadyumu,45000,1915,#7A0026,#F5C518
+468,Elche CF,ELC,Spain,La Liga,53,1,Estadio Municipal de Elche,38000,1918,#046A38,#FFB81C
+1738,Le Havre AC,HAV,France,Ligue 1,16,1,Parc Havre,45500,1937,#5A1846,#FFFFFF
+111325,Club Nacional de Football,NAF,Uruguay,Primera División,338,1,Estadio Nacional,37250,1883,#1B7F3B,#F2E30F
+101059,Shakhtar Donetsk,SHD,Ukraine,Premier League,332,1,Shakhtar Arena,40000,1885,#F4364C,#FFFFFF
+819,FC København,KBE,Denmark,Superliga,1,1,København Park,34000,1926,#7A0026,#F5C518
+101047,Dynamo Kyiv,DYK,Ukraine,Premier League,332,1,Dynamo Arena,34250,1905,#4B0082,#FFD700
+569,Vasco da Gama,VDG,Brazil,Série A,7,1,Estádio Municipal de Vasco,37500,1895,#1B7F3B,#F2E30F
+50,Parma,PRM,Italy,Serie A,31,1,Stadio Parma,43000,1894,#0B2545,#8DA9C4
+101037,Çaykur Rizespor,CAR,Türkiye,Süper Lig,68,1,Rizespor Arena,36250,1917,#1D428A,#C8102E
+1719,Vitória,VIT,Brazil,Série A,7,1,Estádio Municipal de Vitoria,38500,1904,#96172E,#FFFFFF
+112670,Talleres,TAL,Argentina,Liga Profesional de Fútbol,353,1,Estadio Talleres,38000,1907,#004C97,#FDB913
+112893,Inter Miami,INM,United States,Major League Soccer,39,1,Inter Stadium,33250,1917,#004C97,#FDB913
+110738,Pisa,PIS,Italy,Serie A,31,1,Stadio Comunale Pisa,44000,1926,#046A38,#FFB81C
+111014,Universitario de Deportes,UND,Peru,Liga 1,2020,1,Estadio Universitario,41750,1934,#A6192E,#0C2340
+607,Al Ittihad,ALI,Saudi Arabia,Pro League,350,1,Ittihad Stadium,36000,1886,#0057B8,#FFD100
+1908,FC Twente,TWE,Netherlands,Eredivisie,10,1,Twente Stadion,33750,1913,#00205B,#FFFFFF
+110093,Independiente,IND,Argentina,Liga Profesional de Fútbol,353,1,Estadio Monumental de Independiente,42750,1937,#8B1A1A,#1B3A6B
+110329,FC St. Pauli,STP,Germany,Bundesliga,19,1,Pauli-Park,35000,1913,#000000,#FFFFFF
+15029,Universidad de Chile,UNC,Chile,Primera Division,335,1,Estadio Universidad,38500,1927,#4B0082,#FFD700
+2014,Union Saint-Gilloise,USG,Belgium,Pro League,4,1,Stade Saint-Gilloise,38000,1888,#FF6B00,#000000
+101100,Atlético Nacional,ATN,Colombia,Categoría Primera A,336,1,Estadio Atletico,40500,1885,#96172E,#FFFFFF
+211,Dinamo Zagreb,DIZ,Croatia,Hrvatska nogometna liga,317,1,Stadion Dinamo,32750,1897,#3C1053,#FFFFFF
+918,FK Bodø/Glimt,BOG,Norway,Eliteserien,41,1,Bodø/Glimt Stadion,35750,1921,#FF6B00,#000000
+229,RSC Anderlecht,RSC,Belgium,Pro League,4,1,Anderlecht Stadion,42250,1933,#046A38,#FFB81C
+112716,Cerro Porteño,CEP,Paraguay,División Profesional,337,1,Estadio Porteno,39500,1917,#004C97,#FDB913
+114326,Raków Częstochowa,RCZ,Poland,Ekstraklasa,66,1,Stadion Czestochowa,37750,1880,#1B7F3B,#F2E30F
+1903,FC Utrecht,UTR,Netherlands,Eredivisie,10,1,Utrecht Arena,35500,1902,#E03C31,#0C2340
+110980,Colo-Colo,CCO,Chile,Primera Division,335,1,Estadio Colo-Colo,33250,1921,#582C83,#B5A268
+605,Al Hilal,ALH,Saudi Arabia,Pro League,350,1,Hilal Stadium,32000,1903,#0055A5,#FFFFFF
+1438,Santa Clara,SAC,Portugal,Primeira Liga,308,1,Estádio Municipal de Santa,35750,1915,#00205B,#FFFFFF
+100761,FCSB,FCS,Romania,Liga I,330,1,Stadionul FCSB,30500,1886,#004C97,#FDB913
+900,BSC Young Boys,YOB,Switzerland,Super League,189,1,Young Arena,32000,1900,#00205B,#FFFFFF
+111711,Huracán,HUR,Argentina,Liga Profesional de Fútbol,353,1,Estadio Huracan,31500,1932,#00693E,#000000
+674,KAA Gent,KAG,Belgium,Pro League,4,1,Gent Stadion,35250,1939,#78BE20,#000000
+744,Rio Ave FC,RIA,Portugal,Primeira Liga,308,1,Estádio do Rio,36250,1923,#E03C31,#0C2340
+110981,Barcelona de Guayaquil,BAG,Ecuador,Serie A,2018,1,Estadio Barcelona,33500,1930,#8B1A1A,#1B3A6B
+68,FC Metz,MET,France,Ligue 1,16,1,Stade Metz,34000,1886,#3C1053,#FFFFFF
+110580,Rosario Central,ROC,Argentina,Liga Profesional de Fútbol,353,1,Estadio Rosario,30250,1938,#BA0C2F,#FFC72C
+112513,FC Arouca,ARO,Portugal,Primeira Liga,308,1,Estádio do Arouca,35000,1918,#3C1053,#FFFFFF
+111022,Belgrano de Córdoba,BEC,Argentina,Liga Profesional de Fútbol,353,1,Estadio Belgrano,38000,1907,#000000,#FFFFFF
+110986,LDU Quito,LDQ,Ecuador,Serie A,2018,1,Estadio Quito,30250,1901,#00205B,#FFFFFF
+101099,América de Cali,AMC,Colombia,Categoría Primera A,336,1,Estadio America,30000,1932,#4B0082,#FFD700
+111140,Portland Timbers,POT,United States,Major League Soccer,39,1,Portland Field,31250,1911,#FF6B00,#000000
+112139,Al Nassr,ALN,Saudi Arabia,Pro League,350,1,Nassr Stadium,30750,1888,#F9E300,#0055A5
+113888,Qarabağ FK,QAR,Azerbaijan,Premyer Liqa,313,1,Qarabag Park,30000,1917,#F4364C,#FFFFFF
+1809,Toulouse FC,TOU,France,Ligue 1,16,1,Stade Toulouse,35750,1913,#003DA5,#FFFFFF
+112996,Los Angeles FC,LOA,United States,Major League Soccer,39,1,Angeles Stadium,38750,1907,#96172E,#FFFFFF
+111010,Alianza Lima,ALL,Peru,Liga 1,2020,1,Estadio Alianza,32000,1906,#A6192E,#0C2340
+111138,Minnesota United FC,MIU,United States,Major League Soccer,39,1,Minnesota Field,28500,1920,#003DA5,#FFFFFF
+111706,Godoy Cruz,GOC,Argentina,Liga Profesional de Fútbol,353,1,Estadio Monumental de Godoy,38000,1923,#2D5A27,#FFFFFF
+111715,Tigre,TIG,Argentina,Liga Profesional de Fútbol,353,1,Estadio Tigre,30750,1906,#FDB913,#000000
+57,AJ Auxerre,AAU,France,Ligue 1,16,1,Parc Auxerre,29250,1930,#006E4E,#FFFFFF
+263,Hajduk Split,HAS,Croatia,Hrvatska nogometna liga,317,1,Stadion Hajduk,31000,1939,#0B2545,#8DA9C4
+111013,Sporting Cristal,SPC,Peru,Liga 1,2020,1,Estadio Sporting,31250,1923,#8B1A1A,#1B3A6B
+271,Aarhus Gymnastikforening,AAG,Denmark,Superliga,1,1,Gymnastikforening Arena,34250,1889,#000000,#FFFFFF
+111019,Argentinos Juniors,ARJ,Argentina,Liga Profesional de Fútbol,353,1,Estadio Monumental de Argentinos,34250,1919,#3C1053,#FFFFFF
+1871,Legia Warszawa,LEW,Poland,Ekstraklasa,66,1,Stadion Warszawa,29500,1902,#2D5A27,#FFFFFF
+114510,Casa Pia,CAP,Portugal,Primeira Liga,308,1,Estádio Municipal de Casa,32750,1897,#C8102E,#FFFFFF
+691,New England Revolution,NER,United States,Major League Soccer,39,1,Revolution Field,30250,1926,#E03C31,#0C2340
+112809,Famalicão,FAM,Portugal,Primeira Liga,308,1,Estádio do Famalicao,34750,1891,#BA0C2F,#FFC72C
+111716,Club Atlético Unión,ATU,Argentina,Liga Profesional de Fútbol,353,1,Estadio Monumental de Atletico,30250,1926,#78BE20,#000000
+101032,Kocaelispor,KOC,Türkiye,Süper Lig,68,1,Kocaelispor Arena,27000,1897,#4B0082,#FFD700
+191,FC Red Bull Salzburg,RBS,Austria,Bundesliga,80,1,Salzburg Arena,35500,1914,#1B7F3B,#F2E30F
+873,Lech Poznań,LEP,Poland,Ekstraklasa,66,1,Stadion Poznan,36000,1896,#E03C31,#0C2340
+298,Rosenborg BK,ROB,Norway,Eliteserien,41,1,Rosenborg Stadion,28250,1931,#003DA5,#FFFFFF
+741,Antalyaspor,ANT,Türkiye,Süper Lig,68,1,Antalyaspor Stadyumu,33750,1882,#582C83,#B5A268
+131463,AVS Futebol SAD,AFS,Portugal,Primeira Liga,308,1,Estádio do Futebol,30750,1927,#0B2545,#8DA9C4
+131174,Eyüpspor,EYU,Türkiye,Süper Lig,68,1,Eyupspor Arena,26500,1933,#E03C31,#0C2340
+111008,Libertad,LIB,Paraguay,División Profesional,337,1,Estadio Libertad,31500,1899,#003DA5,#FFFFFF
+687,Columbus Crew,CCR,United States,Major League Soccer,39,1,Columbus Stadium,34500,1907,#0B2545,#8DA9C4
+1900,Moreirense FC,MOR,Portugal,Primeira Liga,308,1,Estádio do Moreirense,33750,1914,#4B0082,#FFD700
+101084,Gimnasia y Esgrima La Plata,GYE,Argentina,Liga Profesional de Fútbol,353,1,Estadio Monumental de Gimnasia,28000,1889,#046A38,#FFB81C
+110395,Lanús,LAN,Argentina,Liga Profesional de Fútbol,353,1,Estadio Monumental de Lanus,26250,1939,#4B0082,#FFD700
+101112,Vancouver Whitecaps FC,VAW,United States,Major League Soccer,39,1,Vancouver Field,29750,1930,#96172E,#FFFFFF
+110404,CA Banfield,BAN,Argentina,Liga Profesional de Fútbol,353,1,Estadio Monumental de Banfield,34250,1920,#BA0C2F,#FFC72C
+114640,Charlotte FC,CHA,United States,Major League Soccer,39,1,Charlotte Field,29000,1900,#8B1A1A,#1B3A6B
+112992,Atlético Bucaramanga,ATB,Colombia,Categoría Primera A,336,1,Estadio Bucaramanga,27750,1928,#00205B,#FFFFFF
+112387,Al Ahli SFC,AAS,Saudi Arabia,Pro League,350,1,Ahli Stadium,28750,1883,#F4364C,#FFFFFF
+320,Malmö FF,MAF,Sweden,Allsvenskan,56,1,Malmo Arena,32500,1900,#C8102E,#FFFFFF
+1910,NEC Nijmegen,NEN,Netherlands,Eredivisie,10,1,Nijmegen Stadion,27500,1900,#E03C31,#0C2340
+110816,CFR Cluj,CFC,Romania,Liga I,330,1,Stadionul Cluj,31000,1927,#5A1846,#FFFFFF
+308,Universitatea Craiova,UCR,Romania,Liga I,330,1,Stadionul Universitatea,30750,1921,#8B1A1A,#1B3A6B
+10020,GD Estoril Praia,GEP,Portugal,Primeira Liga,308,1,Estádio Municipal de Estoril,26500,1927,#96172E,#FFFFFF
+269,Brøndby IF,BRN,Denmark,Superliga,1,1,Brøndby Park,26500,1918,#E03C31,#0C2340
+896,FC Basel 1893,BAS,Switzerland,Super League,189,1,Basel Arena,28750,1937,#046A38,#FFB81C
+254,SK Rapid,RAP,Austria,Bundesliga,80,1,Rapid Stadion,25000,1924,#003DA5,#FFFFFF
+112908,Independiente del Valle,INV,Ecuador,Serie A,2018,1,Estadio Independiente,32750,1887,#004C97,#FDB913
+110396,Newell's Old Boys,NSO,Argentina,Liga Profesional de Fútbol,353,1,Estadio Monumental de Newell's,27000,1915,#046A38,#FFB81C
+697,LA Galaxy,GLX,United States,Major League Soccer,39,1,Galaxy Stadium,26000,1914,#96172E,#FFFFFF
+111710,Defensa y Justicia,DYJ,Argentina,Liga Profesional de Fútbol,353,1,Estadio Justicia,30750,1913,#8B1A1A,#1B3A6B
+110745,Jagiellonia Białystok,JBY,Poland,Ekstraklasa,66,1,Stadion Jagiellonia,24250,1882,#C8102E,#FFFFFF
+111020,Independiente Rivadavia,INR,Argentina,Liga Profesional de Fútbol,353,1,Estadio Independiente,29250,1889,#5A1846,#FFFFFF
+300,Viking FK,VIK,Norway,Eliteserien,41,1,Viking Stadion,29500,1888,#E03C31,#0C2340
+112391,Al Qadsiah FC,ALQ,Saudi Arabia,Pro League,350,1,Qadsiah Stadium,25250,1891,#00693E,#000000
+10032,FC Lugano,LUG,Switzerland,Super League,189,1,Lugano Arena,26250,1892,#1D428A,#C8102E
+100646,Sparta Rotterdam,SPR,Netherlands,Eredivisie,10,1,Rotterdam Arena,28250,1924,#00205B,#FFFFFF
+110953,Instituto Atlético Central Córdoba,IAC,Argentina,Liga Profesional de Fútbol,353,1,Estadio Instituto,30750,1907,#0B2545,#8DA9C4
+111334,FBC Melgar,FBM,Peru,Liga 1,2020,1,Estadio Melgar,31000,1887,#8B1A1A,#1B3A6B
+112516,CD Tondela,TON,Portugal,Primeira Liga,308,1,Estádio do Tondela,26000,1937,#1D428A,#C8102E
+113149,FC Cincinnati,CIN,United States,Major League Soccer,39,1,Cincinnati Field,28750,1880,#582C83,#B5A268
+80,Hearts,HEA,Scotland,Premiership,50,1,Hearts Road,27500,1935,#E03C31,#0C2340
+113142,Alanyaspor,ALA,Türkiye,Süper Lig,68,1,Alanyaspor Stadyumu,23750,1886,#96172E,#FFFFFF
+1888,Gil Vicente FC,GIV,Portugal,Primeira Liga,308,1,Estádio do Vicente,28250,1897,#2D5A27,#FFFFFF
+113044,Barracas Central,BAC,Argentina,Liga Profesional de Fútbol,353,1,Estadio Monumental de Barracas,24750,1887,#FDB913,#000000
+110746,Pogoń Szczecin,POS,Poland,Ekstraklasa,66,1,Stadion Szczecin,24750,1884,#C8102E,#FFFFFF
+110776,Gaziantep FK,GAZ,Türkiye,Süper Lig,68,1,Gaziantep Arena,24000,1898,#FF6B00,#000000
+1530,Angers SCO,ANS,France,Ligue 1,16,1,Stade Angers,29000,1926,#7A0026,#F5C518
+111708,Atlético Tucumán,ATT,Argentina,Liga Profesional de Fútbol,353,1,Estadio Atletico,29750,1899,#1B7F3B,#F2E30F
+710,Djurgårdens IF,DJU,Sweden,Allsvenskan,56,1,Djurgardens Arena,23750,1920,#3C1053,#FFFFFF
+1887,Vitória SC,VTR,Portugal,Primeira Liga,308,1,Estádio Municipal de Vitoria,28250,1892,#004C97,#FDB913
+252,LASK Linz,LAL,Austria,Bundesliga,80,1,LASK Arena,29000,1893,#000000,#FFFFFF
+112689,Platense,PLA,Argentina,Liga Profesional de Fútbol,353,1,Estadio Platense,29250,1917,#E03C31,#0C2340
+1891,CD Nacional,NAC,Portugal,Primeira Liga,308,1,Estádio do Nacional,22250,1939,#003DA5,#FFFFFF
+100087,Oud-Heverlee Leuven,OHL,Belgium,Pro League,4,1,Stade Oud-Heverlee,29000,1890,#2D5A27,#FFFFFF
+111707,CA Aldosivi,ALD,Argentina,Liga Profesional de Fútbol,353,1,Estadio Monumental de Aldosivi,29250,1894,#8B1A1A,#1B3A6B
+232,Standard de Liège,STL,Belgium,Pro League,4,1,Standard Stadion,25500,1923,#3C1053,#FFFFFF
+101025,Gençlerbirliği SK,GNC,Türkiye,Süper Lig,68,1,Genclerbirligi Arena,23000,1893,#8B1A1A,#1B3A6B
+670,Royal Charleroi Sporting Club,RCS,Belgium,Pro League,4,1,Stade Charleroi,23000,1936,#F4364C,#FFFFFF
+101026,Göztepe SK,GOZ,Türkiye,Süper Lig,68,1,Goztepe Stadyumu,27500,1896,#5A1846,#FFFFFF
+111144,Seattle Sounders FC,SES,United States,Major League Soccer,39,1,Sounders Field,21250,1936,#3C1053,#FFFFFF
+324,Servette FC,SER,Switzerland,Super League,189,1,Stade Servette,25500,1926,#A6192E,#0C2340
+112713,Club Atlético Sarmiento,ATS,Argentina,Liga Profesional de Fútbol,353,1,Estadio Monumental de Sarmiento,28250,1882,#006E4E,#FFFFFF
+131798,NEOM SC,NEO,Saudi Arabia,Pro League,350,1,NEOM Stadium,23750,1902,#FF6B00,#000000
+111928,San Jose Earthquakes,SJE,United States,Major League Soccer,39,1,Earthquakes Stadium,21000,1916,#000000,#FFFFFF
+101106,Once Caldas,ONC,Colombia,Categoría Primera A,336,1,Estadio Caldas,26000,1902,#006E4E,#FFFFFF
+700,IF Elfsborg,ELF,Sweden,Allsvenskan,56,1,Elfsborg Arena,27250,1911,#0057B8,#FFD100
+114161,Austin FC,AUS,United States,Major League Soccer,39,1,Austin Field,24250,1922,#582C83,#B5A268
+100632,Go Ahead Eagles,GAE,Netherlands,Eredivisie,10,1,Eagles Stadion,25250,1910,#C8102E,#FFFFFF
+111011,Cienciano,CIE,Peru,Liga 1,2020,1,Estadio Cienciano,25250,1921,#2D5A27,#FFFFFF
+112965,Central Cordoba SdE,CCS,Argentina,Liga Profesional de Fútbol,353,1,Estadio Central,21000,1893,#00205B,#FFFFFF
+110747,Cracovia,CRA,Poland,Ekstraklasa,66,1,Stadion Cracovia,22500,1893,#0B2545,#8DA9C4
+112885,Atlanta United,AUN,United States,Major League Soccer,39,1,Atlanta Stadium,24500,1939,#BA0C2F,#FFC72C
+100135,APOEL FC,APO,Cyprus,1. Division,318,1,APOEL Ground,25000,1925,#0057B8,#FFD100
+81,Hibernian,HIB,Scotland,Premiership,50,1,Hibernian Ground,25500,1908,#006E4E,#FFFFFF
+111339,Kasımpaşa SK,KAS,Türkiye,Süper Lig,68,1,Kasımpasa Stadyumu,25000,1884,#4B0082,#FFD700
+209,SK Sturm Graz,STG,Austria,Bundesliga,80,1,Sturm Arena,23000,1899,#BA0C2F,#FFC72C
+111091,Lechia Gdańsk,LGD,Poland,Ekstraklasa,66,1,Stadion Lechia,20750,1896,#5A1846,#FFFFFF
+698,Houston Dynamo,HOD,United States,Major League Soccer,39,1,Houston Stadium,26000,1923,#4B0082,#FFD700
+1786,Randers FC,RND,Denmark,Superliga,1,1,Randers Arena,22500,1922,#0B2545,#8DA9C4
+101033,Konyaspor,KON,Türkiye,Süper Lig,68,1,Konyaspor Stadyumu,22500,1925,#00693E,#000000
+634,Fortuna Sittard,FOS,Netherlands,Eredivisie,10,1,Fortuna Arena,23500,1882,#5A1846,#FFFFFF
+708,Hammarby Fotboll,HAF,Sweden,Allsvenskan,56,1,Hammarby Arena,20500,1925,#0B2545,#8DA9C4
+110751,Universitatea Cluj,UCL,Romania,Liga I,330,1,Stadionul Universitatea,21500,1902,#5A1846,#FFFFFF
+898,FC St.Gallen 1879,SGA,Switzerland,Super League,189,1,St.Gallen Arena,24250,1889,#003DA5,#FFFFFF
+681,KVC Westerlo,KVW,Belgium,Pro League,4,1,Westerlo Stadion,24500,1920,#F4364C,#FFFFFF
+1013,San Lorenzo de Almagro,SLA,Argentina,Liga Profesional de Fútbol,353,1,Estadio Monumental de Lorenzo,21000,1880,#C8102E,#FFFFFF
+110990,Deportivo Táchira,DET,Venezuela,Primera Division,2019,1,Estadio Deportivo,21250,1937,#78BE20,#000000
+696,Sporting Kansas City,SKC,United States,Major League Soccer,39,1,Sporting Field,24250,1903,#A6192E,#0C2340
+417,Molde FK,MOL,Norway,Eliteserien,41,1,Molde Stadion,23000,1880,#1B7F3B,#F2E30F
+301,Widzew Łódź,WIO,Poland,Ekstraklasa,66,1,Stadion Widzew,24500,1887,#0057B8,#FFD100
+310,Rapid Bucuresti,RAB,Romania,Liga I,330,1,Stadionul Bucuresti,19500,1910,#BA0C2F,#FFC72C
+101020,Kayserispor,KAY,Türkiye,Süper Lig,68,1,Kayserispor Arena,19750,1933,#0B2545,#8DA9C4
+100757,Dinamo Bucureşti,DIB,Romania,Liga I,330,1,Stadionul Bucuresti,21500,1917,#BA0C2F,#FFC72C
+77,Aberdeen,ABE,Scotland,Premiership,50,1,Aberdeen Ground,22250,1888,#046A38,#FFB81C
+919,SK Brann,BRA,Norway,Eliteserien,41,1,Brann Stadion,21750,1929,#004C97,#FDB913
+711,BK Häcken,BKH,Sweden,Allsvenskan,56,1,Hacken Arena,23250,1925,#3C1053,#FFFFFF
+112134,Philadelphia Union,PHU,United States,Major League Soccer,39,1,Philadelphia Stadium,18750,1890,#F4364C,#FFFFFF
+112868,Boston River,BOR,Uruguay,Primera División,338,1,Estadio Boston,20000,1887,#1D428A,#C8102E
+110975,Universidad Católica,UCA,Chile,Primera Division,335,1,Estadio Universidad,23000,1923,#8B1A1A,#1B3A6B
+111065,Real Salt Lake,RSL,United States,Major League Soccer,39,1,Real Stadium,18750,1900,#004C97,#FDB913
+114581,Universidad Católica del Ecuador,UCE,Ecuador,Serie A,2018,1,Estadio Universidad,19750,1883,#F4364C,#FFFFFF
+110991,Carabobo FC,CRB,Venezuela,Primera Division,2019,1,Estadio Carabobo,19750,1931,#00693E,#000000
+111088,Radomiak Radom,RAR,Poland,Ekstraklasa,66,1,Stadion Radomiak,21000,1931,#C8102E,#FFFFFF
+111822,Wolfsberger AC,WLF,Austria,Bundesliga,80,1,Wolfsberger Stadion,19750,1881,#FDB913,#000000
+1913,SC Heerenveen,HEE,Netherlands,Eredivisie,10,1,Heerenveen Stadion,18500,1900,#006E4E,#FFFFFF
+718,Estrela da Amadora,EDA,Portugal,Primeira Liga,308,1,Estádio do Estrela,21750,1938,#4B0082,#FFD700
+1473,Ulsan HD FC,ULH,Korea Republic,K League 1,83,1,Ulsan Stadium,19750,1888,#96172E,#FFFFFF
+111097,Motor Lublin,MLU,Poland,Ekstraklasa,66,1,Stadion Lublin,18000,1927,#0B2545,#8DA9C4
+420,Górnik Zabrze,GZA,Poland,Ekstraklasa,66,1,Stadion Gornik,21250,1919,#78BE20,#000000
+110724,KV Mechelen,KVM,Belgium,Pro League,4,1,Stade Mechelen,22250,1916,#F4364C,#FFFFFF
+114615,Mushuc Runa,MUR,Ecuador,Serie A,2018,1,Estadio Mushuc,18750,1889,#FF6B00,#000000
+694,Colorado Rapids,COL,United States,Major League Soccer,39,1,Colorado Field,20000,1919,#96172E,#FFFFFF
+101108,Club Olimpia,OLI,Paraguay,División Profesional,337,1,Estadio Olimpia,21250,1923,#000000,#FFFFFF
+230,Royal Antwerp FC,ROA,Belgium,Pro League,4,1,Stade Antwerp,20250,1924,#C8102E,#FFFFFF
+256,FK Austria Wien,AUW,Austria,Bundesliga,80,1,Austria Stadion,17500,1905,#A6192E,#0C2340
+717,Alverca,ALV,Portugal,Primeira Liga,308,1,Estádio do Alverca,17500,1889,#FDB913,#000000
+111713,Club Atlético San Martín,ASM,Argentina,Liga Profesional de Fútbol,353,1,Estadio Atletico,17750,1910,#4B0082,#FFD700
+114162,Nashville SC,NAS,United States,Major League Soccer,39,1,Nashville Stadium,19000,1928,#7A0026,#F5C518
+100634,Heracles Almelo,HAL,Netherlands,Eredivisie,10,1,Heracles Stadion,16000,1932,#FF6B00,#000000
+110968,Bolívar,BLV,Bolivia,División de Fútbol Profesional,2017,1,Estadio Bolivar,20000,1917,#A6192E,#0C2340
+1750,Cercle Brugge KSV,CBK,Belgium,Pro League,4,1,Cercle Stadion,16750,1929,#F4364C,#FFFFFF
+319,IFK Göteborg,IFG,Sweden,Allsvenskan,56,1,Goteborg Arena,20250,1916,#000000,#FFFFFF
+1443,Viborg FF,VIF,Denmark,Superliga,1,1,Viborg Park,17250,1894,#0B2545,#8DA9C4
+112615,Racing Club de Montevideo,RAM,Uruguay,Primera División,338,1,Estadio Montevideo,17250,1882,#4B0082,#FFD700
+1788,FC Nordsjælland,NOL,Denmark,Superliga,1,1,Nordsjælland Park,19750,1920,#00693E,#000000
+433,AIK,AIK,Sweden,Allsvenskan,56,1,AIK Arena,17500,1935,#FF6B00,#000000
+1904,NAC Breda,NAB,Netherlands,Eredivisie,10,1,Breda Stadion,15500,1913,#FDB913,#000000
+111328,CD Palestino,PLS,Chile,Primera Division,335,1,Estadio Palestino,16250,1938,#5A1846,#FFFFFF
+688,DC United,DCU,United States,Major League Soccer,39,1,United Stadium,17750,1897,#96172E,#FFFFFF
+112531,Deportes Iquique,DEI,Chile,Primera Division,335,1,Estadio Deportes,18000,1883,#006E4E,#FFFFFF
+689,New York Red Bulls,NYR,United States,Major League Soccer,39,1,Bulls Stadium,19750,1919,#046A38,#FFB81C
+110206,GKS Katowice,GKK,Poland,Ekstraklasa,66,1,Stadion Katowice,17500,1887,#FF6B00,#000000
+111651,Toronto FC,TRN,United States,Major League Soccer,39,1,Toronto Field,19250,1914,#F4364C,#FFFFFF
+112667,Nacional Potosí,NPO,Bolivia,División de Fútbol Profesional,2017,1,Estadio Nacional,15500,1888,#E03C31,#0C2340
+1971,Excelsior,EXC,Netherlands,Eredivisie,10,1,Excelsior Stadion,18500,1897,#FDB913,#000000
+131439,San Diego FC,SAD,United States,Major League Soccer,39,1,Diego Stadium,19000,1889,#046A38,#FFB81C
+537,FCV Dender EH,FDE,Belgium,Pro League,4,1,Stade Dender,14750,1891,#046A38,#FFB81C
+920,Vålerenga Fotball,VAF,Norway,Eliteserien,41,1,Valerenga Stadion,14750,1897,#E03C31,#0C2340
+113018,St. Louis CITY SC,SLC,United States,Major League Soccer,39,1,Louis Stadium,14500,1888,#96172E,#FFFFFF
+110977,Unión Española,UNE,Chile,Primera Division,335,1,Estadio Espanola,15500,1889,#C8102E,#FFFFFF
+1914,PEC Zwolle,PEZ,Netherlands,Eredivisie,10,1,Zwolle Arena,17750,1888,#78BE20,#000000
+1915,FC Groningen,GRO,Netherlands,Eredivisie,10,1,Groningen Arena,19000,1926,#582C83,#B5A268
+693,Chicago Fire,CHF,United States,Major League Soccer,39,1,Chicago Stadium,17250,1910,#FDB913,#000000
+272,Odense Boldklub,ODB,Denmark,Superliga,1,1,Boldklub Park,18250,1931,#000000,#FFFFFF
+680,Sint-Truidense VV,STV,Belgium,Pro League,4,1,Sint-Truidense Stadion,18500,1930,#004C97,#FDB913
+114598,Atlético Grau,ATG,Peru,Liga 1,2020,1,Estadio Atletico,17000,1909,#00205B,#FFFFFF
+111329,Guaraní,GUA,Paraguay,División Profesional,337,1,Estadio Guarani,18000,1925,#1D428A,#C8102E
+114611,Academia Puerto Cabello,APC,Venezuela,Primera Division,2019,1,Estadio Academia,14750,1893,#78BE20,#000000
+111701,Al Ain,AAI,United Arab Emirates,Pro League,2013,1,Ain Road,15750,1898,#FF6B00,#000000
+112072,Mjällby AIF,MJA,Sweden,Allsvenskan,56,1,Mjallby Arena,16000,1934,#582C83,#B5A268
+110770,FC Sion,SIO,Switzerland,Super League,189,1,Sion Arena,14750,1920,#004C97,#FDB913
+132231,RAAL La Louvière,RAL,Belgium,Pro League,4,1,Stade Louviere,15750,1889,#004C97,#FDB913
+111117,Fatih Karagümrük,FAK,Türkiye,Süper Lig,68,1,Karagumruk Arena,17500,1886,#4B0082,#FFD700
+111086,Piast Gliwice,PIG,Poland,Ekstraklasa,66,1,Stadion Gliwice,16250,1921,#1B7F3B,#F2E30F
+922,Strømsgodset IF,STM,Norway,Eliteserien,41,1,Strømsgodset Stadion,14750,1922,#582C83,#B5A268
+112828,New York City FC,NYC,United States,Major League Soccer,39,1,York Stadium,14250,1882,#FDB913,#000000
+115472,Deportivo Riestra,DER,Argentina,Liga Profesional de Fútbol,353,1,Estadio Deportivo,14250,1880,#BA0C2F,#FFC72C
+112606,Orlando City SC,ORC,United States,Major League Soccer,39,1,Orlando Stadium,13750,1895,#FDB913,#000000
+110075,FCV Farul Constanța,FFC,Romania,Liga I,330,1,Stadionul Constanta,17500,1891,#0057B8,#FFD100
+115536,Cerro Largo,CLA,Uruguay,Primera División,338,1,Estadio Cerro,15250,1912,#2D5A27,#FFFFFF
+980,Daejeon Citizen,DAC,Korea Republic,K League 1,83,1,Daejeon Stadium,14750,1927,#8B1A1A,#1B3A6B
+418,Tromsø IL,TRI,Norway,Eliteserien,41,1,Tromsø Stadion,16250,1884,#0057B8,#FFD100
+110720,Blau-Weiß Linz,BWL,Austria,Bundesliga,80,1,Blau-Weiß Stadion,13500,1904,#000000,#FFFFFF
+111139,CF Montréal,MNT,United States,Major League Soccer,39,1,Montreal Stadium,13500,1910,#C8102E,#FFFFFF
+113458,IK Sirius,SIR,Sweden,Allsvenskan,56,1,Sirius Arena,14750,1916,#F4364C,#FFFFFF
+1862,FC Lausanne-Sport,LAS,Switzerland,Super League,189,1,Lausanne-Sport Arena,15500,1913,#006E4E,#FFFFFF
+111083,Korona Kielce,KOK,Poland,Ekstraklasa,66,1,Stadion Korona,16500,1932,#FF6B00,#000000
+112126,IFK Värnamo,IFV,Sweden,Allsvenskan,56,1,Varnamo Arena,13500,1938,#003DA5,#FFFFFF
+112883,Al Khaleej,ALK,Saudi Arabia,Pro League,350,1,Khaleej Stadium,12500,1902,#F4364C,#FFFFFF
+2015,Grazer AK 1902,GAK,Austria,Bundesliga,80,1,Grazer Stadion,13500,1887,#BA0C2F,#FFC72C
+15005,SV Zulte Waregem,ZUW,Belgium,Pro League,4,1,Stade Waregem,14000,1915,#FDB913,#000000
+270,Silkeborg IF,SIL,Denmark,Superliga,1,1,Silkeborg Arena,14750,1910,#F4364C,#FFFFFF
+112199,Sarpsborg 08 FF,SAF,Norway,Eliteserien,41,1,Sarpsborg Stadion,13500,1905,#A6192E,#0C2340
+1569,Wisła Płock,WAP,Poland,Ekstraklasa,66,1,Stadion Wisła,15750,1906,#4B0082,#FFD700
+2041,Fredrikstad FK,FRD,Norway,Eliteserien,41,1,Fredrikstad Stadion,14500,1897,#00693E,#000000
+112393,Al Taawoun FC,ALT,Saudi Arabia,Pro League,350,1,Taawoun Stadium,15750,1880,#8B1A1A,#1B3A6B
+110749,Zagłębie Lubin,ZEL,Poland,Ekstraklasa,66,1,Stadion Zagłebie,12500,1935,#78BE20,#000000
+114147,FC Hermannstadt,HRM,Romania,Liga I,330,1,Stadionul Hermannstadt,14750,1921,#004C97,#FDB913
+112096,Al Ettifaq,ALE,Saudi Arabia,Pro League,350,1,Ettifaq Stadium,16000,1920,#3C1053,#FFFFFF
+822,Vejle Boldklub,VEB,Denmark,Superliga,1,1,Boldklub Park,15750,1918,#4B0082,#FFD700
+1715,FC Thun,THU,Switzerland,Super League,189,1,Thun Arena,13250,1910,#F4364C,#FFFFFF
+1447,Sønderjyske Fodbold,SNF,Denmark,Superliga,1,1,Sønderjyske Arena,14750,1936,#FDB913,#000000
+181,Dundee United FC,DUU,Scotland,Premiership,50,1,Dundee Ground,14500,1914,#006E4E,#FFFFFF
+111006,Sportivo Luqueño,SPL,Paraguay,División Profesional,337,1,Estadio Sportivo,13500,1890,#8B1A1A,#1B3A6B
+112510,Bruk-Bet Termalica Nieciecza,BBT,Poland,Ekstraklasa,66,1,Stadion Termalica,14750,1882,#1B7F3B,#F2E30F
+15009,SC Rheindorf Altach,RHA,Austria,Bundesliga,80,1,Rheindorf Stadion,14500,1917,#FDB913,#000000
+131491,KFUM-Kameratene Oslo,KKO,Norway,Eliteserien,41,1,KFUM-Kameratene Stadion,13750,1897,#2D5A27,#FFFFFF
+645,FC Volendam,VOL,Netherlands,Eredivisie,10,1,Volendam Stadion,15250,1898,#E03C31,#0C2340
+702,IFK Norrköping,IFN,Sweden,Allsvenskan,56,1,Norrkoping Arena,14750,1915,#BA0C2F,#FFC72C
+111594,GAIS,GAI,Sweden,Allsvenskan,56,1,GAIS Arena,12500,1937,#4B0082,#FFD700
+83,Motherwell FC,MOT,Scotland,Premiership,50,1,Motherwell Lane,13500,1882,#E03C31,#0C2340
+111082,Arka Gdynia,ARG,Poland,Ekstraklasa,66,1,Stadion Gdynia,13000,1912,#A6192E,#0C2340
+897,FC Luzern,LUZ,Switzerland,Super League,189,1,Stade Luzern,12750,1923,#00205B,#FFFFFF
+100638,Telstar,TEL,Netherlands,Eredivisie,10,1,Telstar Arena,11500,1922,#0B2545,#8DA9C4
+1870,Östers IF,OST,Sweden,Allsvenskan,56,1,Osters Arena,14750,1904,#78BE20,#000000
+894,FC Zürich,ZUR,Switzerland,Super League,189,1,Zurich Arena,12000,1888,#006E4E,#FFFFFF
+113892,Degerfors IF,DEG,Sweden,Allsvenskan,56,1,Degerfors Arena,11000,1928,#1D428A,#C8102E
+2055,Gimcheon Sangmu FC,GIS,Korea Republic,K League 1,83,1,Gimcheon Stadium,13750,1903,#0B2545,#8DA9C4
+82,Kilmarnock,KIL,Scotland,Premiership,50,1,Kilmarnock Road,11500,1924,#00205B,#FFFFFF
+114023,Western United,WEU,Australia,A-League Men,351,1,Western Stadium,12750,1932,#0057B8,#FFD100
+110752,FC Botoşani,BTS,Romania,Liga I,330,1,Stadionul Botosani,12500,1899,#00205B,#FFFFFF
+131795,San Antonio Bulo Bulo,SAB,Bolivia,División de Fútbol Profesional,2017,1,Estadio Antonio,11000,1881,#7A0026,#F5C518
+110989,Caracas FC,CRC,Venezuela,Primera Division,2019,1,Estadio Caracas,12500,1935,#2D5A27,#FFFFFF
+780,SV Ried,RIE,Austria,Bundesliga,80,1,Ried Stadion,13500,1935,#1D428A,#C8102E
+110750,UTA Arad,UTA,Romania,Liga I,330,1,Stadionul Arad,10750,1895,#8B1A1A,#1B3A6B
+111674,Al Shabab,ALS,Saudi Arabia,Pro League,350,1,Shabab Stadium,13000,1918,#F4364C,#FFFFFF
+131739,Auckland FC,AUC,Australia,A-League Men,351,1,Auckland Stadium,10750,1882,#FF6B00,#000000
+1523,Bryne FK,BRY,Norway,Eliteserien,41,1,Bryne Stadion,13000,1896,#A6192E,#0C2340
+2017,TSV Hartberg,HRT,Austria,Bundesliga,80,1,Hartberg Stadion,10750,1921,#7A0026,#F5C518
+110078,Asociația Clubul Sportiv Petrolul 52,ACS,Romania,Liga I,330,1,Stadionul Asociatia,12250,1888,#00693E,#000000
+113057,Al Fayha,ALF,Saudi Arabia,Pro League,350,1,Fayha Stadium,12250,1890,#78BE20,#000000
+100805,St. Mirren,SMI,Scotland,Premiership,50,1,Mirren Ground,13500,1916,#4B0082,#FFD700
+132375,Gualberto Villarroel SJ,GVS,Bolivia,División de Fútbol Profesional,2017,1,Estadio Villarroel,11750,1938,#2D5A27,#FFFFFF
+695,FC Dallas,DAL,United States,Major League Soccer,39,1,Dallas Stadium,13000,1928,#96172E,#FFFFFF
+180,Dundee FC,DUN,Scotland,Premiership,50,1,Dundee Ground,12250,1936,#046A38,#FFB81C
+15040,WSG Tirol,WST,Austria,Bundesliga,80,1,Tirol Stadion,11250,1924,#046A38,#FFB81C
+100759,FC Argeș,RGS,Romania,Liga I,330,1,Stadionul Arges,10500,1895,#000000,#FFFFFF
+423,St Patrick's Athletic FC,SPS,Republic of Ireland,Premier Division,65,1,Patrick's Road,11500,1893,#E03C31,#0C2340
+321,Halmstads BK,HAB,Sweden,Allsvenskan,56,1,Halmstads Arena,10250,1924,#BA0C2F,#FFC72C
+1713,FC Winterthur,WIN,Switzerland,Super League,189,1,Stade Winterthur,12000,1937,#004C97,#FDB913
+15006,Fredericia,FIA,Denmark,Superliga,1,1,Fredericia Park,11250,1910,#7A0026,#F5C518
+111705,IF Brommapojkarna,BRO,Sweden,Allsvenskan,56,1,Brommapojkarna Arena,11500,1906,#582C83,#B5A268
+1756,Hamarkameratene,HMR,Norway,Eliteserien,41,1,Hamarkameratene Stadion,10750,1886,#006E4E,#FFFFFF
+100325,HJK Helsinki,HJH,Finland,Veikkausliiga,322,1,Helsinki Lane,10750,1935,#3C1053,#FFFFFF
+111397,Melbourne Victory,MEV,Australia,A-League Men,351,1,Melbourne Oval,11750,1929,#5A1846,#FFFFFF
+113146,Mohun Bagan Super Giant,MBS,India,Super League,2149,1,Mohun Stadium,12750,1910,#FF6B00,#000000
+1463,FK Haugesund,HAU,Norway,Eliteserien,41,1,Haugesund Stadion,10000,1908,#FDB913,#000000
+621,Livingston FC,LVN,Scotland,Premiership,50,1,Livingston Park,11750,1892,#FF6B00,#000000
+113459,Kristiansund BK,KRB,Norway,Eliteserien,41,1,Kristiansund Stadion,12500,1926,#004C97,#FDB913
+110072,Oțelul Galați,OTG,Romania,Liga I,330,1,Stadionul Otelul,10750,1903,#FF6B00,#000000
+131459,Unirea Slobozia,UNS,Romania,Liga I,330,1,Stadionul Slobozia,11500,1913,#2D5A27,#FFFFFF
+112427,Western Sydney Wanderers,WSW,Australia,A-League Men,351,1,Wanderers Oval,11500,1882,#A6192E,#0C2340
+322,Grasshopper Club Zürich,GRZ,Switzerland,Super League,189,1,Stade Grasshopper,10750,1936,#4B0082,#FFD700
+112540,Shanghai Port,SHP,China PR,Super League,2012,1,Shanghai Stadium,11500,1900,#004C97,#FDB913
+1757,Sandefjord Fotball,SFO,Norway,Eliteserien,41,1,Sandefjord Stadion,9500,1883,#78BE20,#000000
+114604,Macarthur FC,MAC,Australia,A-League Men,351,1,Macarthur Stadium,11250,1912,#00693E,#000000
+112555,FC Anyang,ANY,Korea Republic,K League 1,83,1,Anyang Stadium,10250,1894,#FDB913,#000000
+111633,Mohammedan SC,MHM,India,Super League,2149,1,Mohammedan Stadium,11750,1894,#78BE20,#000000
+113060,Al Akhdoud Saudi Club,AAK,Saudi Arabia,Pro League,350,1,Akhdoud Stadium,11250,1912,#00693E,#000000
+113217,Damac FC,DAM,Saudi Arabia,Pro League,350,1,Damac Stadium,10750,1905,#000000,#FFFFFF
+131735,Al Kholood,AKH,Saudi Arabia,Pro League,350,1,Kholood Stadium,10750,1934,#003DA5,#FFFFFF
+112390,Al Fateh,AFA,Saudi Arabia,Pro League,350,1,Fateh Stadium,10250,1881,#046A38,#FFB81C
+114546,Csíkszereda Miercurea Ciuc,CMC,Romania,Liga I,330,1,Stadionul Csikszereda,11750,1931,#5A1846,#FFFFFF
+115892,Al-Najma SC,ANA,Saudi Arabia,Pro League,350,1,Al-Najma Stadium,11000,1888,#00205B,#FFFFFF
+116360,Chengdu Rongcheng,CHR,China PR,Super League,2012,1,Rongcheng Stadium,9250,1880,#5A1846,#FFFFFF
+110955,Shanghai Shenhua,SHS,China PR,Super League,2012,1,Shanghai Stadium,9250,1897,#FDB913,#000000
+112115,Gangwon FC,GAN,Korea Republic,K League 1,83,1,Gangwon Stadium,8750,1903,#0B2545,#8DA9C4
+111393,Adelaide United,ADU,Australia,A-League Men,351,1,Adelaide Stadium,10500,1928,#3C1053,#FFFFFF
+982,FC Seoul,SEO,Korea Republic,K League 1,83,1,Seoul Stadium,11250,1899,#00693E,#000000
+112224,Melbourne City FC,MEC,Australia,A-League Men,351,1,Melbourne Stadium,11000,1933,#0057B8,#FFD100
+114545,Metaloglobus București,MBU,Romania,Liga I,330,1,Stadionul Metaloglobus,9750,1893,#A6192E,#0C2340
+111768,Beijing Guoan,BEG,China PR,Super League,2012,1,Beijing Stadium,9750,1917,#1D428A,#C8102E
+1477,Jeonbuk Hyundai Motors,JHM,Korea Republic,K League 1,83,1,Jeonbuk Stadium,11000,1905,#FDB913,#000000
+111396,Central Coast Mariners,CCM,Australia,A-League Men,351,1,Mariners Oval,11000,1930,#006E4E,#FFFFFF
+1474,Pohang Steelers,PST,Korea Republic,K League 1,83,1,Steelers Stadium,8750,1880,#A6192E,#0C2340
+834,Shelbourne FC,SHE,Republic of Ireland,Premier Division,65,1,Shelbourne Stadium,10750,1919,#00205B,#FFFFFF
+306,Shamrock Rovers,SHR,Republic of Ireland,Premier Division,65,1,Shamrock Stadium,10250,1880,#0057B8,#FFD100
+111399,Perth Glory,PEG,Australia,A-League Men,351,1,Perth Oval,9750,1916,#4B0082,#FFD700
+445,Derry City,DCI,Republic of Ireland,Premier Division,65,1,Derry Ground,9750,1897,#004C97,#FDB913
+1478,Jeju United FC,JEU,Korea Republic,K League 1,83,1,United Stadium,10500,1892,#78BE20,#000000
+2056,Daegu FC,DAE,Korea Republic,K League 1,83,1,Daegu Stadium,10750,1923,#046A38,#FFB81C
+305,Bohemian FC,BOH,Republic of Ireland,Premier Division,65,1,Bohemian Road,9750,1934,#2D5A27,#FFFFFF
+112258,Gwangju FC,GWA,Korea Republic,K League 1,83,1,Gwangju Stadium,11000,1892,#3C1053,#FFFFFF
+111398,Newcastle Jets,NEJ,Australia,A-League Men,351,1,Newcastle Oval,10250,1888,#004C97,#FDB913
+131487,Shenzhen Peng City,SHN,China PR,Super League,2012,1,Shenzhen Stadium,8750,1890,#006E4E,#FFFFFF
+112163,Zhejiang FC,ZHE,China PR,Super League,2012,1,Zhejiang Stadium,10000,1909,#8B1A1A,#1B3A6B
+111395,Brisbane Roar,BRS,Australia,A-League Men,351,1,Brisbane Oval,8750,1905,#582C83,#B5A268
+111766,Wellington Phoenix,WEP,Australia,A-League Men,351,1,Wellington Oval,10500,1885,#A6192E,#0C2340
+113037,Al Riyadh,ALR,Saudi Arabia,Pro League,350,1,Riyadh Stadium,10500,1919,#046A38,#FFB81C
+79,Falkirk,FAL,Scotland,Premiership,50,1,Falkirk Ground,10000,1894,#BA0C2F,#FFC72C
+113222,Al Hazem FC,AHA,Saudi Arabia,Pro League,350,1,Hazem Stadium,10250,1935,#00205B,#FFFFFF
+112558,Suwon FC,SUW,Korea Republic,K League 1,83,1,Suwon Stadium,9750,1901,#FDB913,#000000
+111724,Shandong Taishan,STA,China PR,Super League,2012,1,Shandong Stadium,8000,1923,#4B0082,#FFD700
+111400,Sydney FC,SYD,Australia,A-League Men,351,1,Sydney Oval,8250,1905,#00693E,#000000
+132681,United Tigers SC,UNT,India,Super League,2149,1,United Stadium,10250,1927,#582C83,#B5A268
+111774,Tianjin Jinmen Tiger,TJT,China PR,Super League,2012,1,Tianjin Stadium,10000,1905,#BA0C2F,#FFC72C
+113298,FC Goa,GOA,India,Super League,2149,1,Goa Stadium,10000,1936,#046A38,#FFB81C
+132305,Dalian Yingbo,DAY,China PR,Super League,2012,1,Dalian Stadium,8250,1900,#004C97,#FDB913
+131531,Yunnan Yukun,YUY,China PR,Super League,2012,1,Yunnan Stadium,8750,1911,#FDB913,#000000
+116361,Wuhan Three Towns,WTT,China PR,Super League,2012,1,Wuhan Stadium,8500,1910,#A6192E,#0C2340
+111769,Changchun Yatai,CHY,China PR,Super League,2012,1,Changchun Stadium,10000,1938,#C8102E,#FFFFFF
+1571,Galway United,GAU,Republic of Ireland,Premier Division,65,1,Galway Park,9500,1899,#7A0026,#F5C518
+563,Sligo Rovers,SLR,Republic of Ireland,Premier Division,65,1,Rovers Lane,8000,1901,#FDB913,#000000
+114628,Meizhou Hakka,MEH,China PR,Super League,2012,1,Meizhou Stadium,8500,1909,#7A0026,#F5C518
+111779,Henan FC,HEN,China PR,Super League,2012,1,Henan Stadium,9250,1892,#582C83,#B5A268
+131173,Qingdao Hainiu FC,QIH,China PR,Super League,2012,1,Qingdao Stadium,9750,1912,#2D5A27,#FFFFFF
+131488,Qingdao West Coast FC,QWC,China PR,Super League,2012,1,Qingdao Stadium,7750,1928,#5A1846,#FFFFFF
+753,Waterford FC,WTR,Republic of Ireland,Premier Division,65,1,Waterford Road,8750,1881,#006E4E,#FFFFFF
+1572,Drogheda United,DRU,Republic of Ireland,Premier Division,65,1,Drogheda Ground,10500,1927,#FDB913,#000000
+113300,Mumbai City FC,MUC,India,Super League,2149,1,Mumbai Stadium,9250,1907,#0B2545,#8DA9C4
+113040,NorthEast United,NOU,India,Super League,2149,1,NorthEast Stadium,8500,1907,#C8102E,#FFFFFF
+422,Cork City,CCI,Republic of Ireland,Premier Division,65,1,Cork Road,8250,1925,#FDB913,#000000
+113302,Bengaluru FC,BNG,India,Super League,2149,1,Bengaluru Stadium,8000,1935,#5A1846,#FFFFFF
+113297,Chennaiyin FC,CHN,India,Super League,2149,1,Chennaiyin Stadium,10000,1936,#1D428A,#C8102E
+113257,Odisha FC,ODI,India,Super League,2149,1,Odisha Stadium,9750,1884,#00205B,#FFFFFF
+111629,East Bengal FC,EAB,India,Super League,2149,1,Bengal Stadium,8250,1915,#4B0082,#FFD700
+114168,Jamshedpur FC,JAM,India,Super League,2149,1,Jamshedpur Stadium,7750,1915,#8B1A1A,#1B3A6B
+113301,Hyderabad FC,HYD,India,Super League,2149,1,Hyderabad Stadium,8250,1912,#1B7F3B,#F2E30F
+113299,Kerala Blasters FC,KEB,India,Super League,2149,1,Blasters Stadium,9250,1935,#F4364C,#FFFFFF
+115202,Punjab FC,PUN,India,Super League,2149,1,Punjab Stadium,7750,1938,#5A1846,#FFFFFF
+94,Ipswich Town,IPT,England,Championship,14,2,Ipswich Stadium,29500,1939,#006E4E,#FFFFFF
+88,Birmingham City,BIC,England,Championship,14,2,Birmingham Lane,32500,1901,#00693E,#000000
+1800,Coventry City,COC,England,Championship,14,2,Coventry Park,27000,1916,#1D428A,#C8102E
+17,Southampton,SOU,England,Championship,14,2,Southampton Road,33250,1926,#FDB913,#000000
+95,Leicester City,LEC,England,Championship,14,2,Leicester Park,29250,1920,#FDB913,#000000
+1843,Palermo FC,PLR,Italy,Serie B,32,2,Stadio Palermo,27250,1882,#7A0026,#F5C518
+12,Middlesbrough,MID,England,Championship,14,2,Middlesbrough Road,33750,1913,#FDB913,#000000
+1861,UD Almería,UDA,Spain,La Liga 2,54,2,Estadio Municipal de Almeria,26500,1931,#0B2545,#8DA9C4
+109,West Bromwich Albion,WBA,England,Championship,14,2,Bromwich Road,28000,1937,#006E4E,#FFFFFF
+1837,Sampdoria,SMP,Italy,Serie B,32,2,Stadio Sampdoria,29500,1883,#C8102E,#FFFFFF
+91,Derby County,DEC,England,Championship,14,2,County Ground,32000,1926,#4B0082,#FFD700
+111811,Monza,MNZ,Italy,Serie B,32,2,Stadio Monza,26250,1915,#00693E,#000000
+1952,Hull City,HUC,England,Championship,14,2,Hull Park,26000,1886,#C8102E,#FFFFFF
+1919,Bristol City,BRC,England,Championship,14,2,Bristol Park,28250,1925,#582C83,#B5A268
+472,UD Las Palmas,ULP,Spain,La Liga 2,54,2,Estadio Nuevo Palmas,26250,1901,#BA0C2F,#FFC72C
+242,RC Deportivo de La Coruña,RDC,Spain,La Liga 2,54,2,Estadio Deportivo,22250,1899,#000000,#FFFFFF
+1960,Swansea City,SWC,England,Championship,14,2,Swansea Stadium,27500,1889,#004C97,#FDB913
+205,Venezia,VEN,Italy,Serie B,32,2,Stadio Comunale Venezia,22750,1893,#1D428A,#C8102E
+1792,Norwich City,NOC,England,Championship,14,2,Norwich Park,23750,1930,#046A38,#FFB81C
+166,Hertha BSC,HER,Germany,2. Bundesliga,20,2,Hertha Arena,25000,1937,#00693E,#000000
+1794,Sheffield United,SHU,England,Championship,14,2,Sheffield Ground,27250,1925,#1B7F3B,#F2E30F
+1806,Stoke City,STC,England,Championship,14,2,Stoke Lane,26250,1907,#BA0C2F,#FFC72C
+1819,AS Saint-Étienne,SAE,France,Ligue 2,17,2,Parc Saint-Etienne,25000,1908,#1B7F3B,#F2E30F
+110636,Fortuna Düsseldorf,FOD,Germany,2. Bundesliga,20,2,Dusseldorf Arena,22000,1933,#F4364C,#FFFFFF
+1968,Cádiz CF,CAD,Spain,La Liga 2,54,2,Estadio Nuevo Cadiz,19500,1905,#3C1053,#FFFFFF
+1795,Watford,WAT,England,Championship,14,2,Watford Stadium,22750,1907,#004C97,#FDB913
+100888,CD Leganés,LEG,Spain,La Liga 2,54,2,Estadio Leganes,24250,1885,#78BE20,#000000
+379,Stade de Reims,STR,France,Ligue 2,17,2,Stade Municipal de Stade,23250,1939,#046A38,#FFB81C
+244,Real Zaragoza,REZ,Spain,La Liga 2,54,2,Estadio Zaragoza,20750,1886,#1D428A,#C8102E
+110502,SV Darmstadt 98,DAR,Germany,2. Bundesliga,20,2,Darmstadt-Park,18250,1905,#BA0C2F,#FFC72C
+1801,Preston North End,PNE,England,Championship,14,2,Preston Road,22750,1897,#5A1846,#FFFFFF
+1744,Modena,MOD,Italy,Serie B,32,2,Stadio Comunale Modena,17250,1921,#2D5A27,#FFFFFF
+1947,Wrexham,WRE,England,Championship,14,2,Wrexham Park,21000,1885,#96172E,#FFFFFF
+15,Queens Park Rangers,QPR,England,Championship,14,2,Rangers Stadium,18250,1920,#C8102E,#FFFFFF
+110741,Spezia,SPE,Italy,Serie B,32,2,Stadio Comunale Spezia,18750,1906,#78BE20,#000000
+1951,Oxford United,OXU,England,Championship,14,2,Oxford Park,16250,1937,#000000,#FFFFFF
+459,Real Sporting de Gijón,RSG,Spain,La Liga 2,54,2,Estadio Municipal de Sporting,18250,1901,#7A0026,#F5C518
+1867,Córdoba CF,CRD,Spain,La Liga 2,54,2,Estadio Nuevo Cordoba,18500,1934,#1B7F3B,#F2E30F
+160,VfL Bochum 1848,BOC,Germany,2. Bundesliga,20,2,Bochum-Park,16750,1892,#C8102E,#FFFFFF
+89,Charlton Athletic,CAT,England,Championship,14,2,Charlton Lane,18000,1937,#C8102E,#FFFFFF
+1854,Albacete Balompié,ALB,Spain,La Liga 2,54,2,Estadio Nuevo Albacete,19250,1903,#3C1053,#FFFFFF
+485,Hannover 96,HAN,Germany,2. Bundesliga,20,2,Hannover Arena,17750,1924,#0057B8,#FFD100
+29,1. FC Kaiserslautern,KAI,Germany,2. Bundesliga,20,2,Kaiserslautern Arena,16500,1916,#046A38,#FFB81C
+97,Millwall FC,MLL,England,Championship,14,2,Millwall Ground,18250,1896,#000000,#FFFFFF
+462,Real Valladolid CF,REV,Spain,La Liga 2,54,2,Estadio Valladolid,18000,1909,#582C83,#B5A268
+10846,Burgos CF,BRG,Spain,La Liga 2,54,2,Estadio Nuevo Burgos,17000,1880,#1B7F3B,#F2E30F
+1848,SSC Bari,BRI,Italy,Serie B,32,2,Stadio Bari,16250,1885,#00693E,#000000
+1790,Portsmouth,PRT,England,Championship,14,2,Portsmouth Lane,15500,1923,#2D5A27,#FFFFFF
+3,Blackburn Rovers,BLR,England,Championship,14,2,Blackburn Road,16750,1930,#00693E,#000000
+467,SD Eibar,SDE,Spain,La Liga 2,54,2,Estadio Nuevo Eibar,15000,1919,#4B0082,#FFD700
+110839,SD Huesca,SDH,Spain,La Liga 2,54,2,Estadio Municipal de Huesca,12750,1899,#006E4E,#FFFFFF
+456,Racing Santander,RAS,Spain,La Liga 2,54,2,Estadio Santander,15000,1907,#E03C31,#0C2340
+573,Málaga CF,MAL,Spain,La Liga 2,54,2,Estadio Municipal de Malaga,13500,1915,#2D5A27,#FFFFFF
+503,Dynamo Dresden,DYD,Germany,2. Bundesliga,20,2,Dresden Arena,12250,1932,#1D428A,#C8102E
+110908,Catanzaro,CTN,Italy,Serie B,32,2,Stadio Catanzaro,13000,1921,#004C97,#FDB913
+576,Holstein Kiel,HOK,Germany,2. Bundesliga,20,2,Holstein Stadion,11750,1922,#FDB913,#000000
+110588,1. FC Magdeburg,MAG,Germany,2. Bundesliga,20,2,Magdeburg Stadion,12500,1924,#006E4E,#FFFFFF
+1746,Empoli,EMP,Italy,Serie B,32,2,Stadio Comunale Empoli,11500,1916,#BA0C2F,#FFC72C
+580,SV Elversberg,ELV,Germany,2. Bundesliga,20,2,Elversberg Stadion,12000,1903,#A6192E,#0C2340
+110500,Eintracht Braunschweig,EIB,Germany,2. Bundesliga,20,2,Braunschweig Stadion,13250,1928,#00205B,#FFFFFF
+110915,Cesena FC,CES,Italy,Serie B,32,2,Stadio Comunale Cesena,10000,1885,#046A38,#FFB81C
+70,Montpellier HSC,MOH,France,Ligue 2,17,2,Parc Montpellier,12250,1915,#1D428A,#C8102E
+1894,AD Ceuta FC,ADC,Spain,La Liga 2,54,2,Estadio Ceuta,12000,1884,#2D5A27,#FFFFFF
+110832,Granada CF,GRA,Spain,La Liga 2,54,2,Estadio Granada,10000,1890,#006E4E,#FFFFFF
+112493,Carrarese,CRR,Italy,Serie B,32,2,Stadio Comunale Carrarese,10000,1899,#BA0C2F,#FFC72C
+111433,Mantova,MAN,Italy,Serie B,32,2,Stadio Mantova,10000,1935,#006E4E,#FFFFFF
+34,FC Schalke 04,SCH,Germany,2. Bundesliga,20,2,Schalke Stadion,9250,1907,#006E4E,#FFFFFF
+112494,Südtirol,SUD,Italy,Serie B,32,2,Stadio Sudtirol,9250,1882,#8B1A1A,#1B3A6B
+531,SC Preußen Münster,PMU,Germany,2. Bundesliga,20,2,Preußen Stadion,8750,1901,#0057B8,#FFD100
+100852,CD Castellón,CAS,Spain,La Liga 2,54,2,Estadio Municipal de Castellon,9750,1939,#78BE20,#000000
+110912,Padova,PAD,Italy,Serie B,32,2,Stadio Padova,8750,1913,#E03C31,#0C2340
+200,Pescara,PES,Italy,Serie B,32,2,Stadio Comunale Pescara,9250,1880,#F4364C,#FFFFFF
+112124,SS Juve Stabia,JUS,Italy,Serie B,32,2,Stadio Stabia,8000,1916,#1B7F3B,#F2E30F
+114554,FC Andorra,AND,Spain,La Liga 2,54,2,Estadio Andorra,10500,1917,#006E4E,#FFFFFF
+15012,Cultural Leonesa,CUL,Spain,La Liga 2,54,2,Estadio Municipal de Cultural,8250,1890,#3C1053,#FFFFFF
+165,SpVgg Greuther Fürth,SGF,Germany,2. Bundesliga,20,2,Greuther-Park,9250,1919,#78BE20,#000000
+1832,Karlsruher SC,KAR,Germany,2. Bundesliga,20,2,Karlsruher Stadion,8500,1915,#E03C31,#0C2340
+2038,Avellino,AVE,Italy,Serie B,32,2,Stadio Comunale Avellino,9500,1887,#0B2545,#8DA9C4
+113147,Virtus Entella,VIE,Italy,Serie B,32,2,Stadio Comunale Entella,7750,1882,#1D428A,#C8102E
+171,1. FC Nürnberg,NUR,Germany,2. Bundesliga,20,2,Nurnberg Arena,8750,1928,#004C97,#FDB913
+159,DSC Arminia Bielefeld,DAB,Germany,2. Bundesliga,20,2,Bielefeld-Park,7500,1885,#000000,#FFFFFF
+10030,SC Paderborn 07,PDR,Germany,2. Bundesliga,20,2,Paderborn-Park,6750,1888,#1B7F3B,#F2E30F
+110740,Reggiana,REG,Italy,Serie B,32,2,Stadio Reggiana,8000,1888,#F4364C,#FFFFFF
+111276,USL Dunkerque,USD,France,Ligue 2,17,2,Stade Municipal de Dunkerque,7250,1933,#E03C31,#0C2340
+62,En Avant Guingamp,EAG,France,Ligue 2,17,2,Stade Guingamp,7000,1930,#4B0082,#FFD700
+1814,Stade Lavallois Mayenne FC,SLM,France,Ligue 2,17,2,Stade Lavallois,7000,1933,#C8102E,#FFFFFF
+111657,Frosinone,FRO,Italy,Serie B,32,2,Stadio Frosinone,7000,1932,#F4364C,#FFFFFF
+111273,Red Star FC,RES,France,Ligue 2,17,2,Stade Star,7750,1938,#0B2545,#8DA9C4
+110069,CD Mirandés,MIR,Spain,La Liga 2,54,2,Estadio Mirandes,6500,1921,#004C97,#FDB913
+1805,Grenoble Foot 38,GRF,France,Ligue 2,17,2,Parc Grenoble,7500,1914,#FF6B00,#000000
+58,Sporting Club Bastia,SPB,France,Ligue 2,17,2,Stade Municipal de Sporting,6000,1912,#BA0C2F,#FFC72C
+294,ESTAC Troyes,EST,France,Ligue 2,17,2,Parc Troyes,6250,1906,#1B7F3B,#F2E30F
+1739,Le Mans FC,MNS,France,Ligue 2,17,2,Stade Municipal de Mans,6500,1933,#3C1053,#FFFFFF
+1807,Sheffield Wednesday,SHW,England,Championship,14,2,Sheffield Road,6750,1894,#FDB913,#000000
+1823,AS Nancy Lorraine,NAL,France,Ligue 2,17,2,Stade Municipal de Lorraine,6250,1906,#1D428A,#C8102E
+110321,Pau FC,PAU,France,Ligue 2,17,2,Stade Municipal de Pau,6000,1901,#BA0C2F,#FFC72C
+1816,Amiens SC,AMI,France,Ligue 2,17,2,Parc Amiens,5500,1881,#004C97,#FDB913
+1815,Clermont Foot 63,CLF,France,Ligue 2,17,2,Stade Clermont,6000,1909,#004C97,#FDB913
+111659,Rodez Aveyron Football,RAF,France,Ligue 2,17,2,Stade Municipal de Football,6000,1910,#96172E,#FFFFFF
+110711,Real Sociedad de Fútbol B,RSF,Spain,La Liga 2,54,2,Estadio Sociedad,6750,1883,#78BE20,#000000
+115494,FC Annecy,ANN,France,Ligue 2,17,2,Stade Municipal de Annecy,7000,1895,#F4364C,#FFFFFF
+111376,US Boulogne Cote d'Opale,UBC,France,Ligue 2,17,2,Stade Municipal de Boulogne,6750,1887,#F4364C,#FFFFFF
+1923,Luton Town,LUT,England,League One,60,3,Luton Ground,17250,1955,#046A38,#FFB81C
+1926,Blackpool FC,BLA,England,League One,60,3,Blackpool Ground,13500,1929,#0B2545,#8DA9C4
+1939,Huddersfield Town,HUT,England,League One,60,3,Huddersfield Stadium,16500,1935,#4B0082,#FFD700
+1961,Cardiff City,CAC,England,League One,60,3,Cardiff Stadium,15750,1944,#3C1053,#FFFFFF
+523,1. FC Saarbrücken,SAA,Germany,3. Liga,2076,3,Saarbrucken Stadion,14250,1919,#2D5A27,#FFFFFF
+1933,Wycombe Wanderers,WYW,England,League One,60,3,Wanderers Lane,11500,1920,#BA0C2F,#FFC72C
+27,FC Hansa Rostock,HAR,Germany,3. Liga,2076,3,Rostock Stadion,12250,1961,#004C97,#FDB913
+4,Bolton Wanderers,BOW,England,League One,60,3,Wanderers Stadium,11750,1916,#582C83,#B5A268
+1931,Stockport County,SCO,England,League One,60,3,Stockport Road,13500,1909,#3C1053,#FFFFFF
+1958,Leyton Orient,LEO,England,League One,60,3,Leyton Road,10750,1925,#046A38,#FFB81C
+33,TSV 1860 München,MNC,Germany,3. Liga,2076,3,Munchen-Park,10000,1962,#96172E,#FFFFFF
+1929,Plymouth Argyle,PLY,England,League One,60,3,Plymouth Park,12250,1941,#046A38,#FFB81C
+110176,SSV Ulm 1846,SSU,Germany,3. Liga,2076,3,SSV Arena,12250,1959,#F4364C,#FFFFFF
+487,VfL Osnabrück,OSN,Germany,3. Liga,2076,3,Osnabruck Arena,10500,1951,#7A0026,#F5C518
+1940,Mansfield Town,MAT,England,League One,60,3,Mansfield Ground,9750,1959,#A6192E,#0C2340
+1928,Port Vale,POV,England,League One,60,3,Port Park,8500,1939,#FF6B00,#000000
+543,SSV Jahn Regensburg,SJR,Germany,3. Liga,2076,3,Regensburg-Park,9500,1962,#A6192E,#0C2340
+526,Rot-Weiss Essen,RWE,Germany,3. Liga,2076,3,Rot-Weiss Stadion,9250,1907,#BA0C2F,#FFC72C
+1793,Reading FC,REA,England,League One,60,3,Reading Ground,7750,1936,#BA0C2F,#FFC72C
+1826,Alemannia Aachen,AAA,Germany,3. Liga,2076,3,Alemannia-Park,7750,1945,#7A0026,#F5C518
+1932,Barnsley,BEY,England,League One,60,3,Barnsley Stadium,7500,1962,#0B2545,#8DA9C4
+492,SV Wehen Wiesbaden,WEW,Germany,3. Liga,2076,3,Wiesbaden-Park,6750,1917,#4B0082,#FFD700
+110532,SV Waldhof Mannheim,WAM,Germany,3. Liga,2076,3,Mannheim Stadion,6250,1933,#E03C31,#0C2340
+361,Stevenage,STE,England,League One,60,3,Stevenage Park,7250,1914,#F4364C,#FFFFFF
+1917,Wigan Athletic,WIA,England,League One,60,3,Athletic Park,7250,1949,#582C83,#B5A268
+1825,MSV Duisburg,MSD,Germany,3. Liga,2076,3,Duisburg-Park,6500,1911,#3C1053,#FFFFFF
+1938,Peterborough United,PEU,England,League One,60,3,Peterborough Lane,4750,1928,#2D5A27,#FFFFFF
+111239,FC Ingolstadt 04,ING,Germany,3. Liga,2076,3,Ingolstadt Stadion,6250,1964,#F4364C,#FFFFFF
+149,Lincoln City,LIC,England,League One,60,3,Lincoln Ground,4750,1909,#8B1A1A,#1B3A6B
+1797,Rotherham United,ROU,England,League One,60,3,Rotherham Stadium,5500,1937,#3C1053,#FFFFFF
+1804,Bradford City,BCI,England,League One,60,3,Bradford Stadium,4250,1914,#046A38,#FFB81C
+506,FC Erzgebirge Aue,ERA,Germany,3. Liga,2076,3,Erzgebirge Arena,5000,1929,#4B0082,#FFD700
+110501,SC Verl,VER,Germany,3. Liga,2076,3,Verl Stadion,4000,1952,#7A0026,#F5C518
+142,Doncaster Rovers,DOR,England,League One,60,3,Doncaster Park,4500,1925,#C8102E,#FFFFFF
+110645,Viktoria Köln,VKO,Germany,3. Liga,2076,3,Viktoria Stadion,4250,1949,#3C1053,#FFFFFF
+162,FC Energie Cottbus,ENC,Germany,3. Liga,2076,3,Energie Stadion,4000,1910,#00693E,#000000
+1930,Northampton Town,NOT,England,League One,60,3,Northampton Ground,3250,1950,#046A38,#FFB81C
+15015,Burton Albion,BUA,England,League One,60,3,Burton Road,3750,1939,#3C1053,#FFFFFF
+583,1. FC Schweinfurt 05,SRT,Germany,3. Liga,2076,3,Schweinfurt-Park,3250,1932,#3C1053,#FFFFFF
+112259,AFC Wimbledon,WIM,England,League One,60,3,Wimbledon Stadium,3500,1958,#78BE20,#000000
+143,Exeter City,ECI,England,League One,60,3,Exeter Park,3250,1935,#0057B8,#FFD100
+110678,TSV Havelse,HVL,Germany,3. Liga,2076,3,Havelse-Park,3500,1933,#A6192E,#0C2340
+110697,VfB Stuttgart II,STI,Germany,3. Liga,2076,3,Stuttgart Stadion,3000,1928,#006E4E,#FFFFFF
+110685,TSG 1899 Hoffenheim II,THI,Germany,3. Liga,2076,3,Hoffenheim-Park,3250,1954,#004C97,#FDB913
+1798,Milton Keynes Dons,MKD,England,League Two,61,4,Milton Ground,7750,1961,#006E4E,#FFFFFF
+127,Shrewsbury Town,SHT,England,League Two,61,4,Shrewsbury Park,7250,1921,#582C83,#B5A268
+1937,Notts County,NCO,England,League Two,61,4,County Lane,8750,1935,#582C83,#B5A268
+1962,Bristol Rovers,BRR,England,League Two,61,4,Bristol Road,7250,1916,#FF6B00,#000000
+381,Barrow,BAA,England,League Two,61,4,Barrow Park,7000,1943,#C8102E,#FFFFFF
+1944,Cambridge United,CAU,England,League Two,61,4,Cambridge Lane,6250,1915,#2D5A27,#FFFFFF
+113926,Salford City,SCI,England,League Two,61,4,Salford Park,6250,1947,#A6192E,#0C2340
+1934,Swindon Town,SWT,England,League Two,61,4,Swindon Ground,5750,1906,#046A38,#FFB81C
+92,Grimsby Town,GRT,England,League Two,61,4,Grimsby Road,4500,1905,#2D5A27,#FFFFFF
+1924,Chesterfield,CHS,England,League Two,61,4,Chesterfield Road,5000,1953,#00693E,#000000
+112260,Fleetwood Town,FLT,England,League Two,61,4,Fleetwood Lane,4000,1918,#4B0082,#FFD700
+135,Barnet,BET,England,League Two,61,4,Barnet Stadium,4250,1909,#C8102E,#FFFFFF
+1935,Colchester United,COU,England,League Two,61,4,Colchester Stadium,3500,1935,#1B7F3B,#F2E30F
+1802,Gillingham,GIL,England,League Two,61,4,Gillingham Lane,3750,1932,#0B2545,#8DA9C4
+1803,Walsall,WAL,England,League Two,61,4,Walsall Stadium,3250,1927,#1D428A,#C8102E
+110890,Crawley Town,CRT,England,League Two,61,4,Crawley Ground,2750,1937,#78BE20,#000000
+15048,Tranmere Rovers,TRR,England,League Two,61,4,Tranmere Stadium,2750,1956,#000000,#FFFFFF
+112764,Bromley,BRM,England,League Two,61,4,Bromley Lane,2750,1922,#4B0082,#FFD700
+1936,Cheltenham Town,CHT,England,League Two,61,4,Cheltenham Park,2250,1955,#8B1A1A,#1B3A6B
+112222,Harrogate Town,HAT,England,League Two,61,4,Harrogate Park,1750,1946,#FF6B00,#000000
+1920,Oldham Athletic,OLA,England,League Two,61,4,Athletic Ground,2000,1962,#8B1A1A,#1B3A6B
+121,Crewe Alexandra,CAL,England,League Two,61,4,Alexandra Stadium,1750,1917,#0B2545,#8DA9C4
+112254,Newport County,NEC,England,League Two,61,4,Newport Ground,1500,1961,#C8102E,#FFFFFF
+110313,Accrington Stanley,AST,England,League Two,61,4,Accrington Stadium,1750,1917,#E03C31,#0C2340

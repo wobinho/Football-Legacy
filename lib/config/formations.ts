@@ -1,14 +1,14 @@
 // Preset formations only (GAME_DESIGN.md §6). Each slot has a pitch position
 // for the tactics screen (x: 0-100 left→right, y: 0-100 own goal→opp goal).
 //
-// SLOT LABELS USE THE TEN REAL POSITIONS ONLY (Pos in types.ts). There is no
-// LWB/RWB/LM/RM slot label: a wing-back is an LB/RB pushed high, and a wide
-// midfielder is an LW/RW sitting deep. Those shades of role are expressed
-// through the player, not the slot — the "Attacking Wing-Back" archetype and
-// the training plans are what make a full back an overlapping threat. Showing
-// a label that isn't a Pos was misleading: it implied a distinct slot the
-// engine doesn't model (every slot already resolved to LB/RB/LW/RW under the
-// hood), so a player could look "out of position" in a role he in fact filled.
+// SLOT LABELS USE REAL POSITIONS ONLY (Pos in types.ts). LM/RM are now
+// first-class positions, so the deep wide slots in two-banks-of-four shapes are
+// genuine LM/RM (a wide midfielder who tracks back), distinct from the higher
+// LW/RW in a front three. There is still no LWB/RWB slot label: a wing-back is
+// an LB/RB pushed high, expressed through the player (the "Attacking Wing-Back"
+// archetype and the training plans), not a distinct slot. Showing a label that
+// isn't a Pos was misleading: it implied a distinct slot the engine doesn't
+// model, so a player could look "out of position" in a role he in fact filled.
 //
 // The engine only ever reads `pos`; `label` is display text and MUST equal the
 // slot's `pos` so the two can never drift apart again.
@@ -65,12 +65,11 @@ export const FORMATIONS: Formation[] = [
   {
     id: "442",
     name: "4-4-2",
-    desc: "Classic two banks of four. The wide four are LW/RW playing deep — they defend the flank as much as they attack it.",
+    desc: "Classic two banks of four. The wide four are LM/RM — they defend the flank as much as they attack it.",
     slots: [
       s("gk", "GK", 50, 5),
       s("lb", "LB", 15, 24), s("lcb", "CB", 38, 20), s("rcb", "CB", 62, 20), s("rb", "RB", 85, 24),
-      // Wide slots are LW/RW held deep (y 52) rather than a separate "LM/RM".
-      s("lm", "LW", 15, 52), s("lcm", "CM", 38, 48), s("rcm", "CM", 62, 48), s("rm", "RW", 85, 52),
+      s("lm", "LM", 15, 52), s("lcm", "CM", 38, 48), s("rcm", "CM", 62, 48), s("rm", "RM", 85, 52),
       s("lst", "ST", 40, 82), s("rst", "ST", 60, 82),
     ],
   },
@@ -116,7 +115,7 @@ export const FORMATIONS: Formation[] = [
     slots: [
       s("gk", "GK", 50, 5),
       s("lb", "LB", 15, 24), s("lcb", "CB", 38, 20), s("rcb", "CB", 62, 20), s("rb", "RB", 85, 24),
-      s("lm", "LW", 15, 50), s("lcm", "CM", 38, 46), s("rcm", "CM", 62, 46), s("rm", "RW", 85, 50),
+      s("lm", "LM", 15, 50), s("lcm", "CM", 38, 46), s("rcm", "CM", 62, 46), s("rm", "RM", 85, 50),
       s("am", "AM", 50, 68),
       s("st", "ST", 50, 86),
     ],

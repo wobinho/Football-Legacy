@@ -20,6 +20,7 @@ import { overallFromAttrs } from "@/lib/config/positions";
 import { Crest, Flag, GhostButton, Ovr, PosBadge } from "./ui";
 import LibraryClubModal, { rosterSeedsFor } from "./LibraryClubModal";
 import LibraryPlayerModal from "./LibraryPlayerModal";
+import ImportFromDefaultModal from "./ImportFromDefaultModal";
 
 /** Nationality codes offered when authoring a player — every name pool plus
  * every selectable country/preset code. */
@@ -51,6 +52,9 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
   // being non-null renders the player modal ON TOP of the club modal.
   const [nestedPlayer, setNestedPlayer] = useState(false);
   const [autoAddPlayerId, setAutoAddPlayerId] = useState<string | null>(null);
+  // Import-from-the-default-database browser (v1.47). Open on whichever tab the
+  // user is on, so "Import" always means the thing they're currently looking at.
+  const [importOpen, setImportOpen] = useState(false);
 
   // Search both libraries by name (and clubs by short code); empty = show all.
   const q = query.trim().toLowerCase();
@@ -87,9 +91,10 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
       <div>
         <div className="display text-xs font-semibold tracking-widest text-faint">DATABASE EDITOR</div>
         <p className="mt-1 text-sm text-dim">
-          Build custom clubs and players once, save them, and drop any of them into a new legacy. Attach players to a club
-          — even create new ones for it — to author a whole team (a Man City with your Haaland) that plugs into any save
-          intact. Your library lives on this device, tied to your key.
+          Build custom clubs and players, or <b className="text-ink">import them from the default database</b> and edit
+          the real thing — change Liverpool&apos;s squad, retune a player, then drop your version into a new legacy.
+          Attach players to a club to author a whole team that plugs into any save intact. Your library lives on this
+          device, tied to your key; the shipped database is never modified.
         </p>
       </div>
 
@@ -122,12 +127,23 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
         <section className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[13px] text-dim">Custom clubs — each can replace a top-flight side.</span>
-            <button onClick={() => setClubModal("new")} className="text-[11px] text-gold hover:underline">
-              ＋ Create a club
-            </button>
+            <div className="flex items-center gap-3">
+              <button onClick={() => setImportOpen(true)} className="text-[11px] text-gold hover:underline">
+                ↓ Import from default
+              </button>
+              <button onClick={() => setClubModal("new")} className="text-[11px] text-gold hover:underline">
+                ＋ Create a club
+              </button>
+            </div>
           </div>
           {library.clubs.length === 0 ? (
-            <EmptyState label="No custom clubs yet." action="Create your first club" onClick={() => setClubModal("new")} />
+            <EmptyState
+              label="No custom clubs yet."
+              action="Create your first club"
+              onClick={() => setClubModal("new")}
+              secondaryAction="Import one from the default database"
+              onSecondary={() => setImportOpen(true)}
+            />
           ) : shownClubs.length === 0 ? (
             <p className="rounded-md border border-dashed border-line bg-surface px-4 py-6 text-center text-sm text-faint">
               No clubs match &ldquo;{query}&rdquo;.
@@ -164,12 +180,23 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
         <section className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[13px] text-dim">Custom players — attach them to clubs or drop them into any squad.</span>
-            <button onClick={() => setPlayerModal("new")} className="text-[11px] text-gold hover:underline">
-              ＋ Create a player
-            </button>
+            <div className="flex items-center gap-3">
+              <button onClick={() => setImportOpen(true)} className="text-[11px] text-gold hover:underline">
+                ↓ Import from default
+              </button>
+              <button onClick={() => setPlayerModal("new")} className="text-[11px] text-gold hover:underline">
+                ＋ Create a player
+              </button>
+            </div>
           </div>
           {library.players.length === 0 ? (
-            <EmptyState label="No custom players yet." action="Create your first player" onClick={() => setPlayerModal("new")} />
+            <EmptyState
+              label="No custom players yet."
+              action="Create your first player"
+              onClick={() => setPlayerModal("new")}
+              secondaryAction="Import one from the default database"
+              onSecondary={() => setImportOpen(true)}
+            />
           ) : shownPlayers.length === 0 ? (
             <p className="rounded-md border border-dashed border-line bg-surface px-4 py-6 text-center text-sm text-faint">
               No players match &ldquo;{query}&rdquo;.
@@ -208,6 +235,42 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
       <div className="flex justify-between pt-2">
         <GhostButton onClick={onBack}>← Back to menu</GhostButton>
       </div>
+
+      {/* Import browser (v1.47): copies a real club/player out of the shipped
+          database and straight into the library, where it edits like any other
+          entry. Stays open so several can be pulled in one visit. */}
+      {importOpen && (
+        <ImportFromDefaultModal
+          mode={tab}
+          onImportClub={(club, roster) => {
+            // The club modal re-maps a roster to library players by (name,
+            // position), so an imported squad has to exist in the library too —
+            // otherwise re-saving the club would quietly drop all of it. Players
+            // already saved under the same name+position are reused rather than
+            // duplicated, so importing two clubs never doubles up a shared name.
+            const key = (n: string, p: string) => `${n.toLowerCase()}|${p}`;
+            const existing = new Set(library.players.map((p) => key(p.name, p.positions[0])));
+            let added = 0;
+            for (const p of roster) {
+              if (existing.has(key(p.name, p.positions[0]))) continue;
+              saveLibraryPlayer(p);
+              existing.add(key(p.name, p.positions[0]));
+              added++;
+            }
+            saveLibraryClub(club);
+            showToast(
+              added
+                ? `${club.name} imported with ${added} player${added === 1 ? "" : "s"}.`
+                : `${club.name} imported — edit it in your library.`
+            );
+          }}
+          onImportPlayer={(player) => {
+            saveLibraryPlayer(player);
+            showToast(`${player.name} imported — edit them in your library.`);
+          }}
+          onClose={() => setImportOpen(false)}
+        />
+      )}
 
       {clubModal !== null && (
         <LibraryClubModal
@@ -313,13 +376,32 @@ function RowActions({
   );
 }
 
-function EmptyState({ label, action, onClick }: { label: string; action: string; onClick: () => void }) {
+function EmptyState({
+  label,
+  action,
+  onClick,
+  secondaryAction,
+  onSecondary,
+}: {
+  label: string;
+  action: string;
+  onClick: () => void;
+  /** Optional second route out of the empty state — used to offer importing
+   * from the default database alongside authoring something from scratch. */
+  secondaryAction?: string;
+  onSecondary?: () => void;
+}) {
   return (
     <div className="rounded-md border border-dashed border-line bg-surface px-4 py-8 text-center">
       <p className="text-sm text-faint">{label}</p>
-      <button onClick={onClick} className="mt-2 text-[13px] text-gold hover:underline">
+      <button onClick={onClick} className="mt-2 block w-full text-[13px] text-gold hover:underline">
         {action} →
       </button>
+      {secondaryAction && onSecondary && (
+        <button onClick={onSecondary} className="mt-1 block w-full text-[13px] text-gold hover:underline">
+          {secondaryAction} →
+        </button>
+      )}
     </div>
   );
 }

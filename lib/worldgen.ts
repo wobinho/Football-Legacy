@@ -32,7 +32,7 @@ import type { AcademyState } from "./types";
 
 // Squad template: how many players per position a generated club carries.
 const SQUAD_TEMPLATE: [Pos, number][] = [
-  ["GK", 3], ["CB", 4], ["LB", 2], ["RB", 2], ["DM", 2], ["CM", 3], ["AM", 2], ["LW", 2], ["RW", 2], ["ST", 3],
+  ["GK", 3], ["CB", 4], ["LB", 2], ["RB", 2], ["DM", 2], ["CM", 3], ["LM", 1], ["RM", 1], ["AM", 2], ["LW", 2], ["RW", 2], ["ST", 3],
 ];
 
 // Secondary-position table (§ multi-position): a player has their primary plus,
@@ -45,10 +45,12 @@ const SECONDARY_OPTIONS: Partial<Record<Pos, { pos: Pos; chance: number }[]>> = 
   LB: [{ pos: "RB", chance: 0.45 }, { pos: "LW", chance: 0.18 }, { pos: "CB", chance: 0.12 }],
   RB: [{ pos: "LB", chance: 0.45 }, { pos: "RW", chance: 0.18 }, { pos: "CB", chance: 0.12 }],
   DM: [{ pos: "CM", chance: 0.4 }, { pos: "CB", chance: 0.1 }],
-  CM: [{ pos: "DM", chance: 0.3 }, { pos: "AM", chance: 0.3 }],
+  CM: [{ pos: "DM", chance: 0.3 }, { pos: "AM", chance: 0.3 }, { pos: "LM", chance: 0.1 }, { pos: "RM", chance: 0.1 }],
+  LM: [{ pos: "RM", chance: 0.45 }, { pos: "LW", chance: 0.3 }, { pos: "CM", chance: 0.15 }],
+  RM: [{ pos: "LM", chance: 0.45 }, { pos: "RW", chance: 0.3 }, { pos: "CM", chance: 0.15 }],
   AM: [{ pos: "CM", chance: 0.35 }, { pos: "LW", chance: 0.15 }, { pos: "RW", chance: 0.15 }],
-  LW: [{ pos: "RW", chance: 0.5 }, { pos: "AM", chance: 0.22 }, { pos: "ST", chance: 0.12 }],
-  RW: [{ pos: "LW", chance: 0.5 }, { pos: "AM", chance: 0.22 }, { pos: "ST", chance: 0.12 }],
+  LW: [{ pos: "RW", chance: 0.5 }, { pos: "LM", chance: 0.25 }, { pos: "AM", chance: 0.22 }, { pos: "ST", chance: 0.12 }],
+  RW: [{ pos: "LW", chance: 0.5 }, { pos: "RM", chance: 0.25 }, { pos: "AM", chance: 0.22 }, { pos: "ST", chance: 0.12 }],
   ST: [{ pos: "AM", chance: 0.14 }, { pos: "LW", chance: 0.08 }, { pos: "RW", chance: 0.08 }],
 };
 
@@ -369,7 +371,7 @@ function generateSquad(
   // star is legible (a talismanic ST, a playmaking AM, a match-winning winger)
   // rather than on whichever slot the template happens to list first. Any quota
   // left over falls through to the rest of the first-choice XI.
-  const ELITE_PRIORITY: Pos[] = ["ST", "AM", "LW", "RW", "CM", "CB", "GK", "DM", "LB", "RB"];
+  const ELITE_PRIORITY: Pos[] = ["ST", "AM", "LW", "RW", "CM", "CB", "GK", "DM", "LM", "RM", "LB", "RB"];
   const eliteSlots = new Set<Pos>();
   if (eliteBoost > 0) {
     for (const pos of ELITE_PRIORITY) {

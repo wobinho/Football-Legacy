@@ -117,19 +117,23 @@ function SaveList({ onNew, onDatabase }: { onNew: () => void; onDatabase: () => 
   );
 }
 
-// A per-country database choice: the procedural default, a built-in preset, or a
-// validated upload. Every country carries a default: engine countries have a
-// fictional procedural world; preset-only countries derive theirs from the
-// preset (real clubs, generated squads — see proceduralFromPreset).
+// A per-country database choice (v1.47).
+//
+//   default   — the real-world database that ships with the game (real clubs and
+//               real squads). This is now the default for every country that has
+//               one, which is all 35 in the shipped data.
+//   generated — the procedural world. For a country with an engine club pool
+//               that's the fictional world; otherwise it's the real clubs with
+//               their squads stripped and regenerated (proceduralFromPreset).
+//   custom    — a validated user upload.
 type DbChoice =
   | { source: "default" }
-  | { source: "preset" }
+  | { source: "generated" }
   | { source: "custom"; db: CountryDatabase; fileName: string };
 
 /** A selectable country in the setup form: a code + display name, plus whether
- * its default is the engine's fictional world (vs. derived from the preset) and
- * whether it ships a bundled preset. Merges the engine's default countries with
- * the preset-only countries. */
+ * it has a fictional engine club pool and whether it ships a real database.
+ * Merges the engine's procedural countries with the shipped real ones. */
 interface CountryOption {
   code: string;
   name: string;
@@ -145,20 +149,36 @@ const COUNTRY_OPTIONS: CountryOption[] = (() => {
     if (existing) existing.hasPreset = true;
     else byCode.set(p.code, { code: p.code, name: p.name, hasEngineDefault: false, hasPreset: true });
   }
-  return Array.from(byCode.values());
+  // Countries with a real database lead the list, then alphabetical.
+  return Array.from(byCode.values()).sort(
+    (a, b) => Number(b.hasPreset) - Number(a.hasPreset) || a.name.localeCompare(b.name)
+  );
 })();
 
 const OPTION_MAP: Record<string, CountryOption> = Object.fromEntries(COUNTRY_OPTIONS.map((o) => [o.code, o]));
 
-/** Every country starts on its default database (procedural or preset-derived). */
-function initialChoice(): DbChoice {
-  return { source: "default" };
+/** Every country starts on the real database when it ships one, and on the
+ * procedural world when it doesn't. */
+function initialChoice(code: string): DbChoice {
+  return OPTION_MAP[code]?.hasPreset ? { source: "default" } : { source: "generated" };
 }
 
-/** A country whose "default" is derived from its preset (no engine club pool)
- * needs the preset asset fetched even when Default is the active choice. */
-function defaultNeedsPreset(code: string): boolean {
-  return !OPTION_MAP[code]?.hasEngineDefault;
+/** Which choices need the shipped asset fetched: "default" always does, and
+ * "generated" does too for a country with no fictional club pool of its own
+ * (its generated world is the real clubs with regenerated squads). */
+function needsPresetAsset(code: string, choice: DbChoice): boolean {
+  const option = OPTION_MAP[code];
+  if (!option?.hasPreset) return false;
+  if (choice.source === "default") return true;
+  return choice.source === "generated" && !option.hasEngineDefault;
+}
+
+/** One-line size summary of a country's real database, for the country card. */
+function presetSummary(code: string): string {
+  const p = getPreset(code);
+  if (!p?.clubs) return "Real database";
+  const tiers = p.tiers && p.tiers > 1 ? `${p.tiers} divisions · ` : "";
+  return `${tiers}${p.clubs} clubs`;
 }
 
 function NewGameForm({ onBack }: { onBack: () => void }) {
@@ -173,7 +193,10 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
   const [startTier, setStartTier] = useState<number>(1);
   // How many tiers EACH included country runs (v17), keyed by country code.
   // Tiers beyond what a country's database authors are generated procedurally.
-  const [divisionDepths, setDivisionDepths] = useState<Record<string, number>>({ ENG: 2 });
+  // Empty by default: depthFor() falls back to however many tiers a country's
+  // database actually authors, so England opens on its real four-tier pyramid
+  // rather than a hardcoded two.
+  const [divisionDepths, setDivisionDepths] = useState<Record<string, number>>({});
   // Optional user-chosen league names, keyed by tier. Blank = keep the default.
   const [divisionNames, setDivisionNames] = useState<Record<number, string>>({});
   // other countries to include as sim-only (view/shopping). Default: the other
@@ -211,7 +234,7 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
   const depthFor = (code: string, authoredCount: number) => divisionDepths[code] ?? authoredCount;
   const setDepth = (code: string, depth: number) => setDivisionDepths((m) => ({ ...m, [code]: depth }));
 
-  const choiceFor = (code: string): DbChoice => dbChoices[code] ?? initialChoice();
+  const choiceFor = (code: string): DbChoice => dbChoices[code] ?? initialChoice(code);
 
   /** Drop created players whose destination country is no longer valid. */
   const prunePlayers = (keptCodes: string[], invalidatedCode?: string) =>
@@ -224,13 +247,10 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
   // whose default is preset-derived needs the asset for "default" too.
   useEffect(() => {
     for (const code of includedCodes) {
-      const choice = choiceFor(code);
-      const wanted =
-        choice.source === "preset" || (choice.source === "default" && defaultNeedsPreset(code));
-      if (!wanted || presetDbs[code]) continue;
+      if (!needsPresetAsset(code, choiceFor(code)) || presetDbs[code]) continue;
       loadPreset(code)
         .then((db) => setPresetDbs((m) => ({ ...m, [code]: db })))
-        .catch((err) => showToast(err instanceof Error ? err.message : "Couldn't load preset."));
+        .catch((err) => showToast(err instanceof Error ? err.message : "Couldn't load database."));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [includedCodes, dbChoices]);
@@ -239,7 +259,10 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
   const dbForChoice = (code: string): CountryDatabase | null => {
     const choice = choiceFor(code);
     if (choice.source === "custom") return choice.db;
-    if (choice.source === "preset") return presetDbs[code] ?? null;
+    // The real shipped database, squads and all.
+    if (choice.source === "default") return presetDbs[code] ?? null;
+    // Generated: the engine's fictional world where one exists, else the real
+    // clubs with their rosters stripped so worldgen fills them procedurally.
     const engine = defaultCountryDB(code);
     if (engine) return engine;
     return presetDbs[code] ? proceduralFromPreset(presetDbs[code]) : null;
@@ -341,7 +364,13 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
         (code === playableCountry && customClub !== null) ||
         customPlayers.some((p) => p.country === code) ||
         materialized;
-      if (choiceFor(code).source !== "default" || defaultNeedsPreset(code) || modified) out[code] = db;
+      // Worldgen can only reconstruct a country's fictional engine world on its
+      // own. Anything else — the shipped real database, a preset-derived
+      // generated world, an upload, or a default touched by custom content —
+      // must be handed over explicitly.
+      const isPlainEngineWorld =
+        choiceFor(code).source === "generated" && OPTION_MAP[code]?.hasEngineDefault;
+      if (!isPlainEngineWorld || modified) out[code] = db;
     }
     return out;
   };
@@ -392,9 +421,7 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
   const clubs = startDiv?.clubs ?? [];
   const playableChoice = choiceFor(playableCountry);
   const playableLoading =
-    !presetDbs[playableCountry] &&
-    (playableChoice.source === "preset" ||
-      (playableChoice.source === "default" && defaultNeedsPreset(playableCountry)));
+    !presetDbs[playableCountry] && needsPresetAsset(playableCountry, playableChoice);
 
   const setChoice = (code: string, choice: DbChoice) => setDbChoices((m) => ({ ...m, [code]: choice }));
 
@@ -475,7 +502,7 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium">{c.name}</div>
                 <div className="text-[10px] text-faint">
-                  {c.hasPreset ? "Default or preset" : "Default database"}
+                  {c.hasPreset ? presetSummary(c.code) : "Generated world"}
                 </div>
               </div>
             </button>
@@ -1038,7 +1065,7 @@ function CountryDbRow({
         <span className="flex items-center gap-1.5 text-[11px] text-win">
           ✓ {choice.fileName}
           <button
-            onClick={() => onChange(initialChoice())}
+            onClick={() => onChange(initialChoice(code))}
             className="text-faint hover:text-loss"
             title="Discard custom file"
           >
@@ -1047,16 +1074,21 @@ function CountryDbRow({
         </span>
       ) : (
         <div className="flex items-center gap-1 rounded border border-line/70 p-0.5">
-          {segBtn(
-            choice.source === "default",
-            "Default",
-            () => onChange({ source: "default" }),
-            option?.hasEngineDefault
-              ? "Procedural default database"
-              : "Real clubs with generated squads"
-          )}
           {preset &&
-            segBtn(choice.source === "preset", "Preset", () => onChange({ source: "preset" }), preset.blurb)}
+            segBtn(
+              choice.source === "default",
+              "Default",
+              () => onChange({ source: "default" }),
+              `${preset.blurb}${preset.clubs ? ` — ${preset.clubs} clubs, ${preset.players} players` : ""}`
+            )}
+          {segBtn(
+            choice.source === "generated",
+            "Generated",
+            () => onChange({ source: "generated" }),
+            option?.hasEngineDefault
+              ? "A procedurally generated world — fictional clubs and squads"
+              : "Real clubs, but every squad generated from scratch"
+          )}
         </div>
       )}
 

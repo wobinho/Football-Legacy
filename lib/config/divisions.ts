@@ -14,10 +14,12 @@ import { mulberry32, deriveSeed, pick, type RNG } from "../rng";
 
 /** Default tier names, indexed by tier (1-based). Used when the player doesn't
  * name a division at setup. Tier 1 always comes from the authored database. */
-export const DEFAULT_TIER_NAMES = ["", "First Division", "Second Division", "Third Division"];
+export const DEFAULT_TIER_NAMES = ["", "First Division", "Second Division", "Third Division", "Fourth Division"];
 
-/** How many divisions deep a single country may go (design cap: 3). */
-export const MAX_DIVISION_DEPTH = 3;
+/** How many divisions deep a single country may go. Raised to 4 in v1.47: the
+ * shipped English database authors the real four-tier pyramid (Premier League →
+ * League Two), and a cap of 3 silently dropped the bottom division. */
+export const MAX_DIVISION_DEPTH = 4;
 
 /** Clubs per generated division — matches the authored divisions' size so the
  * 38-round league calendar and the fixture generator need no special-casing. */
@@ -29,6 +31,7 @@ export const GENERATED_DIVISION_SIZE = 20;
 const TIER_REP_BAND: Record<number, [number, number]> = {
   2: [44, 62],
   3: [28, 45],
+  4: [18, 32],
 };
 
 /** Town/place-name pools per country. Generated clubs pair one of these with a

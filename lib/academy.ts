@@ -51,15 +51,17 @@ import {
 const POS_GROUPS: Record<ScoutPosGroup, Pos[]> = {
   GK: ["GK"],
   DEF: ["CB", "LB", "RB"],
-  MID: ["DM", "CM", "AM"],
+  MID: ["DM", "CM", "LM", "RM", "AM"],
   ATT: ["LW", "RW", "ST"],
-  ANY: ["GK", "CB", "LB", "RB", "DM", "CM", "AM", "LW", "RW", "ST"],
+  ANY: ["GK", "CB", "LB", "RB", "DM", "CM", "LM", "RM", "AM", "LW", "RW", "ST"],
   // one entry per specific position
   CB: ["CB"],
   LB: ["LB"],
   RB: ["RB"],
   DM: ["DM"],
   CM: ["CM"],
+  LM: ["LM"],
+  RM: ["RM"],
   AM: ["AM"],
   LW: ["LW"],
   RW: ["RW"],
@@ -67,7 +69,7 @@ const POS_GROUPS: Record<ScoutPosGroup, Pos[]> = {
 };
 
 // Intake classes lean toward the spine positions, with keepers rare.
-const INTAKE_POS_POOL: Pos[] = ["GK", "CB", "CB", "LB", "RB", "DM", "CM", "CM", "AM", "LW", "RW", "ST", "ST"];
+const INTAKE_POS_POOL: Pos[] = ["GK", "CB", "CB", "LB", "RB", "DM", "CM", "CM", "LM", "RM", "AM", "LW", "RW", "ST", "ST"];
 
 const pushInbox = pushInboxItem;
 
@@ -658,7 +660,7 @@ export function u21RoleFor(state: GameState, playerId: string): U21Role {
 }
 
 const U21_SCORER_WEIGHT: Partial<Record<Pos, number>> = {
-  ST: 4, LW: 2.5, RW: 2.5, AM: 2, CM: 1, DM: 0.5, CB: 0.4, LB: 0.4, RB: 0.4, GK: 0.05,
+  ST: 4, LW: 2.5, RW: 2.5, AM: 2, LM: 1.5, RM: 1.5, CM: 1, DM: 0.5, CB: 0.4, LB: 0.4, RB: 0.4, GK: 0.05,
 };
 
 function tableRowFor(u21: U21Season, teamIdx: number): U21TableRow {

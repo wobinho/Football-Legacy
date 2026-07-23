@@ -4,7 +4,7 @@
 
 export const SCHEMA_VERSION = 26;
 
-export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "AM" | "LW" | "RW" | "ST";
+export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "LM" | "RM" | "AM" | "LW" | "RW" | "ST";
 
 export type Mentality = "Defensive" | "Balanced" | "Attacking";
 

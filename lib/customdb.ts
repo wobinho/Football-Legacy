@@ -95,6 +95,55 @@ export function libraryId(prefix: "club" | "player"): string {
   return `${prefix}_${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
 }
 
+// ── Importing from the shipped default database (v1.47) ────────────────────
+// The editor can pull any real club or player in as an editable library entry.
+// Both directions already speak the same seed shapes, so importing is just
+// filling in the fields a seed leaves optional (worldgen would otherwise roll
+// them) and stamping a fresh library id. The import is a COPY — editing it
+// never touches the shipped asset on disk.
+
+/** Default attributes for a seed authored the legacy way (overall, no attrs).
+ * Flat across all six slots so the derived overall lands on the authored number. */
+function attrsFromOverall(overall: number): Attributes {
+  const v = Math.max(1, Math.min(99, Math.round(overall)));
+  return { pac: v, sho: v, pas: v, dri: v, def: v, phy: v };
+}
+
+/** Convert a database PlayerSeed into an editable library player. */
+export function seedToLibraryPlayer(seed: PlayerSeed, fallbackNat: string): LibraryPlayer {
+  const attrs = seed.attrs ? { ...seed.attrs } : attrsFromOverall(seed.overall ?? 60);
+  const age = seed.age ?? 24;
+  return {
+    id: libraryId("player"),
+    name: seed.name,
+    positions: [...seed.positions],
+    attrs,
+    age,
+    nationality: seed.nationality ?? fallbackNat,
+    // A seed may omit potential; give a still-growing player a little headroom.
+    potential: seed.potential ?? Math.min(96, Math.round(Math.max(...Object.values(attrs)))),
+    ...(seed.archetypeId ? { archetypeId: seed.archetypeId } : {}),
+    traits: seed.traits ? [...seed.traits] : [],
+    updatedAt: Date.now(),
+  };
+}
+
+/** Convert a database ClubSeed into an editable library club. Its authored
+ * roster (if any) comes along verbatim as PlayerSeeds. */
+export function seedToLibraryClub(seed: ClubSeed): LibraryClub {
+  return {
+    id: libraryId("club"),
+    name: seed.name,
+    short: seed.short,
+    colors: [...seed.colors] as [string, string],
+    rep: seed.rep,
+    stadium: seed.stadium,
+    ...(seed.squadQuality !== undefined ? { squadQuality: seed.squadQuality } : {}),
+    ...(seed.players?.length ? { players: seed.players.map((p) => ({ ...p })) } : {}),
+    updatedAt: Date.now(),
+  };
+}
+
 // ── IndexedDB (its own DB, one record per owner) ────────────────────────────
 
 const DB_NAME = "football-legacy-library";

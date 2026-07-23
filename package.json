@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "calibrate": "tsx scripts/calibrate.ts"
+    "calibrate": "tsx scripts/calibrate.ts",
+    "build:db": "tsx scripts/build-fl26.ts",
+    "verify:overall": "tsx scripts/verify-overall.ts"
   },
   "dependencies": {
     "next": "^15.3.3",

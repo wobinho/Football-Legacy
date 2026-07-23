@@ -122,7 +122,7 @@ export const ARCHETYPES: Archetype[] = [
     ["{p} caps a sweeping move he orchestrated himself!"]),
 
   // ── Central mids ──
-  A("box_to_box", "Box-to-Box", ["CM"],
+  A("box_to_box", "Box-to-Box", ["CM", "LM", "RM"],
     "An engine who covers the whole pitch — defending one box, arriving late in the other.",
     { Possession: 1.0, Counter: 1.04, Direct: 1.03 }, 0.8, 0.8, 0.5,
     { pac: 0.75, sho: 0.7, pas: 0.8, dri: 0.75, def: 0.7, phy: 0.9 },
@@ -149,7 +149,7 @@ export const ARCHETYPES: Archetype[] = [
      "Nobody picked up {p} — clinical!"]),
 
   // ── Wingers (shared across left & right) ──
-  A("speed_winger", "Speed Winger", ["LW", "RW"],
+  A("speed_winger", "Speed Winger", ["LW", "RW", "LM", "RM"],
     "A flyer who beats his marker on the outside with raw pace and whips the ball across goal.",
     { Possession: 0.96, Counter: 1.09, Direct: 1.03 }, 1.1, 1.1, 0.95,
     { pac: 1.0, sho: 0.7, pas: 0.7, dri: 0.95, def: 0.2, phy: 0.55 },
@@ -248,7 +248,7 @@ export const ARCHETYPES: Archetype[] = [
     { pac: 0.85, sho: 0.95, pas: 0.6, dri: 0.75, def: 0.2, phy: 0.6 },
     ["{p} is completely unmarked at the back post — tap-in!",
      "Nobody tracked the run of {p} — and he makes them pay!"]),
-  A("classic_winger", "Classic Winger", ["LW", "RW"],
+  A("classic_winger", "Classic Winger", ["LW", "RW", "LM", "RM"],
     "A touchline-hugging traditionalist who beats his man to the byline and whips in crosses all afternoon.",
     { Possession: 0.98, Counter: 1.03, Direct: 1.07 }, 0.75, 1.5, 0.8,
     { pac: 0.95, sho: 0.6, pas: 0.85, dri: 0.95, def: 0.25, phy: 0.6 },

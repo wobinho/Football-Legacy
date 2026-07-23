@@ -1,0 +1,425 @@
+[
+  {
+    "code": "ARG",
+    "name": "Argentina",
+    "file": "ARG-country-db.json",
+    "blurb": "Liga Profesional de Fútbol — real clubs & squads",
+    "tiers": 1,
+    "clubs": 30,
+    "players": 944
+  },
+  {
+    "code": "AUS",
+    "name": "Australia",
+    "file": "AUS-country-db.json",
+    "blurb": "A-League Men — real clubs & squads",
+    "tiers": 1,
+    "clubs": 14,
+    "players": 302
+  },
+  {
+    "code": "AUT",
+    "name": "Austria",
+    "file": "AUT-country-db.json",
+    "blurb": "Bundesliga — real clubs & squads",
+    "tiers": 1,
+    "clubs": 12,
+    "players": 341
+  },
+  {
+    "code": "AZE",
+    "name": "Azerbaijan",
+    "file": "AZE-country-db.json",
+    "blurb": "Premyer Liqa — real clubs & squads",
+    "tiers": 1,
+    "clubs": 4,
+    "players": 25
+  },
+  {
+    "code": "BEL",
+    "name": "Belgium",
+    "file": "BEL-country-db.json",
+    "blurb": "Pro League — real clubs & squads",
+    "tiers": 1,
+    "clubs": 16,
+    "players": 451
+  },
+  {
+    "code": "BOL",
+    "name": "Bolivia",
+    "file": "BOL-country-db.json",
+    "blurb": "División de Fútbol Profesional — real clubs & squads",
+    "tiers": 1,
+    "clubs": 4,
+    "players": 94
+  },
+  {
+    "code": "BRA",
+    "name": "Brazil",
+    "file": "BRA-country-db.json",
+    "blurb": "Série A — real clubs & squads",
+    "tiers": 1,
+    "clubs": 14,
+    "players": 280
+  },
+  {
+    "code": "CHI",
+    "name": "Chile",
+    "file": "CHI-country-db.json",
+    "blurb": "Primera Division — real clubs & squads",
+    "tiers": 1,
+    "clubs": 6,
+    "players": 156
+  },
+  {
+    "code": "CHN",
+    "name": "China PR",
+    "file": "CHN-country-db.json",
+    "blurb": "Super League — real clubs & squads",
+    "tiers": 1,
+    "clubs": 16,
+    "players": 497
+  },
+  {
+    "code": "COL",
+    "name": "Colombia",
+    "file": "COL-country-db.json",
+    "blurb": "Categoría Primera A — real clubs & squads",
+    "tiers": 1,
+    "clubs": 4,
+    "players": 108
+  },
+  {
+    "code": "CRO",
+    "name": "Croatia",
+    "file": "CRO-country-db.json",
+    "blurb": "Hrvatska nogometna liga — real clubs & squads",
+    "tiers": 1,
+    "clubs": 4,
+    "players": 62
+  },
+  {
+    "code": "CYP",
+    "name": "Cyprus",
+    "file": "CYP-country-db.json",
+    "blurb": "1. Division — real clubs & squads",
+    "tiers": 1,
+    "clubs": 4,
+    "players": 29
+  },
+  {
+    "code": "CZE",
+    "name": "Czechia",
+    "file": "CZE-country-db.json",
+    "blurb": "První liga — real clubs & squads",
+    "tiers": 1,
+    "clubs": 4,
+    "players": 82
+  },
+  {
+    "code": "DEN",
+    "name": "Denmark",
+    "file": "DEN-country-db.json",
+    "blurb": "Superliga — real clubs & squads",
+    "tiers": 1,
+    "clubs": 12,
+    "players": 310
+  },
+  {
+    "code": "ECU",
+    "name": "Ecuador",
+    "file": "ECU-country-db.json",
+    "blurb": "Serie A — real clubs & squads",
+    "tiers": 1,
+    "clubs": 6,
+    "players": 122
+  },
+  {
+    "code": "ENG",
+    "name": "England",
+    "file": "ENG-country-db.json",
+    "blurb": "Premier League — real clubs & squads",
+    "tiers": 4,
+    "clubs": 92,
+    "players": 2551
+  },
+  {
+    "code": "FIN",
+    "name": "Finland",
+    "file": "FIN-country-db.json",
+    "blurb": "Veikkausliiga — real clubs & squads",
+    "tiers": 1,
+    "clubs": 4,
+    "players": 31
+  },
+  {
+    "code": "FRA",
+    "name": "France",
+    "file": "FRA-country-db.json",
+    "blurb": "Ligue 1 — real clubs & squads",
+    "tiers": 2,
+    "clubs": 36,
+    "players": 970
+  },
+  {
+    "code": "GER",
+    "name": "Germany",
+    "file": "GER-country-db.json",
+    "blurb": "Bundesliga — real clubs & squads",
+    "tiers": 3,
+    "clubs": 56,
+    "players": 1609
+  },
+  {
+    "code": "GRE",
+    "name": "Greece",
+    "file": "GRE-country-db.json",
+    "blurb": "Super League — real clubs & squads",
+    "tiers": 1,
+    "clubs": 4,
+    "players": 123
+  },
+  {
+    "code": "HUN",
+    "name": "Hungary",
+    "file": "HUN-country-db.json",
+    "blurb": "Nemzeti Bajnokság I — real clubs & squads",
+    "tiers": 1,
+    "clubs": 4,
+    "players": 33
+  },
+  {
+    "code": "IND",
+    "name": "India",
+    "file": "IND-country-db.json",
+    "blurb": "Super League — real clubs & squads",
+    "tiers": 1,
+    "clubs": 14,
+    "players": 348
+  },
+  {
+    "code": "ITA",
+    "name": "Italy",
+    "file": "ITA-country-db.json",
+    "blurb": "Serie A — real clubs & squads",
+    "tiers": 2,
+    "clubs": 40,
+    "players": 1118
+  },
+  {
+    "code": "JPN",
+    "name": "Japan",
+    "file": "JPN-country-db.json",
+    "blurb": "J1 League — real clubs & squads",
+    "tiers": 1,
+    "clubs": 20,
+    "players": 600
+  },
+  {
+    "code": "KOR",
+    "name": "Korea Republic",
+    "file": "KOR-country-db.json",
+    "blurb": "K League 1 — real clubs & squads",
+    "tiers": 1,
+    "clubs": 12,
+    "players": 427
+  },
+  {
+    "code": "MEX",
+    "name": "Mexico",
+    "file": "MEX-country-db.json",
+    "blurb": "Liga MX — real clubs & squads",
+    "tiers": 1,
+    "clubs": 18,
+    "players": 540
+  },
+  {
+    "code": "NED",
+    "name": "Netherlands",
+    "file": "NED-country-db.json",
+    "blurb": "Eredivisie — real clubs & squads",
+    "tiers": 1,
+    "clubs": 18,
+    "players": 526
+  },
+  {
+    "code": "NOR",
+    "name": "Norway",
+    "file": "NOR-country-db.json",
+    "blurb": "Eliteserien — real clubs & squads",
+    "tiers": 1,
+    "clubs": 16,
+    "players": 430
+  },
+  {
+    "code": "PAR",
+    "name": "Paraguay",
+    "file": "PAR-country-db.json",
+    "blurb": "División Profesional — real clubs & squads",
+    "tiers": 1,
+    "clubs": 6,
+    "players": 126
+  },
+  {
+    "code": "PER",
+    "name": "Peru",
+    "file": "PER-country-db.json",
+    "blurb": "Liga 1 — real clubs & squads",
+    "tiers": 1,
+    "clubs": 6,
+    "players": 146
+  },
+  {
+    "code": "POL",
+    "name": "Poland",
+    "file": "POL-country-db.json",
+    "blurb": "Ekstraklasa — real clubs & squads",
+    "tiers": 1,
+    "clubs": 18,
+    "players": 483
+  },
+  {
+    "code": "POR",
+    "name": "Portugal",
+    "file": "POR-country-db.json",
+    "blurb": "Primeira Liga — real clubs & squads",
+    "tiers": 1,
+    "clubs": 18,
+    "players": 522
+  },
+  {
+    "code": "IRL",
+    "name": "Republic of Ireland",
+    "file": "IRL-country-db.json",
+    "blurb": "Premier Division — real clubs & squads",
+    "tiers": 1,
+    "clubs": 10,
+    "players": 256
+  },
+  {
+    "code": "ROU",
+    "name": "Romania",
+    "file": "ROU-country-db.json",
+    "blurb": "Liga I — real clubs & squads",
+    "tiers": 1,
+    "clubs": 16,
+    "players": 450
+  },
+  {
+    "code": "RUS",
+    "name": "Russia",
+    "file": "RUS-country-db.json",
+    "blurb": "Premier Liga — real clubs & squads",
+    "tiers": 1,
+    "clubs": 16,
+    "players": 480
+  },
+  {
+    "code": "KSA",
+    "name": "Saudi Arabia",
+    "file": "KSA-country-db.json",
+    "blurb": "Pro League — real clubs & squads",
+    "tiers": 1,
+    "clubs": 18,
+    "players": 536
+  },
+  {
+    "code": "SCO",
+    "name": "Scotland",
+    "file": "SCO-country-db.json",
+    "blurb": "Premiership — real clubs & squads",
+    "tiers": 1,
+    "clubs": 12,
+    "players": 330
+  },
+  {
+    "code": "SRB",
+    "name": "Serbia",
+    "file": "SRB-country-db.json",
+    "blurb": "SuperLiga — real clubs & squads",
+    "tiers": 1,
+    "clubs": 16,
+    "players": 480
+  },
+  {
+    "code": "ESP",
+    "name": "Spain",
+    "file": "ESP-country-db.json",
+    "blurb": "La Liga — real clubs & squads",
+    "tiers": 2,
+    "clubs": 42,
+    "players": 1182
+  },
+  {
+    "code": "SWE",
+    "name": "Sweden",
+    "file": "SWE-country-db.json",
+    "blurb": "Allsvenskan — real clubs & squads",
+    "tiers": 1,
+    "clubs": 16,
+    "players": 424
+  },
+  {
+    "code": "SUI",
+    "name": "Switzerland",
+    "file": "SUI-country-db.json",
+    "blurb": "Super League — real clubs & squads",
+    "tiers": 1,
+    "clubs": 12,
+    "players": 331
+  },
+  {
+    "code": "TUR",
+    "name": "Türkiye",
+    "file": "TUR-country-db.json",
+    "blurb": "Süper Lig — real clubs & squads",
+    "tiers": 1,
+    "clubs": 18,
+    "players": 469
+  },
+  {
+    "code": "UKR",
+    "name": "Ukraine",
+    "file": "UKR-country-db.json",
+    "blurb": "Premier League — real clubs & squads",
+    "tiers": 1,
+    "clubs": 4,
+    "players": 62
+  },
+  {
+    "code": "UAE",
+    "name": "United Arab Emirates",
+    "file": "UAE-country-db.json",
+    "blurb": "Pro League — real clubs & squads",
+    "tiers": 1,
+    "clubs": 4,
+    "players": 27
+  },
+  {
+    "code": "USA",
+    "name": "United States",
+    "file": "USA-country-db.json",
+    "blurb": "Major League Soccer — real clubs & squads",
+    "tiers": 1,
+    "clubs": 30,
+    "players": 803
+  },
+  {
+    "code": "URU",
+    "name": "Uruguay",
+    "file": "URU-country-db.json",
+    "blurb": "Primera División — real clubs & squads",
+    "tiers": 1,
+    "clubs": 6,
+    "players": 108
+  },
+  {
+    "code": "VEN",
+    "name": "Venezuela",
+    "file": "VEN-country-db.json",
+    "blurb": "Primera Division — real clubs & squads",
+    "tiers": 1,
+    "clubs": 4,
+    "players": 92
+  }
+]

@@ -303,7 +303,7 @@ export function traitsWithEffect(key: keyof Trait["effects"]): string[] {
 const POS_GROUP: Record<Pos, TraitEligible> = {
   GK: "gk",
   CB: "def", LB: "def", RB: "def",
-  DM: "mid", CM: "mid", AM: "mid",
+  DM: "mid", CM: "mid", LM: "mid", RM: "mid", AM: "mid",
   LW: "att", RW: "att", ST: "att",
 };
 

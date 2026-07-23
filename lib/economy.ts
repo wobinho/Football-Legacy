@@ -336,7 +336,7 @@ export function upgradeTrainingFacility(state: GameState, facility: TrainingFaci
 const POSITION_CENTRE: Record<Pos, TrainingFacility> = {
   GK: "gkCentre",
   CB: "defenceCentre", LB: "defenceCentre", RB: "defenceCentre",
-  DM: "midfieldCentre", CM: "midfieldCentre", AM: "midfieldCentre",
+  DM: "midfieldCentre", CM: "midfieldCentre", LM: "midfieldCentre", RM: "midfieldCentre", AM: "midfieldCentre",
   LW: "attackCentre", RW: "attackCentre", ST: "attackCentre",
 };
 
