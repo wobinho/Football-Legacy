@@ -803,20 +803,35 @@ export interface TuningConfig {
   /** Average overall the founded club's generated squad targets — deliberately
    * low; the club climbs from the bottom. */
   gcnFoundSquadAvgOverall: number;
-  // Operations upgrade tracks — each a one-time cost per level (indexed by the
-  // level being bought), a max level, and a per-level effect magnitude.
-  gcnFinancingUpgradeCost: number[];
-  gcnFinancingMaxLevel: number;
-  gcnFinancingPerLevel: number; // weekly treasury income per level
-  gcnDevelopmentUpgradeCost: number[];
-  gcnDevelopmentMaxLevel: number;
-  gcnDevelopmentPerLevel: number; // network-wide growth-speed bonus per level
-  gcnScoutingUpgradeCost: number[];
-  gcnScoutingMaxLevel: number;
-  gcnScoutingPerLevel: number; // network scouting reach per level
-  gcnLogisticsUpgradeCost: number[];
-  gcnLogisticsMaxLevel: number;
-  gcnLogisticsPerLevel: number; // cheaper inter-club moves per level
+  // Operations upgrade tracks (v1.62) — each a one-time cost per level (indexed
+  // by the level being bought), a max level, and a per-level effect magnitude.
+  /** Owned clubs the network can hold at level 0 — the base cap before any
+   * Group Clubs upgrade. */
+  gcnGroupClubsBase: number;
+  /** Extra owned-club slots each Group Clubs level grants. */
+  gcnGroupClubsPerLevel: number;
+  gcnGroupClubsUpgradeCost: number[];
+  gcnGroupClubsMaxLevel: number;
+  /** Brand Deals (v1.63) — weekly cash into the GCN treasury. Level 1 pays the
+   * base; every level after adds the step, up to the max level. */
+  gcnBrandDealsBase: number;
+  gcnBrandDealsPerLevel: number;
+  gcnBrandDealsUpgradeCost: number[];
+  gcnBrandDealsMaxLevel: number;
+  /** GCN Deals (v1.63) — weekly cash paid straight into *each* owned club's own
+   * budget (not the treasury). Same base/step shape as Brand Deals. */
+  gcnDealsBase: number;
+  gcnDealsPerLevel: number;
+  gcnDealsUpgradeCost: number[];
+  gcnDealsMaxLevel: number;
+  /** Selling an owned club back out of the network returns this fraction of what
+   * it would cost to buy today — the resale haircut. */
+  gcnSellClubPriceFactor: number;
+  /** Selling a player out of an owned club banks this fraction of his market
+   * value — the sell-on haircut. */
+  gcnSellPlayerPriceFactor: number;
+  /** An owned club may not be sold down below this squad size. */
+  gcnSellMinSquadSize: number;
 
   // Calibration targets (for the harness printout)
   targetGoalsPerMatch: number;
@@ -1516,18 +1531,33 @@ export const TUNING: TuningConfig = {
   gcnBuyClubRepPremium: 3_000_000,
   gcnFoundClubCost: 250_000_000,
   gcnFoundSquadAvgOverall: 58,
-  gcnFinancingUpgradeCost: [120_000_000, 240_000_000, 420_000_000, 680_000_000, 1_000_000_000],
-  gcnFinancingMaxLevel: 5,
-  gcnFinancingPerLevel: 500_000,
-  gcnDevelopmentUpgradeCost: [150_000_000, 300_000_000, 520_000_000, 800_000_000],
-  gcnDevelopmentMaxLevel: 4,
-  gcnDevelopmentPerLevel: 0.04,
-  gcnScoutingUpgradeCost: [100_000_000, 220_000_000, 400_000_000],
-  gcnScoutingMaxLevel: 3,
-  gcnScoutingPerLevel: 1,
-  gcnLogisticsUpgradeCost: [80_000_000, 180_000_000, 320_000_000],
-  gcnLogisticsMaxLevel: 3,
-  gcnLogisticsPerLevel: 0.1,
+  // Group Clubs: 4 owned clubs at level 0, +2 per level, 8 levels → cap 20.
+  gcnGroupClubsBase: 4,
+  gcnGroupClubsPerLevel: 2,
+  gcnGroupClubsUpgradeCost: [
+    150_000_000, 300_000_000, 500_000_000, 750_000_000,
+    1_050_000_000, 1_400_000_000, 1_800_000_000, 2_250_000_000,
+  ],
+  gcnGroupClubsMaxLevel: 8,
+  // Brand Deals: L1 pays 100k/wk, +50k per level, 9 levels → 500k/wk at max.
+  gcnBrandDealsBase: 100_000,
+  gcnBrandDealsPerLevel: 50_000,
+  gcnBrandDealsUpgradeCost: [
+    150_000_000, 225_000_000, 300_000_000, 375_000_000, 450_000_000,
+    525_000_000, 600_000_000, 675_000_000, 750_000_000,
+  ],
+  gcnBrandDealsMaxLevel: 9,
+  // GCN Deals: L1 pays each owned club 50k/wk, +25k per level, 9 levels → 250k/wk.
+  gcnDealsBase: 50_000,
+  gcnDealsPerLevel: 25_000,
+  gcnDealsUpgradeCost: [
+    250_000_000, 400_000_000, 550_000_000, 700_000_000, 850_000_000,
+    1_000_000_000, 1_150_000_000, 1_300_000_000, 1_450_000_000,
+  ],
+  gcnDealsMaxLevel: 9,
+  gcnSellClubPriceFactor: 0.8,
+  gcnSellPlayerPriceFactor: 0.9,
+  gcnSellMinSquadSize: 16,
 
   targetGoalsPerMatch: 2.7,
   targetHomeWinPct: 45,

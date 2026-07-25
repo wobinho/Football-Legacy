@@ -1373,12 +1373,25 @@ export interface GlobalClubNetwork {
   clubIds: string[];
   /** Operations upgrade levels, keyed by facility. Absent key = level 0. */
   ops: Partial<Record<GcnFacility, number>>;
+  /** Automated weekly funding (v1.63): how much the treasury sends each owned
+   * club every Monday, keyed by club id. Absent/0 = no standing order. Entries
+   * for clubs that leave the network are ignored and cleaned up on sale. */
+  autoFunding?: Record<string, number>;
 }
 
 /** A GCN Operations upgrade track (v34). Table-driven like TrainingFacility —
  * adding one is a data change in lib/gcn.ts + lib/config/tuning.ts, never a new
- * branch in the purchase path. */
-export type GcnFacility = "financing" | "development" | "scouting" | "logistics";
+ * branch in the purchase path.
+ *
+ * v1.62 replaced the original four cosmetic tracks (financing/development/
+ * scouting/logistics — only financing was ever wired to an effect) with a single
+ * track that gates the thing the network is actually about: how many clubs it
+ * can hold. `ops` is a partial record, so a pre-v1.62 save's dead keys are
+ * simply ignored.
+ *
+ * v1.63 added the two revenue tracks: `brandDeals` pays the treasury weekly,
+ * `gcnDeals` pays every owned club's own budget weekly. */
+export type GcnFacility = "groupClubs" | "brandDeals" | "gcnDeals";
 
 /** One expiring deal awaiting the manager's call at the end of a season (v1.51). */
 export interface ExpiringContract {

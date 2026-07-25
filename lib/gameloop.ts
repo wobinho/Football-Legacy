@@ -29,7 +29,7 @@ import {
   weeklyProgressTick,
 } from "./development";
 import { weeklyEconomyTick, applySeasonPrizes, facilityGrowthMult } from "./economy";
-import { gcnWeeklyTreasuryTick } from "./gcn";
+import { gcnWeeklyTick } from "./gcn";
 import {
   aiWeeklyTransferTick,
   refreshValues,
@@ -386,9 +386,9 @@ function advanceDay(state: GameState): StopReason | null {
   if (isMonday(day)) {
     const beforeBudget = state.teams[state.userTeamId].budget;
     weeklyEconomyTick(state, cfg);
-    // Global Club Network (v34): the Financing track pays weekly into the GCN
-    // treasury. A no-op until the network is unlocked.
-    gcnWeeklyTreasuryTick(state, cfg);
+    // The network's own week: commercial income, then standing funding orders.
+    // Owned clubs sit in sim leagues, which weeklyEconomyTick skips.
+    gcnWeeklyTick(state, cfg);
     if (beforeBudget >= 0 && state.teams[state.userTeamId].budget < 0) {
       pushInbox(
         state,

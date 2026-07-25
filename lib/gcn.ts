@@ -18,6 +18,7 @@
 import type { GameState, GlobalClubNetwork, GcnFacility, Team } from "./types";
 import type { TuningConfig } from "./config/tuning";
 import { completeTransfer } from "./transfers";
+import { weeklyBreakdown } from "./economy";
 import { playerValue } from "./value";
 import { clubBudget, defaultTactic, generateClubSquad, teamIdFor } from "./worldgen";
 import { grantDefaultContract } from "./contracts";
@@ -93,6 +94,89 @@ export function withdrawFromTreasury(state: GameState, amount: number): string |
   state.teams[state.userTeamId].budget += n;
 }
 
+/** Fund an owned club: move money out of the treasury and into that club's own
+ * transfer/wage budget (v1.62). The counterpart to a withdrawal — the network's
+ * way of propping up a club it owns rather than the main squad. Returns an error
+ * string on failure. */
+export function fundClub(state: GameState, clubId: string, amount: number): string | void {
+  const gcn = state.gcn;
+  if (!gcn) return "The network isn't unlocked.";
+  if (!gcn.clubIds.includes(clubId)) return "That club isn't in the network.";
+  const club = state.teams[clubId];
+  if (!club) return "Unknown club.";
+  const n = Math.floor(amount);
+  if (!Number.isFinite(n) || n <= 0) return "Enter an amount to send.";
+  if (n > gcn.treasury) return "The treasury doesn't hold that much.";
+  gcn.treasury -= n;
+  club.budget += n;
+}
+
+// ── Selling players out of an owned club ─────────────────────────────────────
+
+/** What an owned club would bank for selling a player (v1.63). The network isn't
+ * negotiating with a buyer here — it's cashing a player in at his market value,
+ * so the fee is `playerValue` with a small sell-on haircut. */
+export function gcnPlayerSalePrice(state: GameState, playerId: string, cfg: TuningConfig): number {
+  const p = state.players[playerId];
+  if (!p) return 0;
+  return Math.round(playerValue(p, cfg) * cfg.gcnSellPlayerPriceFactor);
+}
+
+/** Sell a player out of an owned club to the wider market. He leaves as a free
+ * agent (the same shape a release takes) and the fee lands in *that club's* own
+ * budget, not the treasury — the network's clubs keep their own books. Returns
+ * an error string on failure. */
+export function sellPlayer(state: GameState, playerId: string, cfg: TuningConfig): string | void {
+  const gcn = state.gcn;
+  if (!gcn) return "The network isn't unlocked.";
+  const p = state.players[playerId];
+  if (!p) return "Unknown player.";
+  if (!p.clubId || !gcn.clubIds.includes(p.clubId)) return "That player isn't at an owned club.";
+  if (p.loan) return "A player out on loan can't be sold.";
+  const club = state.teams[p.clubId];
+  if (club && club.playerIds.length <= cfg.gcnSellMinSquadSize) {
+    return `An owned club must keep at least ${cfg.gcnSellMinSquadSize} players.`;
+  }
+  // completeTransfer credits the selling club's budget with the fee and handles
+  // the tactics/academy scrubbing.
+  completeTransfer(state, playerId, null, gcnPlayerSalePrice(state, playerId, cfg), undefined, "transfer");
+}
+
+// ── Editing an owned club ────────────────────────────────────────────────────
+
+/** Identity edits the network may make to a club it owns (v1.62): its name,
+ * crest abbreviation, colours and stadium. Ownership is the licence — the
+ * manager's own club is edited elsewhere and AI clubs aren't editable at all. */
+export interface GcnClubEdit {
+  name: string;
+  short: string;
+  colors: [string, string];
+  stadium: string;
+}
+
+const HEX = /^#[0-9a-fA-F]{6}$/;
+
+/** Rename / re-brand an owned club. Returns an error string on failure. */
+export function editClub(state: GameState, clubId: string, edit: GcnClubEdit): string | void {
+  const gcn = state.gcn;
+  if (!gcn) return "The network isn't unlocked.";
+  if (!gcn.clubIds.includes(clubId)) return "You can only edit clubs the network owns.";
+  const club = state.teams[clubId];
+  if (!club) return "Unknown club.";
+  const name = edit.name.trim();
+  if (!name) return "The club needs a name.";
+  // The crest carries 2–4 letters; anything else renders as a smear.
+  const short = edit.short.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4);
+  if (short.length < 2) return "The abbreviation needs 2–4 letters.";
+  if (!HEX.test(edit.colors[0]) || !HEX.test(edit.colors[1])) return "Colours must be hex values.";
+  const stadium = edit.stadium.trim();
+  if (!stadium) return "The club needs a stadium name.";
+  club.name = name.slice(0, 48);
+  club.short = short;
+  club.colors = [edit.colors[0], edit.colors[1]];
+  club.stadium = stadium.slice(0, 64);
+}
+
 // ── Buying clubs ─────────────────────────────────────────────────────────────
 
 /** A league's reputation score (0–100): its tier ranking blended with the mean
@@ -138,11 +222,103 @@ export function buyClub(state: GameState, clubId: string, cfg: TuningConfig): st
   const gcn = state.gcn;
   if (!gcn) return "The network isn't unlocked.";
   if (!isBuyableClub(state, clubId)) return "That club can't be brought into the network.";
+  if (atGroupClubsCap(state, cfg))
+    return `The network is at its ${groupClubsCap(state, cfg)}-club limit — upgrade Group Clubs in Operations.`;
   const price = clubBuyPrice(state, clubId, cfg);
   if (price > gcn.treasury) return "The GCN treasury can't afford that club.";
   gcn.treasury -= price;
   state.teams[clubId].gcnOwned = true;
   gcn.clubIds.push(clubId);
+}
+
+// ── Selling clubs ────────────────────────────────────────────────────────────
+
+/** What the network is offered for an owned club (v1.63): what it would cost to
+ * buy that club today, less the resale haircut. Valuing it live means a club the
+ * network built up sells for more than it was bought for. */
+export function clubSalePrice(state: GameState, clubId: string, cfg: TuningConfig): number {
+  return Math.round(clubBuyPrice(state, clubId, cfg) * cfg.gcnSellClubPriceFactor);
+}
+
+/** Sell an owned club out of the network. The club itself survives — it simply
+ * reverts to being an ordinary AI side in its league, keeping its squad, budget
+ * and identity — and the sale price lands in the treasury. Returns an error
+ * string on failure. */
+export function sellClub(state: GameState, clubId: string, cfg: TuningConfig): string | void {
+  const gcn = state.gcn;
+  if (!gcn) return "The network isn't unlocked.";
+  if (!gcn.clubIds.includes(clubId)) return "That club isn't in the network.";
+  const club = state.teams[clubId];
+  if (!club) return "Unknown club.";
+  const price = clubSalePrice(state, clubId, cfg);
+  gcn.treasury += price;
+  gcn.clubIds = gcn.clubIds.filter((id) => id !== clubId);
+  delete club.gcnOwned;
+  // A club that's left the network can't keep drawing its standing order.
+  if (gcn.autoFunding) delete gcn.autoFunding[clubId];
+  // Any player the network had out on a feeder loan there loses his guaranteed
+  // destination — recall him rather than leave him at a club we no longer own.
+  for (const p of Object.values(state.players)) {
+    if (p.loan?.toClubId === clubId) p.loan = undefined;
+  }
+}
+
+// ── Automated funding (v1.63) ────────────────────────────────────────────────
+
+/** The standing weekly order for an owned club, 0 when none is set. */
+export function autoFundingOf(state: GameState, clubId: string): number {
+  return state.gcn?.autoFunding?.[clubId] ?? 0;
+}
+
+/** Set (or clear, with 0) the weekly amount the treasury sends an owned club.
+ * Returns an error string on failure. */
+export function setAutoFunding(state: GameState, clubId: string, amount: number): string | void {
+  const gcn = state.gcn;
+  if (!gcn) return "The network isn't unlocked.";
+  if (!gcn.clubIds.includes(clubId)) return "That club isn't in the network.";
+  const n = Math.floor(amount);
+  if (!Number.isFinite(n) || n < 0) return "Enter a weekly amount.";
+  const map = (gcn.autoFunding ??= {});
+  if (n === 0) delete map[clubId];
+  else map[clubId] = n;
+}
+
+/** Everything the network pays out automatically each week, for the UI's
+ * "committed per week" line. */
+export function totalAutoFunding(state: GameState): number {
+  const gcn = state.gcn;
+  if (!gcn) return 0;
+  return gcn.clubIds.reduce((sum, id) => sum + autoFundingOf(state, id), 0);
+}
+
+// ── Weekly network tick ──────────────────────────────────────────────────────
+
+/** The Monday pass over the network (v1.63), run alongside weeklyEconomyTick:
+ *  1. Brand Deals pay the treasury.
+ *  2. GCN Deals pay every owned club's own budget.
+ *  3. Standing auto-funding orders move treasury → club budgets, in club order,
+ *     each paid in full or skipped when the treasury can't cover it.
+ * Owned clubs sit in sim leagues, which weeklyEconomyTick doesn't touch, so this
+ * is the only weekly money they see. */
+export function gcnWeeklyTick(state: GameState, cfg: TuningConfig) {
+  const gcn = state.gcn;
+  if (!gcn) return;
+
+  gcn.treasury += brandDealsWeekly(state, cfg);
+
+  const perClub = gcnDealsWeekly(state, cfg);
+  for (const id of gcn.clubIds) {
+    const club = state.teams[id];
+    if (club) club.budget += perClub;
+  }
+
+  for (const id of gcn.clubIds) {
+    const amount = autoFundingOf(state, id);
+    const club = state.teams[id];
+    if (!amount || !club || amount > gcn.treasury) continue;
+    gcn.treasury -= amount;
+    club.budget += amount;
+  }
 }
 
 // ── Founding clubs ───────────────────────────────────────────────────────────
@@ -173,6 +349,8 @@ export function foundClub(state: GameState, leagueId: string, name: string, cfg:
   if (!gcn) return "The network isn't unlocked.";
   const league = state.leagues[leagueId];
   if (!league || league.playable) return "You can only found a club in a sim league.";
+  if (atGroupClubsCap(state, cfg))
+    return `The network is at its ${groupClubsCap(state, cfg)}-club limit — upgrade Group Clubs in Operations.`;
   const trimmed = name.trim();
   if (!trimmed) return "Name the new club.";
   if (cfg.gcnFoundClubCost > gcn.treasury) return "The GCN treasury can't afford to found a club.";
@@ -251,8 +429,10 @@ export function networkClubIds(state: GameState): string[] {
 }
 
 /** Permanently transfer a player between two network clubs, free of charge (both
- * clubs are the manager's, so no money leaves the empire). Returns an error
- * string on failure. */
+ * clubs are the manager's, so no money leaves the empire). Either end may be the
+ * manager's own club — pulling a player up from an owned club into the main
+ * squad is as valid as pushing one down (v1.62). Returns an error string on
+ * failure. */
 export function moveWithinNetwork(state: GameState, playerId: string, toClubId: string): string | void {
   const gcn = state.gcn;
   if (!gcn) return "The network isn't unlocked.";
@@ -304,34 +484,65 @@ interface GcnFacilitySpec {
 }
 
 export const GCN_FACILITY_SPEC: Record<GcnFacility, GcnFacilitySpec> = {
-  financing: {
-    costKey: "gcnFinancingUpgradeCost",
-    maxKey: "gcnFinancingMaxLevel",
-    label: "Financing",
-    blurb: "Weekly income paid straight into the GCN treasury.",
+  groupClubs: {
+    costKey: "gcnGroupClubsUpgradeCost",
+    maxKey: "gcnGroupClubsMaxLevel",
+    label: "Group Clubs",
+    blurb: "How many clubs the network may own. Every level buys more slots to found or buy into.",
   },
-  development: {
-    costKey: "gcnDevelopmentUpgradeCost",
-    maxKey: "gcnDevelopmentMaxLevel",
-    label: "Player Development",
-    blurb: "Network-wide boost to how fast owned clubs' players grow.",
+  brandDeals: {
+    costKey: "gcnBrandDealsUpgradeCost",
+    maxKey: "gcnBrandDealsMaxLevel",
+    label: "Brand Deals",
+    blurb: "Global sponsorship sold in the network's name. Pays the GCN treasury every week.",
   },
-  scouting: {
-    costKey: "gcnScoutingUpgradeCost",
-    maxKey: "gcnScoutingMaxLevel",
-    label: "Scouting",
-    blurb: "Widens the network's scouting reach across its clubs.",
-  },
-  logistics: {
-    costKey: "gcnLogisticsUpgradeCost",
-    maxKey: "gcnLogisticsMaxLevel",
-    label: "Logistics",
-    blurb: "Smooths player movement and admin between owned clubs.",
+  gcnDeals: {
+    costKey: "gcnDealsUpgradeCost",
+    maxKey: "gcnDealsMaxLevel",
+    label: "GCN Deals",
+    blurb: "Commercial deals struck for the group's clubs. Pays every owned club's own budget every week.",
   },
 };
 
 export function gcnLevelOf(state: GameState, facility: GcnFacility): number {
   return state.gcn?.ops[facility] ?? 0;
+}
+
+/** How many clubs the network may own right now: the base cap plus whatever the
+ * Group Clubs track has bought. This is the one Operations effect (v1.62) — the
+ * network's size is the thing upgrades gate. */
+export function groupClubsCap(state: GameState, cfg: TuningConfig): number {
+  return cfg.gcnGroupClubsBase + gcnLevelOf(state, "groupClubs") * cfg.gcnGroupClubsPerLevel;
+}
+
+/** A weekly-income track's payout at a given level (v1.63): nothing at level 0,
+ * the base at level 1, then the step for each level above. Shared by Brand Deals
+ * and GCN Deals so the two read the same and neither hard-codes its curve. */
+function weeklyTrackAt(level: number, base: number, perLevel: number): number {
+  return level <= 0 ? 0 : base + (level - 1) * perLevel;
+}
+
+/** What Brand Deals pays the treasury each week at the current level. */
+export function brandDealsWeekly(state: GameState, cfg: TuningConfig, level?: number): number {
+  return weeklyTrackAt(
+    level ?? gcnLevelOf(state, "brandDeals"),
+    cfg.gcnBrandDealsBase,
+    cfg.gcnBrandDealsPerLevel
+  );
+}
+
+/** What GCN Deals pays *each* owned club each week at the current level. */
+export function gcnDealsWeekly(state: GameState, cfg: TuningConfig, level?: number): number {
+  return weeklyTrackAt(
+    level ?? gcnLevelOf(state, "gcnDeals"),
+    cfg.gcnDealsBase,
+    cfg.gcnDealsPerLevel
+  );
+}
+
+/** True when the network is at its owned-club cap and can't take on another. */
+export function atGroupClubsCap(state: GameState, cfg: TuningConfig): boolean {
+  return (state.gcn?.clubIds.length ?? 0) >= groupClubsCap(state, cfg);
 }
 
 /** The cost of the next level of a facility, or null if maxed / not unlocked. */
@@ -376,7 +587,8 @@ export interface GcnOverview {
   treasury: number;
   totalClubBudgets: number;
   totalPlayers: number;
-  weeklyFinancingIncome: number;
+  /** Owned-club slots the Group Clubs track currently allows (v1.62). */
+  clubCap: number;
   clubs: GcnClubSummary[];
 }
 
@@ -401,7 +613,7 @@ export function gcnOverview(state: GameState, cfg: TuningConfig): GcnOverview {
     treasury: gcn?.treasury ?? 0,
     totalClubBudgets: clubs.reduce((s, c) => s + c.budget, 0),
     totalPlayers: clubs.reduce((s, c) => s + c.squadSize, 0),
-    weeklyFinancingIncome: gcnLevelOf(state, "financing") * cfg.gcnFinancingPerLevel,
+    clubCap: groupClubsCap(state, cfg),
     clubs,
   };
 }
@@ -419,10 +631,107 @@ export function clubStanding(state: GameState, clubId: string): { pos: number; o
   return { pos: idx + 1, of: result.table.length };
 }
 
-/** Weekly treasury income from the Financing track. Called from the economy
- * tick so an unlocked network's Financing upgrades actually pay out. */
-export function gcnWeeklyTreasuryTick(state: GameState, cfg: TuningConfig): void {
-  const gcn = state.gcn;
-  if (!gcn) return;
-  gcn.treasury += gcnLevelOf(state, "financing") * cfg.gcnFinancingPerLevel;
+/** An owned club's weekly finances (v1.62), for the Clubs → Finance panel. The
+ * arithmetic is the economy module's — this only names the parts the network
+ * cares about, so the panel never does sums of its own. */
+export interface GcnClubFinance {
+  budget: number;
+  income: number;
+  expenses: number;
+  net: number;
+  wageBill: number;
+  staffWages: number;
+  tvIncome: number;
+  positionBonus: number;
+  gateIncome: number;
+  facilityIncome: number;
+  sponsorIncome: number;
+  /** Weeks of the current shortfall the budget covers, or null when the club is
+   * running at a profit (nothing to survive). */
+  weeksOfCover: number | null;
 }
+
+export function gcnClubFinance(state: GameState, clubId: string, cfg: TuningConfig): GcnClubFinance | null {
+  const club = state.teams[clubId];
+  if (!club) return null;
+  const w = weeklyBreakdown(state, clubId, cfg);
+  const income = w.tvIncome + w.positionBonus + w.gateIncome + w.facilityIncome + w.sponsorIncome;
+  const expenses = w.wageBill + w.staffWages + w.academyUpkeep + w.academyWages;
+  return {
+    budget: club.budget,
+    income,
+    expenses,
+    net: w.net,
+    wageBill: w.wageBill,
+    staffWages: w.staffWages,
+    tvIncome: w.tvIncome,
+    positionBonus: w.positionBonus,
+    gateIncome: w.gateIncome,
+    facilityIncome: w.facilityIncome,
+    sponsorIncome: w.sponsorIncome,
+    weeksOfCover: w.net < 0 ? Math.floor(club.budget / -w.net) : null,
+  };
+}
+
+/** An owned club's sporting standing (v1.62), for the Clubs → Status panel:
+ * where it sits in its league and the record behind that position. Null until
+ * the sim league has been resolved at least once this save. */
+export interface GcnClubStatus {
+  pos: number;
+  of: number;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  gf: number;
+  ga: number;
+  points: number;
+  /** Points per game, 0 when nothing has been played yet. */
+  ppg: number;
+  leagueName: string;
+  country: string;
+  tier: number;
+  reputation: number;
+  squadSize: number;
+  /** Mean overall across the senior squad, 0 for an empty squad. */
+  avgOverall: number;
+}
+
+export function gcnClubStatus(state: GameState, clubId: string): GcnClubStatus | null {
+  const club = state.teams[clubId];
+  if (!club) return null;
+  const league = state.leagues[club.leagueId];
+  const squad = club.playerIds.map((id) => state.players[id]).filter(Boolean);
+  const avgOverall = squad.length
+    ? Math.round(squad.reduce((s, p) => s + p.overall, 0) / squad.length)
+    : 0;
+  const base = {
+    leagueName: league?.name ?? club.leagueId,
+    country: league?.country ?? "",
+    tier: league?.tier ?? 0,
+    reputation: club.reputation,
+    squadSize: squad.length,
+    avgOverall,
+  };
+  const result = state.simResults.find((r) => r.leagueId === club.leagueId);
+  const idx = result ? result.table.findIndex((row) => row.teamId === clubId) : -1;
+  if (!result || idx < 0) {
+    // No table yet — the club's identity is still worth showing, with a blank record.
+    return { ...base, pos: 0, of: league?.teamIds.length ?? 0, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, points: 0, ppg: 0 };
+  }
+  const row = result.table[idx];
+  return {
+    ...base,
+    pos: idx + 1,
+    of: result.table.length,
+    played: row.played,
+    won: row.won,
+    drawn: row.drawn,
+    lost: row.lost,
+    gf: row.gf,
+    ga: row.ga,
+    points: row.points,
+    ppg: row.played > 0 ? row.points / row.played : 0,
+  };
+}
+

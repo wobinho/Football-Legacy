@@ -455,16 +455,78 @@ pyramid is left untouched.
 - **Buy** (`clubBuyPrice` / `buyClub`): price = squad's total `playerValue` × `gcnBuyValueMultiplier`
   (5) + a league-reputation premium + a club-reputation premium.
 
-**Moving players.** `moveWithinNetwork` transfers a player between any two network clubs for a fee
-of 0 (via the shared `completeTransfer` primitive — no money leaves the empire). `sendToFeeder`
-loans one of *your* players to an owned club with a guaranteed role; `weeklyLoanTick` recognises a
-`gcnOwned` destination and guarantees the flagged role's minutes (starter ≈ full weeks, rotation a
-steady share) instead of the ordinary AI-uptake roll — reliable development you don't get loaning
-to a stranger.
+Both are gated by the **club cap** (`groupClubsCap`) — see Operations below.
 
-**Operations** (`GCN_FACILITY_SPEC`, `upgradeGcnFacility`) — table-driven upgrade tracks
-(Financing, Player Development, Scouting, Logistics) paid from the treasury, mirroring the
-economy's `TRAINING_FACILITY_SPEC` pattern. Financing pays weekly into the treasury via
-`gcnWeeklyTreasuryTick`, called from the Monday economy tick.
+- **Sell a club** (`clubSalePrice` / `sellClub`, v1.63): the counterpart to buying. The offer is
+  `clubBuyPrice` valued *today* × `gcnSellClubPriceFactor` (0.8), so a side the network has built up
+  sells for more than it cost. The club survives — it keeps its squad, budget and identity and
+  reverts to an ordinary AI side in its league; only `gcnOwned` and its `clubIds` entry are cleared.
+  Its budget does **not** return to the treasury. Any feeder loan there is recalled and its standing
+  funding order (below) is cancelled.
+
+**Moving players.** `moveWithinNetwork` transfers a player between any two network clubs for a fee
+of 0 (via the shared `completeTransfer` primitive — no money leaves the empire). Either end may be
+the manager's own club: pulling a player *up* into the main squad is as valid as pushing one down
+(v1.62). `sendToFeeder` loans one of *your* players to an owned club with a guaranteed role;
+`weeklyLoanTick` recognises a `gcnOwned` destination and guarantees the flagged role's minutes
+(starter ≈ full weeks, rotation a steady share) instead of the ordinary AI-uptake roll — reliable
+development you don't get loaning to a stranger.
+
+**Funding & editing owned clubs (v1.62).** `fundClub` moves treasury money into an owned club's own
+`budget` — the counterpart to `withdrawFromTreasury`, which feeds the main club. `editClub` lets the
+network re-brand a club it owns (name, 2–4 letter `short`, the two crest colours, stadium);
+ownership is the licence, so the manager's own club and AI clubs are both out of scope.
+
+**Automated funding (v1.63).** `setAutoFunding` / `autoFundingOf` store a standing weekly order per
+owned club in `gcn.autoFunding` (absent = none). Each Monday `gcnWeeklyTick` pays them out of the
+treasury in `clubIds` order; an order the treasury can't cover in full is **skipped**, never
+part-paid, so the treasury can't go negative. The HQ dialog lists every owned club at once with its
+weekly net, and totals the commitment against Brand Deals income (`totalAutoFunding`).
+
+**Selling players (v1.63).** `gcnPlayerSalePrice` / `sellPlayer` cash a player out of an owned club
+at `playerValue` × `gcnSellPlayerPriceFactor` (0.9). He leaves as a free agent (the shared
+`completeTransfer` primitive, which also does the tactics/academy scrubbing) and the fee lands in
+**that club's own budget**, not the treasury — an owned club funds itself by selling. A squad may
+not be sold below `gcnSellMinSquadSize` (16). Surfaced per-row on Clubs → Squad behind a two-step
+confirm. Players out on loan can't be sold.
+
+**Operations** (`GCN_FACILITY_SPEC`, `upgradeGcnFacility`) — table-driven upgrade tracks paid from
+the treasury, mirroring the economy's `TRAINING_FACILITY_SPEC` pattern.
+
+v1.62 replaced the original four tracks (Financing, Player Development, Scouting, Logistics — only
+Financing was ever wired to an effect) with a single track that gates what the network is actually
+about: **Group Clubs**, the number of clubs it may own. `gcnGroupClubsBase` (4) + level ×
+`gcnGroupClubsPerLevel` (2), over `gcnGroupClubsMaxLevel` (8) levels → a ceiling of **20**.
+`groupClubsCap` / `atGroupClubsCap` are enforced in both `foundClub` and `buyClub`, and surfaced in
+the UI before the click. `gcn.ops` is a partial record, so a pre-v1.62 save's dead track keys are
+simply ignored.
+
+v1.63 added the two **revenue** tracks. Both use the same curve — nothing at level 0, the base at
+level 1, then `perLevel` for each level above (`weeklyTrackAt`) — and both pay out in
+`gcnWeeklyTick`, which the gameloop runs each Monday beside `weeklyEconomyTick`. This is the only
+weekly money owned clubs see: they sit in sim leagues, which `weeklyEconomyTick` skips.
+
+- **Brand Deals** — into the **GCN treasury**. `gcnBrandDealsBase` **100k/wk**, `+50k` per level over
+  `gcnBrandDealsMaxLevel` (9) → **500k/wk** at max. Costs `gcnBrandDealsUpgradeCost`: **$150M**, then
+  +$75M a level.
+- **GCN Deals** — into **each owned club's own budget** (never the treasury), so the effect scales
+  with the size of the network. `gcnDealsBase` **50k/wk**, `+25k` per level over `gcnDealsMaxLevel`
+  (9) → **250k/wk each** at max. Costs `gcnDealsUpgradeCost`: **$250M**, then +$150M a level.
+
+`GcnFacility` is therefore `"groupClubs" | "brandDeals" | "gcnDeals"`. Each track states its effect
+in its own unit on the Operations card — club slots, treasury income, per-club income — so no card
+assumes another's semantics.
+
+**Club panels (v1.62).** A club row on the Clubs tab expands onto one of four views rather than
+straight onto a squad list: **Squad** (every player, clickable through to his profile, each with his
+sale price and a two-step SELL beside it as of v1.63), **Finance**
+(`gcnClubFinance` — weekly income/spend broken into its parts, off the economy module's
+`weeklyBreakdown`), **Status** (`gcnClubStatus` — league position, W/D/L record, goals, squad
+strength), and **Edit Club**.
+
+**Headquarters actions.** Everything the network *does* sits behind one of six action cards (v1.62,
+extended v1.63): Found a Club, Buy a Club, **Sell a Club**, Move a Player, Fund a Club, and
+**Automate Funding**. The glance panel above them shows the treasury's weekly balance — Brand Deals
+in, standing funding orders out — so a commitment set in one dialog is visible from the tab.
 
 **Staff** — a work-in-progress placeholder tab (`[FUTURE]`, §18).

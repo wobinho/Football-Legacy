@@ -37,7 +37,20 @@ import {
   sendToFeeder,
   upgradeGcnFacility,
   canUnlockGcn,
+  fundClub,
+  editClub,
+  groupClubsCap,
+  sellClub,
+  clubSalePrice,
+  sellPlayer,
+  gcnPlayerSalePrice,
+  setAutoFunding,
+  brandDealsWeekly,
+  gcnDealsWeekly,
+  GCN_FACILITY_SPEC,
+  type GcnClubEdit,
 } from "@/lib/gcn";
+import { formatMoney } from "@/lib/value";
 import type { GcnFacility } from "@/lib/types";
 import { setKitNumber } from "@/lib/kitnumbers";
 import { saveTactic, loadSavedTactic, deleteSavedTactic, renameSavedTactic } from "@/lib/tactics";
@@ -232,6 +245,16 @@ interface GameStore {
   /** Main club ↔ GCN treasury transfers. */
   gcnDeposit: (amount: number) => void;
   gcnWithdraw: (amount: number) => void;
+  /** Send treasury money into an owned club's own budget. */
+  gcnFundClub: (clubId: string, amount: number) => void;
+  /** Set (0 clears) the weekly standing order the treasury sends an owned club. */
+  gcnSetAutoFunding: (clubId: string, amount: number) => void;
+  /** Sell an owned club out of the network; the fee lands in the treasury. */
+  gcnSellClub: (clubId: string) => void;
+  /** Sell a player out of an owned club; the fee lands in that club's budget. */
+  gcnSellPlayer: (playerId: string) => void;
+  /** Re-brand an owned club (name, abbreviation, colours, stadium). */
+  gcnEditClub: (clubId: string, edit: GcnClubEdit) => void;
   /** Bring an existing sim club into the network, paid from the treasury. */
   gcnBuyClub: (clubId: string) => void;
   /** Found a fresh club in a sim league's lowest division. */
@@ -1070,6 +1093,55 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
+  gcnFundClub: (clubId, amount) => {
+    const g = get().game;
+    if (!g) return;
+    const err = fundClub(g, clubId, amount);
+    if (err) get().showToast(err);
+    else get().showToast(`${g.teams[clubId]?.name} funded.`);
+    get().bump(true);
+  },
+
+  gcnSetAutoFunding: (clubId, amount) => {
+    const g = get().game;
+    if (!g) return;
+    const err = setAutoFunding(g, clubId, amount);
+    if (err) get().showToast(err);
+    get().bump(true);
+  },
+
+  gcnSellClub: (clubId) => {
+    const g = get().game;
+    if (!g) return;
+    const name = g.teams[clubId]?.name;
+    const price = clubSalePrice(g, clubId, TUNING);
+    const err = sellClub(g, clubId, TUNING);
+    if (err) get().showToast(err);
+    else get().showToast(`${name} sold for ${formatMoney(price)} — into the treasury.`);
+    get().bump(true);
+  },
+
+  gcnSellPlayer: (playerId) => {
+    const g = get().game;
+    if (!g) return;
+    const name = g.players[playerId]?.name;
+    const clubName = g.teams[g.players[playerId]?.clubId ?? ""]?.name;
+    const price = gcnPlayerSalePrice(g, playerId, TUNING);
+    const err = sellPlayer(g, playerId, TUNING);
+    if (err) get().showToast(err);
+    else get().showToast(`${name} sold for ${formatMoney(price)} — into ${clubName}'s budget.`);
+    get().bump(true);
+  },
+
+  gcnEditClub: (clubId, edit) => {
+    const g = get().game;
+    if (!g) return;
+    const err = editClub(g, clubId, edit);
+    if (err) get().showToast(err);
+    else get().showToast(`${g.teams[clubId]?.name} updated.`);
+    get().bump(true);
+  },
+
   gcnBuyClub: (clubId) => {
     const g = get().game;
     if (!g) return;
@@ -1110,6 +1182,16 @@ export const useGame = create<GameStore>((set, get) => ({
     if (!g) return;
     const err = upgradeGcnFacility(g, facility, TUNING);
     if (err) get().showToast(err);
+    else {
+      // Each track's effect is a different unit, so name it rather than assume
+      // every upgrade is about club slots (v1.63).
+      const effect: Record<GcnFacility, string> = {
+        groupClubs: `the network can now own ${groupClubsCap(g, TUNING)} clubs`,
+        brandDeals: `${formatMoney(brandDealsWeekly(g, TUNING))}/wk into the treasury`,
+        gcnDeals: `${formatMoney(gcnDealsWeekly(g, TUNING))}/wk to every owned club`,
+      };
+      get().showToast(`${GCN_FACILITY_SPEC[facility].label} upgraded — ${effect[facility]}.`);
+    }
     get().bump(true);
   },
 
