@@ -1645,16 +1645,24 @@ function LoanedTab() {
                 {dest ? (
                   <>
                     <Crest colors={dest.colors} short={dest.short} size={24} />
-                    <div className="min-w-0">
+                    <div className="min-w-0 leading-tight">
                       <div className="truncate text-sm text-ink">{dest.name}</div>
                       <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-faint">
-                        <CountryFlag country={league?.country ?? ""} size={10} className="shrink-0" />
+                        {/* Fixed 14px flag slot so the league name starts at the same x
+                            whether or not this country has a flag asset — otherwise
+                            rows without a flag shift left and the column looks ragged. */}
+                        <span className="flex h-[10px] w-[14px] shrink-0 items-center justify-center">
+                          <CountryFlag country={league?.country ?? ""} size={10} />
+                        </span>
                         <span className="truncate">{league?.name ?? "—"}</span>
                       </div>
                     </div>
                   </>
                 ) : (
-                  <span className="text-sm text-faint">Unknown club</span>
+                  <>
+                    <Crest colors={["#26282e", "#6b7280"]} short="?" size={24} />
+                    <span className="text-sm text-faint">Unknown club</span>
+                  </>
                 )}
               </div>
               <div className="col-span-3 flex items-center gap-3 text-[11px] tnum text-dim md:col-span-1 md:justify-center">

@@ -180,6 +180,32 @@ export async function listSaves(): Promise<SaveMeta[]> {
   return merged.sort((a, b) => b.savedAt - a.savedAt);
 }
 
+/**
+ * Push any local saves that aren't in the cloud yet up to it. Called once after
+ * unlock so a save made on a device the cloud couldn't reach at the time (or one
+ * that predates cloud sync) still follows the game key to other devices — the
+ * per-action sync only ever fires while you're actively playing that save, so
+ * without this a save you stopped touching would stay stranded on one device.
+ *
+ * Best-effort and non-blocking: no-op when the cloud is disabled, and any
+ * failure is swallowed so boot never waits on or breaks over the network.
+ */
+export async function backfillLocalToCloud(): Promise<void> {
+  if (!cloudOwner()) return;
+  if (!(await cloudEnabled())) return;
+  try {
+    const [local, cloud] = await Promise.all([localList(), cloudList()]);
+    const inCloud = new Set(cloud.map((m) => m.saveName));
+    for (const meta of local) {
+      if (inCloud.has(meta.saveName)) continue;
+      const state = await localGet(meta.saveName);
+      if (state) await cloudSave(state).catch(() => {});
+    }
+  } catch {
+    /* offline / transient — nothing to do, the next play will sync anyway */
+  }
+}
+
 export async function deleteSave(saveName: string): Promise<void> {
   await localDelete(saveName);
   if (await cloudEnabled()) {

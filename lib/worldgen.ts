@@ -569,6 +569,13 @@ export function squadAvgForQuality(quality: number, cfg: TuningConfig = TUNING):
 export const SQUAD_AVG_MIN = TUNING.minOverall;
 export const SQUAD_AVG_MAX = 87;
 
+/** A fixed, sensible default tactic (4-3-3, balanced possession). Exported for
+ * clubs stood up outside worldgen (v34, GCN founding) that need a starting
+ * tactic without a seeded RNG. */
+export function defaultTactic(): Tactic {
+  return { formationId: "433", mentality: "Balanced", style: "Possession" };
+}
+
 function randomTactic(rng: RNG): Tactic {
   // The three classic styles stay the backbone of the league (listed twice), with
   // the v19 hybrids appearing as the distinctive minority — so a Gegenpress or a
@@ -592,6 +599,34 @@ function randomTactic(rng: RNG): Tactic {
 export function clubBudget(rep: number): number {
   // v1.43: starting budgets cut 25% across the board to tighten the early economy.
   return Math.max(1_875_000, Math.round(Math.pow(Math.max(0, rep - 40), 2) * 37_500));
+}
+
+/** Generate a full procedural squad for a club created mid-save (v34, GCN
+ * founding). Files the players into `players`, stamps their `clubId`, and
+ * returns their ids — the same pipeline worldgen uses for a fresh club, exposed
+ * so lib/gcn.ts can stand up a brand-new club without reaching into worldgen
+ * internals. `avgOverall` sets the realised squad mean (a founded club is
+ * deliberately weak); `homeNat` seeds nationalities. Deterministic given `seed`. */
+export function generateClubSquad(
+  seed: number,
+  cfg: TuningConfig,
+  teamId: string,
+  name: string,
+  rep: number,
+  avgOverall: number,
+  homeNat: string,
+  players: Record<string, PlayerBio>
+): string[] {
+  const rng = mulberry32(deriveSeed(seed, `gcn-squad:${teamId}`));
+  const club: ClubSeed = {
+    name,
+    short: name.slice(0, 3).toUpperCase(),
+    rep,
+    colors: ["#1a1a1a", "#c8a24a"],
+    stadium: `${name} Stadium`,
+    squadAvgOverall: avgOverall,
+  };
+  return generateSquad(rng, cfg, club, homeNat, 0.6, players, teamId, undefined);
 }
 
 export interface NewGameOptions {

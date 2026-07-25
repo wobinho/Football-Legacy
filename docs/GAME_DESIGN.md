@@ -357,11 +357,13 @@ are now — so a dynasty save can answer *who is the greatest player our academy
 4. **Match Day** — live text sim or instant result; halftime tweak.
 5. **Competition** — league tables, fixtures/results, top scorers; playable and sim-only tabs.
 6. **Transfers** — search/browse, bids in/out, offers, listings, window countdown.
-7. **Club** — finances, income upgrades, staff, club history & records.
+7. **Club** — finances (incl. **GCN Funds**, §19), income upgrades, staff, club history & records.
 8. **Development** — Training Plans (per-player focus + growth projection), Training Facilities,
    Development Staff.
 9. **Academy** — academy squad, U21s, scouting focus & reports, loans, intake review.
 10. **Player Profile** — Bio tab (attributes, archetype, traits, value, contract) + Career tab.
+11. **Global Club Network** — end-game only; appears below Achievements once unlocked (§19).
+    Headquarters / Clubs / Operations / Staff tabs.
 
 ---
 
@@ -416,6 +418,53 @@ uses `tnum` for aligned figures.
 - `[OPEN]` Deeper archetype roster + trait pool (owner-designed; engine treats as data).
 - `[OPEN]` Transfer-AI valuation & accept/reject design session (interim implementation shipped).
 - `[FUTURE]` Living AI world with long-term squad-building, injuries plugged into the fitness
-  system, further anti-stagnation (era shifts, generational wonderkids), managing other clubs
-  mid-save at season boundaries, a fully fictional/procedural world generator for public release,
+  system, further anti-stagnation (era shifts, generational wonderkids),
+  a fully fictional/procedural world generator for public release,
   archetype auto-classifier tooling, loans-in and loan fees.
+- `[FUTURE]` GCN Staff — hiring network-wide staff whose effects apply across every owned club
+  (the Staff tab ships as a work-in-progress placeholder in v34).
+
+> "Managing other clubs mid-save" (formerly `[FUTURE]`) shipped in v34 as the **Global Club
+> Network** (§19) — as an oversight/ownership layer rather than full week-to-week management.
+
+---
+
+## 19. Global Club Network (v34, end-game)
+
+An end-game ownership layer. All rules live in `lib/gcn.ts`; the UI is `components/screens/Gcn.tsx`
+(the page) and a GCN Funds section in `components/screens/Club.tsx` (Finances). Every GCN number is
+in `lib/config/tuning.ts` under the `gcn*` keys.
+
+**Unlock.** On Club → Finances, the manager deposits from the club budget into a **GCN Funds** pool
+toward `gcnUnlockFundsTarget` (**$5B**). On reaching it a dismissible, opt-in prompt offers to name
+and establish the network. Unlocking *spends* the pool; the network then runs its own **treasury**,
+topped up from the club (deposit/withdraw). State: `GameState.gcn` / `GameState.gcnFunds`, both
+optional (absent = never unlocked).
+
+**The clubs are AI-run; you oversee.** Owned clubs (`Team.gcnOwned`, listed in `gcn.clubIds`,
+excluding `userTeamId`) keep running on the sim/AI machinery — the manager never picks their
+lineups. This is what keeps a large network manageable.
+
+**Founding & buying target sim leagues only.** Sim (non-playable) leagues carry no stored fixtures
+— they're resolved from `league.teamIds` and squad strength (`simresolver.ts`) — so inserting or
+swapping a club is a clean membership edit with no mid-season fixture corruption. The playable
+pyramid is left untouched.
+- **Found** (`foundClub`): replaces the weakest club in a country's lowest sim division with a fresh,
+  deliberately weak club (`generateClubSquad`, target `gcnFoundSquadAvgOverall`); the replaced
+  club's players go to free agency. Costs `gcnFoundClubCost` from the treasury.
+- **Buy** (`clubBuyPrice` / `buyClub`): price = squad's total `playerValue` × `gcnBuyValueMultiplier`
+  (5) + a league-reputation premium + a club-reputation premium.
+
+**Moving players.** `moveWithinNetwork` transfers a player between any two network clubs for a fee
+of 0 (via the shared `completeTransfer` primitive — no money leaves the empire). `sendToFeeder`
+loans one of *your* players to an owned club with a guaranteed role; `weeklyLoanTick` recognises a
+`gcnOwned` destination and guarantees the flagged role's minutes (starter ≈ full weeks, rotation a
+steady share) instead of the ordinary AI-uptake roll — reliable development you don't get loaning
+to a stranger.
+
+**Operations** (`GCN_FACILITY_SPEC`, `upgradeGcnFacility`) — table-driven upgrade tracks
+(Financing, Player Development, Scouting, Logistics) paid from the treasury, mirroring the
+economy's `TRAINING_FACILITY_SPEC` pattern. Financing pays weekly into the treasury via
+`gcnWeeklyTreasuryTick`, called from the Monday economy tick.
+
+**Staff** — a work-in-progress placeholder tab (`[FUTURE]`, §18).

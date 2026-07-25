@@ -1719,8 +1719,19 @@ export function weeklyLoanTick(state: GameState, cfg: TuningConfig) {
 
   for (const p of userLoanees(state)) {
     const dest = state.teams[p.loan!.toClubId];
-    const benched = rng() < 0.1;
-    const mins = Math.round(cfg.loanMinutesPerWeek * (benched ? 0.25 : randRange(rng, 0.55, 1.15)));
+    // Feeder loan (v34, GCN): a loan to a club the manager's network owns
+    // guarantees the promised role's minutes — that's the whole reason to run a
+    // feeder club rather than loan a prospect out to a stranger. No bench roll;
+    // a starter plays near-full weeks, a rotation player a steady share.
+    const feeder = !!dest.gcnOwned;
+    let mins: number;
+    if (feeder) {
+      const share = p.loan!.role === "starter" ? randRange(rng, 0.9, 1.1) : randRange(rng, 0.55, 0.75);
+      mins = Math.round(cfg.loanMinutesPerWeek * share);
+    } else {
+      const benched = rng() < 0.1;
+      mins = Math.round(cfg.loanMinutesPerWeek * (benched ? 0.25 : randRange(rng, 0.55, 1.15)));
+    }
     const ys = (p.youthStats ??= { apps: 0, goals: 0, assists: 0, ratingSum: 0, minutes: 0 });
     ys.minutes += mins;
     if (mins >= 30) {

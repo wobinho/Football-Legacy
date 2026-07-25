@@ -309,7 +309,18 @@ function goalText(rng: RNG, scorer: OnPitch, assister: OnPitch | null): string {
   return text;
 }
 
-/** Auto-subs at cfg.subMinutes: bring on fresher legs for tired players. */
+/**
+ * Auto-subs at cfg.subMinutes: rotate fresh legs on for starters who have tired.
+ *
+ * A starter becomes a rotation candidate once his in-match fitness drops to
+ * cfg.subFitnessThreshold — set high enough that ordinary late-match tiredness
+ * (players finish ~78-82 fitness over 90') qualifies, so rotation actually
+ * happens, not only when someone is exhausted. He's then replaced when a bench
+ * option reaches cfg.subUpgradeMargin of his *current, drained* effectiveness —
+ * a fraction below 1, so late rotation accepts a small quality dip for fresh
+ * legs. That's what gives squad players real minutes instead of the XI playing
+ * the full 90 every week.
+ */
 function maybeSubs(state: MatchState, side: SideState, minute: number) {
   const cfg = state.cfg;
   if (side.subsUsed >= cfg.maxSubs) return;
@@ -323,9 +334,10 @@ function maybeSubs(state: MatchState, side: SideState, minute: number) {
     })
     .sort((a, b) => a.currentFitness - b.currentFitness);
 
+  // Consider up to two changes per window, tiredest first.
   for (const { op, currentFitness } of active.slice(0, 2)) {
     if (side.subsUsed >= cfg.maxSubs) break;
-    if (currentFitness > 55) continue;
+    if (currentFitness > cfg.subFitnessThreshold) continue;
     const slotPos = op.entry.slotPos;
     const candidates = side.bench.filter((b) => b.positions[0] !== "GK");
     if (!candidates.length) continue;
@@ -341,7 +353,7 @@ function maybeSubs(state: MatchState, side: SideState, minute: number) {
       }
     }
     const tiredEff = op.entry.player.overall * fitnessMult(currentFitness, cfg);
-    if (best && bestEff > tiredEff * 0.98) {
+    if (best && bestEff > tiredEff * cfg.subUpgradeMargin) {
       op.leftMinute = minute;
       side.bench = side.bench.filter((b) => b.id !== best.id);
       side.onPitch.push({

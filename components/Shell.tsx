@@ -19,11 +19,13 @@ import CompetitionScreen from "./screens/Competition";
 import TransfersScreen from "./screens/Transfers";
 import ClubScreen from "./screens/Club";
 import AchievementsScreen from "./screens/Achievements";
+import GcnScreen from "./screens/Gcn";
 import DevelopmentScreen from "./screens/Development";
 import AcademyScreen from "./screens/Academy";
 import PlayerProfileModal from "./screens/PlayerProfile";
 import SeasonDetailModal from "./screens/SeasonDetailModal";
 import ContractRoundModal from "./screens/ContractRoundModal";
+import GcnUnlockModal from "./screens/GcnUnlockModal";
 
 const NAV: { id: ScreenId; label: string }[] = [
   { id: "home", label: "Home" },
@@ -36,6 +38,9 @@ const NAV: { id: ScreenId; label: string }[] = [
   { id: "development", label: "Development" },
   { id: "club", label: "Club" },
   { id: "achievements", label: "Achievements" },
+  // GCN (v34) sits just below Achievements — but only once the network is
+  // unlocked. Filtered in at render (see `nav` in the component body).
+  { id: "gcn", label: "Global Club Network" },
 ];
 
 export default function Shell() {
@@ -50,6 +55,8 @@ export default function Shell() {
   const closeSeasonReview = useGame((s) => s.closeSeasonReview);
   const contractRoundOpen = useGame((s) => s.contractRoundOpen);
   const closeContractRound = useGame((s) => s.closeContractRound);
+  const gcnUnlockPromptOpen = useGame((s) => s.gcnUnlockPromptOpen);
+  const closeGcnUnlockPrompt = useGame((s) => s.closeGcnUnlockPrompt);
   const quitToMenu = useGame((s) => s.quitToMenu);
   const logout = useGame((s) => s.logout);
   const [navOpen, setNavOpen] = useState(false);
@@ -101,7 +108,7 @@ export default function Shell() {
         </div>
         <div className="gold-thread mx-4" />
         <nav className="mt-3 flex-1 space-y-0.5 overflow-y-auto px-2">
-          {NAV.map((n) => {
+          {NAV.filter((n) => n.id !== "gcn" || !!game.gcn).map((n) => {
             const active = screen === n.id;
             const badge = n.id === "home" ? unread : n.id === "transfers" ? pendingOffers : n.id === "academy" ? prospectReports : 0;
             const pulse = n.id === "matchday" && onMatchday;
@@ -221,6 +228,7 @@ export default function Shell() {
           {screen === "development" && <DevelopmentScreen />}
           {screen === "club" && <ClubScreen />}
           {screen === "achievements" && <AchievementsScreen />}
+          {screen === "gcn" && <GcnScreen />}
         </main>
       </div>
 
@@ -234,6 +242,12 @@ export default function Shell() {
 
       {/* End-of-season review — shown the moment the rollover is taken. */}
       {seasonReview && <SeasonDetailModal summary={seasonReview} onClose={closeSeasonReview} />}
+
+      {/* GCN unlock prompt (v34) — raised when GCN Funds first reach the
+          threshold; opt-in, so it's dismissible. Never over the season review. */}
+      {gcnUnlockPromptOpen && !game.gcn && !seasonReview && (
+        <GcnUnlockModal onClose={closeGcnUnlockPrompt} />
+      )}
 
       {/* Floating soundtrack widget, bottom-right (v1.52). Mounted last and at
           z-40 so it sits over the screens but under any modal. */}

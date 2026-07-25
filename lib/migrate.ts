@@ -507,6 +507,10 @@ export function migrateSave(state: GameState): GameState {
     migrateV32toV33(state);
     state.schemaVersion = 33;
   }
+  if (state.schemaVersion < 34) {
+    migrateV33toV34(state);
+    state.schemaVersion = 34;
+  }
   // future migrations chain here
   state.schemaVersion = SCHEMA_VERSION;
   return state;
@@ -991,6 +995,17 @@ function migrateV31toV32(state: GameState): void {
  */
 function migrateV32toV33(state: GameState): void {
   state.hallOfFame ??= [];
+}
+
+/**
+ * v33 → v34: the Global Club Network (GCN). Purely additive — every GCN field
+ * (`state.gcn`, `state.gcnFunds`, and `gcnOwned` on any club) defaults to
+ * absent, which reads as "the network was never unlocked." An old save opens
+ * with no GCN Funds deposited and the GCN screen hidden; nothing stored needs
+ * rewriting. Kept as an explicit step so the version bump is recorded.
+ */
+function migrateV33toV34(state: GameState): void {
+  void state;
 }
 
 /** True if the save is a version this build knows how to bring up to date. */

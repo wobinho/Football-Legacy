@@ -32,7 +32,8 @@ import {
   sponsorCooldownUntil,
 } from "@/lib/sponsors";
 import { formatMoney } from "@/lib/value";
-import { Card, Flag, GhostButton, GoldButton, Section, Stars, Tabs, UpgradeCard } from "../ui";
+import { gcnFundsOf, gcnOverview } from "@/lib/gcn";
+import { Card, Flag, GhostButton, GoldButton, MoneyInput, Section, Stars, Tabs, UpgradeCard } from "../ui";
 import SeasonDetailModal from "./SeasonDetailModal";
 
 // v7: staff moved to Development → Staff, so the Club page no longer has a Staff tab.
@@ -152,6 +153,98 @@ function LedgerRow({
   );
 }
 
+/** GCN Funds (v34): the deposit box that gates the Global Club Network. Before
+ * unlock it's a progress-to-threshold deposit; after unlock it becomes the
+ * treasury top-up (deposit/withdraw between the club and the network). */
+function GcnFundsSection() {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const depositGcnFunds = useGame((s) => s.depositGcnFunds);
+  const gcnDeposit = useGame((s) => s.gcnDeposit);
+  const gcnWithdraw = useGame((s) => s.gcnWithdraw);
+  const openGcnUnlockPrompt = useGame((s) => s.openGcnUnlockPrompt);
+  const setScreen = useGame((s) => s.setScreen);
+  const [amount, setAmount] = useState(0);
+
+  const unlocked = !!game.gcn;
+
+  if (unlocked) {
+    const ov = gcnOverview(game, TUNING);
+    return (
+      <Section title="GCN Treasury">
+        <Card className="p-4">
+          <div className="text-[10px] uppercase tracking-widest text-faint">{game.gcn!.name}</div>
+          <div className="display gold-text mt-1 text-3xl font-bold tnum">{formatMoney(ov.treasury)}</div>
+          <div className="mt-3 flex items-center gap-2">
+            <MoneyInput
+              value={amount}
+              onChange={setAmount}
+              className="min-w-0 flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm tnum outline-none focus:border-gold"
+              placeholder="Amount"
+            />
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <GoldButton onClick={() => { gcnDeposit(amount); setAmount(0); }}>Deposit</GoldButton>
+            <GhostButton onClick={() => { gcnWithdraw(amount); setAmount(0); }}>Withdraw</GhostButton>
+          </div>
+          <button
+            className="mt-3 w-full text-center text-xs text-gold hover:underline"
+            onClick={() => setScreen("gcn")}
+          >
+            Open Global Club Network →
+          </button>
+        </Card>
+      </Section>
+    );
+  }
+
+  const funds = gcnFundsOf(game);
+  const target = TUNING.gcnUnlockFundsTarget;
+  const pct = Math.min(100, Math.round((funds / target) * 100));
+  const ready = funds >= target;
+  return (
+    <Section title="GCN Funds">
+      <Card className="p-4">
+        <div className="text-[10px] uppercase tracking-widest text-faint">
+          Fund the Global Club Network
+        </div>
+        <div className="display mt-1 text-2xl font-bold tnum">
+          {formatMoney(funds)} <span className="text-sm text-faint">/ {formatMoney(target)}</span>
+        </div>
+        {/* progress bar */}
+        <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-raised">
+          <div className="h-full rounded-full gold-grad" style={{ width: `${pct}%` }} />
+        </div>
+        <p className="mt-3 text-xs leading-relaxed text-faint">
+          Deposit toward a {formatMoney(target)} reserve. Reach it and you can unlock the Global
+          Club Network — becoming head of a network of clubs across the world.
+        </p>
+        {!ready && (
+          <>
+            <div className="mt-3">
+              <MoneyInput
+                value={amount}
+                onChange={setAmount}
+                className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm tnum outline-none focus:border-gold"
+                placeholder="Amount to deposit"
+              />
+            </div>
+            <div className="mt-2">
+              <GoldButton className="w-full" onClick={() => { depositGcnFunds(amount); setAmount(0); }}>Deposit to GCN Funds</GoldButton>
+            </div>
+          </>
+        )}
+        {ready && (
+          <div className="mt-3">
+            <GoldButton className="w-full" onClick={openGcnUnlockPrompt}>Unlock Global Club Network</GoldButton>
+            <p className="mt-2 text-center text-[11px] text-faint">Threshold reached.</p>
+          </div>
+        )}
+      </Card>
+    </Section>
+  );
+}
+
 function FinancesTab() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
@@ -246,6 +339,7 @@ function FinancesTab() {
             </Card>
           </div>
         </Section>
+        <GcnFundsSection />
       </div>
       <div className="lg:col-span-2">
         <Section

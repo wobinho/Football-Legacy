@@ -2,7 +2,7 @@
 // Single source of truth for all game data shapes. Schema-versioned so the
 // save/export format doubles as the modding format (GAME_DESIGN.md §2, §13).
 
-export const SCHEMA_VERSION = 33;
+export const SCHEMA_VERSION = 34;
 
 export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "LM" | "RM" | "AM" | "LW" | "RW" | "ST";
 
@@ -438,6 +438,12 @@ export interface Team {
    * money on the same terms as the user's majors — falling back to the abstract
    * windfall in a season where it signed none. */
   lastInvestmentWindfall?: number;
+  /** Owned by the manager's Global Club Network (v34, GCN). A GCN-owned club
+   * keeps running on the sim/AI machinery — the manager oversees it rather than
+   * managing it — but the network can move players in/out and a feeder loan to
+   * it grants guaranteed minutes. Never set on `userTeamId` (the club the
+   * manager plays). Absent on non-network clubs. */
+  gcnOwned?: boolean;
 }
 
 // ── Sponsors / investments (v6, Club → Income) ────────────────────────────
@@ -1159,6 +1165,7 @@ export type ScreenId =
   | "transfers"
   | "club"
   | "achievements"
+  | "gcn"
   | "development"
   | "academy"
   | "player";
@@ -1333,7 +1340,39 @@ export interface GameState {
    * ages out of the academy no longer walks into the senior squad on his own —
    * he lands here at the rollover and the manager signs him or lets him go. */
   pendingGraduates?: PendingGraduate[];
+  /** Global Club Network (v34) — the end-game ownership layer. Absent until the
+   * manager funds the unlock threshold and opts in. Once present the GCN screen
+   * appears; see lib/gcn.ts. */
+  gcn?: GlobalClubNetwork;
+  /** GCN Funds (v34): money the manager has committed toward the GCN unlock
+   * threshold, deposited from the club budget over time before GCN exists. Spent
+   * (zeroed) at unlock. Absent/0 means nothing deposited yet. */
+  gcnFunds?: number;
 }
+
+/** The Global Club Network (v34). The manager, having funded the unlock
+ * threshold, becomes head of a network of AI-run clubs across leagues and
+ * countries. GCN runs its own treasury (topped up from the main club) and can
+ * found new clubs, buy existing ones, move players between owned clubs, and
+ * invest in network-wide Operations upgrades. The manually-managed club
+ * (`userTeamId`) is never part of `clubIds`. See lib/gcn.ts. */
+export interface GlobalClubNetwork {
+  name: string;
+  foundedSeason: number;
+  /** GCN's own purse, separate from every club's `budget`. Funded only by
+   * explicit deposits from the main club; pays for buying/founding clubs,
+   * Operations upgrades, and (future) GCN staff. */
+  treasury: number;
+  /** Owned clubs, EXCLUDING `userTeamId`. Each is also flagged `gcnOwned`. */
+  clubIds: string[];
+  /** Operations upgrade levels, keyed by facility. Absent key = level 0. */
+  ops: Partial<Record<GcnFacility, number>>;
+}
+
+/** A GCN Operations upgrade track (v34). Table-driven like TrainingFacility —
+ * adding one is a data change in lib/gcn.ts + lib/config/tuning.ts, never a new
+ * branch in the purchase path. */
+export type GcnFacility = "financing" | "development" | "scouting" | "logistics";
 
 /** One expiring deal awaiting the manager's call at the end of a season (v1.51). */
 export interface ExpiringContract {

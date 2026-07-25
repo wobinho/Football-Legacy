@@ -94,6 +94,17 @@ export interface TuningConfig {
 
   subMinutes: number[]; // auto-sub check points
   maxSubs: number; // [OPEN §11] default 5
+  /** A starter whose in-match fitness has fallen to/below this is a rotation
+   * candidate — fresh legs come on if a bench option projects better. Set high
+   * enough that normal late-match tiredness triggers rotation, not just
+   * exhaustion (players rarely drop below ~78 over 90'). */
+  subFitnessThreshold: number;
+  /** Fraction (×) of the tired starter's current effectiveness a fresh bench
+   * option must reach to come on. Below 1: late-match rotation accepts a small
+   * quality dip for fresher legs and to spread minutes, since the XI is by
+   * definition the best 11 and the bench is a notch weaker. Too low would field
+   * scrubs; ~0.94 rotates squad-quality players without hollowing out the team. */
+  subUpgradeMargin: number;
   clutchMinute: number; // Clutch trait activates from here
 
   // Fitness
@@ -773,6 +784,40 @@ export interface TuningConfig {
   regenOverallMin: number;
   regenOverallMax: number;
 
+  // ── Global Club Network (v34, GCN) ──
+  // The end-game ownership layer. The manager funds an unlock threshold, then
+  // runs a network of AI-run clubs with its own treasury.
+  /** Cash the manager must deposit into GCN Funds to unlock the network. */
+  gcnUnlockFundsTarget: number;
+  /** Buy price = sum(playerValue over the club's squad) × this, plus the two
+   * reputation premiums below. */
+  gcnBuyValueMultiplier: number;
+  /** Multiplied by a league-reputation score (0–100, from its tier + the mean
+   * club reputation) and added to a bought club's price. */
+  gcnBuyLeagueRepPremium: number;
+  /** Multiplied by the club's own reputation (1–100) and added to its price. */
+  gcnBuyClubRepPremium: number;
+  /** One-off cost, from the treasury, to found a fresh club in a league's
+   * lowest division. */
+  gcnFoundClubCost: number;
+  /** Average overall the founded club's generated squad targets — deliberately
+   * low; the club climbs from the bottom. */
+  gcnFoundSquadAvgOverall: number;
+  // Operations upgrade tracks — each a one-time cost per level (indexed by the
+  // level being bought), a max level, and a per-level effect magnitude.
+  gcnFinancingUpgradeCost: number[];
+  gcnFinancingMaxLevel: number;
+  gcnFinancingPerLevel: number; // weekly treasury income per level
+  gcnDevelopmentUpgradeCost: number[];
+  gcnDevelopmentMaxLevel: number;
+  gcnDevelopmentPerLevel: number; // network-wide growth-speed bonus per level
+  gcnScoutingUpgradeCost: number[];
+  gcnScoutingMaxLevel: number;
+  gcnScoutingPerLevel: number; // network scouting reach per level
+  gcnLogisticsUpgradeCost: number[];
+  gcnLogisticsMaxLevel: number;
+  gcnLogisticsPerLevel: number; // cheaper inter-club moves per level
+
   // Calibration targets (for the harness printout)
   targetGoalsPerMatch: number;
   targetHomeWinPct: number;
@@ -859,6 +904,8 @@ export const TUNING: TuningConfig = {
 
   subMinutes: [60, 75],
   maxSubs: 5,
+  subFitnessThreshold: 86,
+  subUpgradeMargin: 0.94,
   clutchMinute: 75,
 
   fitnessDrainPerMatch: 22,
@@ -1461,6 +1508,26 @@ export const TUNING: TuningConfig = {
   regenAgeMax: 18,
   regenOverallMin: 52,
   regenOverallMax: 60,
+
+  // ── Global Club Network (v34) ──
+  gcnUnlockFundsTarget: 5_000_000_000,
+  gcnBuyValueMultiplier: 5,
+  gcnBuyLeagueRepPremium: 2_000_000,
+  gcnBuyClubRepPremium: 3_000_000,
+  gcnFoundClubCost: 250_000_000,
+  gcnFoundSquadAvgOverall: 58,
+  gcnFinancingUpgradeCost: [120_000_000, 240_000_000, 420_000_000, 680_000_000, 1_000_000_000],
+  gcnFinancingMaxLevel: 5,
+  gcnFinancingPerLevel: 500_000,
+  gcnDevelopmentUpgradeCost: [150_000_000, 300_000_000, 520_000_000, 800_000_000],
+  gcnDevelopmentMaxLevel: 4,
+  gcnDevelopmentPerLevel: 0.04,
+  gcnScoutingUpgradeCost: [100_000_000, 220_000_000, 400_000_000],
+  gcnScoutingMaxLevel: 3,
+  gcnScoutingPerLevel: 1,
+  gcnLogisticsUpgradeCost: [80_000_000, 180_000_000, 320_000_000],
+  gcnLogisticsMaxLevel: 3,
+  gcnLogisticsPerLevel: 0.1,
 
   targetGoalsPerMatch: 2.7,
   targetHomeWinPct: 45,

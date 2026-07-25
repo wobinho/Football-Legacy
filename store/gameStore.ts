@@ -18,7 +18,7 @@ import {
   type StopReason,
 } from "@/lib/gameloop";
 import type { Fixture, MatchResult } from "@/lib/types";
-import { saveGame, loadGame, listSaves, deleteSave, exportSave, importSave, type SaveMeta } from "@/lib/save";
+import { saveGame, loadGame, listSaves, deleteSave, exportSave, importSave, backfillLocalToCloud, type SaveMeta } from "@/lib/save";
 import { cloudOwner } from "@/lib/cloud";
 import { forgetKey, rememberLastSave, lastSave, clearLastSave } from "@/lib/auth";
 import { userBid, respondToOffer, releasePlayer, sellToClub, signedThisSeason, type BidOutcome, type OfferResponse } from "@/lib/transfers";
@@ -26,6 +26,19 @@ import { hireStaff, dismissCandidate, fireStaff } from "@/lib/staff";
 import { hireScout, fireScout, dismissScoutCandidate } from "@/lib/scouts";
 import { acceptSponsor, declineSponsor } from "@/lib/sponsors";
 import { upgradeFacility, upgradeTrainingFacility, type Facility, type TrainingFacility } from "@/lib/economy";
+import {
+  depositToFunds,
+  unlockGcn,
+  depositToTreasury,
+  withdrawFromTreasury,
+  buyClub,
+  foundClub,
+  moveWithinNetwork,
+  sendToFeeder,
+  upgradeGcnFacility,
+  canUnlockGcn,
+} from "@/lib/gcn";
+import type { GcnFacility } from "@/lib/types";
 import { setKitNumber } from "@/lib/kitnumbers";
 import { saveTactic, loadSavedTactic, deleteSavedTactic, renameSavedTactic } from "@/lib/tactics";
 import { deleteInboxItem, clearInbox } from "@/lib/inbox";
@@ -206,6 +219,30 @@ interface GameStore {
     terms?: { wage: number; years: number; releaseClause?: number }
   ) => void;
 
+  // ── Global Club Network (v34) ──
+  /** Whether the "unlock the network?" prompt is open. Raised when a GCN Funds
+   * deposit first reaches the threshold; dismissible (unlocking is opt-in). */
+  gcnUnlockPromptOpen: boolean;
+  openGcnUnlockPrompt: () => void;
+  closeGcnUnlockPrompt: () => void;
+  /** Deposit from the club budget toward the GCN Funds unlock threshold. */
+  depositGcnFunds: (amount: number) => void;
+  /** Unlock the network with a name (spends the funds pool). */
+  unlockGcn: (name: string) => void;
+  /** Main club ↔ GCN treasury transfers. */
+  gcnDeposit: (amount: number) => void;
+  gcnWithdraw: (amount: number) => void;
+  /** Bring an existing sim club into the network, paid from the treasury. */
+  gcnBuyClub: (clubId: string) => void;
+  /** Found a fresh club in a sim league's lowest division. */
+  gcnFoundClub: (leagueId: string, name: string) => void;
+  /** Move a player permanently between two network clubs (free). */
+  gcnMovePlayer: (playerId: string, toClubId: string) => void;
+  /** Send one of your players to an owned club as a feeder loan. */
+  gcnSendFeeder: (playerId: string, toClubId: string, role: "starter" | "rotation") => void;
+  /** Buy the next level of a GCN Operations facility. */
+  upgradeGcn: (facility: GcnFacility) => void;
+
   // ── Academy graduates awaiting a senior decision (v1.51) ──
   graduateSign: (playerId: string, terms?: { wage: number; years: number; releaseClause?: number }) => void;
   graduateRelease: (playerId: string) => void;
@@ -354,11 +391,18 @@ export const useGame = create<GameStore>((set, get) => ({
   toast: null,
   seasonReview: null,
   contractRoundOpen: false,
+  gcnUnlockPromptOpen: false,
   library: emptyLibrary(),
 
   boot: async () => {
     // The custom-content library is owner-scoped like saves; load it alongside.
     loadLibrary().then((library) => set({ library })).catch(() => {});
+    // Push any local-only saves up to the cloud so they follow the game key to
+    // other devices, then refresh the list. Best-effort + non-blocking.
+    backfillLocalToCloud()
+      .then(() => listSaves())
+      .then((saves) => set({ saves }))
+      .catch(() => {});
     try {
       const saves = await listSaves();
       // Auto-resume: on a refresh, drop the player straight back into the save
@@ -981,6 +1025,91 @@ export const useGame = create<GameStore>((set, get) => ({
       };
       get().showToast(msg[facility]);
     }
+    get().bump(true);
+  },
+
+  // ── Global Club Network (v34) ──
+  openGcnUnlockPrompt: () => set({ gcnUnlockPromptOpen: true }),
+  closeGcnUnlockPrompt: () => set({ gcnUnlockPromptOpen: false }),
+
+  depositGcnFunds: (amount) => {
+    const g = get().game;
+    if (!g) return;
+    const err = depositToFunds(g, amount, TUNING);
+    if (err) get().showToast(err);
+    // Reaching the threshold raises the opt-in unlock prompt.
+    else if (canUnlockGcn(g, TUNING)) set({ gcnUnlockPromptOpen: true });
+    get().bump(true);
+  },
+
+  unlockGcn: (name) => {
+    const g = get().game;
+    if (!g) return;
+    const err = unlockGcn(g, name, TUNING);
+    if (err) get().showToast(err);
+    else {
+      set({ gcnUnlockPromptOpen: false });
+      get().showToast(`${name.trim()} founded — the Global Club Network is live.`);
+    }
+    get().bump(true);
+  },
+
+  gcnDeposit: (amount) => {
+    const g = get().game;
+    if (!g) return;
+    const err = depositToTreasury(g, amount);
+    if (err) get().showToast(err);
+    get().bump(true);
+  },
+
+  gcnWithdraw: (amount) => {
+    const g = get().game;
+    if (!g) return;
+    const err = withdrawFromTreasury(g, amount);
+    if (err) get().showToast(err);
+    get().bump(true);
+  },
+
+  gcnBuyClub: (clubId) => {
+    const g = get().game;
+    if (!g) return;
+    const name = g.teams[clubId]?.name;
+    const err = buyClub(g, clubId, TUNING);
+    if (err) get().showToast(err);
+    else get().showToast(`${name} joins the network.`);
+    get().bump(true);
+  },
+
+  gcnFoundClub: (leagueId, name) => {
+    const g = get().game;
+    if (!g) return;
+    const err = foundClub(g, leagueId, name, TUNING);
+    if (err) get().showToast(err);
+    else get().showToast(`${name.trim()} founded — a new club in the network.`);
+    get().bump(true);
+  },
+
+  gcnMovePlayer: (playerId, toClubId) => {
+    const g = get().game;
+    if (!g) return;
+    const err = moveWithinNetwork(g, playerId, toClubId);
+    if (err) get().showToast(err);
+    get().bump(true);
+  },
+
+  gcnSendFeeder: (playerId, toClubId, role) => {
+    const g = get().game;
+    if (!g) return;
+    const err = sendToFeeder(g, playerId, toClubId, role, TUNING);
+    if (err) get().showToast(err);
+    get().bump(true);
+  },
+
+  upgradeGcn: (facility) => {
+    const g = get().game;
+    if (!g) return;
+    const err = upgradeGcnFacility(g, facility, TUNING);
+    if (err) get().showToast(err);
     get().bump(true);
   },
 

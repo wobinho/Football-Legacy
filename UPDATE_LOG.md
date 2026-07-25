@@ -7,6 +7,37 @@ Save-schema version is noted where it moved. The game auto-migrates older saves 
 
 ---
 
+## 2026-07-25 — The Global Club Network: an end-game empire
+
+Save schema: **v33 → v34** (the optional `gcn` and `gcnFunds` blocks on the save, plus a
+`gcnOwned` flag on owned clubs). Purely additive — an old save opens with the network never
+unlocked and the GCN page hidden.
+
+- **GCN Funds, on Club → Finances.** A new deposit box lets you commit money from the club budget
+  toward a **$5,000,000,000** reserve. Reach it and you're prompted to unlock — and name — a
+  **Global Club Network**, becoming the head of a network of clubs across leagues and countries.
+  The reserve is spent to establish the network; afterwards it runs its own treasury you top up
+  from the club. Unlocking is opt-in and the prompt is dismissible.
+- **A new page below Achievements.** Once unlocked, the **Global Club Network** screen appears with
+  four tabs:
+  - **Headquarters** — the network's finances at a glance, the found/buy-a-club actions, and the
+    inter-club **transfer & feeder-loan console**: move a player permanently between your clubs
+    (free — no money leaves the network), or send one of your own out on a **feeder loan** that
+    guarantees his minutes so he develops reliably.
+  - **Clubs** — a compact, drill-in list of every club you own: league standing, budget and squad.
+  - **Operations** — network-wide upgrade tracks (Financing, Player Development, Scouting,
+    Logistics), paid from the treasury.
+  - **Staff** — a visible work-in-progress placeholder.
+- **Found or buy clubs.** Founding stands up a fresh, deliberately weak club in a sim league's
+  lowest division, replacing an existing side (whose players scatter to free agency). Buying takes
+  over an existing club outright — priced at the squad's total value × 5 plus premiums for league
+  and club reputation. Both draw from the treasury; both target the world's sim leagues, leaving
+  your own playable pyramid untouched.
+- **The clubs run themselves.** Network clubs keep playing on the sim machinery — you oversee them
+  rather than managing them week to week — which is what keeps a 10-club empire manageable.
+
+---
+
 ## 2026-07-23 — Squad decisions are yours: contract round, academy graduates, livelier AI market
 
 Save schema: **v28 → v29** (`contractResolveDay` on the schedule, plus the `contractResolution`
