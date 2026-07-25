@@ -1,0 +1,40 @@
+Position,Archetype,Posession,Counter,Direct,Gegenpress,Park the Bus,Wing Play
+GK,Shot Stopper,0%,10%,-5%,0%,10%,0%
+GK,Sweeper Keeper,15%,-5%,0%,15%,-5%,0%
+GK,Ball Playing Keeper,15%,0%,15%,10%,-5%,0%
+GK,Commanding Keeper,0%,10%,10%,0%,10%,10%
+GK,Distributor,10%,15%,15%,0%,0%,10%
+CB,Stopper,-5%,10%,10%,0%,10%,0%
+CB,Ball Playing Defender,15%,0%,10%,10%,-5%,10%
+CB,Libero,20%,-5%,0%,15%,-5%,10%
+CB,No-Nonsense Defender,-5%,10%,15%,0%,15%,0%
+FB,Attacking Wingback,10%,10%,0%,15%,-5%,15%
+FB,Defensive Fullback,-5%,10%,10%,0%,10%,0%
+FB,Inverted Fullback,20%,-5%,0%,10%,0%,-5%
+FB,Complete Wingback,10%,10%,10%,10%,0%,10%
+DM,Anchor,0%,15%,0%,10%,15%,0%
+DM,Deep Lying Playmaker,15%,0%,10%,0%,-5%,0%
+DM,Ball Winning Midfielder,-5%,10%,0%,10%,10%,0%
+DM,Box Crasher,0%,15%,10%,15%,-5%,10%
+CM,Box-to-Box,10%,10%,10%,10%,0%,10%
+CM,Playmaker,15%,-5%,0%,0%,-5%,10%
+CM,Mezzala,15%,0%,0%,10%,-5%,15%
+CM,Regista,20%,-5%,10%,0%,-5%,0%
+CM,Carrilero,10%,10%,0%,10%,10%,15%
+AM,Shadow Striker,0%,15%,10%,10%,10%,0%
+AM,Classic 10,20%,-5%,-5%,-5%,-5%,0%
+AM,Advanced Playmaker,15%,0%,0%,10%,-5%,10%
+AM,Trequartista,20%,0%,0%,-5%,-5%,10%
+AM,Half Winger,10%,10%,0%,10%,0%,15%
+AM,Enganche,20%,-5%,-5%,-5%,-5%,0%
+W,Speed Winger,0%,15%,10%,10%,-5%,15%
+W,Inverted Winger,15%,10%,0%,10%,-5%,10%
+W,Raumdeuter,10%,20%,0%,10%,0%,0%
+W,Classic Winger,0%,10%,15%,0%,0%,15%
+W,Wide Playmaker,15%,0%,-5%,10%,-5%,10%
+ST,Poacher,0%,15%,10%,0%,0%,10%
+ST,Target Man,-5%,10%,20%,-5%,10%,15%
+ST,Complete Forward,10%,10%,10%,10%,0%,10%
+ST,Pressing Forward,0%,10%,0%,15%,-5%,0%
+ST,False Nine,20%,-5%,-5%,10%,-5%,0%
+ST,Advanced Forward,10%,15%,10%,10%,-5%,0%

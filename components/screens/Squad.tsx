@@ -1,17 +1,41 @@
 "use client";
 
-// Squad (§15.2): roster with fitness/form at a glance, sortable.
+// Squad (§15.2): roster with fitness/form at a glance, sortable and filterable.
 
 import { useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
-import type { PlayerBio } from "@/lib/types";
+import type { PlayerBio, Pos } from "@/lib/types";
 import { getArchetype } from "@/lib/config/archetypes";
-import { POS_ORDER } from "@/lib/config/positions";
+import { POS_LABELS, POS_ORDER } from "@/lib/config/positions";
 import { yearsLeft } from "@/lib/contracts";
 import { formatMoney } from "@/lib/value";
-import { ArchetypeIcon, FitnessBar, Flag, FormChip, Money, Ovr, PlayerCard, PlayerGrid, PosBadge, Section, usePlayerView, ViewToggle } from "../ui";
+import { matchesPlayerName } from "@/lib/search";
+import { ArchetypeIcon, Card, FitnessBar, Flag, FormChip, Money, Ovr, PlayerCard, PlayerGrid, PosBadge, Section, usePlayerView, ViewToggle } from "../ui";
 
-type SortKey = "pos" | "name" | "age" | "overall" | "fitness" | "value" | "goals" | "apps" | "contract";
+// The contract used to be a single column (years, then wage as a tiebreak). It's
+// now split so wage/week and years-left are each their own sortable column with
+// their own filter (v1.54) — a squad's wage bill and its contract runway are
+// different questions and the manager wants to slice on each independently.
+type SortKey = "pos" | "name" | "age" | "overall" | "fitness" | "value" | "goals" | "apps" | "wage" | "years";
+
+// Wage brackets (weekly, £) the wage filter offers. Open-ended top bracket.
+const WAGE_BANDS: { key: string; label: string; min: number; max: number }[] = [
+  { key: "all", label: "Any wage", min: 0, max: Infinity },
+  { key: "u5", label: "< £5k/wk", min: 0, max: 5_000 },
+  { key: "5-20", label: "£5k–£20k/wk", min: 5_000, max: 20_000 },
+  { key: "20-50", label: "£20k–£50k/wk", min: 20_000, max: 50_000 },
+  { key: "50-100", label: "£50k–£100k/wk", min: 50_000, max: 100_000 },
+  { key: "o100", label: "> £100k/wk", min: 100_000, max: Infinity },
+];
+
+// Contract-length buckets the years filter offers.
+const YEARS_BANDS: { key: string; label: string; test: (yl: number) => boolean }[] = [
+  { key: "all", label: "Any length", test: () => true },
+  { key: "expiring", label: "Final year", test: (yl) => yl <= 1 },
+  { key: "short", label: "1–2 yrs", test: (yl) => yl >= 1 && yl <= 2 },
+  { key: "mid", label: "3–4 yrs", test: (yl) => yl >= 3 && yl <= 4 },
+  { key: "long", label: "5+ yrs", test: (yl) => yl >= 5 },
+];
 
 export default function SquadScreen() {
   const game = useGame((s) => s.game)!;
@@ -21,9 +45,32 @@ export default function SquadScreen() {
   const [desc, setDesc] = useState(false);
   const [view, setView] = usePlayerView("squad");
 
+  // Filters (v1.54): name search, position, and the two contract facets.
+  const [nameQuery, setNameQuery] = useState("");
+  const [posFilter, setPosFilter] = useState<"ALL" | Pos>("ALL");
+  const [wageBand, setWageBand] = useState("all");
+  const [yearsBand, setYearsBand] = useState("all");
+
   const team = game.teams[game.userTeamId];
+
+  const allPlayers = useMemo(
+    () => team.playerIds.map((id) => game.players[id]).filter(Boolean),
+    [team.playerIds, game.players]
+  );
+
   const players = useMemo(() => {
-    const list = team.playerIds.map((id) => game.players[id]).filter(Boolean);
+    const wage = WAGE_BANDS.find((b) => b.key === wageBand) ?? WAGE_BANDS[0];
+    const years = YEARS_BANDS.find((b) => b.key === yearsBand) ?? YEARS_BANDS[0];
+    const filtered = allPlayers
+      .filter((p) => posFilter === "ALL" || p.positions[0] === posFilter)
+      .filter((p) => matchesPlayerName(p, nameQuery))
+      .filter((p) => {
+        if (wage.key === "all") return true;
+        const w = p.contract?.wage ?? 0;
+        return w >= wage.min && w < wage.max;
+      })
+      .filter((p) => (years.key === "all" ? true : years.test(yearsLeft(game, p))));
+
     const dir = desc ? -1 : 1;
     const cmp: Record<SortKey, (a: PlayerBio, b: PlayerBio) => number> = {
       pos: (a, b) => POS_ORDER.indexOf(a.positions[0]) - POS_ORDER.indexOf(b.positions[0]) || b.overall - a.overall,
@@ -34,10 +81,13 @@ export default function SquadScreen() {
       value: (a, b) => b.value - a.value,
       goals: (a, b) => b.stats.goals - a.stats.goals,
       apps: (a, b) => b.stats.apps - a.stats.apps,
-      contract: (a, b) => yearsLeft(game, a) - yearsLeft(game, b) || (a.contract?.wage ?? 0) - (b.contract?.wage ?? 0),
+      wage: (a, b) => (b.contract?.wage ?? 0) - (a.contract?.wage ?? 0),
+      years: (a, b) => yearsLeft(game, a) - yearsLeft(game, b) || (a.contract?.wage ?? 0) - (b.contract?.wage ?? 0),
     };
-    return list.sort((a, b) => dir * cmp[sort](a, b));
-  }, [team.playerIds, game.players, sort, desc, game]);
+    return filtered.slice().sort((a, b) => dir * cmp[sort](a, b));
+  }, [allPlayers, sort, desc, game, nameQuery, posFilter, wageBand, yearsBand]);
+
+  const filtered = players.length !== allPlayers.length;
 
   const TH = ({ k, children, className = "" }: { k: SortKey; children: React.ReactNode; className?: string }) => (
     <th
@@ -55,9 +105,78 @@ export default function SquadScreen() {
     </th>
   );
 
+  const selCls =
+    "display rounded border border-line bg-raised px-2 py-1.5 text-xs text-ink outline-none transition-colors hover:border-faint focus:border-gold-lo/60";
+
+  const filterBar = (
+    <div className="mb-4 flex flex-wrap items-center gap-2">
+      {/* Name search */}
+      <div className="relative">
+        <input
+          value={nameQuery}
+          onChange={(e) => setNameQuery(e.target.value)}
+          placeholder="Search name…"
+          className="w-44 rounded border border-line bg-raised px-2.5 py-1.5 text-xs text-ink outline-none transition-colors placeholder:text-faint hover:border-faint focus:border-gold-lo/60"
+        />
+        {nameQuery && (
+          <button
+            onClick={() => setNameQuery("")}
+            title="Clear"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 text-sm leading-none text-faint hover:text-ink"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      {/* Position filter */}
+      <label className="flex items-center gap-1.5">
+        <span className="text-[10px] uppercase tracking-widest text-faint">Pos</span>
+        <select value={posFilter} onChange={(e) => setPosFilter(e.target.value as "ALL" | Pos)} className={selCls}>
+          <option value="ALL">All positions</option>
+          {POS_ORDER.map((p) => (
+            <option key={p} value={p}>
+              {POS_LABELS[p]}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {/* Wage filter */}
+      <label className="flex items-center gap-1.5">
+        <span className="text-[10px] uppercase tracking-widest text-faint">Wage</span>
+        <select value={wageBand} onChange={(e) => setWageBand(e.target.value)} className={selCls}>
+          {WAGE_BANDS.map((b) => (
+            <option key={b.key} value={b.key}>
+              {b.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {/* Contract years filter */}
+      <label className="flex items-center gap-1.5">
+        <span className="text-[10px] uppercase tracking-widest text-faint">Contract</span>
+        <select value={yearsBand} onChange={(e) => setYearsBand(e.target.value)} className={selCls}>
+          {YEARS_BANDS.map((b) => (
+            <option key={b.key} value={b.key}>
+              {b.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {filtered && (
+        <span className="text-[11px] text-faint">
+          <span className="tnum text-dim">{players.length}</span> of {allPlayers.length}
+        </span>
+      )}
+    </div>
+  );
+
   return (
     <Section
-      title={`Squad — ${players.length} players`}
+      title={`Squad — ${allPlayers.length} players`}
       right={
         <span className="flex items-center gap-3">
           <span className="hidden text-xs text-faint sm:inline">
@@ -72,7 +191,10 @@ export default function SquadScreen() {
         </span>
       }
     >
-      {view === "grid" ? (
+      {filterBar}
+      {players.length === 0 ? (
+        <Card className="px-4 py-6 text-sm text-faint">No players match these filters.</Card>
+      ) : view === "grid" ? (
         <PlayerGrid>
           {players.map((p) => (
             <PlayerCard
@@ -113,7 +235,7 @@ export default function SquadScreen() {
         </PlayerGrid>
       ) : (
       <div className="overflow-x-auto rounded-md border border-line bg-surface">
-        <table className="w-full min-w-[880px] text-sm">
+        <table className="w-full min-w-[940px] text-sm">
           <thead className="border-b border-line">
             <tr>
               <TH k="pos" className="text-left">Pos</TH>
@@ -126,7 +248,8 @@ export default function SquadScreen() {
               <TH k="apps">Apps</TH>
               <TH k="goals">G / A</TH>
               <TH k="value" className="text-right">Value</TH>
-              <TH k="contract" className="text-right">Contract</TH>
+              <TH k="wage" className="text-right">Wage/wk</TH>
+              <TH k="years" className="text-right">Years</TH>
             </tr>
           </thead>
           <tbody>
@@ -178,19 +301,19 @@ export default function SquadScreen() {
                 <td className="px-2 py-2 text-right">
                   <Money value={p.value} className="text-dim" />
                 </td>
+                <td className="px-2 py-2 text-right tnum text-dim">
+                  {p.contract ? `${formatMoney(p.contract.wage)}` : <span className="text-[10px] text-faint">—</span>}
+                </td>
                 <td className="px-2 py-2 text-right">
                   {p.contract ? (
-                    <span className="inline-flex flex-col items-end leading-tight">
-                      <span className="tnum text-dim">{formatMoney(p.contract.wage)}/wk</span>
-                      {(() => {
-                        const yl = yearsLeft(game, p);
-                        return (
-                          <span className={`tnum text-[10px] ${yl <= 1 ? "text-loss" : "text-faint"}`}>
-                            {yl <= 1 ? "final year" : `${yl} yrs`}
-                          </span>
-                        );
-                      })()}
-                    </span>
+                    (() => {
+                      const yl = yearsLeft(game, p);
+                      return (
+                        <span className={`tnum ${yl <= 1 ? "text-loss" : "text-dim"}`}>
+                          {yl <= 1 ? "final" : `${yl} yrs`}
+                        </span>
+                      );
+                    })()
                   ) : (
                     <span className="text-[10px] text-faint">—</span>
                   )}

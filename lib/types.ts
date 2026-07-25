@@ -2,7 +2,7 @@
 // Single source of truth for all game data shapes. Schema-versioned so the
 // save/export format doubles as the modding format (GAME_DESIGN.md §2, §13).
 
-export const SCHEMA_VERSION = 30;
+export const SCHEMA_VERSION = 31;
 
 export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "LM" | "RM" | "AM" | "LW" | "RW" | "ST";
 
@@ -43,6 +43,32 @@ export interface Tactic {
   press?: Press;
   line?: DefLine;
   focus?: Focus;
+}
+
+/**
+ * A named tactic the manager has saved (v1.53).
+ *
+ * Switching formation clears the starting XI — that is correct (the slots
+ * change), but it makes an accidental click expensive: the whole side has to be
+ * picked again. A saved tactic is the undo: the instructions, the XI and the
+ * bench captured together, restorable in one action.
+ *
+ * `lineup` and `bench` hold player IDs, which can go stale (sold, retired,
+ * loaned out). Loading therefore filters rather than trusts — see
+ * `loadSavedTactic` in lib/tactics.ts — so a preset saved three seasons ago
+ * still restores whatever part of it is still legal.
+ */
+export interface SavedTactic {
+  id: string;
+  name: string;
+  tactic: Tactic;
+  /** Formation slot id → player id, as the lineup stood when saved. */
+  lineup: Record<string, string>;
+  /** Ordered substitute list, as it stood when saved. */
+  bench: string[];
+  /** Season and day it was saved, for display ("saved S3, day 120"). */
+  season: number;
+  day: number;
 }
 
 // Six visible attributes (GKs reuse the slots with GK-flavored labels in UI).
@@ -127,6 +153,13 @@ export interface PlayerBio {
    * Optional (absent = never won anything); survives on retired players so a
    * legend's cabinet is permanent. */
   accolades?: Accolade[];
+  /** The season this player joined the USER's club through a transfer or free
+   * signing (v1.54). While it equals the current season the player can't be
+   * sold or transfer-listed — a signing can't be flipped for profit inside the
+   * same season it was made. Cleared/re-stamped by `completeTransfer`; irrelevant
+   * for AI clubs (only the user's sell paths read it). Absent = not a fresh
+   * signing (academy graduate, worldgen squad member, or signed in a past season). */
+  acquiredSeason?: number;
 }
 
 /** A per-league or save-wide season award (v24). Individual honours (Player of
@@ -897,10 +930,10 @@ export type ScoutRegion = string;
  * with one star rating — the club employs a roster of them, and each carries two
  * independent 1–5★ ratings:
  *
- *   experience → how many prospects come back in one report (1–7). Higher stars
+ *   experience → how many prospects come back in one report (1–6). Higher stars
  *                shift the distribution toward the bigger returns.
  *   judgement  → the QUALITY of what comes back: which prospect tier (Bronze →
- *                Platinum) a find lands in, and how tight the potential read is.
+ *                Legacy) a find lands in, and how tight the potential read is.
  *
  * How many scouts may be employed at once is the Max Scouts facility cap, and
  * the number employed is in turn the ceiling on concurrent assignments. */
@@ -921,14 +954,29 @@ export interface ScoutCandidate extends Scout {
   availableDay?: number;
 }
 
-/** Prospect quality tiers (v14; diamond added v17). A scout's judgement rolls
- * one of these per find; the tier fixes the band the prospect's overall and
- * potential land in. Platinum is the wonderkid tier — rare, and only
- * realistically reachable with a high-judgement scout. DIAMOND sits above it as
- * the generational talent: roughly 10× rarer than platinum at every judgement
- * rating, so most saves never see one. Bands live in tuning
- * (prospectTierBands). */
-export type ProspectTier = "bronze" | "silver" | "gold" | "platinum" | "diamond";
+/** Prospect quality tiers (v14; diamond added v17; the six-rung ladder v1.53). A
+ * scout's judgement rolls one of these per find; the tier fixes the band the
+ * prospect's overall and potential land in.
+ *
+ * The ladder runs Bronze → Silver → Gold → Diamond → Obsidian → Legacy. Bronze
+ * and Silver are the everyday academy intake, Gold the genuinely promising kid,
+ * and Diamond the wonderkid a good scout turns up a couple of times a season.
+ * OBSIDIAN and LEGACY are the rarities: even a 5★ judge finds an obsidian about
+ * once in seventy reports and a legacy about once in a hundred and thirty, so
+ * most saves never see the top rung. Bands live in tuning (prospectTierBands).
+ *
+ * `platinum` is the pre-v1.53 name for what is now `diamond`; it is kept in the
+ * union so old saves parse, and `migrateProspectTier` (lib/scouts.ts) folds it
+ * onto diamond on load. Nothing new is ever written with it. */
+export type ProspectTier =
+  | "bronze"
+  | "silver"
+  | "gold"
+  | "diamond"
+  | "obsidian"
+  | "legacy"
+  /** @deprecated pre-v1.53 alias for `diamond` — migrated away on load. */
+  | "platinum";
 
 /** One scout out on assignment (v5). Each scout the club can field (capacity
  * grows with the Scouting Network facility) may be pointed at a country and a
@@ -1211,6 +1259,10 @@ export interface GameState {
    * an auto-picked bench (best of the rest), so a manager who never touches it
    * still fields a full matchday squad. Players in the XI or on loan are ignored. */
   userBench?: string[];
+  /** Tactics the manager has saved by name (v1.53), newest first. Each captures
+   * the instructions, the XI and the bench together, so a formation change made
+   * by accident is one click from being undone. Absent on pre-v31 saves. */
+  savedTactics?: SavedTactic[];
   inbox: InboxItem[];
   offers: TransferOffer[];
   transferList: string[]; // user players listed for sale

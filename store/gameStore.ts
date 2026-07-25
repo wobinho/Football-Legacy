@@ -21,12 +21,13 @@ import type { Fixture, MatchResult } from "@/lib/types";
 import { saveGame, loadGame, listSaves, deleteSave, exportSave, importSave, type SaveMeta } from "@/lib/save";
 import { cloudOwner } from "@/lib/cloud";
 import { forgetKey, rememberLastSave, lastSave, clearLastSave } from "@/lib/auth";
-import { userBid, respondToOffer, releasePlayer, sellToClub, type BidOutcome, type OfferResponse } from "@/lib/transfers";
+import { userBid, respondToOffer, releasePlayer, sellToClub, signedThisSeason, type BidOutcome, type OfferResponse } from "@/lib/transfers";
 import { hireStaff, dismissCandidate, fireStaff } from "@/lib/staff";
 import { hireScout, fireScout, dismissScoutCandidate } from "@/lib/scouts";
 import { acceptSponsor, declineSponsor } from "@/lib/sponsors";
 import { upgradeFacility, upgradeTrainingFacility, type Facility, type TrainingFacility } from "@/lib/economy";
 import { setKitNumber } from "@/lib/kitnumbers";
+import { saveTactic, loadSavedTactic, deleteSavedTactic, renameSavedTactic } from "@/lib/tactics";
 import { deleteInboxItem, clearInbox } from "@/lib/inbox";
 import { optimalTrainingPlan } from "@/lib/config/training";
 import type { StaffSlot, TeamAssignments } from "@/lib/types";
@@ -129,6 +130,14 @@ interface GameStore {
   /** Set a player's shirt number, swapping with whoever wears it (v15). */
   setKitNumber: (playerId: string, number: number) => void;
   setTactic: (t: Partial<Tactic>) => void;
+  /** Save the current formation, instructions, XI and bench under `name` (v1.53).
+   * Re-using a name overwrites that preset. Toasts on failure. */
+  saveTactic: (name: string) => void;
+  /** Restore a saved preset over the current setup, reporting anything it
+   * couldn't put back (players since sold, retired or out on loan). */
+  loadTactic: (id: string) => void;
+  deleteTactic: (id: string) => void;
+  renameTactic: (id: string, name: string) => void;
   setLineupSlot: (slotId: string, playerId: string | null) => void;
   clearLineup: () => void;
   /** Add/remove a player from the user's chosen bench (v25). Toggling a player
@@ -588,6 +597,50 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
+  saveTactic: (name) => {
+    const g = get().game;
+    if (!g) return;
+    const err = saveTactic(g, name);
+    if (err) get().showToast(err);
+    else get().showToast(`Tactic "${name.trim()}" saved.`);
+    get().bump(true);
+  },
+
+  loadTactic: (id) => {
+    const g = get().game;
+    if (!g) return;
+    const result = loadSavedTactic(g, id);
+    if (!result) {
+      get().showToast("That tactic is no longer saved.");
+    } else if (result.missingSlots || result.missingSubs) {
+      // Be specific about what came back short — a silently half-restored XI is
+      // exactly the surprise this feature exists to prevent.
+      const bits = [
+        result.missingSlots ? `${result.missingSlots} position${result.missingSlots > 1 ? "s" : ""}` : "",
+        result.missingSubs ? `${result.missingSubs} sub${result.missingSubs > 1 ? "s" : ""}` : "",
+      ].filter(Boolean);
+      get().showToast(`Tactic loaded — ${bits.join(" and ")} left empty (players unavailable).`);
+    } else {
+      get().showToast("Tactic loaded.");
+    }
+    get().bump(true);
+  },
+
+  deleteTactic: (id) => {
+    const g = get().game;
+    if (!g) return;
+    deleteSavedTactic(g, id);
+    get().bump(true);
+  },
+
+  renameTactic: (id, name) => {
+    const g = get().game;
+    if (!g) return;
+    const err = renameSavedTactic(g, id, name);
+    if (err) get().showToast(err);
+    get().bump(true);
+  },
+
   setLineupSlot: (slotId, playerId) => {
     const g = get().game;
     if (!g) return;
@@ -755,6 +808,13 @@ export const useGame = create<GameStore>((set, get) => ({
     if (g.transferList.includes(playerId)) {
       g.transferList = g.transferList.filter((id) => id !== playerId);
     } else {
+      // A player signed this season can't be sold on, so he can't be listed
+      // either (v1.54).
+      const p = g.players[playerId];
+      if (p && signedThisSeason(g, p)) {
+        get().showToast(`${p.name} was signed this season — he can't be listed until next season.`);
+        return;
+      }
       g.transferList.push(playerId);
     }
     get().bump(true);

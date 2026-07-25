@@ -9,6 +9,7 @@ design session before changing, `[FUTURE]` must not be built but must not be blo
 - `npm run dev` — dev server (localhost:3000)
 - `npm run build` — production build + typecheck
 - `npm run build:db` — rebuild the default database from `fl26-*.csv` into `/public/database_presets` (+ `manifest.json`)
+- `npm run build:names` — rebuild `lib/config/namepool.generated.ts` (generated-player name pool) from `fl_namepool.csv`
 - `npm run verify:overall` — check the FC 26 overall model against OVERALL_FORMULA.md's worked examples
 - `npx tsx scripts/verify-db.ts` — validate every shipped country DB and build a real world from it
 - `node scripts/ui-test-db.mjs` — end-to-end drive of the default-database + editor-import flow (dev server must be running)

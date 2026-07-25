@@ -495,6 +495,10 @@ export function migrateSave(state: GameState): GameState {
     migrateV29toV30(state);
     state.schemaVersion = 30;
   }
+  if (state.schemaVersion < 31) {
+    migrateV30toV31(state);
+    state.schemaVersion = 31;
+  }
   // future migrations chain here
   state.schemaVersion = SCHEMA_VERSION;
   return state;
@@ -920,6 +924,35 @@ function migrateV29toV30(state: GameState): void {
     // save's European dates are identical to a fresh one's for that season.
     state.schedule.euroRoundDays = buildSeasonSchedule(state.season).euroRoundDays;
   }
+}
+
+/**
+ * v30 → v31: the six-rung prospect ladder and saved tactics (v1.53).
+ *
+ * The prospect tier ladder gained two rungs at the top and lost the name
+ * `platinum`: what used to be platinum is now `diamond`, and OBSIDIAN and LEGACY
+ * sit above it. Everything a save can carry a tier on is folded over — the badge
+ * on academy prospects (`u21Tier`) and the tier stamped on live scout reports.
+ *
+ * The rename is a pure relabel, deliberately: a platinum prospect's overall and
+ * potential were rolled from the platinum band, which is exactly the band
+ * diamond now uses, so nothing about the player changes. He keeps the ability he
+ * had and simply wears the current name for it. Nobody is promoted into the two
+ * new rungs — those have to be found, not granted retroactively.
+ *
+ * `savedTactics` starts empty. There is nothing to reconstruct: a preset is
+ * something the manager chose to keep, and inventing one from the current setup
+ * would put a name in the list they never typed.
+ */
+function migrateV30toV31(state: GameState): void {
+  for (const p of Object.values(state.players)) {
+    if (p.u21Tier === "platinum") p.u21Tier = "diamond";
+  }
+  for (const r of state.academy?.reports ?? []) {
+    if (r.tier === "platinum") r.tier = "diamond";
+    if (r.player?.u21Tier === "platinum") r.player.u21Tier = "diamond";
+  }
+  state.savedTactics ??= [];
 }
 
 /** True if the save is a version this build knows how to bring up to date. */

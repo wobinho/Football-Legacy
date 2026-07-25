@@ -3,7 +3,7 @@
 // a ROSTER: the club employs several, and each carries two independent 1–5★
 // ratings that answer two different questions.
 //
-//   experience → HOW MANY prospects come back in one report (1–7)
+//   experience → HOW MANY prospects come back in one report (1–6)
 //   judgement  → HOW GOOD they are (which ProspectTier, and how tight the read)
 //
 // How many scouts may be employed is the Max Scouts facility cap; the number
@@ -162,9 +162,10 @@ function starRow(table: number[][], stars: number): number[] {
   return table[i] ?? table[table.length - 1];
 }
 
-/** How many prospects this scout's next report brings back (1–7), sampled from
- * the experience row. A 1★ scout files a single name almost every time; a 5★
- * returns the full seven about half the time. */
+/** How many prospects this scout's next report brings back, sampled from the
+ * experience row. The range is however wide the tuning row is (1–6 today): a 1★
+ * scout files one or two names; a 5★ scout returns three about half the time and
+ * rarely fewer than two. */
 export function rollReportSize(rng: RNG, cfg: TuningConfig, experience: number): number {
   const weights = starRow(cfg.scoutReportSizeByExperience, experience);
   const sizes = weights.map((_, i) => i + 1);
@@ -184,7 +185,7 @@ export function rollTierQuality(
   cfg: TuningConfig,
   tier: ProspectTier
 ): { overall: number; potential: number } {
-  const band = cfg.prospectTierBands[tier] ?? cfg.prospectTierBands.bronze;
+  const band = cfg.prospectTierBands[migrateProspectTier(tier)!] ?? cfg.prospectTierBands.bronze;
   const overall = randRange(rng, band.overall[0], band.overall[1]);
   const potential = Math.min(cfg.potentialAbsoluteCap, randRange(rng, band.potential[0], band.potential[1]));
   // A ceiling below current ability would read as a dead-end prospect; keep a
@@ -202,7 +203,7 @@ export function expectedReportSize(cfg: TuningConfig, experience: number): numbe
 /** Chance (0–1) this judgement turns up a given tier — for UI display. */
 export function tierChance(cfg: TuningConfig, judgement: number, tier: ProspectTier): number {
   const weights = starRow(cfg.scoutTierByJudgement, judgement);
-  const idx = cfg.prospectTierOrder.indexOf(tier);
+  const idx = cfg.prospectTierOrder.indexOf(migrateProspectTier(tier)!);
   const total = weights.reduce((a, b) => a + b, 0) || 1;
   return (weights[idx] ?? 0) / total;
 }
@@ -226,20 +227,38 @@ export const TIER_LABEL: Record<ProspectTier, string> = {
   bronze: "Bronze",
   silver: "Silver",
   gold: "Gold",
-  platinum: "Platinum",
   diamond: "Diamond",
+  obsidian: "Obsidian",
+  legacy: "Legacy",
+  platinum: "Diamond", // pre-v1.53 alias — reads as what it migrates to
 };
 
-/** Tier accent colours, used by the report cards and the scout roster. Diamond
- * gets a bright violet-white so a generational find is unmistakable next to
- * platinum's cyan. */
+/** Tier accent colours, used by the report cards and the scout roster. The
+ * ladder reads at a glance: earth tones through gold, then a cyan diamond, a
+ * violet obsidian, and a red legacy that can't be mistaken for anything else. */
 export const TIER_COLOR: Record<ProspectTier, string> = {
   bronze: "#b07a4a",
   silver: "#b9c0c8",
   gold: "#d9a441",
-  platinum: "#7fe3e3",
-  diamond: "#c9a6ff",
+  diamond: "#7fe3e3",
+  obsidian: "#9b8ec4",
+  legacy: "#e8433f",
+  platinum: "#7fe3e3", // pre-v1.53 alias
 };
+
+/** Fold the retired `platinum` tier onto `diamond` (v1.53). Saves written before
+ * the six-rung ladder carry it on prospects and on stored scout reports; every
+ * read of a tier goes through here so nothing downstream has to know. */
+export function migrateProspectTier(tier: ProspectTier | undefined): ProspectTier | undefined {
+  return tier === "platinum" ? "diamond" : tier;
+}
+
+/** Where a tier sits on the ladder — higher is rarer. Used for "is this find
+ * headline-worthy?" comparisons instead of naming tiers one by one. */
+export function tierRank(cfg: TuningConfig, tier: ProspectTier | undefined): number {
+  if (!tier) return -1;
+  return cfg.prospectTierOrder.indexOf(migrateProspectTier(tier)!);
+}
 
 /** Seed the department for a brand-new save: an empty roster and a shortlist. */
 export function initScoutMarket(state: GameState, cfg: TuningConfig) {

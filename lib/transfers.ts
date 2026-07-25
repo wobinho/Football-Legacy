@@ -158,6 +158,11 @@ export function completeTransfer(
   } else {
     p.contract = undefined; // released to free agency
   }
+  // Same-season resale lock (v1.54): a player the USER signs can't be sold or
+  // listed again until next season. Stamped only for a move INTO the user's club;
+  // any move out of it (or to an AI club) clears the mark.
+  if (toClubId === state.userTeamId) p.acquiredSeason = state.season;
+  else p.acquiredSeason = undefined;
   p.clubId = toClubId;
   p.form = 1.0;
   // Shirt number (v15): the old club's number is given up on the way out and a
@@ -358,6 +363,11 @@ export function respondToOffer(
     offer.status = "rejected";
     return { kind: "rejected", message: `Rejected ${buyer.name}'s offer for ${p.name}.` };
   }
+  // Same-season resale lock (v1.54): a player signed this season can't be sold
+  // on, so any offer for one can only be turned down.
+  if (signedThisSeason(state, p)) {
+    return { kind: "rejected", message: `${p.name} was signed this season — he can't be sold until next season.` };
+  }
   if (response === "accept") {
     offer.status = "completed";
     completeTransfer(state, offer.playerId, offer.fromClubId, offer.fee);
@@ -462,7 +472,9 @@ export function aiWeeklyTransferTick(state: GameState, cfg: TuningConfig): boole
   const userPlayers = [
     ...user.playerIds.map((id) => state.players[id]).filter((p) => p.overall >= 58 && !p.loan),
     ...listedAcademy,
-  ];
+    // A player signed this season can't be sold on (v1.54), so no AI bids for one —
+    // an offer that could only be rejected is just noise on the user's screen.
+  ].filter((p) => !signedThisSeason(state, p));
   // How many separate offers landed this week (v1.51). The market used to stop
   // dead at the first one (`break`), so the user saw at most one approach a week
   // no matter how many clubs wanted their players — and none at all if that one
@@ -1086,6 +1098,14 @@ export function saleSuitors(state: GameState, playerId: string, cfg: TuningConfi
 /** Sell a player to one of the clubs `saleSuitors` returned, immediately. The
  * fee is the buyer's own number — there is no haggling here, because the point
  * of this path is that the decision is "who, and for how much", made once. */
+/** Whether a player the user owns is locked to the club for the rest of the
+ * season because they were signed this season (v1.54). A fresh signing can't be
+ * flipped for profit in the same season it was made — this gates every user
+ * sell path (direct sale, transfer-listing, accepting an incoming offer). */
+export function signedThisSeason(state: GameState, p: PlayerBio): boolean {
+  return p.acquiredSeason === state.season;
+}
+
 export function sellToClub(
   state: GameState,
   playerId: string,
@@ -1094,6 +1114,7 @@ export function sellToClub(
 ): string | null {
   const p = state.players[playerId];
   if (!p || p.clubId !== state.userTeamId) return "Not your player.";
+  if (signedThisSeason(state, p)) return "Signed this season — he can't be sold until next season.";
   if (p.loan) return "Recall him from his loan spell first.";
   if (!windowOpen(state)) return "The transfer window is closed.";
   const buyer = state.teams[clubId];

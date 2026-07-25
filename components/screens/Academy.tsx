@@ -69,13 +69,13 @@ export default function AcademyScreen() {
       <Tabs
         tabs={[
           { id: "squad", label: "Academy Squad" },
+          { id: "scouting", label: "Scouting", badge: reports.length },
           { id: "development", label: "Development" },
           { id: "growth", label: "Growth" },
-          { id: "loaned", label: "Loaned Players", badge: loanedCount },
-          { id: "u21", label: "U21 League" },
-          { id: "scouting", label: "Scouting", badge: reports.length },
           { id: "staff", label: "Staff" },
           { id: "upgrades", label: "Upgrades" },
+          { id: "loaned", label: "Loaned Players", badge: loanedCount },
+          { id: "u21", label: "U21 League" },
         ]}
         active={tab}
         onChange={setTab}
@@ -128,23 +128,38 @@ function ScoutRatings({ experience, judgement }: { experience: number; judgement
   );
 }
 
+/** A tier chance as a readable percentage. The top of the ladder sits well under
+ * 1%, where rounding to whole percent would render every rare tier as "0%" — so
+ * anything below 1 keeps a decimal. */
+function tierPct(chance: number): string {
+  const pct = chance * 100;
+  if (pct === 0) return "0%";
+  if (pct < 1) return `${pct.toFixed(2).replace(/0$/, "")}%`;
+  return `${Math.round(pct)}%`;
+}
+
 /** What a scout's ratings actually buy you, in plain numbers: the average size
- * of a report (experience) and the odds of a top-tier find (judgement). */
+ * of a report (experience) and the odds of a good find (judgement). The tiers
+ * shown are the top of the ladder read off tuning, so adding a rung surfaces it
+ * here without editing this component. */
 function ScoutOutlook({ experience, judgement }: { experience: number; judgement: number }) {
   const avg = expectedReportSize(TUNING, experience);
-  const plat = tierChance(TUNING, judgement, "platinum");
-  const gold = tierChance(TUNING, judgement, "gold");
+  const headline = TUNING.prospectTierOrder.slice(-3); // gold and everything above it
   return (
     <div className="flex flex-wrap gap-1.5 text-[10px]">
       <span className="display rounded-sm border border-line px-1.5 py-0.5 text-dim">
         ~<span className="tnum font-semibold text-ink">{avg.toFixed(1)}</span> per report
       </span>
-      <span className="display rounded-sm border px-1.5 py-0.5" style={{ borderColor: `${TIER_COLOR.gold}55`, color: TIER_COLOR.gold }}>
-        <span className="tnum font-semibold">{Math.round(gold * 100)}%</span> gold
-      </span>
-      <span className="display rounded-sm border px-1.5 py-0.5" style={{ borderColor: `${TIER_COLOR.platinum}55`, color: TIER_COLOR.platinum }}>
-        <span className="tnum font-semibold">{Math.round(plat * 100)}%</span> platinum
-      </span>
+      {headline.map((tier) => (
+        <span
+          key={tier}
+          className="display rounded-sm border px-1.5 py-0.5"
+          style={{ borderColor: `${TIER_COLOR[tier]}55`, color: TIER_COLOR[tier] }}
+        >
+          <span className="tnum font-semibold">{tierPct(tierChance(TUNING, judgement, tier))}</span>{" "}
+          {TIER_LABEL[tier].toLowerCase()}
+        </span>
+      ))}
     </div>
   );
 }
@@ -396,15 +411,26 @@ function YouthCoachPanel({ def }: { def: ReturnType<typeof staffSlotsForDept>[nu
 
 // ── Academy squad ─────────────────────────────────────────────────────────
 
-/** The prospect-tier badge (Bronze → Diamond) a player carries while in the
+/** The prospect-tier badge (Bronze → Legacy) a player carries while in the
  * academy. Rendered in the tier's accent colour; nothing shows once the player
- * has graduated to the senior squad (the tier is cleared on promotion). */
+ * has graduated to the senior squad (the tier is cleared on promotion).
+ *
+ * The two rarest rungs get a soft halo on top of the colour. A save may go years
+ * without one, so when it does turn up it should read as an event in a list of
+ * badges rather than one more coloured chip. The threshold is derived from the
+ * ladder's length, not from tier names. */
 function TierTag({ tier, className = "" }: { tier: PlayerBio["u21Tier"]; className?: string }) {
   if (!tier) return null;
+  const rank = TUNING.prospectTierOrder.indexOf(tier);
+  const rare = rank >= TUNING.prospectTierOrder.length - 2;
   return (
     <span
       className={`display shrink-0 rounded-sm border px-1 text-[9px] font-semibold uppercase tracking-widest ${className}`}
-      style={{ borderColor: `${TIER_COLOR[tier]}77`, color: TIER_COLOR[tier] }}
+      style={{
+        borderColor: `${TIER_COLOR[tier]}77`,
+        color: TIER_COLOR[tier],
+        ...(rare ? { boxShadow: `0 0 6px ${TIER_COLOR[tier]}55` } : {}),
+      }}
       title={`${TIER_LABEL[tier]} prospect`}
     >
       {TIER_LABEL[tier]}
@@ -1534,10 +1560,12 @@ function AcademyGrowthTab() {
 
 // ── Loaned players ─────────────────────────────────────────────────────────
 
-/** The Loaned Players tab (v1.44): a monitor for everyone the club has out on
- * loan — academy prospects and senior pros alike. Each row shows where he is,
- * how he's doing (the statistical loan minutes credited to youthStats this
- * season), and a window-gated Recall. */
+/** The Loaned Players tab (v1.44; academy-only from v1.54): a monitor for the
+ * ACADEMY prospects the club has out on loan. Senior pros on loan are managed
+ * from the Squad page (tagged "on loan", recalled from their profile), so they
+ * no longer appear here. Each row shows where he is, how he's doing (the
+ * statistical loan minutes credited to youthStats this season), and a
+ * window-gated Recall. */
 function LoanedTab() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
@@ -1820,9 +1848,10 @@ function U21ProspectsModal({ opp, onClose }: { opp: U21Opponent; onClose: () => 
                 <button onClick={() => viewPlayer(p.id)} className="group min-w-0 flex-1 truncate text-left text-sm">
                   <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
                   <span className="ml-1.5 tnum text-[11px] text-faint">{p.age}y</span>
-                  {p.u21Tier && (
-                    <span className="ml-1.5 display text-[9px] uppercase tracking-widest text-gold">{p.u21Tier}</span>
-                  )}
+                  {/* The rival's badge in the tier's own colour — the price he
+                      is quoted at keys off exactly this, so it should read the
+                      same as it does on our own prospects. */}
+                  {p.u21Tier && <TierTag tier={p.u21Tier} className="ml-1.5" />}
                 </button>
                 <StarRange lo={view.loStars} hi={view.hiStars} />
                 <Ovr value={p.overall} size="sm" />
@@ -2433,8 +2462,8 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
                       <span>·</span>
                       <span>~{expectedReportSize(TUNING, s.experience).toFixed(1)} per report</span>
                       <span>·</span>
-                      <span style={{ color: TIER_COLOR.platinum }}>
-                        {Math.round(tierChance(TUNING, s.judgement, "platinum") * 100)}% platinum
+                      <span style={{ color: TIER_COLOR.diamond }}>
+                        {tierPct(tierChance(TUNING, s.judgement, "diamond"))} diamond
                       </span>
                     </div>
                   </div>

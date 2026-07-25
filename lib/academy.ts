@@ -11,6 +11,7 @@ import type {
   PlayerBio,
   Pos,
   ProspectReport,
+  ProspectTier,
   Scout,
   ScoutAssignment,
   ScoutPosGroup,
@@ -37,10 +38,12 @@ import {
   bestJudgement,
   hasScout,
   idleScouts,
+  migrateProspectTier,
   rollProspectTier,
   rollReportSize,
   rollTierQuality,
   scoutById,
+  tierRank,
   userScouts,
 } from "./scouts";
 
@@ -72,6 +75,16 @@ const POS_GROUPS: Record<ScoutPosGroup, Pos[]> = {
 const INTAKE_POS_POOL: Pos[] = ["GK", "CB", "CB", "LB", "RB", "DM", "CM", "CM", "LM", "RM", "AM", "LW", "RW", "ST", "ST"];
 
 const pushInbox = pushInboxItem;
+
+/** Where the elite half of the tier ladder starts (v1.53). A find at or above
+ * this rank takes the prodigy path through worldgen — that's what lets a
+ * teenager keep a genuinely high overall instead of being pulled back to the age
+ * soft cap. Derived from the ladder's length rather than naming tiers, so adding
+ * a rung in tuning moves the line automatically. */
+function isEliteTier(cfg: TuningConfig, tier: ProspectTier | undefined): boolean {
+  const elite = cfg.prospectTierOrder.length - 3; // diamond and above on the six-rung ladder
+  return tierRank(cfg, tier) >= elite;
+}
 
 function userTeam(state: GameState): Team {
   return state.teams[state.userTeamId];
@@ -180,7 +193,7 @@ function rollRivalProspects(state: GameState, cfg: TuningConfig, rng: RNG, club:
   for (const pos of slots) {
     const tier = rollProspectTier(rng, cfg, judgement);
     const band = rollTierQuality(rng, cfg, tier);
-    const prodigy = tier === "platinum" || tier === "diamond";
+    const prodigy = isEliteTier(cfg, tier);
     const p = freshId(
       generatePlayer(rng, cfg, {
         pos,
@@ -304,7 +317,7 @@ function rollIntakeProspect(
   const age = randInt(rng, cfg.intakeAgeMin, cfg.intakeAgeMax);
 
   // Tiered ratings (v15): an intake prospect is rolled into the same Bronze →
-  // Platinum tiers a scout's find uses, so the two pipelines speak one quality
+  // Legacy tiers a scout's find uses, so the two pipelines speak one quality
   // language. The academy's own quality — its facility level, youth coach and
   // the club's reputation — plays the role a scout's judgement plays, biasing
   // WHICH tier the kid lands in. A better academy doesn't just add potential
@@ -329,7 +342,7 @@ function rollIntakeProspect(
   // maturity curve scales it down to what a kid this age can actually do today,
   // so a 14-year-old Gold and a 17-year-old Gold share a ceiling but not a
   // current rating — which is exactly the age realism this pass is after.
-  const prodigy = tier === "platinum" || tier === "diamond" || (opts.golden && rng() < 0.5);
+  const prodigy = isEliteTier(cfg, tier) || (opts.golden && rng() < 0.5);
   const p = freshId(
     generatePlayer(rng, cfg, { pos: pick(rng, INTAKE_POS_POOL), overall: band.overall, nat: "ENG", age, prodigy })
   );
@@ -1178,17 +1191,17 @@ function briefTarget(a: ScoutAssignment, rng: RNG): { pos: Pos; archetypeId?: st
 }
 
 /** How many prospects a scout brings back in one report (v14). Driven by the
- * scout's EXPERIENCE through the tuning distribution — a 1★ scout files a
- * single name almost every time, a 5★ scout returns the full seven about half
- * the time. Sampled per report, so batch size varies trip to trip. */
+ * scout's EXPERIENCE through the tuning distribution — a 1★ scout files one or
+ * two names, a 5★ scout a three-man shortlist about half the time. Sampled per
+ * report, so batch size varies trip to trip. */
 export function prospectsPerReport(rng: RNG, cfg: TuningConfig, scout: Scout): number {
   return rollReportSize(rng, cfg, scout.experience);
 }
 
 /** Build one prospect for a report. The scout's JUDGEMENT rolls a quality tier
- * (Bronze → Platinum), and the tier's band supplies both the ability the kid
+ * (Bronze → Legacy), and the tier's band supplies both the ability the kid
  * arrives with and the ceiling they're given — that's the whole quality story
- * for a scouted find. A platinum is the wonderkid. */
+ * for a scouted find. A legacy find is the once-a-career one. */
 function generateScoutReport(
   state: GameState,
   cfg: TuningConfig,
@@ -1202,10 +1215,9 @@ function generateScoutReport(
   const age = randInt(rng, cfg.scoutProspectAgeMin, cfg.scoutProspectAgeMax);
   const tier = rollProspectTier(rng, cfg, scout.judgement);
   const band = rollTierQuality(rng, cfg, tier);
-  // Platinum and diamond finds are generational, so they take the prodigy path
-  // through worldgen — that's what lets a teenager keep a genuinely high overall
-  // instead of being pulled back to the age soft cap.
-  const prodigy = tier === "platinum" || tier === "diamond";
+  // Elite finds are generational, so they take the prodigy path through worldgen
+  // (see isEliteTier).
+  const prodigy = isEliteTier(cfg, tier);
   const p = freshId(generatePlayer(rng, cfg, { pos, overall: band.overall, nat, age, prodigy, archetypeId }));
   p.potential = Math.round(Math.min(cfg.potentialAbsoluteCap, Math.max(p.overall + 3, band.potential)));
   p.value = playerValue(p, cfg);
@@ -1254,7 +1266,7 @@ export function dailyScoutTick(state: GameState, cfg: TuningConfig) {
 
     // Batch size is the scout's experience (v14); each find's quality is their
     // judgement. The two ratings answer different questions, so a thorough but
-    // undiscerning scout returns seven ordinary names.
+    // undiscerning scout returns a long list of ordinary names.
     const count = prospectsPerReport(rng, cfg, scout);
     const found: ProspectReport[] = [];
     for (let i = 0; i < count; i++) {
@@ -1273,12 +1285,18 @@ export function dailyScoutTick(state: GameState, cfg: TuningConfig) {
           `${r.tier ? ` [${tierName(r)}]` : ""}, potential ${starRangeLabel(state, r.player, cfg)}`
       )
       .join("\n\n");
-    // A diamond outranks a platinum for the headline — it's the once-a-career
-    // find, so it should never be buried under an ordinary shortlist title.
-    const diamond = found.find((r) => r.tier === "diamond");
-    const best = diamond ?? found.find((r) => r.tier === "platinum");
-    const title = diamond
-      ? `Scout report: a generational talent in ${regionLabel} — ${diamond.player.name}`
+    // The rarest find in the batch leads the headline — a once-a-career prospect
+    // should never be buried under an ordinary shortlist title. "Generational"
+    // is reserved for the top two rungs; the rest of the elite half gets
+    // "special one".
+    const top = cfg.prospectTierOrder.length - 1;
+    const best = found.reduce<ProspectReport | undefined>(
+      (b, r) => (isEliteTier(cfg, r.tier) && tierRank(cfg, r.tier) > tierRank(cfg, b?.tier) ? r : b),
+      undefined
+    );
+    const generational = best && tierRank(cfg, best.tier) >= top - 1;
+    const title = generational
+      ? `Scout report: a generational talent in ${regionLabel} — ${best!.player.name}`
       : best
       ? `Scout report: a special one in ${regionLabel} — ${best.player.name}`
       : found.length === 1
@@ -1320,9 +1338,9 @@ export function signProspect(state: GameState, reportId: string, cfg: TuningConf
   p.clubId = team.id;
   p.academyClubId = team.id;
   // Carry the scout's prospect tier onto the player as its academy rarity badge,
-  // so a scouted signing wears the same Bronze→Diamond label an intake kid does
+  // so a scouted signing wears the same Bronze→Legacy label an intake kid does
   // — and keeps it until promotion clears it (parity with runIntakeDay above).
-  if (report.tier) p.u21Tier = report.tier;
+  if (report.tier) p.u21Tier = migrateProspectTier(report.tier);
   state.players[p.id] = p;
   (team.academyPlayerIds ??= []).push(p.id);
   assignKitNumber(state, p);
@@ -1342,7 +1360,7 @@ export function dismissReport(state: GameState, reportId: string) {
 // approached. Unlike a scout's find these cost real money and can simply be
 // refused: a club's stance decides whether it deals at a fair price, holds out
 // for a premium, or won't sell at all — and the elite tiers multiply on top, so
-// prising away a platinum or diamond is meant to be a genuine coup.
+// prising away an obsidian or legacy prospect is meant to be a genuine coup.
 
 /** The U21 side an opponent index or club id belongs to, if it's in this
  * competition. Looked up by name because the table row is what the UI clicks. */
@@ -1385,9 +1403,10 @@ export function u21ProspectQuote(
     };
   }
   // Elite kids are multiplied on top of the stance — that is what makes the top
-  // of the tier ladder hard to buy rather than merely expensive.
-  const tierMult =
-    p.u21Tier === "diamond" ? cfg.u21SellDiamondMult : p.u21Tier === "platinum" ? cfg.u21SellPlatinumMult : 1;
+  // of the tier ladder hard to buy rather than merely expensive. Table lookup,
+  // so a new rung in tuning prices itself.
+  const badge = migrateProspectTier(p.u21Tier);
+  const tierMult = (badge && cfg.u21SellTierMult[badge]) || 1;
   const stanceMult = stance === "premium" ? cfg.u21SellPricePremiumMult : cfg.u21SellPriceWillingMult;
   const price = Math.round((playerValue(p, cfg) * stanceMult * tierMult) / 1000) * 1000;
   return {
@@ -1619,10 +1638,17 @@ function userLoanees(state: GameState): PlayerBio[] {
     .filter((p) => p && p.loan) as PlayerBio[];
 }
 
-/** Every one of the user's players currently out on loan — academy prospects and
- * senior pros alike. Feeds the Loaned Players tab (v1.44). */
+/** The user's ACADEMY prospects currently out on loan. Feeds the Academy →
+ * Loaned Players tab (v1.44).
+ *
+ * Senior pros out on loan are deliberately excluded here: they stay on the
+ * Squad page tagged "loaned out" (a senior loan is a squad decision, managed
+ * from the squad), so surfacing them in the academy's loan tab too would double
+ * up the same player in two places. The weekly loan machinery still credits
+ * every loanee's minutes via `userLoanees` — this scoping is display-only. */
 export function loanedOutPlayers(state: GameState): PlayerBio[] {
-  return userLoanees(state);
+  const academy = new Set(userTeam(state).academyPlayerIds ?? []);
+  return userLoanees(state).filter((p) => academy.has(p.id));
 }
 
 /** Whether a loaned player is on the user's academy books (vs the senior squad). */

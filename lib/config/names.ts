@@ -2,6 +2,8 @@
 // v1 ships a fictional world; the CSV importer for real-player datasets is a
 // separate module that writes into the same schema.
 
+import { GENERATED_NAME_POOLS } from "./namepool.generated";
+
 export interface NamePool {
   nat: string; // 3-letter code
   first: string[];
@@ -731,8 +733,39 @@ export const NAME_POOLS: NamePool[] = [
   },
 ];
 
+/** The community name pool (fl_namepool.csv, built into namepool.generated.ts)
+ * is the primary source for a generated player's name — it's far richer and more
+ * authentic per country than the small curated pools below. `poolFor` prefers it
+ * whenever it covers the nationality, folding in any curated names for the same
+ * code so nothing is lost, and falls back to the curated pool for the countries
+ * the CSV doesn't reach (Brazil, Nigeria, Japan, …). Resolved pools are cached
+ * so the merge runs once per nat code. */
+const poolCache = new Map<string, NamePool>();
+
+function mergeUnique(a: string[], b: string[]): string[] {
+  return [...new Set([...a, ...b])];
+}
+
 export function poolFor(nat: string): NamePool {
-  return NAME_POOLS.find((p) => p.nat === nat) ?? NAME_POOLS[0];
+  const cached = poolCache.get(nat);
+  if (cached) return cached;
+
+  const curated = NAME_POOLS.find((p) => p.nat === nat);
+  const generated = GENERATED_NAME_POOLS[nat];
+
+  let pool: NamePool;
+  if (generated) {
+    pool = {
+      nat,
+      first: curated ? mergeUnique(generated.first, curated.first) : generated.first,
+      last: curated ? mergeUnique(generated.last, curated.last) : generated.last,
+    };
+  } else {
+    pool = curated ?? NAME_POOLS[0];
+  }
+
+  poolCache.set(nat, pool);
+  return pool;
 }
 
 // ── Fictional clubs ───────────────────────────────────────────────────────

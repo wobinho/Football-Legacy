@@ -19,6 +19,7 @@ import { ArchetypeIcon, AttrGrid, Card, ConfirmButton, Crest, displayFullName, F
 import ContractModal from "./ContractModal";
 import { LoanOfferModal, SellPlayerModal } from "./SquadMoveModals";
 import { transferWindowState } from "@/lib/calendar";
+import { signedThisSeason } from "@/lib/transfers";
 
 export default function PlayerProfileModal() {
   const game = useGame((s) => s.game);
@@ -29,6 +30,7 @@ export default function PlayerProfileModal() {
   const autoAssignPlan = useGame((s) => s.autoAssignTrainingPlan);
   const toggleShortlist = useGame((s) => s.toggleShortlist);
   const releaseSenior = useGame((s) => s.releaseSenior);
+  const recallLoanPlayer = useGame((s) => s.academyRecall);
   const [tab, setTab] = useState<"bio" | "career">("bio");
   const [contractOpen, setContractOpen] = useState(false);
   // The two direct-move choosers (v1.52). Selling and loaning both resolve
@@ -60,6 +62,17 @@ export default function PlayerProfileModal() {
   const isUserSenior =
     !isPreview &&
     p.clubId === game.userTeamId && game.teams[game.userTeamId].playerIds.includes(p.id) && !p.loan && !p.retired;
+  // A player signed this season can't be sold or listed until next season (v1.54).
+  const signedLock = signedThisSeason(game, p);
+  // A senior pro of the user's currently out on loan (v1.54): he stays on the
+  // Squad page tagged "on loan" rather than in the Academy loan tab, so his
+  // recall lives here on his own profile.
+  const isUserLoanedSenior =
+    !isPreview &&
+    !!p.loan &&
+    p.clubId === game.userTeamId &&
+    game.teams[game.userTeamId].playerIds.includes(p.id) &&
+    !(game.teams[game.userTeamId].academyPlayerIds ?? []).includes(p.id);
   // A recruitment target: a real world player at another club (or a free agent)
   // the user can add to their scouting shortlist (v21). Not for the user's own
   // players, retirees, or scouted previews (they aren't in the world yet).
@@ -348,6 +361,31 @@ export default function PlayerProfileModal() {
             </Section>
           )}
 
+          {/* A senior pro out on loan (v1.54): his only squad action here is to
+              recall him. He's still on the Squad page tagged "on loan"; the other
+              moves reappear once he's back. */}
+          {isUserLoanedSenior && (
+            <Section title="Actions">
+              <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+                <div className="min-w-0 flex-1">
+                  <div className="display font-semibold text-ink">Recall from loan</div>
+                  <div className="text-[12px] leading-relaxed text-faint">
+                    {windowOpen
+                      ? `Bring him back from ${game.teams[p.loan!.toClubId]?.name ?? "his loan club"} early — he returns to your squad and is available to pick.`
+                      : "Loans can only be recalled while a transfer window is open."}
+                  </div>
+                </div>
+                <GhostButton
+                  onClick={() => recallLoanPlayer(p.id)}
+                  disabled={!windowOpen}
+                  className="shrink-0 !py-1.5 text-xs"
+                >
+                  RECALL LOAN
+                </GhostButton>
+              </Card>
+            </Section>
+          )}
+
           {/* Squad actions (v14, reworked v1.52) — the three ways a player
               leaves. Selling and loaning both RESOLVE here: they open a chooser
               of clubs that would actually take him, rather than setting a flag
@@ -362,14 +400,16 @@ export default function PlayerProfileModal() {
                         <div className="min-w-0 flex-1">
                           <div className="display font-semibold text-ink">Sell player</div>
                           <div className="text-[12px] leading-relaxed text-faint">
-                            {windowOpen
-                              ? "See which clubs would buy him and what each would pay, then pick one. The deal completes immediately."
-                              : "Players can only be sold while a transfer window is open."}
+                            {signedLock
+                              ? "Signed this season — he can't be sold or transfer-listed until next season."
+                              : windowOpen
+                                ? "See which clubs would buy him and what each would pay, then pick one. The deal completes immediately."
+                                : "Players can only be sold while a transfer window is open."}
                           </div>
                         </div>
                         <GhostButton
                           onClick={() => setSellOpen(true)}
-                          disabled={!windowOpen}
+                          disabled={!windowOpen || signedLock}
                           className="shrink-0 !py-1.5 text-xs"
                         >
                           SELL PLAYER

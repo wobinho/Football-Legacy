@@ -31,7 +31,7 @@ export interface TuningConfig {
   /** ATTACK/(ATTACK+DEFENSE) value of two equal teams — centers the squash. */
   chanceQualityCenter: number;
   homeAdvantage: number; // +5% effective rating
-  synergyCap: number; // ±10%
+  synergyCap: number; // ±20% (archetype/tactic synergy band)
   formMin: number;
   formMax: number;
   fitnessFloorMult: number; // ×0.85 exhausted
@@ -647,10 +647,10 @@ export interface TuningConfig {
   u21SellStanceWeights: { willing: number; premium: number; unwilling: number };
   u21SellPricePremiumMult: number; // "sell it high" asking-price multiplier
   u21SellPriceWillingMult: number; // an ordinary, fair-value ask
-  /** Extra multiplier applied on top of the stance for the elite tiers — a club
-   * does not let its platinum or diamond kid go at the going rate. */
-  u21SellPlatinumMult: number;
-  u21SellDiamondMult: number;
+  /** Extra multiplier applied on top of the stance, per prospect tier — a club
+   * does not let its obsidian or legacy kid go at the going rate. A tier absent
+   * from the table asks no premium (multiplier 1). */
+  u21SellTierMult: Partial<Record<ProspectTier, number>>;
   /** Chance a "willing"/"premium" club refuses outright anyway, rolled per
    * approach — even a seller has kids it will not part with. */
   u21SellRefusalChance: number;
@@ -668,13 +668,14 @@ export interface TuningConfig {
 
   // ── Scout experience & judgement (v14) ──
   // A scout is two independent 1–5★ ratings. EXPERIENCE decides how many
-  // prospects a report brings back (1–7); JUDGEMENT decides how good they are
+  // prospects a report brings back (1–6); JUDGEMENT decides how good they are
   // (which ProspectTier each find lands in). Both are pure distribution tables
   // indexed by star rating, so the engine only ever samples — it never
   // special-cases a rating.
   /** Per experience star (index 1–5), the probability weights over report sizes
-   * 1…7. Row index 0 is unused (no scout, no report). Each row is normalised at
-   * sample time, so the numbers read as relative likelihoods. */
+   * 1…N, where N is the row's own length. Row index 0 is unused (no scout, no
+   * report). Each row is normalised at sample time, so the numbers read as
+   * relative likelihoods whether or not they already sum to 100. */
   scoutReportSizeByExperience: number[][];
   /** Per judgement star (index 1–5), the probability weights over the prospect
    * tiers in `prospectTierOrder`. Row 0 unused. */
@@ -682,7 +683,7 @@ export interface TuningConfig {
   /** Tier order the weight rows above are indexed against. */
   prospectTierOrder: ProspectTier[];
   /** Per-tier quality bands. `overall` is the ability a find comes back with and
-   * `potential` the ceiling it is given — a Platinum prospect is the wonderkid.
+   * `potential` the ceiling it is given — a Diamond prospect is the wonderkid.
    * Both are inclusive [min, max] ranges, clamped to potentialAbsoluteCap. */
   prospectTierBands: Record<ProspectTier, { overall: [number, number]; potential: [number, number] }>;
   /** Fraction of potential fog a judgement star removes on that scout's own
@@ -753,7 +754,7 @@ export const TUNING: TuningConfig = {
   midfieldSharpness: 2.2,
   chanceQualityCenter: 0.385,
   homeAdvantage: 1.07,
-  synergyCap: 0.1,
+  synergyCap: 0.2,
   formMin: 0.94,
   formMax: 1.06,
   fitnessFloorMult: 0.85,
@@ -1311,12 +1312,13 @@ export const TUNING: TuningConfig = {
 
   // Most clubs will deal for the right money; a third want a premium; a quarter
   // simply aren't selling. Elite prospects then multiply on top of that, which
-  // is what makes a platinum or diamond genuinely hard to prise away.
+  // is what makes an obsidian or legacy kid genuinely hard to prise away. The
+  // premium climbs steeply up the top of the ladder — a legacy prospect costs
+  // five times what his valuation says, which is the point.
   u21SellStanceWeights: { willing: 42, premium: 33, unwilling: 25 },
   u21SellPricePremiumMult: 2.6,
   u21SellPriceWillingMult: 1.35,
-  u21SellPlatinumMult: 1.8,
-  u21SellDiamondMult: 3.0,
+  u21SellTierMult: { diamond: 1.8, obsidian: 3.0, legacy: 5.0, platinum: 1.8 },
   u21SellRefusalChance: 0.12,
 
   scoutReportDaysBase: 40,
@@ -1332,50 +1334,56 @@ export const TUNING: TuningConfig = {
   scoutPotentialPerStar: 1.6,
   scoutPotentialSpread: 10,
 
-  // Experience → report size. Rows are weights over 1,2,3,4,5,6,7 prospects.
-  // A 1★ scout almost always files a single name (and only ~1% of the time the
-  // full seven); mass shifts steadily up the range until a 5★ scout returns
-  // seven half the time. Row 0 is unreachable (no scout, no report).
+  // Experience → report size. Rows are weights over 1,2,3,4,5,6 prospects.
+  // A 1★ scout usually files one or two names; mass shifts steadily up the range
+  // until a 3★ scout most often returns three and a 5★ scout half the time
+  // returns three and rarely fewer than two. Row 0 is unreachable (no scout, no
+  // report). Rows are already percentages and sum to 100.
   scoutReportSizeByExperience: [
-    [0, 0, 0, 0, 0, 0, 0], //  — unused
-    [55, 22, 12, 6, 3, 1, 1], // 1★ →  1% seven
-    [30, 27, 20, 11, 6, 3, 3], // 2★ →  3%
-    [12, 18, 24, 20, 12, 7, 7], // 3★ →  7%
-    [4, 8, 15, 20, 20, 13, 20], // 4★ → 20%
-    [2, 3, 6, 9, 12, 18, 50], // 5★ → 50%
+    [0, 0, 0, 0, 0, 0], // — unused
+    [32, 50, 10, 5, 2, 1], // 1★ → mostly one or two
+    [24, 40, 20, 10, 4, 2], // 2★
+    [16, 30, 30, 15, 6, 3], // 3★
+    [8, 20, 40, 20, 8, 4], // 4★
+    [3, 7, 50, 25, 10, 5], // 5★ → half the reports are a three-man shortlist
   ],
-  // Judgement → prospect tier. Rows are weights over
-  // bronze/silver/gold/platinum/diamond. A poor judge mostly turns up bronze and
-  // hits platinum ~1% of the time; a 5★ judge finds a wonderkid roughly one
-  // report in ten.
+  // Judgement → prospect tier. Rows are weights over the six rungs of
+  // `prospectTierOrder` — bronze/silver/gold/diamond/obsidian/legacy — and are
+  // already percentages summing to 100, so each number reads directly as "how
+  // often this judgement turns up this tier".
   //
-  // DIAMOND (v17) is the generational talent and is deliberately ~10× rarer than
-  // platinum in every row — the weights below are exactly platinum ÷ 10, so even
-  // a 5★ judge turns one up about once in a hundred finds. Rows are normalised
-  // at sample time, so these read as relative likelihoods.
+  // A 1★ judge deals almost entirely in bronze and silver and finds a diamond
+  // one report in fifty; a 5★ judge is the opposite, half his finds gold or
+  // better. The top two rungs stay rare at every rating on purpose: obsidian
+  // tops out at 1.5% and LEGACY at 0.75%, so even the best scout in the game
+  // turns one up about once in a hundred and thirty finds.
   scoutTierByJudgement: [
-    [0, 0, 0, 0, 0], // — unused
-    [64, 27, 8, 1, 0.1], // 1★ →  1% platinum, 0.1% diamond
-    [48, 34, 16, 2, 0.2], // 2★ →  2% / 0.2%
-    [32, 38, 26, 4, 0.4], // 3★ →  4% / 0.4%
-    [18, 36, 39, 7, 0.7], // 4★ →  7% / 0.7%
-    [8, 30, 52, 10, 1.0], // 5★ → 10% / 1.0%
+    [0, 0, 0, 0, 0, 0], // — unused
+    [70.0, 20.0, 7.4, 2.0, 0.5, 0.1], // 1★ →  2% diamond, 0.1% legacy
+    [54.0, 28.0, 12.5, 4.5, 0.8, 0.2], // 2★
+    [40.0, 34.0, 17.7, 7.0, 1.0, 0.3], // 3★
+    [20.0, 46.0, 22.25, 10.0, 1.25, 0.5], // 4★
+    [8.0, 50.0, 27.25, 12.5, 1.5, 0.75], // 5★ → 12.5% diamond, 0.75% legacy
   ],
-  prospectTierOrder: ["bronze", "silver", "gold", "platinum", "diamond"],
+  prospectTierOrder: ["bronze", "silver", "gold", "diamond", "obsidian", "legacy"],
   // Tier bands. Overall is what the kid can do now, potential the ceiling. The
   // bands overlap slightly so a tier is a strong signal, not a rigid bracket.
-  // Platinum reaches the absolute cap — that's the wonderkid. Diamond sits
-  // above it and pins the ceiling at the cap: a diamond is the once-a-career
-  // find, already senior-ready as a teenager.
+  // Diamond reaches the absolute cap — that's the wonderkid. Obsidian sits above
+  // it, and LEGACY pins the ceiling at the cap: the once-a-career find, already
+  // senior-ready as a teenager.
   // Bands are aligned to the star scale (starScaleMin/PerHalf) so a tier reads
   // as a star range without arithmetic: bronze tops out at 3★, silver spans
-  // 3–3.5★, gold 3.5–4★, platinum 4.5–5★, and diamond is the full five.
+  // 3–3.5★, gold 3.5–4★, diamond 4.5–5★, and the top two are the full five.
   prospectTierBands: {
     bronze: { overall: [50, 58], potential: [62, 74] },
     silver: { overall: [54, 64], potential: [73, 84] },
     gold: { overall: [60, 71], potential: [80, 89] },
+    diamond: { overall: [68, 80], potential: [85, 95] },
+    obsidian: { overall: [74, 84], potential: [90, 97] },
+    legacy: { overall: [78, 87], potential: [93, 99] },
+    // Pre-v1.53 saves can still carry a `platinum` badge; it maps onto the
+    // diamond band so a migrated prospect never falls through to bronze.
     platinum: { overall: [68, 80], potential: [85, 95] },
-    diamond: { overall: [74, 84], potential: [90, 97] },
   },
   fogJudgementStarReduction: 0.09,
   scoutWageBase: 3_000,

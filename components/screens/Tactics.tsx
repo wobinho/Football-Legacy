@@ -11,7 +11,8 @@ import { positionFit } from "@/lib/config/positions";
 import { TUNING } from "@/lib/config/tuning";
 import { selectionScore } from "@/lib/selection";
 import { ensureUserLineup } from "@/lib/gameloop";
-import { Flag, GhostButton, Modal, Ovr, PlayerSelect, PosBadge, Section, TraitChip } from "../ui";
+import { MAX_SAVED_TACTICS, savedTactics, tacticSummary } from "@/lib/tactics";
+import { ConfirmButton, Flag, GhostButton, GoldButton, Modal, Ovr, PlayerSelect, PosBadge, Section, TraitChip } from "../ui";
 
 const MENTALITIES = MENTALITY_OPTIONS;
 const STYLES = STYLE_OPTIONS;
@@ -513,7 +514,11 @@ function LineupBoard({
   const cap = TUNING.matchdaySquad - 11;
 
   const inLineup = new Set(Object.values(game.lineup));
-  const benchIds = (game.userBench ?? []).filter((id) => !inLineup.has(id) && game.players[id]);
+  // A player away on loan (§18) can't be fielded, so he's kept off the bench too
+  // even if he was benched before the loan was agreed.
+  const benchIds = (game.userBench ?? []).filter(
+    (id) => !inLineup.has(id) && game.players[id] && !game.players[id].loan
+  );
   const benched = benchIds.map((id) => game.players[id]).filter((p): p is PlayerBio => !!p);
   const benchedSet = new Set(benchIds);
   const rest = team.playerIds
@@ -776,6 +781,131 @@ function BenchRow({
   );
 }
 
+// ── Saved tactics (v1.53) ──────────────────────────────────────────────────
+// Changing formation clears the XI, which makes a mis-click expensive. A saved
+// tactic is the undo: instructions, starting XI and bench captured together
+// under a name, restored in one click. The panel sits directly above Formation
+// — the control it exists to make safe.
+
+function SaveTacticModal({ onClose }: { onClose: () => void }) {
+  const game = useGame((s) => s.game)!;
+  const save = useGame((s) => s.saveTactic);
+  const presets = savedTactics(game);
+  const [name, setName] = useState("");
+
+  // Saving over an existing name overwrites that preset — say so before the
+  // click rather than after, so "update my home tactic" is a deliberate act.
+  const clash = presets.find((t) => t.name.toLowerCase() === name.trim().toLowerCase());
+  const full = !clash && presets.length >= MAX_SAVED_TACTICS;
+  const filled = Object.keys(game.lineup).length;
+
+  const commit = () => {
+    if (!name.trim() || full) return;
+    save(name);
+    onClose();
+  };
+
+  return (
+    <Modal title="Save tactic" onClose={onClose}>
+      <div className="space-y-3">
+        <p className="text-[11px] leading-snug text-faint">
+          Saves your formation, every instruction, the starting XI and the bench order together.
+          Load it later to put all of it back — handy before you try something new.
+        </p>
+        <input
+          autoFocus
+          value={name}
+          maxLength={32}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && commit()}
+          placeholder="e.g. Home 4-3-3"
+          className="w-full rounded-md border border-line bg-raised px-3 py-2 text-sm placeholder:text-faint focus:border-gold focus:outline-none"
+        />
+        <div className="rounded-md border border-line bg-surface px-3 py-2 text-[11px] text-faint">
+          Capturing <b className="text-dim">{tacticSummary(game.teams[game.userTeamId].tactic)}</b> ·{" "}
+          <span className="tnum text-dim">{filled}</span>/11 picked ·{" "}
+          <span className="tnum text-dim">{(game.userBench ?? []).length}</span> subs
+        </div>
+        {clash && (
+          <p className="text-[11px] text-draw">
+            &ldquo;{clash.name}&rdquo; already exists — saving will overwrite it.
+          </p>
+        )}
+        {full && (
+          <p className="text-[11px] text-loss">
+            You already have {MAX_SAVED_TACTICS} saved tactics. Delete one to make room.
+          </p>
+        )}
+        <div className="flex justify-end gap-2">
+          <GhostButton onClick={onClose}>Cancel</GhostButton>
+          <GoldButton onClick={commit} disabled={!name.trim() || full}>
+            {clash ? "OVERWRITE" : "SAVE"}
+          </GoldButton>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function SavedTactics() {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const load = useGame((s) => s.loadTactic);
+  const remove = useGame((s) => s.deleteTactic);
+  const [saving, setSaving] = useState(false);
+
+  const presets = savedTactics(game);
+
+  return (
+    <>
+      <Section
+        title="Saved Tactics"
+        right={
+          <GhostButton onClick={() => setSaving(true)} className="!px-3 !py-1 text-xs">
+            Save current
+          </GhostButton>
+        }
+      >
+        {presets.length === 0 ? (
+          <div className="rounded-md border border-dashed border-line bg-surface px-3 py-3 text-[11px] leading-snug text-faint">
+            Nothing saved yet. Save your setup before changing formation — switching formation clears
+            the starting XI, and a saved tactic puts the whole thing back in one click.
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {presets.map((t) => (
+              <div
+                key={t.id}
+                className="flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-ink">{t.name}</div>
+                  <div className="truncate text-[11px] text-faint">
+                    {tacticSummary(t.tactic)} ·{" "}
+                    <span className="tnum">{Object.keys(t.lineup).length}</span> starters,{" "}
+                    <span className="tnum">{t.bench.length}</span> subs
+                  </div>
+                </div>
+                <GhostButton onClick={() => load(t.id)} className="!px-3 !py-1 text-xs">
+                  Load
+                </GhostButton>
+                <ConfirmButton
+                  label="✕"
+                  confirmLabel="Delete?"
+                  tone="danger"
+                  onConfirm={() => remove(t.id)}
+                  className="!px-2 !py-1 text-xs"
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
+      {saving && <SaveTacticModal onClose={() => setSaving(false)} />}
+    </>
+  );
+}
+
 export default function TacticsScreen() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
@@ -784,6 +914,9 @@ export default function TacticsScreen() {
   const viewPlayer = useGame((s) => s.viewPlayer);
   const [pickSlot, setPickSlot] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  /** Formation the user has clicked but not yet confirmed — see the switch
+   * confirm below. Null when no switch is pending. */
+  const [formationSwitch, setFormationSwitch] = useState<string | null>(null);
 
   const team = game.teams[game.userTeamId];
   const tactic = team.tactic;
@@ -799,6 +932,7 @@ export default function TacticsScreen() {
   const inLineup = new Set(Object.values(game.lineup));
 
   const slotFor = (slotId: string) => formation.slots.find((s) => s.id === slotId)!;
+  const picked = Object.values(game.lineup).filter((id) => game.players[id]).length;
 
   // Average archetype synergy of the picked XI in the chosen style, as a
   // percentage — the headline number for "does this style suit my squad?".
@@ -820,6 +954,7 @@ export default function TacticsScreen() {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       <div>
+        <SavedTactics />
         <Section title="Setup">
           <div className="space-y-4">
             <div>
@@ -828,7 +963,15 @@ export default function TacticsScreen() {
                 {FORMATIONS.map((f) => (
                   <button
                     key={f.id}
-                    onClick={() => setTactic({ formationId: f.id })}
+                    onClick={() => {
+                      // Switching formation wipes the XI (the slots themselves
+                      // change), so a picked side gets a confirm rather than
+                      // vanishing on a stray click. An empty XI has nothing to
+                      // lose and switches straight away.
+                      if (f.id === tactic.formationId) return;
+                      if (picked > 0) setFormationSwitch(f.id);
+                      else setTactic({ formationId: f.id });
+                    }}
                     className={`display rounded px-3 py-1.5 text-sm font-semibold ${
                       tactic.formationId === f.id ? "gold-grad text-black" : "border border-line text-dim hover:text-ink"
                     }`}
@@ -948,6 +1091,33 @@ export default function TacticsScreen() {
       <div>
         <LineupBoard onPickSlot={setPickSlot} onOpenPlayer={viewPlayer} />
       </div>
+
+      {formationSwitch && (
+        <Modal title="Change formation?" onClose={() => setFormationSwitch(null)}>
+          <div className="space-y-3">
+            <p className="text-sm leading-relaxed text-dim">
+              Switching to <b className="text-ink">{getFormation(formationSwitch).name}</b> clears your
+              starting XI — the positions are different, so all{" "}
+              <span className="tnum">{picked}</span> picks are lost.
+            </p>
+            <p className="text-[11px] leading-snug text-faint">
+              Save the current setup first if you might want it back — Saved Tactics restores the
+              formation, instructions, XI and bench in one click.
+            </p>
+            <div className="flex justify-end gap-2">
+              <GhostButton onClick={() => setFormationSwitch(null)}>Keep {formation.name}</GhostButton>
+              <GoldButton
+                onClick={() => {
+                  setTactic({ formationId: formationSwitch });
+                  setFormationSwitch(null);
+                }}
+              >
+                CHANGE
+              </GoldButton>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {pickSlot && (
         <Modal title={`Select ${slotFor(pickSlot).label}`} onClose={() => setPickSlot(null)}>

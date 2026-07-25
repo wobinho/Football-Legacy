@@ -9,7 +9,7 @@ import { TUNING } from "@/lib/config/tuning";
 import { ARCHETYPES, getArchetype } from "@/lib/config/archetypes";
 import { TRAITS } from "@/lib/config/traits";
 import { POS_ORDER } from "@/lib/config/positions";
-import { askPrice, negotiationStateOf } from "@/lib/transfers";
+import { askPrice, negotiationStateOf, signedThisSeason } from "@/lib/transfers";
 import { seasonGrowth } from "@/lib/development";
 import { wageDemandWithClause, maxLengthFor, evaluateOffer } from "@/lib/contracts";
 import { transferWindowState, formatDayShort, seasonYearLabel } from "@/lib/calendar";
@@ -65,6 +65,26 @@ export default function TransfersScreen() {
 function useScouted() {
   const game = useGame((s) => s.game)!;
   return (game.teams[game.userTeamId].staff.scout?.stars ?? 0) >= 1;
+}
+
+/**
+ * A target's weekly wage demand, shown beside his value (v1.53).
+ *
+ * The fee is only half of what a signing costs, and it's the half the market
+ * screen used to show on its own — a cheap player on a huge wage looked like a
+ * bargain right up until the negotiation. This is the same figure the contract
+ * step will quote (`wageDemandWithClause` with no clause on the table), so the
+ * list and the bid modal can never disagree.
+ */
+function WageDemand({ p, className = "" }: { p: PlayerBio; className?: string }) {
+  const game = useGame((s) => s.game)!;
+  const wage = wageDemandWithClause(game, p, undefined, TUNING);
+  return (
+    <span className={`tnum ${className}`} title={`Asks about ${formatMoney(wage)} per week`}>
+      {formatMoney(wage)}
+      <span className="text-faint">/wk</span>
+    </span>
+  );
 }
 
 function PlayerRowButton({ p, right, onClick }: { p: PlayerBio; right: React.ReactNode; onClick: () => void }) {
@@ -323,21 +343,39 @@ function SearchTab() {
               key={p.id}
               p={p}
               onClick={() => setTarget(p)}
-              right={<Money value={p.value} className="text-dim" />}
+              right={
+                <span className="flex items-baseline gap-2">
+                  <Money value={p.value} className="text-dim" />
+                  <WageDemand p={p} className="text-[11px] text-faint" />
+                </span>
+              }
             />
           ))}
         </PlayerGrid>
       ) : (
         <Card>
+          {/* Column headers, so the second money column reads as a wage rather
+              than a second valuation. */}
+          <div className="flex items-center gap-3 border-b border-line px-3 py-1.5 text-[10px] uppercase tracking-widest text-faint">
+            <span className="flex-1">Player</span>
+            <span className="w-9 shrink-0 text-center">Ovr</span>
+            <span className="w-24 shrink-0 text-right">Value</span>
+            <span className="w-24 shrink-0 text-right">Wage demand</span>
+          </div>
           {results.map((p) => (
             <PlayerRowButton
               key={p.id}
               p={p}
               onClick={() => setTarget(p)}
               right={
-                <div className="w-28 text-right">
-                  <Money value={p.value} className="text-dim" />
-                </div>
+                <>
+                  <div className="w-24 shrink-0 text-right">
+                    <Money value={p.value} className="text-dim" />
+                  </div>
+                  <div className="w-24 shrink-0 text-right text-xs">
+                    <WageDemand p={p} className="text-dim" />
+                  </div>
+                </>
               }
             />
           ))}
@@ -1101,6 +1139,9 @@ function ListedTab() {
       );
     }
     const btn = "display shrink-0 rounded border px-2 py-1 text-[11px] font-semibold tracking-wide transition-colors disabled:opacity-30";
+    // A player signed this season can't be sold on until next season (v1.54);
+    // loaning him out is still fine.
+    const signedLock = signedThisSeason(game, p);
     return (
       <span className="flex shrink-0 items-center gap-1.5">
         <button
@@ -1119,8 +1160,14 @@ function ListedTab() {
             e.stopPropagation();
             setMoveFor({ id: p.id, kind: "sell" });
           }}
-          disabled={!windowOpen}
-          title={windowOpen ? "See who would buy him and for how much" : "Sales need an open transfer window"}
+          disabled={!windowOpen || signedLock}
+          title={
+            signedLock
+              ? "Signed this season — he can't be sold until next season"
+              : windowOpen
+                ? "See who would buy him and for how much"
+                : "Sales need an open transfer window"
+          }
           className={`${btn} border-gold-lo/50 text-gold hover:border-gold-lo`}
         >
           Sell
@@ -1221,6 +1268,11 @@ function ShortlistTab() {
       <span className="w-20 text-right">
         {p.clubId ? <Money value={p.value} className="text-dim" /> : <span className="text-xs text-win">Free</span>}
       </span>
+      {/* A free agent costs no fee, which makes his wage the entire price of the
+          deal — the column matters most exactly where the value column is blank. */}
+      <span className="w-24 text-right text-xs">
+        <WageDemand p={p} className="text-dim" />
+      </span>
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -1296,13 +1348,41 @@ function FreeAgentsTab() {
       ) : view === "grid" ? (
         <PlayerGrid>
           {agents.map((p) => (
-            <PlayerCardButton key={p.id} p={p} onClick={() => setTarget(p)} right={<span className="text-xs text-win">Free</span>} />
+            <PlayerCardButton
+              key={p.id}
+              p={p}
+              onClick={() => setTarget(p)}
+              right={
+                <span className="flex items-baseline gap-2">
+                  <span className="text-xs text-win">Free</span>
+                  <WageDemand p={p} className="text-[11px] text-faint" />
+                </span>
+              }
+            />
           ))}
         </PlayerGrid>
       ) : (
         <Card>
+          <div className="flex items-center gap-3 border-b border-line px-3 py-1.5 text-[10px] uppercase tracking-widest text-faint">
+            <span className="flex-1">Player</span>
+            <span className="w-9 shrink-0 text-center">Ovr</span>
+            <span className="w-16 shrink-0 text-right">Fee</span>
+            <span className="w-24 shrink-0 text-right">Wage demand</span>
+          </div>
           {agents.map((p) => (
-            <PlayerRowButton key={p.id} p={p} onClick={() => setTarget(p)} right={<span className="w-24 text-right text-xs text-win">Free</span>} />
+            <PlayerRowButton
+              key={p.id}
+              p={p}
+              onClick={() => setTarget(p)}
+              right={
+                <>
+                  <span className="w-16 shrink-0 text-right text-xs text-win">Free</span>
+                  <span className="w-24 shrink-0 text-right text-xs">
+                    <WageDemand p={p} className="text-dim" />
+                  </span>
+                </>
+              }
+            />
           ))}
         </Card>
       )}
