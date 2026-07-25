@@ -19,20 +19,22 @@ import {
   ensureProgress,
   type AchievementDef,
 } from "@/lib/achievements";
-import type { UserAccolades } from "@/lib/types";
+import type { PlayerBio, UserAccolades } from "@/lib/types";
 import { formatMoney } from "@/lib/value";
-import { Card, Section, Tabs } from "../ui";
+import { POS_LABELS } from "@/lib/config/positions";
+import { Card, Crest, Flag, GhostButton, Ovr, PosBadge, Section, Tabs } from "../ui";
 
 export default function AchievementsScreen() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
-  const [tab, setTab] = useState<"accolades" | "achievements">("accolades");
+  const [tab, setTab] = useState<"accolades" | "achievements" | "hallOfFame">("accolades");
 
   // `ensureProgress` mutates the state to backfill a blank block — safe here
   // because it only fills defaults and never changes an existing value, and the
   // block is guaranteed present on any v26+ save anyway.
   const progress = ensureProgress(game);
   const earnedCount = Object.keys(progress.earned).length;
+  const hofCount = (game.hallOfFame ?? []).length;
 
   return (
     <div>
@@ -40,16 +42,93 @@ export default function AchievementsScreen() {
         tabs={[
           { id: "accolades", label: "User Accolades" },
           { id: "achievements", label: `Achievements (${earnedCount}/${ACHIEVEMENT_DEFS.length})` },
+          { id: "hallOfFame", label: `Hall of Fame${hofCount ? ` (${hofCount})` : ""}` },
         ]}
         active={tab}
         onChange={setTab}
       />
       {tab === "accolades" ? (
         <AccoladesTab a={progress.accolades} />
-      ) : (
+      ) : tab === "achievements" ? (
         <AchievementsTab earned={progress.earned} a={progress.accolades} />
+      ) : (
+        <HallOfFameTab />
       )}
     </div>
+  );
+}
+
+// ── Hall of Fame ───────────────────────────────────────────────────────────
+
+/** The club's hand-curated honour roll. Players are enshrined from a player's
+ * profile (Actions → Hall of Fame); this reads `game.hallOfFame` and renders
+ * each, with a way to open the profile or remove the induction. Ids whose player
+ * has since been pruned from a long save are skipped. */
+function HallOfFameTab() {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const viewPlayer = useGame((s) => s.viewPlayer);
+  const toggleHallOfFame = useGame((s) => s.toggleHallOfFame);
+
+  const inductees = (game.hallOfFame ?? [])
+    .map((id) => game.players[id])
+    .filter((p): p is PlayerBio => !!p);
+
+  if (inductees.length === 0) {
+    return (
+      <Section title="Hall of Fame">
+        <Card className="p-6 text-center text-sm text-faint">
+          Your club&apos;s Hall of Fame is empty. Open any player&apos;s profile and choose{" "}
+          <span className="text-dim">Add to Hall of Fame</span> to enshrine your legends here.
+        </Card>
+      </Section>
+    );
+  }
+
+  return (
+    <Section title={`Hall of Fame (${inductees.length})`}>
+      <Card className="divide-y divide-line/50">
+        {inductees.map((p) => {
+          const club = p.clubId ? game.teams[p.clubId] : null;
+          return (
+            <div key={p.id} className="flex items-center gap-3 px-4 py-3">
+              <button
+                onClick={() => viewPlayer(p.id)}
+                className="flex min-w-0 flex-1 items-center gap-3 text-left transition-colors hover:opacity-80"
+                title="View profile"
+              >
+                <Ovr value={p.overall} />
+                <div className="min-w-0 flex-1">
+                  <div className="display flex items-center gap-2 font-semibold text-ink">
+                    <Flag nat={p.nationality} size={16} />
+                    <span className="truncate">{p.name}</span>
+                    {p.retired && <span className="text-[10px] font-normal text-faint">RETIRED</span>}
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[12px] text-faint">
+                    <PosBadge pos={p.positions[0]} />
+                    <span>{POS_LABELS[p.positions[0]]}</span>
+                    <span className="text-faint">·</span>
+                    <span>{p.age}y</span>
+                    {club && (
+                      <>
+                        <span className="text-faint">·</span>
+                        <span className="flex items-center gap-1.5">
+                          <Crest colors={club.colors} short={club.short} size={16} />
+                          {club.name}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </button>
+              <GhostButton onClick={() => toggleHallOfFame(p.id)} className="shrink-0 !py-1 text-[11px]">
+                REMOVE
+              </GhostButton>
+            </div>
+          );
+        })}
+      </Card>
+    </Section>
   );
 }
 

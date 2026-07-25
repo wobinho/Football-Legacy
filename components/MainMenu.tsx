@@ -958,6 +958,11 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
               stadium: lc.stadium,
               rep: lc.rep,
               squadQuality: lc.squadQuality ?? lc.rep,
+              // Carry the authored squad strength / starting budget through so an
+              // imported club opens with exactly what the editor set, not the
+              // reputation-derived defaults.
+              ...(lc.squadAvgOverall !== undefined ? { squadAvgOverall: lc.squadAvgOverall } : {}),
+              ...(lc.budget !== undefined ? { budget: lc.budget } : {}),
               replaceIndex: clubIndex ?? 0,
             });
             setLibraryPickerOpen(null);

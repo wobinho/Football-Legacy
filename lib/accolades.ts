@@ -36,6 +36,7 @@ export const ACCOLADE_META: Record<AccoladeType, { title: string; emoji: string;
   goldenBoot: { title: "Golden Boot", emoji: "👟", blurb: "Most goals in the league" },
   goldenPlaymaker: { title: "Golden Playmaker", emoji: "🎯", blurb: "Most assists in the league" },
   goldenGlove: { title: "Golden Glove", emoji: "🧤", blurb: "Highest-rated goalkeeper in the league" },
+  goldenWall: { title: "Golden Wall", emoji: "🧱", blurb: "Highest-rated centre-back in the league" },
   teamOfSeason: { title: "Team of the Season", emoji: "✨", blurb: "Named in the league's XI of the season" },
   legacyPlayerOfSeason: { title: "Legacy Player of the Year", emoji: "👑", blurb: "Highest-rated player in the world's top divisions" },
   legacyTeamOfSeason: { title: "Legacy Team of the Year", emoji: "💎", blurb: "Named in the save's XI of the year" },
@@ -253,6 +254,14 @@ export function computeSeasonAccolades(state: GameState): SeasonAccolades {
       block.goldenGlove = toWinner(state, glove, Math.round(avgRating(glove) * 100) / 100);
     }
 
+    // Golden Wall — highest-rated centre-back (min apps). The keeper's award has
+    // a defensive counterpart: the season's best CB by average rating.
+    const wall = best(rated.filter((p) => p.positions[0] === "CB"), avgRating);
+    if (wall) {
+      award(wall, "goldenWall", season, leagueRef);
+      block.goldenWall = toWinner(state, wall, Math.round(avgRating(wall) * 100) / 100);
+    }
+
     // Team of the Season — the XI, position-capped.
     const xi = pickTeamOfSeason(pool);
     if (xi.length) {
@@ -303,6 +312,7 @@ function userWonAnAward(state: GameState, accolades: SeasonAccolades): boolean {
       isUsers(block.goldenBoot) ||
       isUsers(block.goldenPlaymaker) ||
       isUsers(block.goldenGlove) ||
+      isUsers(block.goldenWall) ||
       block.teamOfSeason?.some(isUsers)
     ) {
       return true;
@@ -351,6 +361,7 @@ export function runSeasonAwardsCeremony(state: GameState): void {
     line("Golden Boot", block?.goldenBoot),
     line("Golden Playmaker", block?.goldenPlaymaker),
     line("Golden Glove", block?.goldenGlove),
+    line("Golden Wall", block?.goldenWall),
     ``,
     line("Legacy Player of the Year", accolades.legacyPlayerOfSeason),
     `The full slate — every league's Team of the Season — is in the season review when you close the campaign.`,

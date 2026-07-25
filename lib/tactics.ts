@@ -30,6 +30,37 @@ export function savedTactics(state: GameState): SavedTactic[] {
 }
 
 /**
+ * Scrub a player out of every tactical slot he can no longer legally fill: the
+ * live starting XI, the named bench, and every saved-tactic preset.
+ *
+ * Called the instant a player leaves the user's control — sold, released, or
+ * gone out on loan. The match engine already refuses to field a departed player
+ * (`ensureUserLineup` filters the XI at kickoff), so this is not what keeps a
+ * sold player off the pitch. What it fixes is the *stale reference*: without it
+ * a saved tactic keeps naming a player who's no longer at the club, so loading
+ * that preset — or reading its "11 starters" summary — silently reintroduces a
+ * ghost that the pre-match filter then has to strip again. Purging at the source
+ * keeps every stored lineup honest, which is what closes the door on loading a
+ * player back into the XI after he's been moved on.
+ */
+export function purgePlayerFromTactics(state: GameState, playerId: string) {
+  if (state.lineup) {
+    for (const [slot, id] of Object.entries(state.lineup)) {
+      if (id === playerId) delete state.lineup[slot];
+    }
+  }
+  if (state.userBench) {
+    state.userBench = state.userBench.filter((id) => id !== playerId);
+  }
+  for (const preset of state.savedTactics ?? []) {
+    for (const [slot, id] of Object.entries(preset.lineup)) {
+      if (id === playerId) delete preset.lineup[slot];
+    }
+    preset.bench = preset.bench.filter((id) => id !== playerId);
+  }
+}
+
+/**
  * Capture the current setup under `name`.
  *
  * Saving over an existing name overwrites that preset in place rather than

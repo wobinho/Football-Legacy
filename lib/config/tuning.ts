@@ -737,6 +737,42 @@ export interface TuningConfig {
    * playing, not growing, so he gets the minutes but not the bonus. */
   loanGrowthMaxAge: number;
 
+  // ── Academy development boosts (v1.55) ──
+  // Extra seasonal growth multipliers layered on top of a prospect's minutes,
+  // per the development sources the youth setup actually offers. All are additive
+  // fractions (0.10 = +10%) combined multiplicatively at the rollover.
+  /** A season out on loan develops a prospect faster than a season in the
+   * academy — regular competitive football at a level that suits him. */
+  academyLoanGrowthBonus: number;
+  /** …and each appearance he actually makes on that loan adds this much again,
+   * so a loan where he plays every week is worth far more than a benchwarming one. */
+  academyLoanGrowthPerApp: number;
+  /** Cap on the per-appearance loan bonus, so a full season of games doesn't run
+   * the multiplier away. */
+  academyLoanGrowthPerAppCap: number;
+  /** Playing in the U21 league is a development boost in its own right. */
+  academyU21GrowthBonus: number;
+  /** …lifted when the user's U21 side finishes well — extra growth scaled by how
+   * high up the table they placed (1st = full bonus, mid-table = none). */
+  academyU21TeamPerfBonus: number;
+  /** …and lifted again for a prospect who personally starred: scaled by how far
+   * his average U21 rating cleared this pivot. */
+  academyU21RatingPivot: number;
+  academyU21RatingBonus: number;
+
+  // ── Player regen (v1.55) ──
+  // When a genuinely good player retires, a fresh teenager is generated to carry
+  // his profile forward — a free agent with the same position, nationality,
+  // archetype and frame, the retiree's peak potential, but a raw teenage overall.
+  /** Peak overall a retiring player must have reached to spawn a regen. */
+  regenMinPeakOverall: number;
+  regenAgeMin: number;
+  regenAgeMax: number;
+  /** The raw overall band a regen debuts at — a mediocre teenager with the
+   * ceiling to grow into his predecessor's shoes. */
+  regenOverallMin: number;
+  regenOverallMax: number;
+
   // Calibration targets (for the harness printout)
   targetGoalsPerMatch: number;
   targetHomeWinPct: number;
@@ -1409,6 +1445,22 @@ export const TUNING: TuningConfig = {
   saleAppetiteMax: 1.16,
   saleMinOfferShare: 0.75,
   loanGrowthMaxAge: 24,
+
+  // Academy development boosts (v1.55)
+  academyLoanGrowthBonus: 0.1, // +10% for a developmental season out on loan
+  academyLoanGrowthPerApp: 0.01, // +1% per loan appearance made
+  academyLoanGrowthPerAppCap: 0.25, // …up to +25% from appearances alone
+  academyU21GrowthBonus: 0.2, // +20% for playing the U21 league
+  academyU21TeamPerfBonus: 0.15, // + up to this again for a top U21 finish
+  academyU21RatingPivot: 7.0, // a U21 average rating above here counts as starring
+  academyU21RatingBonus: 0.2, // + up to this again for a standout U21 campaign
+
+  // Player regen (v1.55)
+  regenMinPeakOverall: 75,
+  regenAgeMin: 16,
+  regenAgeMax: 18,
+  regenOverallMin: 52,
+  regenOverallMax: 60,
 
   targetGoalsPerMatch: 2.7,
   targetHomeWinPct: 45,

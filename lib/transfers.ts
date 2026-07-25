@@ -16,6 +16,7 @@ import { grantDefaultContract, makeContract } from "./contracts";
 import { assignKitNumber, clearKitNumber } from "./kitnumbers";
 import { activePlayers } from "./archive";
 import { trackUserTransfer, syncProgress } from "./achievements";
+import { purgePlayerFromTactics } from "./tactics";
 import type { RNG } from "./rng";
 import {
   STANCE_PROFILE,
@@ -196,11 +197,9 @@ export function completeTransfer(
   // clean up any other pending offers for this player
   state.offers = state.offers.filter((o) => o.playerId !== playerId || o.status !== "pending");
   state.transferList = state.transferList.filter((id) => id !== playerId);
-  if (state.lineup) {
-    for (const [slot, id] of Object.entries(state.lineup)) {
-      if (id === playerId) delete state.lineup[slot];
-    }
-  }
+  // Scrub him from the live XI, the bench and every saved tactic in one place —
+  // a moved-on player must not linger in any stored lineup (see purge notes).
+  purgePlayerFromTactics(state, playerId);
 }
 
 /** Release a senior player from the user's squad (v14). He leaves as a free

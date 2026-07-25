@@ -12,7 +12,7 @@ import { poolFor, NAME_POOLS } from "./config/names";
 import { defaultCountryDB, type ClubSeed, type CountryDatabase, type PlayerSeed } from "./database";
 import { FORMATIONS } from "./config/formations";
 import { DEFAULT_TIER_NAMES, MAX_DIVISION_DEPTH, generateDivisionClubs } from "./config/divisions";
-import { mulberry32, deriveSeed, pick, randInt, randNormal, shuffle, type RNG } from "./rng";
+import { mulberry32, deriveSeed, pick, randInt, randNormal, randRange, shuffle, type RNG } from "./rng";
 import { playerValue } from "./value";
 import { buildSeasonSchedule } from "./calendar";
 import { generateLeagueFixtures, initCup } from "./season";
@@ -262,6 +262,46 @@ export function generatePlayer(
     longevity: rng(),
     stats: { apps: 0, goals: 0, assists: 0, ratingSum: 0, minutes: 0 },
   };
+  p.value = playerValue(p, cfg);
+  return p;
+}
+
+/**
+ * Player regen (v1.55): a fresh teenager born from a retiring player.
+ *
+ * When a genuinely good player hangs up his boots the world would otherwise be
+ * strictly poorer for it. A regen carries his profile forward — same position,
+ * nationality, archetype and physical frame — but as a raw teenager: a mediocre
+ * current overall with his predecessor's PEAK potential as the ceiling to grow
+ * into. He is generated as a free agent (no club), so the market, not the game,
+ * decides where he lands.
+ *
+ * `retiree.potential` is read as the peak: by retirement age a player's potential
+ * has long since converged onto (and been dragged up by) his best rating, so it
+ * is the honest high-water mark of the career being succeeded.
+ */
+export function regenFromRetiree(rng: RNG, cfg: TuningConfig, retiree: PlayerBio): PlayerBio {
+  const age = randInt(rng, cfg.regenAgeMin, cfg.regenAgeMax);
+  const pos = retiree.positions[0];
+  // Debut as a mediocre teenager — the ability is the potential's, the rating
+  // isn't yet. generatePlayer's maturity curve scales this raw request down for
+  // the age, so a 16-year-old regen reads appropriately unfinished.
+  const requested = Math.round(randRange(rng, cfg.regenOverallMin, cfg.regenOverallMax));
+  const p = generatePlayer(rng, cfg, {
+    pos,
+    overall: requested,
+    nat: retiree.nationality,
+    age,
+    archetypeId: retiree.archetypeId,
+  });
+  // Inherit the retiree's peak ceiling — the whole point of a regen is the chance
+  // it grows into the shoes it was born to fill.
+  p.potential = Math.round(Math.min(cfg.potentialAbsoluteCap, Math.max(p.overall + 6, retiree.potential)));
+  // Same frame as the man he succeeds (a target man's regen is a target man).
+  if (typeof retiree.heightCm === "number") p.heightCm = retiree.heightCm;
+  // A free agent: no club, ready to be signed off the market.
+  p.clubId = null;
+  p.contract = undefined;
   p.value = playerValue(p, cfg);
   return p;
 }
@@ -818,6 +858,7 @@ export function generateWorld(opts: NewGameOptions): GameState {
     academy: null as unknown as AcademyState, // filled below — needs the state object
     recordBook: { seasons: [], biggestWin: null },
     progress: emptyProgress(),
+    hallOfFame: [],
     pendingMatchFixtureId: null,
     lastExportSeason: 1,
     news: [],

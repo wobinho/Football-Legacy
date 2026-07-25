@@ -143,6 +143,10 @@ interface GameStore {
   /** Add/remove a player from the user's chosen bench (v25). Toggling a player
    * already benched removes him; adding respects the matchday bench cap. */
   toggleBench: (playerId: string) => void;
+  /** Auto-pick the whole bench (v1.53): fill it with the strongest available
+   * subs not already in the XI — a keeper first, then by overall — mirroring the
+   * engine's own empty-bench fallback. Replaces the current bench outright. */
+  autoBench: () => void;
   /** Drag-and-drop lineup edit (v1.5): put `playerId` in `slotId`, swapping with
    * whoever holds it. Unlike `setLineupSlot` — which evicts the incumbent to the
    * squad — dragging one starter onto another exchanges their two slots, which is
@@ -164,6 +168,10 @@ interface GameStore {
    * Resolves immediately — no listing, no waiting for the weekly tick. */
   sellPlayerTo: (playerId: string, clubId: string) => void;
   toggleShortlist: (playerId: string) => void;
+  /** Add/remove a player from the club's Hall of Fame (v1.55). A hand-curated
+   * honour roll shown on the Achievements screen; toggling an enshrined player
+   * removes him. */
+  toggleHallOfFame: (playerId: string) => void;
   hire: (candidateId: string) => void;
   dismissStaff: (candidateId: string) => void;
   fireStaff: (slot: StaffSlot) => void;
@@ -730,6 +738,32 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
+  autoBench: () => {
+    const g = get().game;
+    if (!g) return;
+    const team = g.teams[g.userTeamId];
+    const inXI = new Set(Object.values(g.lineup));
+    // Everyone eligible to sit on the bench: senior squad, alive, not out on
+    // loan, not already starting.
+    const avail = team.playerIds
+      .map((id) => g.players[id])
+      .filter((p) => p && !p.retired && !p.loan && !inXI.has(p.id));
+    const cap = TUNING.matchdaySquad - 11;
+    const bench: string[] = [];
+    // A keeper leads the bench so a mid-match injury to the GK is always covered
+    // — the same order the engine's own auto-fill uses.
+    const gk = avail
+      .filter((p) => p.positions[0] === "GK")
+      .sort((a, b) => b.overall - a.overall)[0];
+    if (gk) bench.push(gk.id);
+    for (const p of avail.slice().sort((a, b) => b.overall - a.overall)) {
+      if (bench.length >= cap) break;
+      if (!bench.includes(p.id)) bench.push(p.id);
+    }
+    g.userBench = bench;
+    get().bump(true);
+  },
+
   bid: (playerId, fee, terms) => {
     const g = get().game;
     if (!g) return { kind: "error", reason: "No game." } as BidOutcome;
@@ -838,6 +872,22 @@ export const useGame = create<GameStore>((set, get) => ({
       g.shortlist = list.filter((id) => id !== playerId);
     } else {
       list.push(playerId);
+    }
+    get().bump(true);
+  },
+
+  toggleHallOfFame: (playerId) => {
+    const g = get().game;
+    if (!g) return;
+    const list = (g.hallOfFame ??= []);
+    const name = g.players[playerId]?.name ?? "The player";
+    if (list.includes(playerId)) {
+      g.hallOfFame = list.filter((id) => id !== playerId);
+      get().showToast(`${name} removed from the Hall of Fame.`);
+    } else {
+      // Newest first — the latest inductee heads the roll.
+      g.hallOfFame = [playerId, ...list];
+      get().showToast(`${name} enshrined in the club Hall of Fame.`);
     }
     get().bump(true);
   },
@@ -1099,7 +1149,7 @@ export const useGame = create<GameStore>((set, get) => ({
     if (!g) return;
     const name = (g.teams[g.userTeamId].scouts ?? []).find((s) => s.id === scoutId)?.name;
     const err = fireScout(g, scoutId, TUNING);
-    get().showToast(err ?? `${name} leaves the club. Any assignment they held is recalled.`);
+    get().showToast(err ?? `${name} leaves the club.`);
     get().bump(true);
   },
 

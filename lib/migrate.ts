@@ -499,6 +499,14 @@ export function migrateSave(state: GameState): GameState {
     migrateV30toV31(state);
     state.schemaVersion = 31;
   }
+  if (state.schemaVersion < 32) {
+    migrateV31toV32(state);
+    state.schemaVersion = 32;
+  }
+  if (state.schemaVersion < 33) {
+    migrateV32toV33(state);
+    state.schemaVersion = 33;
+  }
   // future migrations chain here
   state.schemaVersion = SCHEMA_VERSION;
   return state;
@@ -953,6 +961,36 @@ function migrateV30toV31(state: GameState): void {
     if (r.player?.u21Tier === "platinum") r.player.u21Tier = "diamond";
   }
   state.savedTactics ??= [];
+}
+
+/**
+ * v31 → v32: goalkeeper clean sheets and the Golden Wall award (v1.54).
+ *
+ * Clean sheets are a new optional counter on season and career stats, credited
+ * from the next match on; the Golden Wall (highest-rated centre-back) is computed
+ * from stats already present at the awards ceremony. Both default to 0/absent at
+ * read time, and past clean sheets can't be reconstructed — the per-match
+ * scorelines behind old seasons compressed away at their rollovers — so the tally
+ * legitimately begins from this save's next completed match. Nothing to backfill;
+ * kept as an explicit step so the version bump is recorded and the chain honest.
+ */
+function migrateV31toV32(state: GameState): void {
+  void state; // additive/optional — cleanSheets and the Golden Wall default at read time
+}
+
+/**
+ * v32 → v33: player regen, academy development boosts, and the club Hall of Fame
+ * (v1.55).
+ *
+ * Regen and the academy boosts are pure engine behaviour driven by tuning at the
+ * rollover — nothing stored needs rewriting; they simply take effect from the
+ * next summer on. The Hall of Fame is a hand-curated list of player ids that
+ * starts empty: there is nothing to reconstruct (it is the manager's own choice
+ * of who to enshrine), so an old save opens with an empty roll. Kept as an
+ * explicit step so the version bump is recorded and the chain stays honest.
+ */
+function migrateV32toV33(state: GameState): void {
+  state.hallOfFame ??= [];
 }
 
 /** True if the save is a version this build knows how to bring up to date. */

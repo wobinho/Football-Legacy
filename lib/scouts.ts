@@ -119,14 +119,17 @@ export function hireScout(state: GameState, candidateId: string, cfg: TuningConf
   return null;
 }
 
-/** Let a scout go. Any assignment they were out on is recalled with them — the
- * brief belonged to that scout, so it can't outlive the employment. */
+/** Let a scout go. A scout out on assignment can't be released mid-trip — the
+ * brief has to be recalled first, so the manager brings them home before the
+ * paperwork. Once idle, the release is unconditional. */
 export function fireScout(state: GameState, scoutId: string, cfg: TuningConfig): string | null {
   const team = state.teams[state.userTeamId];
   const roster = team.scouts ?? [];
   if (!roster.some((s) => s.id === scoutId)) return "Not one of your scouts.";
+  if (state.academy.assignments.some((a) => a.scoutId === scoutId)) {
+    return "This scout is out on an assignment — recall them before releasing them.";
+  }
   team.scouts = roster.filter((s) => s.id !== scoutId);
-  state.academy.assignments = state.academy.assignments.filter((a) => a.scoutId !== scoutId);
   refreshScoutMarket(state, cfg);
   return null;
 }

@@ -29,6 +29,7 @@ export default function PlayerProfileModal() {
   const setTrainingPlan = useGame((s) => s.setTrainingPlan);
   const autoAssignPlan = useGame((s) => s.autoAssignTrainingPlan);
   const toggleShortlist = useGame((s) => s.toggleShortlist);
+  const toggleHallOfFame = useGame((s) => s.toggleHallOfFame);
   const releaseSenior = useGame((s) => s.releaseSenior);
   const recallLoanPlayer = useGame((s) => s.academyRecall);
   const [tab, setTab] = useState<"bio" | "career">("bio");
@@ -78,6 +79,11 @@ export default function PlayerProfileModal() {
   // players, retirees, or scouted previews (they aren't in the world yet).
   const canShortlist = !isPreview && !p.retired && p.clubId !== game.userTeamId;
   const shortlisted = (game.shortlist ?? []).includes(p.id);
+  // The Hall of Fame is a hand-curated club honour roll — any real player can be
+  // enshrined (a legend the manager raised, bought, or admired from afar), living
+  // or retired. Only a not-yet-signed scouted preview is excluded.
+  const canHallOfFame = !isPreview;
+  const inHallOfFame = (game.hallOfFame ?? []).includes(p.id);
   const arch = getArchetype(p.archetypeId);
   // Both direct moves need an open window — the buttons say so rather than
   // failing on click.
@@ -297,6 +303,30 @@ export default function PlayerProfileModal() {
                 </div>
                 <GhostButton onClick={() => toggleShortlist(p.id)} className="shrink-0 !py-1.5 text-xs">
                   {shortlisted ? "REMOVE FROM SHORTLIST" : "ADD TO SHORTLIST"}
+                </GhostButton>
+              </Card>
+            </Section>
+          )}
+
+          {/* Hall of Fame (v1.55) — enshrine a player in the club's honour roll.
+              A permanent, hand-curated tribute; collected on the Achievements
+              screen. Available for any real player, living or retired. */}
+          {canHallOfFame && (
+            <Section title="Hall of Fame">
+              <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+                <div className="min-w-0 flex-1">
+                  <div className="display font-semibold text-ink">
+                    Club Hall of Fame
+                    {inHallOfFame && <span className="ml-2 text-[10px] font-normal text-gold">ENSHRINED</span>}
+                  </div>
+                  <div className="text-[12px] leading-relaxed text-faint">
+                    {inHallOfFame
+                      ? "He's in your club's Hall of Fame — see the full honour roll under Achievements → Hall of Fame."
+                      : "Enshrine him among your club's legends. A permanent tribute collected under Achievements → Hall of Fame."}
+                  </div>
+                </div>
+                <GhostButton onClick={() => toggleHallOfFame(p.id)} className="shrink-0 !py-1.5 text-xs">
+                  {inHallOfFame ? "REMOVE FROM HALL OF FAME" : "ADD TO HALL OF FAME"}
                 </GhostButton>
               </Card>
             </Section>
@@ -598,6 +628,7 @@ const ACCOLADE_ORDER: AccoladeType[] = [
   "goldenBoot",
   "goldenPlaymaker",
   "goldenGlove",
+  "goldenWall",
   "teamOfSeason",
 ];
 

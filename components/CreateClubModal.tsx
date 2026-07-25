@@ -21,6 +21,14 @@ export interface CustomClub {
   rep: number;
   /** Generated-squad strength (1–100), independent of reputation. */
   squadQuality: number;
+  /** Target average overall of the generated squad (v1.53). Carried through from
+   * a library club so an imported side keeps the strength it was authored with;
+   * wins over `squadQuality` in worldgen when set. Not editable here. */
+  squadAvgOverall?: number;
+  /** Authored starting transfer budget in pounds (v1.53). Carried through from a
+   * library club so an imported side opens with the budget it was authored with
+   * rather than the reputation-derived default. Not editable here. */
+  budget?: number;
   /** Division the created club joins — the id of the tier it takes a slot in
    * (v1.43). Undefined means the top authored division, for older prefills. */
   divisionId?: string;
@@ -36,6 +44,10 @@ export function customClubSeed(c: CustomClub): ClubSeed {
     rep: c.rep,
     stadium: c.stadium,
     squadQuality: c.squadQuality,
+    // Preserve an authored average-overall / budget when one came through from a
+    // library club; omit otherwise so worldgen keeps its reputation-derived path.
+    ...(c.squadAvgOverall !== undefined ? { squadAvgOverall: c.squadAvgOverall } : {}),
+    ...(c.budget !== undefined ? { budget: c.budget } : {}),
   };
 }
 
@@ -115,6 +127,9 @@ export default function CreateClubModal({
   const [rep, setRep] = useState(initial?.rep ?? 60);
   const [squadQuality, setSquadQuality] = useState(initial?.squadQuality ?? 60);
   const [replaceIndex, setReplaceIndex] = useState<number | null>(initial?.replaceIndex ?? null);
+  // Carried through untouched from a library-imported club (no UI to edit here).
+  const squadAvgOverall = initial?.squadAvgOverall;
+  const budget = initial?.budget;
 
   const shortClean = short.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4);
   const valid = name.trim().length > 0 && shortClean.length >= 2 && stadium.trim().length > 0 && replaceIndex !== null;
@@ -127,7 +142,8 @@ export default function CreateClubModal({
           <div className="min-w-0">
             <div className="display truncate text-lg font-semibold">{name.trim() || "Your Club"}</div>
             <div className="text-[11px] text-faint">
-              {stadium.trim() || "Your stadium"} · {repLabel(rep)} · Est. budget {formatMoney(clubBudget(rep))}
+              {stadium.trim() || "Your stadium"} · {repLabel(rep)} · Est. budget{" "}
+              {formatMoney(budget ?? clubBudget(rep))}
             </div>
           </div>
         </div>
@@ -241,6 +257,8 @@ export default function CreateClubModal({
                 stadium: stadium.trim(),
                 rep,
                 squadQuality,
+                ...(squadAvgOverall !== undefined ? { squadAvgOverall } : {}),
+                ...(budget !== undefined ? { budget } : {}),
                 divisionId,
                 replaceIndex,
               })

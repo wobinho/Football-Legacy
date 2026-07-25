@@ -33,6 +33,7 @@ import { applyContract, grantDefaultContract } from "./contracts";
 import { academySquadCap } from "./economy";
 import { pushInboxItem } from "./inbox";
 import { assignKitNumber, clearKitNumber } from "./kitnumbers";
+import { purgePlayerFromTactics } from "./tactics";
 import {
   assignmentCapacity,
   bestJudgement,
@@ -889,6 +890,24 @@ export function toggleFocus(state: GameState, playerId: string, cfg: TuningConfi
 
 // ── Squad moves ───────────────────────────────────────────────────────────
 
+/** Record a "<Club> Academy → <Club>" line in a player's transfer history when
+ * he steps up from the club's own youth setup to the senior squad (v1.55). The
+ * academy end has no crest of its own, so only the destination carries a club id
+ * — the UI renders the academy end as a neutral crest, exactly as it does other
+ * non-club endpoints. Reads better than a blank history or a bare "Youth
+ * football" for a graduate the club raised itself. */
+function recordAcademyPromotion(state: GameState, playerId: string, team: Team) {
+  state.careers[playerId] ??= { playerId, seasons: [], transfers: [] };
+  state.careers[playerId].transfers.push({
+    season: state.season,
+    day: state.currentDay,
+    from: `${team.name} Academy`,
+    to: team.name,
+    fee: 0,
+    toId: team.id,
+  });
+}
+
 export function promoteToSenior(state: GameState, playerId: string, cfg: TuningConfig): string | null {
   const team = userTeam(state);
   const academy = team.academyPlayerIds ?? [];
@@ -923,6 +942,8 @@ export function promoteToSenior(state: GameState, playerId: string, cfg: TuningC
     // off the moment the player joins the senior squad.
     delete p.u21Tier;
   }
+  // Log the step up as a "<Club> Academy → <Club>" line (v1.55).
+  recordAcademyPromotion(state, playerId, team);
   return null;
 }
 
@@ -1026,6 +1047,8 @@ export function signGraduate(
   assignKitNumber(state, p);
   // The prospect tier is an academy label — it comes off on the way up.
   delete p.u21Tier;
+  // Log the step up as a "<Club> Academy → <Club>" line (v1.55).
+  recordAcademyPromotion(state, playerId, team);
   return null;
 }
 
@@ -1618,9 +1641,8 @@ export function sendAcademyLoan(state: GameState, playerId: string, clubId: stri
     role: loanRoleFor(p, dest, cfg),
   };
   state.academy.loanList = state.academy.loanList.filter((x) => x !== playerId);
-  for (const [slot, pid] of Object.entries(state.lineup)) {
-    if (pid === playerId) delete state.lineup[slot];
-  }
+  // A loanee can't be fielded — clear him from the XI, bench and saved tactics.
+  purgePlayerFromTactics(state, playerId);
   pushInbox(
     state,
     "academy",
@@ -1684,9 +1706,8 @@ export function weeklyLoanTick(state: GameState, cfg: TuningConfig) {
         role: loanRoleFor(p, dest, cfg),
       };
       ac.loanList = ac.loanList.filter((x) => x !== id);
-      for (const [slot, pid] of Object.entries(state.lineup)) {
-        if (pid === id) delete state.lineup[slot];
-      }
+      // Same scrub as a direct loan — off the pitch, the bench and saved tactics.
+      purgePlayerFromTactics(state, id);
       pushInbox(
         state,
         "academy",
@@ -1742,11 +1763,90 @@ export function recallLoan(state: GameState, playerId: string): string | null {
 
 // ── Season rollover hooks (§18) ───────────────────────────────────────────
 
-/** Before the development pass: send loan season reviews, fold this season's
- * youth/loan minutes into the stats the aging function reads (at §18 weights),
- * end all loans, and file the U21 season review. Career rows must already be
- * written — youth stats fold in *after* history is recorded. */
-export function academyPreDevRollover(state: GameState, cfg: TuningConfig) {
+/** The user U21 side's best league finish across the season's competitions,
+ * as a 0..1 factor: 1 = won a competition, 0 = mid-table or worse (12 teams).
+ * Reads every finished + running competition so a strong first half still
+ * counts even if the second slipped. */
+function u21TeamPerfFactor(state: GameState): number {
+  const ac = state.academy;
+  const seasons = [...(ac.u21History ?? []), ac.u21, ...(ac.u21Next ? [ac.u21Next] : [])];
+  let best = 0;
+  for (const u21 of seasons) {
+    if (!u21 || u21.roundsPlayed <= 0 || u21.forfeited) continue;
+    const pos = u21.table.findIndex((r) => r.isUser) + 1;
+    if (pos <= 0) continue;
+    // 1st = 1.0, tapering to 0 by mid-table (6th of 12) and staying there.
+    const factor = Math.max(0, (6 - (pos - 1)) / 5);
+    best = Math.max(best, factor);
+  }
+  return Math.min(1, best);
+}
+
+/**
+ * Per-academy-player seasonal growth multiplier from the youth setup (v1.55).
+ *
+ * The academy is a development environment, and the routes through it develop a
+ * prospect at different rates — a season of competitive loan football is worth
+ * more than a season of U21s, which is worth more than training alone. This is
+ * the multiplier the rollover applies ON TOP of the minutes those routes already
+ * credit, so a prospect who was out on loan AND flagged for focus stacks both.
+ *
+ * Must be computed BEFORE `academyPreDevRollover` clears loans and youth stats,
+ * which is why it is read there and handed to the development pass.
+ *
+ *   • Loan:  academyLoanGrowthBonus, plus academyLoanGrowthPerApp per appearance
+ *            he actually made (capped) — a loan where he plays every week is the
+ *            real prize.
+ *   • U21:   academyU21GrowthBonus for taking part, lifted by how well the side
+ *            finished (team factor) and how far his own average rating cleared
+ *            the "starring" pivot.
+ *   • Focus: u21FocusGrowthBonus (focus already earns it in the dev pass; this
+ *            keeps the whole youth boost in one place so the two never double up).
+ */
+export function academyDevBonuses(state: GameState, cfg: TuningConfig): Record<string, number> {
+  const team = userTeam(state);
+  const academy = new Set(team.academyPlayerIds ?? []);
+  const focus = new Set(state.academy.focusIds);
+  const teamPerf = u21TeamPerfFactor(state);
+  const out: Record<string, number> = {};
+  for (const id of academy) {
+    const p = state.players[id];
+    if (!p || p.retired) continue;
+    let mult = 1;
+    const ys = p.youthStats;
+    if (p.loan && ys) {
+      // A developmental loan: base bonus + per-appearance, only for a player still
+      // young enough to be growing from it.
+      if (p.age <= cfg.loanGrowthMaxAge) {
+        const perApp = Math.min(cfg.academyLoanGrowthPerAppCap, ys.apps * cfg.academyLoanGrowthPerApp);
+        mult *= 1 + cfg.academyLoanGrowthBonus + perApp;
+      }
+    } else if (ys && ys.apps > 0) {
+      // A U21-league campaign: taking part, plus team + individual performance.
+      const avg = ys.ratingSum / ys.apps;
+      const ratingFactor = Math.max(0, Math.min(1, (avg - cfg.academyU21RatingPivot) / 1.0));
+      mult *=
+        1 +
+        cfg.academyU21GrowthBonus +
+        cfg.academyU21TeamPerfBonus * teamPerf +
+        cfg.academyU21RatingBonus * ratingFactor;
+    }
+    if (focus.has(id)) mult *= 1 + cfg.u21FocusGrowthBonus;
+    if (mult !== 1) out[id] = mult;
+  }
+  return out;
+}
+
+/** Before the development pass: compute the academy growth boosts (loan/U21/focus)
+ * while loans + youth stats are still present, send loan season reviews, fold this
+ * season's youth/loan minutes into the stats the aging function reads (at §18
+ * weights), end all loans, and file the U21 season review. Career rows must
+ * already be written — youth stats fold in *after* history is recorded. Returns
+ * the per-player growth multipliers for the development pass to apply. */
+export function academyPreDevRollover(state: GameState, cfg: TuningConfig): Record<string, number> {
+  // Boosts first — they read `loan`/`youthStats`, which the fold below clears.
+  const bonuses = academyDevBonuses(state, cfg);
+
   // loan season reviews + returns
   for (const p of userLoanees(state)) {
     const dest = state.teams[p.loan!.toClubId];
@@ -1779,6 +1879,8 @@ export function academyPreDevRollover(state: GameState, cfg: TuningConfig) {
   // completed one already filed its own review as it was retired).
   const u21 = state.academy.u21;
   if (u21.roundsPlayed > 0 && !state.academy.u21History?.includes(u21)) fileU21Review(state, u21);
+
+  return bonuses;
 }
 
 /** After the development pass (ages are +1): enforce the age-out rule, warn

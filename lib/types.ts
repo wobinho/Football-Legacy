@@ -2,7 +2,7 @@
 // Single source of truth for all game data shapes. Schema-versioned so the
 // save/export format doubles as the modding format (GAME_DESIGN.md §2, §13).
 
-export const SCHEMA_VERSION = 31;
+export const SCHEMA_VERSION = 33;
 
 export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "LM" | "RM" | "AM" | "LW" | "RW" | "ST";
 
@@ -173,6 +173,7 @@ export type AccoladeType =
   | "goldenBoot" // per league — most goals
   | "goldenPlaymaker" // per league — most assists
   | "goldenGlove" // per league — highest-rated goalkeeper
+  | "goldenWall" // per league — highest-rated centre-back
   | "teamOfSeason" // per league — one of the XI of the season
   | "legacyPlayerOfSeason" // save-wide — highest-rated player across all leagues
   | "legacyTeamOfSeason"; // save-wide — one of the XI across all leagues
@@ -240,6 +241,11 @@ export interface SeasonPlayerStats {
   assists: number;
   ratingSum: number; // avg = ratingSum / apps
   minutes: number;
+  /** Clean sheets kept this season (v1.54). Credited to a goalkeeper whose side
+   * conceded no goals in a match he appeared in. Optional so old saves and the
+   * many `{apps:0,...}` initialisers default it to undefined (read as 0); only
+   * keepers ever accumulate it. */
+  cleanSheets?: number;
 }
 
 // Cold data — append-only, loaded on demand (§5).
@@ -252,6 +258,9 @@ export interface CareerRow {
   assists: number;
   avgRating: number;
   awards: string[];
+  /** Clean sheets kept in this season/competition (v1.54). Optional — absent on
+   * pre-v1.54 rows and on outfield players who never keep one. */
+  cleanSheets?: number;
 }
 
 export interface TransferRow {
@@ -729,6 +738,8 @@ export interface SeasonAccolades {
       goldenBoot?: AwardWinner;
       goldenPlaymaker?: AwardWinner;
       goldenGlove?: AwardWinner;
+      /** Golden Wall (v1.54) — the highest-rated centre-back in the league. */
+      goldenWall?: AwardWinner;
       /** The XI of the season, in pick order (GK → DEF → MID → ATT). */
       teamOfSeason?: AwardWinner[];
     }
@@ -1303,6 +1314,12 @@ export interface GameState {
    * one-off achievements earned. Optional so pre-v1.45 saves migrate in with a
    * fresh, zeroed block; see lib/achievements.ts. */
   progress?: UserProgress;
+  /** The club's Hall of Fame (v1.55): player ids the manager has enshrined from a
+   * player's profile. A permanent, hand-curated honour roll — being on it changes
+   * nothing in the world, it just collects the legends the manager wants
+   * remembered (living, retired, sold or still at the club). Newest first.
+   * Optional so old saves migrate in empty. Rendered on the Achievements screen. */
+  hallOfFame?: string[];
   /** End-of-season contract resolution (v1.51). Opened on `contractResolveDay`
    * — after the awards ceremony, before END SEASON — listing every player on the
    * user's books whose deal expires this summer. The manager renews or releases

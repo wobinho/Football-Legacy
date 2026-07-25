@@ -232,14 +232,20 @@ function ScoutDepartmentPanel() {
               <div className="flex flex-1 flex-col gap-2 p-3">
                 <ScoutRatings experience={s.experience} judgement={s.judgement} />
                 <ScoutOutlook experience={s.experience} judgement={s.judgement} />
-                <div className="mt-auto flex justify-end border-t border-line/60 pt-2">
-                  <ConfirmButton
-                    label="Release"
-                    confirmLabel={`Release ${s.name}?`}
-                    tone="danger"
-                    onConfirm={() => fire(s.id)}
-                    className="!px-3 !py-1 text-xs"
-                  />
+                <div className="mt-auto flex items-center justify-end border-t border-line/60 pt-2">
+                  {onAssignment.has(s.id) ? (
+                    <span className="text-[10px] text-faint" title="Recall the scout from the Scouting tab before releasing them.">
+                      Recall before releasing
+                    </span>
+                  ) : (
+                    <ConfirmButton
+                      label="Release"
+                      confirmLabel={`Release ${s.name}?`}
+                      tone="danger"
+                      onConfirm={() => fire(s.id)}
+                      className="!px-3 !py-1 text-xs"
+                    />
+                  )}
                 </div>
               </div>
             </Card>

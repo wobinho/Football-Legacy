@@ -399,6 +399,7 @@ export function userPlayerAwardsIn(state: GameState, accolades: import("./types"
     if (isUsers(block.goldenBoot)) n++;
     if (isUsers(block.goldenPlaymaker)) n++;
     if (isUsers(block.goldenGlove)) n++;
+    if (isUsers(block.goldenWall)) n++;
     n += (block.teamOfSeason ?? []).filter(isUsers).length;
   }
   if (isUsers(accolades.legacyPlayerOfSeason)) n++;

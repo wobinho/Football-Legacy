@@ -148,31 +148,42 @@ export function trackBiggestWin(state: GameState, fixture: { homeId: string; awa
 /** All-time club records computed from careers on demand (no extra store). */
 export function clubAllTimeRecords(state: GameState, teamId: string) {
   const teamName = state.teams[teamId].name;
-  const totals = new Map<string, { id: string; name: string; nationality?: string; apps: number; goals: number; assists: number }>();
-  const add = (playerId: string, name: string, nationality: string | undefined, apps: number, goals: number, assists: number) => {
-    const t = totals.get(playerId) ?? { id: playerId, name, nationality, apps: 0, goals: 0, assists: 0 };
+  const totals = new Map<string, { id: string; name: string; nationality?: string; pos?: import("./types").Pos; apps: number; goals: number; assists: number; cleanSheets: number }>();
+  const add = (
+    playerId: string,
+    name: string,
+    nationality: string | undefined,
+    pos: import("./types").Pos | undefined,
+    apps: number,
+    goals: number,
+    assists: number,
+    cleanSheets: number
+  ) => {
+    const t = totals.get(playerId) ?? { id: playerId, name, nationality, pos, apps: 0, goals: 0, assists: 0, cleanSheets: 0 };
     t.apps += apps;
     t.goals += goals;
     t.assists += assists;
+    t.cleanSheets += cleanSheets;
     totals.set(playerId, t);
   };
   for (const c of Object.values(state.careers)) {
     for (const row of c.seasons) {
       if (row.clubName === teamName) {
         const p = state.players[c.playerId];
-        add(c.playerId, p?.name ?? "?", p?.nationality, row.apps, row.goals, row.assists);
+        add(c.playerId, p?.name ?? "?", p?.nationality, p?.positions[0], row.apps, row.goals, row.assists, row.cleanSheets ?? 0);
       }
     }
   }
   // include current season running stats
   for (const pid of state.teams[teamId].playerIds) {
     const p = state.players[pid];
-    if (p) add(p.id, p.name, p.nationality, p.stats.apps, p.stats.goals, p.stats.assists);
+    if (p) add(p.id, p.name, p.nationality, p.positions[0], p.stats.apps, p.stats.goals, p.stats.assists, p.stats.cleanSheets ?? 0);
   }
   const rows = [...totals.values()];
   return {
     topScorers: rows.slice().sort((a, b) => b.goals - a.goals).slice(0, 10),
     topAssists: rows.slice().sort((a, b) => b.assists - a.assists).slice(0, 10),
     mostAppearances: rows.slice().sort((a, b) => b.apps - a.apps).slice(0, 10),
+    cleanSheets: rows.filter((r) => r.cleanSheets > 0).sort((a, b) => b.cleanSheets - a.cleanSheets).slice(0, 10),
   };
 }

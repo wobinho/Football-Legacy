@@ -371,6 +371,11 @@ function LeagueView({ leagueId }: { leagueId: string }) {
     .sort((a, b) => b.stats.assists - a.stats.assists)
     .slice(0, 10);
 
+  const keepers = Object.values(game.players)
+    .filter((p) => p.clubId && game.teams[p.clubId]?.leagueId === leagueId && (p.stats.cleanSheets ?? 0) > 0)
+    .sort((a, b) => (b.stats.cleanSheets ?? 0) - (a.stats.cleanSheets ?? 0))
+    .slice(0, 10);
+
   const n = table.length;
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
@@ -408,15 +413,22 @@ function LeagueView({ leagueId }: { leagueId: string }) {
       <div className="space-y-6">
         <Section title="Top Scorers">
           <StatLeaders
-            rows={scorers.map((p) => ({ id: p.id, name: p.name, nat: p.nationality, short: p.clubId ? game.teams[p.clubId].short : "", value: p.stats.goals }))}
+            rows={scorers.map((p) => ({ id: p.id, name: p.name, nat: p.nationality, pos: p.positions[0], short: p.clubId ? game.teams[p.clubId].short : "", value: p.stats.goals }))}
             emptyLabel="No goals yet."
             onView={viewPlayer}
           />
         </Section>
         <Section title="Top Assists">
           <StatLeaders
-            rows={assisters.map((p) => ({ id: p.id, name: p.name, nat: p.nationality, short: p.clubId ? game.teams[p.clubId].short : "", value: p.stats.assists }))}
+            rows={assisters.map((p) => ({ id: p.id, name: p.name, nat: p.nationality, pos: p.positions[0], short: p.clubId ? game.teams[p.clubId].short : "", value: p.stats.assists }))}
             emptyLabel="No assists yet."
+            onView={viewPlayer}
+          />
+        </Section>
+        <Section title="Clean Sheets">
+          <StatLeaders
+            rows={keepers.map((p) => ({ id: p.id, name: p.name, nat: p.nationality, pos: p.positions[0], short: p.clubId ? game.teams[p.clubId].short : "", value: p.stats.cleanSheets ?? 0 }))}
+            emptyLabel="No clean sheets yet."
             onView={viewPlayer}
           />
         </Section>
@@ -431,13 +443,14 @@ function LeagueView({ leagueId }: { leagueId: string }) {
   );
 }
 
-/** A ranked leaderboard (top scorers / top assists): rank, name, club, tally. */
+/** A ranked leaderboard (top scorers / assists / clean sheets): rank, name,
+ * position, club, tally. */
 function StatLeaders({
   rows,
   emptyLabel,
   onView,
 }: {
-  rows: { id: string; name: string; nat: string; short: string; value: number }[];
+  rows: { id: string; name: string; nat: string; pos?: string; short: string; value: number }[];
   emptyLabel: string;
   onView: (id: string) => void;
 }) {
@@ -450,6 +463,7 @@ function StatLeaders({
             <span className="mr-2 tnum text-faint">{i + 1}</span>
             <Flag nat={r.nat} size={11} className="mr-1.5" />
             <span className="truncate">{r.name}</span>
+            {r.pos && <span className="ml-1.5 shrink-0 rounded-sm bg-raised px-1 text-[9px] font-semibold text-faint">{r.pos}</span>}
             <span className="ml-1.5 shrink-0 text-[10px] text-faint">{r.short}</span>
           </span>
           <span className="display tnum font-semibold">{r.value}</span>
@@ -937,7 +951,7 @@ function SimLeagueView({ leagueId }: { leagueId: string }) {
             rows={result.topScorers
               .map((s) => ({ p: game.players[s.playerId], value: s.goals }))
               .filter((r) => r.p)
-              .map((r) => ({ id: r.p.id, name: r.p.name, nat: r.p.nationality, short: r.p.clubId ? game.teams[r.p.clubId].short : "", value: r.value }))}
+              .map((r) => ({ id: r.p.id, name: r.p.name, nat: r.p.nationality, pos: r.p.positions[0], short: r.p.clubId ? game.teams[r.p.clubId].short : "", value: r.value }))}
             emptyLabel="No goals recorded."
             onView={viewPlayer}
           />
@@ -947,7 +961,7 @@ function SimLeagueView({ leagueId }: { leagueId: string }) {
             rows={(result.topAssists ?? [])
               .map((s) => ({ p: game.players[s.playerId], value: s.assists }))
               .filter((r) => r.p)
-              .map((r) => ({ id: r.p.id, name: r.p.name, nat: r.p.nationality, short: r.p.clubId ? game.teams[r.p.clubId].short : "", value: r.value }))}
+              .map((r) => ({ id: r.p.id, name: r.p.name, nat: r.p.nationality, pos: r.p.positions[0], short: r.p.clubId ? game.teams[r.p.clubId].short : "", value: r.value }))}
             emptyLabel="No assists recorded."
             onView={viewPlayer}
           />

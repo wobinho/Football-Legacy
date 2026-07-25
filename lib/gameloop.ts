@@ -10,6 +10,7 @@ import { isMonday, formatDayShort, buildSeasonSchedule, seasonYearLabel } from "
 import { buildSideInput, pickLineup, headCoachMult } from "./selection";
 import { simulateMatch } from "./engine/match";
 import { generateLeagueFixtures, drawCupRound, applyPromotionRelegation, initCup } from "./season";
+import { regenFromRetiree } from "./worldgen";
 import {
   EURO_KO_ROUND_NAMES,
   applyEuropeanPrizes,
@@ -218,6 +219,16 @@ export function applyMatchResult(state: GameState, fixture: Fixture, result: Mat
     const scorer = state.players[s.playerId];
     if (scorer) scorer.stats.goals += 1;
     if (s.assistId && state.players[s.assistId]) state.players[s.assistId].stats.assists += 1;
+  }
+  // Clean sheets (v1.54): a keeper who appeared in a match his side kept clean
+  // banks one. Credited from the fixture's scoreline against the player's club,
+  // so a keeper subbed on into a shut-out earns it just as a full-match one does.
+  const concededBy = (clubId: string | null) =>
+    clubId === fixture.homeId ? result.awayGoals : clubId === fixture.awayId ? result.homeGoals : null;
+  for (const pid of Object.keys(result.minutes)) {
+    const p = state.players[pid];
+    if (!p || (result.minutes[pid] ?? 0) <= 0 || p.positions[0] !== "GK") continue;
+    if (concededBy(p.clubId) === 0) p.stats.cleanSheets = (p.stats.cleanSheets ?? 0) + 1;
   }
   trackBiggestWin(state, fixture, result.homeGoals, result.awayGoals);
 
@@ -625,6 +636,7 @@ function appendCareerRows(state: GameState) {
       assists: p.stats.assists,
       avgRating: p.stats.apps ? Math.round((p.stats.ratingSum / p.stats.apps) * 100) / 100 : 0,
       awards: seasonAwardTitles(p, state.season),
+      cleanSheets: p.stats.cleanSheets || undefined,
     });
     // youth football gets its own history line (§18): U21 league or loan spell
     const ys = p.youthStats;
@@ -692,8 +704,9 @@ export function runSeasonRollover(state: GameState) {
   }
 
   // Loan reviews + fold youth/loan minutes into development inputs (§18).
-  // Must run after career rows are written, before the development pass.
-  academyPreDevRollover(state, cfg);
+  // Must run after career rows are written, before the development pass. Returns
+  // the academy growth boosts (loan/U21/focus), which the pass below applies.
+  const academyBonuses = academyPreDevRollover(state, cfg);
 
   // aging + retirement for every player in the world (bulk, same function).
   // The user's development coach + training facility accelerate their own youth;
@@ -706,15 +719,21 @@ export function runSeasonRollover(state: GameState) {
   const userYouthCoachStars = userTeam.staff.youthCoach?.stars ?? 0;
   const userAcademyLevel = userTeam.academyLevel ?? 0;
   const academySet = new Set(userTeam.academyPlayerIds ?? []);
-  const focusSet = new Set(state.academy.focusIds);
   // Tagging a prospect into the U21 matchday squad earns them a small extra
-  // growth bump on top of their minutes (§18). Focus prospects already carry the
-  // bigger focus bonus, so the squad bump only tops up the untagged-but-selected.
+  // growth bump on top of their minutes (§18) when he didn't actually feature —
+  // a prospect who played gets the far bigger U21-participation boost instead
+  // (folded into `academyBonuses`), so this only tops up the untagged-but-selected.
   const u21SquadSet = new Set(state.academy.u21Squad ?? []);
   // Mentor trait (v6): experienced pros in the user's dressing room speed up
   // every young teammate's growth. Summed across the senior squad + academy.
   const userMentorBonus = mentorGrowthBonus(state, state.userTeamId);
   const retiredNotable: string[] = [];
+  // Regens (v1.55): teenagers born to succeed a genuinely good retiring player.
+  // Collected here and inserted after the loop so the world isn't mutated mid
+  // iteration; `activePlayers` returns a snapshot, but a fresh regen must not be
+  // developed the same summer he is created.
+  const regens: import("./types").PlayerBio[] = [];
+  const regenRng = mulberry32(deriveSeed(state.seed, `regen:${state.season}`));
   for (const p of activePlayers(state)) {
     const isUser = p.clubId === state.userTeamId;
     const inAcademy = academySet.has(p.id);
@@ -722,8 +741,14 @@ export function runSeasonRollover(state: GameState) {
     const gkBonus = (isUser || inAcademy) && p.positions[0] === "GK" ? userGkCoachStars : 0;
     const devCoachStars = (inAcademy ? userYouthCoachStars : isUser ? userDevCoachStars : 0) + gkBonus;
     const trainingLevel = inAcademy ? userAcademyLevel : isUser ? userTrainingLevel : 0;
-    let extraGrowth = focusSet.has(p.id) ? 1 + cfg.u21FocusGrowthBonus : 1;
-    if (inAcademy && !focusSet.has(p.id) && u21SquadSet.has(p.id)) extraGrowth *= 1 + cfg.u21SquadGrowthBonus;
+    // Academy development boosts (v1.55): loan (base + per-appearance), U21-league
+    // participation (with team + individual performance), and focus, all computed
+    // in academyPreDevRollover while loans/youth stats were still present. Focus
+    // is folded into that map, so the old inline focus/U21-squad bumps are gone.
+    let extraGrowth = academyBonuses[p.id] ?? 1;
+    // A tagged-but-unboosted U21-squad prospect who never actually featured still
+    // gets the small squad-attention nudge he always did.
+    if (inAcademy && !academyBonuses[p.id] && u21SquadSet.has(p.id)) extraGrowth *= 1 + cfg.u21SquadGrowthBonus;
     if ((isUser || inAcademy) && p.age <= cfg.growthEndAge) extraGrowth *= 1 + userMentorBonus;
     // Specialist training facilities (v15): position centres, plan centres and
     // the youth development centre each help a subset of the squad, on top of
@@ -734,6 +759,11 @@ export function runSeasonRollover(state: GameState) {
     const applyPlan = isUser || inAcademy;
     const out = applySeasonDevelopment(state, p, cfg, devRng, devCoachStars, trainingLevel, extraGrowth, applyPlan);
     if (out.retired && wasOverall >= 78) retiredNotable.push(`${p.name} (${wasOverall})`);
+    // A good enough player leaves a regen behind: a raw teenager carrying his
+    // profile and peak ceiling, born a free agent for the market to place.
+    if (out.retired && wasOverall >= cfg.regenMinPeakOverall) {
+      regens.push(regenFromRetiree(regenRng, cfg, p));
+    }
     p.stats = { apps: 0, goals: 0, assists: 0, ratingSum: 0, minutes: 0 };
     p.youthStats = undefined;
     p.fitness = 100;
@@ -743,6 +773,7 @@ export function runSeasonRollover(state: GameState) {
     // strictly what the player gains or loses during the season now beginning.
     p.seasonStartOverall = p.overall;
   }
+  for (const r of regens) state.players[r.id] = r;
   if (retiredNotable.length) {
     pushInbox(state, "news", "End of an era", `Retiring this summer: ${retiredNotable.slice(0, 6).join(", ")}.`);
   }

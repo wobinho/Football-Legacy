@@ -863,6 +863,11 @@ function HistoryTab() {
         <Section title="Most Appearances (club)">
           <RecordList rows={records.mostAppearances.map((r) => ({ ...r, value: r.apps }))} onView={viewPlayer} unit="apps" />
         </Section>
+        {records.cleanSheets.length > 0 && (
+          <Section title="All-Time Clean Sheets (club)">
+            <RecordList rows={records.cleanSheets.map((r) => ({ ...r, value: r.cleanSheets }))} onView={viewPlayer} unit="clean sheets" />
+          </Section>
+        )}
         <GraduatesLedger />
       </div>
     </div>
@@ -907,7 +912,7 @@ function RecordList({
   onView,
   unit,
 }: {
-  rows: { id: string; name: string; nationality?: string; value: number }[];
+  rows: { id: string; name: string; nationality?: string; pos?: string; value: number }[];
   onView: (id: string) => void;
   unit: string;
 }) {
@@ -932,7 +937,10 @@ function RecordList({
               {rank}
             </span>
             {r.nationality && <Flag nat={r.nationality} size={11} />}
-            <span className="min-w-0 flex-1 truncate transition-colors group-hover:text-gold">{r.name}</span>
+            <span className="min-w-0 flex-1 truncate transition-colors group-hover:text-gold">
+              {r.name}
+              {r.pos && <span className="ml-1.5 rounded-sm bg-raised px-1 text-[9px] font-semibold text-faint">{r.pos}</span>}
+            </span>
             <span className="display shrink-0 tnum font-semibold">
               {r.value} <span className="text-[10px] font-normal text-faint">{unit}</span>
             </span>

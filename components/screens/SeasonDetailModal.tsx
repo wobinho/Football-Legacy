@@ -315,6 +315,7 @@ export default function SeasonDetailModal({ summary, onClose }: { summary: Seaso
             <LeagueAward type="goldenBoot" w={leagueAwards.goldenBoot} kind="goals" game={game} onView={openProfile} />
             <LeagueAward type="goldenPlaymaker" w={leagueAwards.goldenPlaymaker} kind="assists" game={game} onView={openProfile} />
             <LeagueAward type="goldenGlove" w={leagueAwards.goldenGlove} kind="rating" game={game} onView={openProfile} />
+            <LeagueAward type="goldenWall" w={leagueAwards.goldenWall} kind="rating" game={game} onView={openProfile} />
           </div>
           {leagueAwards.teamOfSeason?.length ? (
             <TeamOfSeason

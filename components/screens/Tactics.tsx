@@ -506,6 +506,7 @@ function LineupBoard({
   const swapLineup = useGame((s) => s.swapLineup);
   const moveBench = useGame((s) => s.moveBench);
   const toggleBench = useGame((s) => s.toggleBench);
+  const autoBench = useGame((s) => s.autoBench);
   const bump = useGame((s) => s.bump);
 
   const team = game.teams[game.userTeamId];
@@ -650,11 +651,20 @@ function LineupBoard({
 
       {/* ── The bench ─────────────────────────────────────────────────── */}
       <div className="mt-5">
-        <div className="mb-1.5 flex items-baseline justify-between gap-2">
+        <div className="mb-1.5 flex items-center justify-between gap-2">
           <span className="text-[11px] uppercase tracking-widest text-faint">Bench</span>
-          <span className="text-[10px] text-faint">
-            <span className="tnum">{benched.length}</span>/{cap} subs · used in order
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] text-faint">
+              <span className="tnum">{benched.length}</span>/{cap} subs · used in order
+            </span>
+            <GhostButton
+              onClick={autoBench}
+              disabled={rest.length === 0 && benched.length >= cap}
+              className="!px-2.5 !py-1 text-[11px]"
+            >
+              Auto-pick
+            </GhostButton>
+          </div>
         </div>
 
         <div className="space-y-1">
