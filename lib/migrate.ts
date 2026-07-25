@@ -511,6 +511,10 @@ export function migrateSave(state: GameState): GameState {
     migrateV33toV34(state);
     state.schemaVersion = 34;
   }
+  if (state.schemaVersion < 35) {
+    migrateV34toV35(state);
+    state.schemaVersion = 35;
+  }
   // future migrations chain here
   state.schemaVersion = SCHEMA_VERSION;
   return state;
@@ -1006,6 +1010,22 @@ function migrateV32toV33(state: GameState): void {
  */
 function migrateV33toV34(state: GameState): void {
   void state;
+}
+
+/**
+ * v34 → v35: `academyTier` — the permanent counterpart to `u21Tier`, shown as a
+ * rarity history tag in the Career section of a player's profile (v1.6).
+ *
+ * `u21Tier` is a live label cleared on promotion, so a graduate loses all trace
+ * of the rarity he came through at. We backfill `academyTier` from any live
+ * `u21Tier` still present, so current academy prospects and registered rivals
+ * carry their tag straight away. Players who already graduated before this
+ * version simply have no tier to recover — nothing was ever recorded for them.
+ */
+function migrateV34toV35(state: GameState): void {
+  for (const p of Object.values(state.players)) {
+    if (p.u21Tier && !p.academyTier) p.academyTier = p.u21Tier;
+  }
 }
 
 /** True if the save is a version this build knows how to bring up to date. */

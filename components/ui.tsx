@@ -160,8 +160,17 @@ export function Crest({ colors, short, size = 24 }: { colors: [string, string]; 
     <span
       className="display inline-flex shrink-0 items-center justify-center rounded-sm font-bold"
       style={{
+        // Fixed, box-sized square so the crest is exactly `size`×`size`
+        // regardless of the flex/grid row it sits in — a taller sibling (e.g. a
+        // two-line league label) must never stretch or shrink the badge.
+        flex: "0 0 auto",
+        boxSizing: "border-box",
         width: size,
         height: size,
+        minWidth: size,
+        minHeight: size,
+        lineHeight: 1,
+        overflow: "hidden",
         background: colors[0],
         color: colors[1],
         fontSize: size * 0.38,

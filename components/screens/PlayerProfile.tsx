@@ -14,7 +14,8 @@ import { seasonGrowth } from "@/lib/development";
 import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan } from "@/lib/config/training";
 import { MAX_KIT_NUMBER, MIN_KIT_NUMBER, squadNumbersFor } from "@/lib/kitnumbers";
 import { ACCOLADE_META } from "@/lib/accolades";
-import type { Accolade, AccoladeType, GameState } from "@/lib/types";
+import { TIER_COLOR, TIER_LABEL, migrateProspectTier } from "@/lib/scouts";
+import type { Accolade, AccoladeType, GameState, PlayerBio } from "@/lib/types";
 import { ArchetypeIcon, AttrGrid, Card, ConfirmButton, Crest, displayFullName, Flag, FitnessBar, FormChip, GhostButton, GoldButton, GrowthBadge, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip, useEscapeKey } from "../ui";
 import ContractModal from "./ContractModal";
 import { LoanOfferModal, SellPlayerModal } from "./SquadMoveModals";
@@ -522,6 +523,7 @@ export default function PlayerProfileModal() {
           </>
         ) : (
           <div className="space-y-6">
+            <AcademyOriginSection game={game} p={p} />
             <Section title="Season by Season">
               {!career?.seasons.length ? (
                 <div className="text-sm text-faint">First season in progress — history is written at the season&apos;s end.</div>
@@ -585,6 +587,40 @@ export default function PlayerProfileModal() {
         {loanOpen && <LoanOfferModal playerId={p.id} onClose={() => setLoanOpen(false)} />}
       </div>
     </div>
+  );
+}
+
+/**
+ * Academy origin (v1.6) — a permanent "Youth Academy Player" credit shown at the
+ * top of the Career tab for anyone who came through an academy, carrying the
+ * rarity tag (Bronze → Legacy) he graduated at as a piece of history. The tier
+ * lives on `academyTier`, which — unlike the live `u21Tier` badge — is never
+ * cleared on promotion, so a senior star still wears the rung he was found at.
+ */
+function AcademyOriginSection({ game, p }: { game: GameState; p: PlayerBio }) {
+  const tier = migrateProspectTier(p.academyTier);
+  if (!tier) return null;
+  const club = p.academyClubId ? game.teams[p.academyClubId] : undefined;
+  const color = TIER_COLOR[tier];
+  const rare = tier === "obsidian" || tier === "legacy";
+  return (
+    <Section title="Academy">
+      <Card className="flex flex-wrap items-center gap-3 px-4 py-3">
+        <span className="text-xs uppercase tracking-widest text-faint">Youth Academy Player</span>
+        <span
+          className="display rounded-sm border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-widest"
+          style={{
+            borderColor: `${color}77`,
+            color,
+            ...(rare ? { boxShadow: `0 0 8px ${color}55` } : {}),
+          }}
+          title={`Graduated as a ${TIER_LABEL[tier]} prospect`}
+        >
+          {TIER_LABEL[tier]}
+        </span>
+        {club && <span className="text-sm text-dim">· {club.name} Youth Academy</span>}
+      </Card>
+    </Section>
   );
 }
 

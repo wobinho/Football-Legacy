@@ -2,7 +2,7 @@
 // Single source of truth for all game data shapes. Schema-versioned so the
 // save/export format doubles as the modding format (GAME_DESIGN.md §2, §13).
 
-export const SCHEMA_VERSION = 34;
+export const SCHEMA_VERSION = 35;
 
 export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "LM" | "RM" | "AM" | "LW" | "RW" | "ST";
 
@@ -129,6 +129,12 @@ export interface PlayerBio {
    * (joined at ≤18 via intake or a youth signing). Permanent — the Academy DNA
    * ledger and graduate news are built from this. */
   academyClubId?: string;
+  /** The prospect tier (Bronze→Legacy) this player came through the academy at
+   * (v1.6). Unlike `u21Tier` — which is a live label cleared on promotion — this
+   * is a permanent record of the rarity he graduated as, shown as a history tag
+   * in the Career section of his profile. Stamped from `u21Tier` when the tier
+   * is set, and never cleared. */
+  academyTier?: ProspectTier;
   /** Quality tier this player was rolled at as a registered U21 prospect (v18).
    * Set on rival prospects so youth scouting can price and badge them; the elite
    * tiers are what make a kid genuinely hard to buy. */

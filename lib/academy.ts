@@ -211,6 +211,7 @@ function rollRivalProspects(state: GameState, cfg: TuningConfig, rng: RNG, club:
     p.clubId = club.id;
     p.academyClubId = club.id;
     p.u21Tier = tier;
+    p.academyTier = tier; // permanent history label (survives promotion/transfer)
     state.players[p.id] = p;
     ids.push(p.id);
   }
@@ -362,6 +363,8 @@ function rollIntakeProspect(
   // promotion to the senior squad. Golden-gen kids get the elite ceiling above
   // but keep their rolled tier as the badge.
   p.u21Tier = tier;
+  // The permanent counterpart, kept for life as the Career-history rarity tag.
+  p.academyTier = tier;
   return p;
 }
 
@@ -901,7 +904,7 @@ function recordAcademyPromotion(state: GameState, playerId: string, team: Team) 
   state.careers[playerId].transfers.push({
     season: state.season,
     day: state.currentDay,
-    from: `${team.name} Academy`,
+    from: `${team.name} Youth Academy`,
     to: team.name,
     fee: 0,
     toId: team.id,
@@ -942,7 +945,7 @@ export function promoteToSenior(state: GameState, playerId: string, cfg: TuningC
     // off the moment the player joins the senior squad.
     delete p.u21Tier;
   }
-  // Log the step up as a "<Club> Academy → <Club>" line (v1.55).
+  // Log the step up as a "<Club> Youth Academy → <Club>" line (v1.55).
   recordAcademyPromotion(state, playerId, team);
   return null;
 }
@@ -1047,7 +1050,7 @@ export function signGraduate(
   assignKitNumber(state, p);
   // The prospect tier is an academy label — it comes off on the way up.
   delete p.u21Tier;
-  // Log the step up as a "<Club> Academy → <Club>" line (v1.55).
+  // Log the step up as a "<Club> Youth Academy → <Club>" line (v1.55).
   recordAcademyPromotion(state, playerId, team);
   return null;
 }
@@ -1363,12 +1366,16 @@ export function signProspect(state: GameState, reportId: string, cfg: TuningConf
   // Carry the scout's prospect tier onto the player as its academy rarity badge,
   // so a scouted signing wears the same Bronze→Legacy label an intake kid does
   // — and keeps it until promotion clears it (parity with runIntakeDay above).
-  if (report.tier) p.u21Tier = migrateProspectTier(report.tier);
+  // academyTier is the permanent counterpart shown as the Career-history tag.
+  if (report.tier) {
+    p.u21Tier = migrateProspectTier(report.tier);
+    p.academyTier = migrateProspectTier(report.tier);
+  }
   state.players[p.id] = p;
   (team.academyPlayerIds ??= []).push(p.id);
   assignKitNumber(state, p);
   state.careers[p.id] = { playerId: p.id, seasons: [], transfers: [] };
-  state.careers[p.id].transfers.push({ season: state.season, day: state.currentDay, from: "Youth football", to: team.name, fee: 0, toId: team.id });
+  state.careers[p.id].transfers.push({ season: state.season, day: state.currentDay, from: `${team.name} Youth Academy`, to: team.name, fee: 0, toId: team.id });
   ac.reports = ac.reports.filter((r) => r.id !== reportId);
   state.news.unshift(`${team.name} sign ${p.age}-year-old ${p.name} for the academy.`);
   return null;
