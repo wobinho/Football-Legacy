@@ -44,6 +44,11 @@ export function emptyAccolades(): UserAccolades {
     totalSpent: 0,
     totalReceived: 0,
     playerAwards: 0,
+    gcnClubsBought: 0,
+    gcnClubsFounded: 0,
+    gcnBiggestClubPurchase: 0,
+    gcnPeakTreasury: 0,
+    gcnFeederLoans: 0,
   };
 }
 
@@ -92,6 +97,9 @@ export function syncProgress(state: GameState): string[] {
     a.peak90Overalls = Math.max(a.peak90Overalls, countOverallsAtLeast(state, 90));
     a.peak85Overalls = Math.max(a.peak85Overalls, countOverallsAtLeast(state, 85));
   }
+  // GCN treasury peak (v1.64) — a high-water mark like the club budget, so a
+  // treasury spent down on clubs still counts toward the milestone it passed.
+  if (state.gcn) a.gcnPeakTreasury = Math.max(a.gcnPeakTreasury, state.gcn.treasury);
   return checkAchievements(state);
 }
 
@@ -167,7 +175,7 @@ export interface AchievementDef {
   title: string;
   blurb: string;
   emoji: string;
-  group: "silverware" | "squad" | "finance" | "market" | "legacy";
+  group: "silverware" | "squad" | "finance" | "market" | "network" | "legacy";
   /** Met? Evaluated whenever progress is synced; unlock is one-way. */
   test: (state: GameState, a: UserAccolades) => boolean;
   /** Optional progress readout for a locked achievement: [current, target]. */
@@ -201,17 +209,6 @@ export const ACHIEVEMENT_DEFS: AchievementDef[] = [
     emoji: "🏆",
     group: "silverware",
     test: (_s, a) => a.leagueTitles >= 1,
-  },
-  {
-    id: "winEngThirdTier",
-    title: "Out of the Third Tier",
-    blurb: "Win the third division in England.",
-    emoji: "🇬🇧",
-    group: "silverware",
-    test: (s) => {
-      const won = leagueWonLastSeason(s);
-      return won?.country === "ENG" && won.tier === 3;
-    },
   },
   {
     id: "winTopFlight",
@@ -330,6 +327,89 @@ export const ACHIEVEMENT_DEFS: AchievementDef[] = [
     test: (_s, a) => a.totalSpent >= 500_000_000,
     progress: (_s, a) => [a.totalSpent, 500_000_000],
   },
+  // ── Global Club Network (v1.64) ──
+  // The end-game layer earns its own shelf: unlocking it, growing it, and the
+  // two ways it can be grown (bought clubs and founded ones) are different
+  // achievements because they're different games.
+  {
+    id: "gcnUnlocked",
+    title: "The Network",
+    blurb: "Unlock your Global Club Network.",
+    emoji: "🌐",
+    group: "network",
+    test: (s) => !!s.gcn,
+  },
+  {
+    id: "gcnBuy3",
+    title: "Portfolio",
+    blurb: "Buy 3 clubs into the network.",
+    emoji: "🤝",
+    group: "network",
+    test: (_s, a) => a.gcnClubsBought >= 3,
+    progress: (_s, a) => [a.gcnClubsBought, 3],
+  },
+  {
+    id: "gcnBuy8",
+    title: "Multi-Club Empire",
+    blurb: "Buy 8 clubs into the network.",
+    emoji: "🏙️",
+    group: "network",
+    test: (_s, a) => a.gcnClubsBought >= 8,
+    progress: (_s, a) => [a.gcnClubsBought, 8],
+  },
+  {
+    id: "gcnFound1",
+    title: "Founder",
+    blurb: "Found a brand-new club for the network.",
+    emoji: "🧱",
+    group: "network",
+    test: (_s, a) => a.gcnClubsFounded >= 1,
+  },
+  {
+    id: "gcnFound5",
+    title: "Club Builder",
+    blurb: "Found 5 clubs for the network.",
+    emoji: "🏗️",
+    group: "network",
+    test: (_s, a) => a.gcnClubsFounded >= 5,
+    progress: (_s, a) => [a.gcnClubsFounded, 5],
+  },
+  {
+    id: "gcnBuy10bnClub",
+    title: "Crown Jewel",
+    blurb: "Buy a club worth £10 billion for the network.",
+    emoji: "💎",
+    group: "network",
+    test: (_s, a) => a.gcnBiggestClubPurchase >= 10_000_000_000,
+    progress: (_s, a) => [a.gcnBiggestClubPurchase, 10_000_000_000],
+  },
+  {
+    id: "gcnTreasury10bn",
+    title: "War Chest",
+    blurb: "Hold £10 billion in the GCN treasury.",
+    emoji: "🏛️",
+    group: "network",
+    test: (_s, a) => a.gcnPeakTreasury >= 10_000_000_000,
+    progress: (_s, a) => [a.gcnPeakTreasury, 10_000_000_000],
+  },
+  {
+    id: "gcnFeeder10",
+    title: "Feeder System",
+    blurb: "Send 10 players out on loan to your network clubs.",
+    emoji: "🔁",
+    group: "network",
+    test: (_s, a) => a.gcnFeederLoans >= 10,
+    progress: (_s, a) => [a.gcnFeederLoans, 10],
+  },
+  {
+    id: "gcnFeeder25",
+    title: "Pipeline",
+    blurb: "Send 25 players out on loan to your network clubs.",
+    emoji: "🚚",
+    group: "network",
+    test: (_s, a) => a.gcnFeederLoans >= 25,
+    progress: (_s, a) => [a.gcnFeederLoans, 25],
+  },
   // ── Legacy ──
   {
     id: "tenSeasons",
@@ -357,6 +437,7 @@ export const ACHIEVEMENT_GROUPS: { id: AchievementDef["group"]; label: string }[
   { id: "squad", label: "Squad" },
   { id: "finance", label: "Finance" },
   { id: "market", label: "Transfer Market" },
+  { id: "network", label: "Global Club Network" },
   { id: "legacy", label: "Legacy" },
 ];
 

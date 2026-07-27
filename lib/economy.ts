@@ -5,6 +5,7 @@ import type { GameState, Pos, Team } from "./types";
 import type { TuningConfig } from "./config/tuning";
 import { computeTable } from "./season";
 import { squadWageBill, playerWage } from "./value";
+import { leagueWageMult } from "./contracts";
 import { userStaffWages, STAFF_SLOT_MAP } from "./staff";
 import { sponsorWeeklyIncome } from "./sponsors";
 
@@ -14,6 +15,9 @@ export interface WeeklyBreakdown {
   gateIncome: number;
   facilityIncome: number; // stadium + commercial + media + hospitality + retail
   sponsorIncome: number; // season-long sponsorship deals (v6, user club only)
+  /** Central solidarity payment (v1.64) — the flat weekly top-up every club
+   * outside the manager's control receives. Always 0 for the user's own club. */
+  solidarityIncome: number;
   wageBill: number;
   staffWages: number;
   academyUpkeep: number; // §18 — facility running cost
@@ -55,6 +59,21 @@ export function facilityIncome(state: GameState, teamId: string, cfg: TuningConf
   return stadium + commercial + media + hospitality + retail + membership + events + academyPartner;
 }
 
+/** True for every club the manager doesn't run himself and doesn't own through
+ * the network (v1.64) — i.e. the ordinary AI world. These clubs carry wage bills
+ * their tier income was never going to cover, so they draw two central subsidies
+ * (a weekly solidarity payment and a start-of-season grant) that keep the world's
+ * balance sheets solvent without handing the manager free money.
+ *
+ * A ring-fenced home-country GCN club counts as AI here: it takes no network
+ * money, so it keeps the subsidy every other club in its league gets. */
+export function drawsAiSubsidy(state: GameState, teamId: string): boolean {
+  if (teamId === state.userTeamId) return false;
+  const team = state.teams[teamId];
+  if (!team) return false;
+  return !team.gcnOwned || !!team.gcnRingFenced;
+}
+
 export function weeklyBreakdown(state: GameState, teamId: string, cfg: TuningConfig): WeeklyBreakdown {
   const team = state.teams[teamId];
   const league = state.leagues[team.leagueId];
@@ -74,12 +93,13 @@ export function weeklyBreakdown(state: GameState, teamId: string, cfg: TuningCon
   // something legible if the market is to make sense.
   const sponsorIncome = sponsorWeeklyIncome(state, teamId);
   const players = team.playerIds.map((id) => state.players[id]).filter(Boolean);
-  const wageBill = squadWageBill(players, cfg);
+  const wageBill = squadWageBill(players, cfg, leagueWageMult(state, team.leagueId, cfg));
   const staffWages = teamId === state.userTeamId ? userStaffWages(state) : 0;
   const academyUpkeep = (team.academyLevel ?? 0) * cfg.academyUpkeepPerLevel;
   // Youth scholarship wages (v25). Only the user runs a visible academy roster,
   // so AI clubs' academy wage bill is zero — their youth costs are abstracted.
   const academyWages = teamId === state.userTeamId ? academyWageBill(state, teamId, cfg) : 0;
+  const solidarityIncome = drawsAiSubsidy(state, teamId) ? cfg.aiWeeklySubsidy : 0;
 
   return {
     tvIncome,
@@ -87,12 +107,14 @@ export function weeklyBreakdown(state: GameState, teamId: string, cfg: TuningCon
     gateIncome,
     facilityIncome: facilities,
     sponsorIncome,
+    solidarityIncome,
     wageBill,
     staffWages,
     academyUpkeep,
     academyWages,
     net:
-      tvIncome + positionBonus + gateIncome + facilities + sponsorIncome - wageBill - staffWages - academyUpkeep - academyWages,
+      tvIncome + positionBonus + gateIncome + facilities + sponsorIncome + solidarityIncome
+      - wageBill - staffWages - academyUpkeep - academyWages,
   };
 }
 
@@ -118,7 +140,7 @@ export function wageBillItems(state: GameState, teamId: string, cfg: TuningConfi
     .filter(Boolean)
     .map((p) => ({
       label: p.name,
-      amount: -(p.contract?.wage ?? playerWage(p.overall, cfg)),
+      amount: -(p.contract?.wage ?? playerWage(p.overall, cfg, leagueWageMult(state, team.leagueId, cfg))),
       detail: p.contract
         ? `${p.positions[0]} · ${p.overall} ovr · through S${p.contract.expirySeason}`
         : `${p.positions[0]} · ${p.overall} ovr · no contract`,
@@ -392,14 +414,35 @@ export function academySquadCap(state: GameState, teamId: string, cfg: TuningCon
   return cfg.academySquadSizeBase + level * cfg.academySquadSizePerLevel;
 }
 
-/** Runs every Monday for all playable clubs (AI clubs need budgets to trade). */
+/** Runs every Monday for all playable clubs (AI clubs need budgets to trade).
+ *
+ * Sim-league clubs keep no weekly books — their finances are abstracted — but
+ * they do draw the flat solidarity payment (v1.64), so the world outside the
+ * playable pyramid stays able to trade too. */
 export function weeklyEconomyTick(state: GameState, cfg: TuningConfig) {
   for (const league of Object.values(state.leagues)) {
-    if (!league.playable) continue;
-    for (const teamId of league.teamIds) {
-      const b = weeklyBreakdown(state, teamId, cfg);
-      state.teams[teamId].budget += b.net;
+    if (league.playable) {
+      for (const teamId of league.teamIds) {
+        const b = weeklyBreakdown(state, teamId, cfg);
+        state.teams[teamId].budget += b.net;
+      }
+    } else if (cfg.aiWeeklySubsidy > 0) {
+      for (const teamId of league.teamIds) {
+        if (drawsAiSubsidy(state, teamId)) state.teams[teamId].budget += cfg.aiWeeklySubsidy;
+      }
     }
+  }
+}
+
+/**
+ * The start-of-season grant every AI club banks (v1.64). Paid alongside the
+ * season prizes at the rollover, to every club the manager neither runs nor owns
+ * through the network — sim leagues included, since those clubs trade too.
+ */
+export function applyAiSeasonSubsidy(state: GameState, cfg: TuningConfig) {
+  if (cfg.aiSeasonSubsidy <= 0) return;
+  for (const team of Object.values(state.teams)) {
+    if (drawsAiSubsidy(state, team.id)) team.budget += cfg.aiSeasonSubsidy;
   }
 }
 

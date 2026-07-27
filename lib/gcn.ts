@@ -23,6 +23,7 @@ import { playerValue } from "./value";
 import { clubBudget, defaultTactic, generateClubSquad, teamIdFor } from "./worldgen";
 import { grantDefaultContract } from "./contracts";
 import { assignKitNumber } from "./kitnumbers";
+import { ensureProgress } from "./achievements";
 
 // ── Funds & unlock ─────────────────────────────────────────────────────────
 
@@ -94,6 +95,19 @@ export function withdrawFromTreasury(state: GameState, amount: number): string |
   state.teams[state.userTeamId].budget += n;
 }
 
+// ── Ring-fencing (v1.64) ─────────────────────────────────────────────────────
+// A club the network owns in the manager's OWN country is held at arm's length.
+// The manager gets the ownership — the standing, the balance sheet, the
+// achievement — but none of the levers that would let one club prop up or feed
+// the other inside the same football pyramid. Concretely: no treasury funding,
+// no standing orders, no GCN Deals income, no player movement either way, and no
+// feeder loans. That's what makes owning a domestic club not a fixing tool.
+
+const RING_FENCED_MONEY_ERROR =
+  "That club is in your own country — it's ring-fenced, so network money can't reach it.";
+const RING_FENCED_PLAYER_ERROR =
+  "That club is in your own country — it's ring-fenced, so players can't move between it and the rest of the network.";
+
 /** Fund an owned club: move money out of the treasury and into that club's own
  * transfer/wage budget (v1.62). The counterpart to a withdrawal — the network's
  * way of propping up a club it owns rather than the main squad. Returns an error
@@ -104,6 +118,7 @@ export function fundClub(state: GameState, clubId: string, amount: number): stri
   if (!gcn.clubIds.includes(clubId)) return "That club isn't in the network.";
   const club = state.teams[clubId];
   if (!club) return "Unknown club.";
+  if (club.gcnRingFenced) return RING_FENCED_MONEY_ERROR;
   const n = Math.floor(amount);
   if (!Number.isFinite(n) || n <= 0) return "Enter an amount to send.";
   if (n > gcn.treasury) return "The treasury doesn't hold that much.";
@@ -133,6 +148,12 @@ export function sellPlayer(state: GameState, playerId: string, cfg: TuningConfig
   if (!p) return "Unknown player.";
   if (!p.clubId || !gcn.clubIds.includes(p.clubId)) return "That player isn't at an owned club.";
   if (p.loan) return "A player out on loan can't be sold.";
+  // Ring-fenced clubs are sporting no-go areas: stripping one of its best players
+  // would weaken a side inside the manager's own pyramid, which is exactly the
+  // influence the ring fence exists to prevent.
+  if (isRingFenced(state, p.clubId)) {
+    return "That club is in your own country — it's ring-fenced, so you can't sell its players.";
+  }
   const club = state.teams[p.clubId];
   if (club && club.playerIds.length <= cfg.gcnSellMinSquadSize) {
     return `An owned club must keep at least ${cfg.gcnSellMinSquadSize} players.`;
@@ -207,13 +228,50 @@ export function clubBuyPrice(state: GameState, clubId: string, cfg: TuningConfig
   return Math.round(squadValue * cfg.gcnBuyValueMultiplier + leaguePremium + clubPremium);
 }
 
-/** True if a club can be brought into the network — an AI club in a sim league,
- * not the manager's own club, not already owned. */
-export function isBuyableClub(state: GameState, clubId: string): boolean {
+/** The country the manager's own club plays in. Home-country clubs are the ones
+ * the network may own only on ring-fenced terms (v1.64). */
+export function userCountry(state: GameState): string {
+  const own = state.teams[state.userTeamId];
+  return state.leagues[own?.leagueId ?? ""]?.country ?? "";
+}
+
+/** True if a club sits in the manager's own country — playable pyramid or the
+ * sim divisions beneath it. Such a club can be bought (v1.64), but only as a
+ * ring-fenced holding: see `gcnRingFenced`. */
+export function isHomeCountryClub(state: GameState, clubId: string): boolean {
+  const club = state.teams[clubId];
+  if (!club) return false;
+  const country = state.leagues[club.leagueId]?.country;
+  return !!country && country === userCountry(state);
+}
+
+/** True when a club the network owns is ring-fenced — a home-country holding
+ * that must stay at arm's length from the rest of the empire. */
+export function isRingFenced(state: GameState, clubId: string): boolean {
+  return !!state.teams[clubId]?.gcnRingFenced;
+}
+
+/** True if a club can be brought into the network.
+ *
+ * Sim (non-playable) leagues anywhere are fair game. Home-country clubs are
+ * buyable too (v1.64) — including ones in the manager's own playable pyramid —
+ * but only as ring-fenced holdings, and never a club in the SAME division the
+ * manager currently plays in: co-owning a direct league rival is the one case
+ * that can't be made honest, since the two meet for points. */
+export function isBuyableClub(state: GameState, clubId: string, cfg?: TuningConfig): boolean {
   const club = state.teams[clubId];
   if (!club || clubId === state.userTeamId || club.gcnOwned) return false;
   const league = state.leagues[club.leagueId];
-  return !!league && !league.playable;
+  if (!league) return false;
+  if (!league.playable) {
+    // A sim league in the manager's own country is still a home-country club.
+    if (isHomeCountryClub(state, clubId)) return cfg ? cfg.gcnAllowHomeCountryClubs : true;
+    return true;
+  }
+  // Playable league: only the manager's own country's pyramid exists here, and
+  // only outside his own division.
+  if (cfg && !cfg.gcnAllowHomeCountryClubs) return false;
+  return club.leagueId !== state.teams[state.userTeamId]?.leagueId;
 }
 
 /** Buy an existing club into the network, paid from the treasury. Returns an
@@ -221,14 +279,23 @@ export function isBuyableClub(state: GameState, clubId: string): boolean {
 export function buyClub(state: GameState, clubId: string, cfg: TuningConfig): string | void {
   const gcn = state.gcn;
   if (!gcn) return "The network isn't unlocked.";
-  if (!isBuyableClub(state, clubId)) return "That club can't be brought into the network.";
+  if (!isBuyableClub(state, clubId, cfg)) return "That club can't be brought into the network.";
   if (atGroupClubsCap(state, cfg))
     return `The network is at its ${groupClubsCap(state, cfg)}-club limit — upgrade Group Clubs in Operations.`;
   const price = clubBuyPrice(state, clubId, cfg);
   if (price > gcn.treasury) return "The GCN treasury can't afford that club.";
   gcn.treasury -= price;
-  state.teams[clubId].gcnOwned = true;
+  const club = state.teams[clubId];
+  club.gcnOwned = true;
+  club.gcnAcquiredSeason = state.season;
+  // A club in the manager's own country is held at arm's length — no money, no
+  // players, no feeder loans move between it and the rest of the network.
+  if (isHomeCountryClub(state, clubId)) club.gcnRingFenced = true;
   gcn.clubIds.push(clubId);
+
+  const a = ensureProgress(state).accolades;
+  a.gcnClubsBought += 1;
+  a.gcnBiggestClubPurchase = Math.max(a.gcnBiggestClubPurchase, price);
 }
 
 // ── Selling clubs ────────────────────────────────────────────────────────────
@@ -238,6 +305,23 @@ export function buyClub(state: GameState, clubId: string, cfg: TuningConfig): st
  * network built up sells for more than it was bought for. */
 export function clubSalePrice(state: GameState, clubId: string, cfg: TuningConfig): number {
   return Math.round(clubBuyPrice(state, clubId, cfg) * cfg.gcnSellClubPriceFactor);
+}
+
+/** The first season an owned club may be sold in (v1.64): the season it was
+ * acquired plus the minimum hold. A pre-v1.64 club carries no acquisition
+ * stamp — it's treated as long-held, so it stays sellable. */
+export function clubSellableSeason(state: GameState, clubId: string, cfg: TuningConfig): number | null {
+  const acquired = state.teams[clubId]?.gcnAcquiredSeason;
+  if (acquired === undefined) return null;
+  return acquired + cfg.gcnMinHoldSeasons;
+}
+
+/** Seasons still to run on an owned club's minimum hold, 0 once it's free to
+ * sell. Drives both the guard in `sellClub` and the UI's lock message. */
+export function seasonsUntilSellable(state: GameState, clubId: string, cfg: TuningConfig): number {
+  const from = clubSellableSeason(state, clubId, cfg);
+  if (from === null) return 0;
+  return Math.max(0, from - state.season);
 }
 
 /** Sell an owned club out of the network. The club itself survives — it simply
@@ -250,10 +334,18 @@ export function sellClub(state: GameState, clubId: string, cfg: TuningConfig): s
   if (!gcn.clubIds.includes(clubId)) return "That club isn't in the network.";
   const club = state.teams[clubId];
   if (!club) return "Unknown club.";
+  // Minimum hold (v1.64): a club joins the network for the long term — it can't
+  // be flipped back out for a quick treasury profit.
+  const wait = seasonsUntilSellable(state, clubId, cfg);
+  if (wait > 0) {
+    return `${club.name} is under the ${cfg.gcnMinHoldSeasons}-season minimum hold — sellable from S${clubSellableSeason(state, clubId, cfg)} (${wait} more ${wait === 1 ? "season" : "seasons"}).`;
+  }
   const price = clubSalePrice(state, clubId, cfg);
   gcn.treasury += price;
   gcn.clubIds = gcn.clubIds.filter((id) => id !== clubId);
   delete club.gcnOwned;
+  delete club.gcnAcquiredSeason;
+  delete club.gcnRingFenced;
   // A club that's left the network can't keep drawing its standing order.
   if (gcn.autoFunding) delete gcn.autoFunding[clubId];
   // Any player the network had out on a feeder loan there loses his guaranteed
@@ -264,6 +356,13 @@ export function sellClub(state: GameState, clubId: string, cfg: TuningConfig): s
 }
 
 // ── Automated funding (v1.63) ────────────────────────────────────────────────
+
+/** Owned clubs the treasury may send money to — everything except the
+ * ring-fenced home-country holdings (v1.64). The two funding dialogs list this,
+ * so a club that can't take network money never appears as an option. */
+export function fundableClubIds(state: GameState): string[] {
+  return (state.gcn?.clubIds ?? []).filter((id) => !state.teams[id]?.gcnRingFenced);
+}
 
 /** The standing weekly order for an owned club, 0 when none is set. */
 export function autoFundingOf(state: GameState, clubId: string): number {
@@ -276,6 +375,7 @@ export function setAutoFunding(state: GameState, clubId: string, amount: number)
   const gcn = state.gcn;
   if (!gcn) return "The network isn't unlocked.";
   if (!gcn.clubIds.includes(clubId)) return "That club isn't in the network.";
+  if (state.teams[clubId]?.gcnRingFenced) return RING_FENCED_MONEY_ERROR;
   const n = Math.floor(amount);
   if (!Number.isFinite(n) || n < 0) return "Enter a weekly amount.";
   const map = (gcn.autoFunding ??= {});
@@ -288,7 +388,7 @@ export function setAutoFunding(state: GameState, clubId: string, amount: number)
 export function totalAutoFunding(state: GameState): number {
   const gcn = state.gcn;
   if (!gcn) return 0;
-  return gcn.clubIds.reduce((sum, id) => sum + autoFundingOf(state, id), 0);
+  return fundableClubIds(state).reduce((sum, id) => sum + autoFundingOf(state, id), 0);
 }
 
 // ── Weekly network tick ──────────────────────────────────────────────────────
@@ -306,16 +406,18 @@ export function gcnWeeklyTick(state: GameState, cfg: TuningConfig) {
 
   gcn.treasury += brandDealsWeekly(state, cfg);
 
+  // Ring-fenced (home-country) clubs draw no network money at all — they live on
+  // their own books plus the same AI subsidy every other club gets.
   const perClub = gcnDealsWeekly(state, cfg);
   for (const id of gcn.clubIds) {
     const club = state.teams[id];
-    if (club) club.budget += perClub;
+    if (club && !club.gcnRingFenced) club.budget += perClub;
   }
 
   for (const id of gcn.clubIds) {
     const amount = autoFundingOf(state, id);
     const club = state.teams[id];
-    if (!amount || !club || amount > gcn.treasury) continue;
+    if (!amount || !club || club.gcnRingFenced || amount > gcn.treasury) continue;
     gcn.treasury -= amount;
     club.budget += amount;
   }
@@ -404,10 +506,15 @@ export function foundClub(state: GameState, leagueId: string, name: string, cfg:
     sponsors: [],
     sponsorOffers: [],
     gcnOwned: true,
+    gcnAcquiredSeason: state.season,
+    // Founding only ever targets a sim league, but that league can sit in the
+    // manager's own country — ring-fence it on the same terms as a purchase.
+    ...(league.country === userCountry(state) ? { gcnRingFenced: true } : {}),
   };
   state.teams[newId] = team;
   league.teamIds.push(newId);
   gcn.clubIds.push(newId);
+  ensureProgress(state).accolades.gcnClubsFounded += 1;
 
   // Contracts + kit numbers for the fresh squad (worldgen does this at build
   // time; a mid-save club needs it done explicitly).
@@ -421,11 +528,12 @@ export function foundClub(state: GameState, leagueId: string, name: string, cfg:
 // ── Moving players within the network ────────────────────────────────────────
 
 /** Clubs the network can move a player between: the manager's own club plus
- * every owned club. */
+ * every owned club that isn't ring-fenced. A home-country holding is deliberately
+ * absent — its squad is sealed off from the rest of the network (v1.64). */
 export function networkClubIds(state: GameState): string[] {
   const gcn = state.gcn;
   if (!gcn) return [state.userTeamId];
-  return [state.userTeamId, ...gcn.clubIds];
+  return [state.userTeamId, ...gcn.clubIds.filter((id) => !state.teams[id]?.gcnRingFenced)];
 }
 
 /** Permanently transfer a player between two network clubs, free of charge (both
@@ -442,6 +550,9 @@ export function moveWithinNetwork(state: GameState, playerId: string, toClubId: 
   if (!p.clubId || !network.has(p.clubId)) return "That player isn't at a network club.";
   if (!network.has(toClubId)) return "The destination isn't a network club.";
   if (p.clubId === toClubId) return "The player is already there.";
+  // Either end being ring-fenced blocks the move — the whole point of the
+  // arm's-length holding is that squads never mix inside one pyramid.
+  if (isRingFenced(state, p.clubId) || isRingFenced(state, toClubId)) return RING_FENCED_PLAYER_ERROR;
   completeTransfer(state, playerId, toClubId, 0);
 }
 
@@ -464,6 +575,7 @@ export function sendToFeeder(
   if (p.clubId !== state.userTeamId) return "Only your own players can be sent to a feeder club.";
   if (!gcn.clubIds.includes(toClubId)) return "The destination isn't an owned club.";
   if (!state.teams[toClubId]?.gcnOwned) return "The destination isn't an owned club.";
+  if (isRingFenced(state, toClubId)) return RING_FENCED_PLAYER_ERROR;
   p.loan = {
     toClubId,
     startDay: state.currentDay,
@@ -472,6 +584,7 @@ export function sendToFeeder(
     minutesWeight: cfg.loanMinutesWeightSim,
     role,
   };
+  ensureProgress(state).accolades.gcnFeederLoans += 1;
 }
 
 // ── Operations upgrades (table-driven, mirrors economy.ts) ───────────────────
@@ -580,6 +693,10 @@ export interface GcnClubSummary {
   reputation: number;
   budget: number;
   squadSize: number;
+  /** Home-country holding, held at arm's length (v1.64). */
+  ringFenced: boolean;
+  /** Seasons left on the minimum hold before the club may be sold, 0 when free. */
+  seasonsHeld: number;
 }
 
 export interface GcnOverview {
@@ -607,6 +724,8 @@ export function gcnOverview(state: GameState, cfg: TuningConfig): GcnOverview {
       reputation: t.reputation,
       budget: t.budget,
       squadSize: t.playerIds.length,
+      ringFenced: !!t.gcnRingFenced,
+      seasonsHeld: seasonsUntilSellable(state, t.id, cfg),
     }));
   return {
     clubCount: clubs.length,
@@ -646,6 +765,16 @@ export interface GcnClubFinance {
   gateIncome: number;
   facilityIncome: number;
   sponsorIncome: number;
+  /** The central solidarity payment (v1.64), non-zero only for a ring-fenced
+   * club — the rest of the network is funded by the treasury instead. */
+  solidarityIncome: number;
+  /** What the network sends this club each week — the GCN Deals track plus any
+   * standing order. Always 0 for a ring-fenced club. */
+  networkIncome: number;
+  /** False when the club sits in a sim league, whose ordinary weekly income and
+   * wage lines are abstracted rather than banked (v1.64). The panel says so
+   * instead of implying money that never moves. */
+  banksOwnBooks: boolean;
   /** Weeks of the current shortfall the budget covers, or null when the club is
    * running at a profit (nothing to survive). */
   weeksOfCover: number | null;
@@ -655,21 +784,40 @@ export function gcnClubFinance(state: GameState, clubId: string, cfg: TuningConf
   const club = state.teams[clubId];
   if (!club) return null;
   const w = weeklyBreakdown(state, clubId, cfg);
-  const income = w.tvIncome + w.positionBonus + w.gateIncome + w.facilityIncome + w.sponsorIncome;
-  const expenses = w.wageBill + w.staffWages + w.academyUpkeep + w.academyWages;
+  // What the network itself sends this club each week: the GCN Deals track plus
+  // any standing order. A ring-fenced club draws neither — it takes the central
+  // solidarity payment instead, the same one every AI club gets.
+  const fenced = !!club.gcnRingFenced;
+  const networkIncome = fenced ? 0 : gcnDealsWeekly(state, cfg) + autoFundingOf(state, clubId);
+  // Only a club in a PLAYABLE league actually books the ordinary weekly lines —
+  // weeklyEconomyTick skips sim leagues, whose finances are abstracted. Reporting
+  // tv/gate money a sim club never receives would make the panel lie about how
+  // long its funds last, which is the one number this panel exists to give.
+  const banksOwnBooks = state.leagues[club.leagueId]?.playable ?? false;
+  const ownIncome = banksOwnBooks
+    ? w.tvIncome + w.positionBonus + w.gateIncome + w.facilityIncome + w.sponsorIncome
+    : 0;
+  const income = ownIncome + w.solidarityIncome + networkIncome;
+  const expenses = banksOwnBooks ? w.wageBill + w.staffWages + w.academyUpkeep + w.academyWages : 0;
   return {
     budget: club.budget,
     income,
     expenses,
-    net: w.net,
+    net: income - expenses,
+    // The wage bill is always reported — it's the squad's real cost and the
+    // manager's best read on whether the club is overstretched — even where a
+    // sim league doesn't debit it weekly.
     wageBill: w.wageBill,
-    staffWages: w.staffWages,
-    tvIncome: w.tvIncome,
-    positionBonus: w.positionBonus,
-    gateIncome: w.gateIncome,
-    facilityIncome: w.facilityIncome,
-    sponsorIncome: w.sponsorIncome,
-    weeksOfCover: w.net < 0 ? Math.floor(club.budget / -w.net) : null,
+    staffWages: banksOwnBooks ? w.staffWages : 0,
+    tvIncome: banksOwnBooks ? w.tvIncome : 0,
+    positionBonus: banksOwnBooks ? w.positionBonus : 0,
+    gateIncome: banksOwnBooks ? w.gateIncome : 0,
+    facilityIncome: banksOwnBooks ? w.facilityIncome : 0,
+    sponsorIncome: banksOwnBooks ? w.sponsorIncome : 0,
+    solidarityIncome: w.solidarityIncome,
+    networkIncome,
+    banksOwnBooks,
+    weeksOfCover: income - expenses < 0 ? Math.floor(club.budget / (expenses - income)) : null,
   };
 }
 

@@ -16,6 +16,56 @@ export function baseWage(overall: number, cfg: TuningConfig): number {
   return Math.round((cfg.contractWageCurve.base * Math.exp(cfg.contractWageCurve.exponent * overall)) / 100) * 100;
 }
 
+// ── Wage market scale (v1.65) ─────────────────────────────────────────────
+// The ability curve alone priced a player identically everywhere, so a fourth
+// division club and a Premier League club were quoted the same wage for the
+// same footballer — and the lower leagues, whose tier income is a fraction of
+// the top flight's, could never balance their books. What a player is paid now
+// also depends on the market he plays in: the tier of his division and the
+// standing of the country's league system. Both come from tuning tables keyed
+// by tier and country code, so nothing here special-cases a nation.
+
+/** The country code a league belongs to, from its id prefix ("ENG2" → "ENG"). */
+function leagueCountryCode(leagueId: string): string | null {
+  return /^([A-Z]{3})\d*$/.exec(leagueId)?.[1] ?? null;
+}
+
+/** The country multiplier for a league's nation — the band it appears in, or
+ * the default for a country no band lists. */
+function countryWageMult(code: string | null, cfg: TuningConfig): number {
+  if (!code) return cfg.wageCountryBandDefault;
+  const band = cfg.wageCountryBands.findIndex((codes) => codes.includes(code));
+  return band >= 0 ? cfg.wageCountryBandMult[band] ?? cfg.wageCountryBandDefault : cfg.wageCountryBandDefault;
+}
+
+/**
+ * The wage multiplier for a market described directly by country and tier. The
+ * form worldgen uses, since it prices squads before the leagues exist as state.
+ */
+export function marketWageMult(code: string | null, tier: number, cfg: TuningConfig): number {
+  const tierMult = cfg.wageTierMult[Math.min(Math.max(1, tier), cfg.wageTierMult.length) - 1] ?? 1;
+  return Math.max(cfg.wageMarketMultMin, tierMult * countryWageMult(code, cfg));
+}
+
+/**
+ * The wage multiplier for the market a given league sits in: its tier scale
+ * times its country's band. An unknown league falls back to the top-tier,
+ * default-country figure, which is what an unplaced player (free agent) is
+ * quoted — he prices himself off the general market, not off a club he isn't at.
+ */
+export function leagueWageMult(state: GameState, leagueId: string | undefined, cfg: TuningConfig): number {
+  const league = leagueId ? state.leagues[leagueId] : undefined;
+  if (!league) return Math.max(cfg.wageMarketMultMin, (cfg.wageTierMult[0] ?? 1) * cfg.wageCountryBandDefault);
+  return marketWageMult(leagueCountryCode(league.id), league.tier, cfg);
+}
+
+/** The wage multiplier that applies to a player, from the club he's at. A free
+ * agent (no club) is priced on the open market's baseline. */
+export function playerWageMult(state: GameState, p: PlayerBio, cfg: TuningConfig): number {
+  const team = p.clubId ? state.teams[p.clubId] : undefined;
+  return leagueWageMult(state, team?.leagueId, cfg);
+}
+
 /** Age nudge on wage demands: kids come cheaper, primed stars a touch dearer. */
 function ageDemandFactor(age: number): number {
   if (age <= 20) return 0.75;
@@ -25,12 +75,26 @@ function ageDemandFactor(age: number): number {
   return 0.8;
 }
 
-/** What a player would demand per week to sign a fresh deal. Deterministic-ish
- * (seeded per player) so the number is stable across a negotiation session. */
-export function wageDemand(state: GameState, p: PlayerBio, cfg: TuningConfig): number {
+/**
+ * What a player would demand per week to sign a fresh deal. Deterministic-ish
+ * (seeded per player) so the number is stable across a negotiation session.
+ *
+ * Scaled by the market he'd be paid in (v1.65) — the tier and country of the
+ * signing club's league — so the same footballer costs a fraction in the fourth
+ * tier of what he costs in a big-five top flight. `atLeagueId` prices him for a
+ * league he isn't in yet, which is what a cross-division transfer needs to quote;
+ * omitted, he's priced at his current club's market.
+ */
+export function wageDemand(
+  state: GameState,
+  p: PlayerBio,
+  cfg: TuningConfig,
+  atLeagueId?: string
+): number {
   const rng = mulberry32(deriveSeed(state.seed, `wage:${p.id}:${p.overall}`));
   const jitter = 0.9 + rng() * 0.2;
-  const raw = baseWage(p.overall, cfg) * cfg.contractDemandMult * ageDemandFactor(p.age) * jitter;
+  const market = atLeagueId ? leagueWageMult(state, atLeagueId, cfg) : playerWageMult(state, p, cfg);
+  const raw = baseWage(p.overall, cfg) * cfg.contractDemandMult * ageDemandFactor(p.age) * jitter * market;
   return Math.max(500, Math.round(raw / 100) * 100);
 }
 
@@ -154,9 +218,17 @@ export function applyContract(
 
 /** Give a newly-signed player a default contract at their demand (used when a
  * transfer/free signing completes without an explicit negotiation, keeping the
- * AI world simple). */
-export function grantDefaultContract(state: GameState, p: PlayerBio, cfg: TuningConfig, years?: number) {
-  const wage = wageDemand(state, p, cfg);
+ * AI world simple). `atLeagueId` prices him in the league he's joining — the
+ * transfer path calls this before `clubId` moves, so his new market has to be
+ * passed in rather than read off him. */
+export function grantDefaultContract(
+  state: GameState,
+  p: PlayerBio,
+  cfg: TuningConfig,
+  years?: number,
+  atLeagueId?: string
+) {
+  const wage = wageDemand(state, p, cfg, atLeagueId);
   const len = years ?? Math.min(cfg.contractRenewYearsDefault, maxLengthFor(p, cfg));
   p.contract = makeContract(state, wage, len);
 }
@@ -187,6 +259,41 @@ export function ensureContracts(state: GameState, cfg: TuningConfig) {
       const years = 1 + Math.floor(rng() * span); // 1..span, evenly spread
       grantDefaultContract(state, p, cfg, years);
     }
+  }
+}
+
+/**
+ * Reprice a club's squad into a new wage market (v1.65) — called at the rollover
+ * for every club that changed division.
+ *
+ * A relegated side that carried top-flight contracts into the fourth tier would
+ * be paying several times what its new income can cover, and a promoted side
+ * would be paying its players far under the going rate for the division they've
+ * reached. Real relegation clauses do exactly this job, so wages move with the
+ * club: each contract is rescaled by the ratio between the market it was signed
+ * in and the market the club now plays in. Length, expiry and release clauses are
+ * untouched — this is a change of terms, not a new deal.
+ *
+ * Applies to AI and user clubs alike; nobody gets to keep a bargain the division
+ * change should have ended.
+ */
+export function repriceSquadForLeague(
+  state: GameState,
+  teamId: string,
+  fromLeagueId: string,
+  toLeagueId: string,
+  cfg: TuningConfig
+) {
+  const from = leagueWageMult(state, fromLeagueId, cfg);
+  const to = leagueWageMult(state, toLeagueId, cfg);
+  if (from <= 0 || from === to) return;
+  const ratio = to / from;
+  const team = state.teams[teamId];
+  if (!team) return;
+  for (const id of team.playerIds) {
+    const p = state.players[id];
+    if (!p?.contract) continue;
+    p.contract.wage = Math.max(500, Math.round((p.contract.wage * ratio) / 100) * 100);
   }
 }
 

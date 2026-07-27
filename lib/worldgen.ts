@@ -23,7 +23,7 @@ import { refreshSponsorOffers, seedAiSponsorBooks } from "./sponsors";
 import { initAcademyState, seedInitialAcademy } from "./academy";
 import { canRunEuropeanCups, initEuropeanState } from "./european";
 import { emptyProgress } from "./achievements";
-import { baseWage, ensureContracts } from "./contracts";
+import { baseWage, ensureContracts, marketWageMult } from "./contracts";
 
 /** The season a brand-new world is built at. Authored contract terms are anchored
  * to it so "N years remaining" resolves to an absolute expiry season. */
@@ -318,7 +318,10 @@ export function materializePlayer(
   rng: RNG,
   cfg: TuningConfig,
   seed: PlayerSeed,
-  homeNat: string
+  homeNat: string,
+  /** The wage-market scale of the division being built (v1.65). Only used for the
+   * curve fallback below — an explicitly authored wage is always taken verbatim. */
+  wageMult = 1
 ): PlayerBio {
   const primary = seed.positions[0];
   // A seed rating just to route the generator through age/potential logic; the
@@ -370,7 +373,10 @@ export function materializePlayer(
   // Wage-only authoring still gets a default-length deal; years-only uses the
   // wage curve for the number.
   if (seed.wage !== undefined || seed.contractYears !== undefined) {
-    const wage = seed.wage !== undefined ? Math.max(0, Math.round(seed.wage)) : baseWage(p.overall, cfg);
+    const wage =
+      seed.wage !== undefined
+        ? Math.max(0, Math.round(seed.wage))
+        : Math.round((baseWage(p.overall, cfg) * wageMult) / 100) * 100;
     const years = Math.max(1, Math.round(seed.contractYears ?? cfg.contractRenewYearsDefault));
     p.contract = { wage, expirySeason: WORLDGEN_SEASON + years - 1, signedSeason: WORLDGEN_SEASON };
   }
@@ -385,14 +391,16 @@ function generateSquad(
   homeShare: number,
   players: Record<string, PlayerBio>,
   teamId: string,
-  seeds?: PlayerSeed[]
+  seeds?: PlayerSeed[],
+  /** Wage-market scale of the division this squad plays in (v1.65). */
+  wageMult = 1
 ): string[] {
   const ids: string[] = [];
 
   // Custom database: materialize the authored roster verbatim first.
   if (seeds && seeds.length) {
     for (const seed of seeds) {
-      const p = materializePlayer(rng, cfg, seed, homeNat);
+      const p = materializePlayer(rng, cfg, seed, homeNat, wageMult);
       p.clubId = teamId;
       players[p.id] = p;
       ids.push(p.id);
@@ -661,6 +669,12 @@ export interface NewGameOptions {
    * The competitions begin in SEASON 2, because qualification is read from the
    * previous season's final league tables. */
   europeanTiers?: number;
+  /** The user's qualification design (v1.65), keyed by country code: which cup
+   * each finishing position in that country's top flight enters. See
+   * `EuroSlotMap`. Omitted, the engine's defaults are used. */
+  europeanSlots?: Record<string, number[]>;
+  /** Whether the domestic cup winner takes a Europa League place (v1.65). */
+  europeanCupWinnerQualifies?: boolean;
   seed?: number;
 }
 
@@ -759,9 +773,13 @@ export function generateWorld(opts: NewGameOptions): GameState {
     const rng = mulberry32(deriveSeed(seed, `league:${div.id}`));
     const homeShare = db.homeShare ?? 0.6;
     const teamIds: string[] = [];
+    // The wage market this whole division is paid in (v1.65) — its country band
+    // and its tier. Only reaches the curve fallback for authored contract terms;
+    // everyone else is priced by ensureContracts once the world stands up.
+    const wageMult = marketWageMult(/^([A-Z]{3})\d*$/.exec(div.id)?.[1] ?? null, div.tier, cfg);
     div.clubs.forEach((club, i) => {
       const teamId = teamIdFor(div.id, i);
-      const playerIds = generateSquad(rng, cfg, club, db.nat, homeShare, players, teamId, club.players);
+      const playerIds = generateSquad(rng, cfg, club, db.nat, homeShare, players, teamId, club.players, wageMult);
       teams[teamId] = {
         id: teamId,
         name: club.name,
@@ -905,7 +923,12 @@ export function generateWorld(opts: NewGameOptions): GameState {
   // `cups` starts empty: qualification reads the previous season's final tables,
   // so the first continental campaign is drawn at the season-1 rollover.
   if (opts.europeanTiers && opts.europeanTiers > 0 && canRunEuropeanCups(state)) {
-    state.european = initEuropeanState(state, opts.europeanTiers);
+    state.european = initEuropeanState(
+      state,
+      opts.europeanTiers,
+      opts.europeanSlots,
+      opts.europeanCupWinnerQualifies ?? true
+    );
   }
   seedInitialAcademy(state, cfg);
   // Shirt numbers (v15): every squad in the world is numbered once the rosters

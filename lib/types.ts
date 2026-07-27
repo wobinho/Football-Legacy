@@ -2,7 +2,7 @@
 // Single source of truth for all game data shapes. Schema-versioned so the
 // save/export format doubles as the modding format (GAME_DESIGN.md §2, §13).
 
-export const SCHEMA_VERSION = 35;
+export const SCHEMA_VERSION = 38;
 
 export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "LM" | "RM" | "AM" | "LW" | "RW" | "ST";
 
@@ -258,7 +258,18 @@ export interface SeasonPlayerStats {
 export interface CareerRow {
   season: number;
   clubName: string;
+  /** The club this season was played for (v1.65), for its badge and country
+   * flag. Undefined on rows written before this version — those fall back to a
+   * neutral crest built from `clubName`, exactly as transfer rows do. */
+  clubId?: string;
   competition: string;
+  /** The overall this player carried into the season (v1.63) — his rating on
+   * the day it kicked off, not the one he finished on. Read straight off
+   * `seasonStartOverall` when the row is written at the rollover, which is
+   * before the summer's development re-stamps that baseline. Undefined on rows
+   * written before this version; the profile renders those as a dash rather
+   * than inventing a number the save never recorded. */
+  startOverall?: number;
   apps: number;
   goals: number;
   assists: number;
@@ -450,6 +461,17 @@ export interface Team {
    * it grants guaranteed minutes. Never set on `userTeamId` (the club the
    * manager plays). Absent on non-network clubs. */
   gcnOwned?: boolean;
+  /** The season the network acquired this club (v1.64). Drives the minimum-hold
+   * rule — a club can't be sold out of the network until `gcnMinHoldSeasons`
+   * seasons after this. Absent on a pre-v1.64 save's owned clubs, which are
+   * treated as long-held and free to sell. */
+  gcnAcquiredSeason?: number;
+  /** Set when the network owns a club in the manager's OWN country (v1.64). Such
+   * a club is ring-fenced: no network funding, no player movement to or from the
+   * rest of the network, no feeder loans. Owning it is a legacy/financial play
+   * only, so it can never be used to strengthen (or weaken) the manager's own
+   * domestic competition. */
+  gcnRingFenced?: boolean;
 }
 
 // ── Sponsors / investments (v6, Club → Income) ────────────────────────────
@@ -915,6 +937,22 @@ export interface EuroCupState {
   announced?: boolean;
 }
 
+/**
+ * Which cup a given finishing position in a country's top flight qualifies for
+ * (v1.65). Index 0 is the champion, index 1 the runner-up, and so on down the
+ * table; the value is the cup tier that position enters, or 0 for "no European
+ * football". An array shorter than the division simply means every position
+ * past its end qualifies for nothing.
+ *
+ * This replaces the old count-per-tier shape, which could only ever express
+ * "the top N go to the Champions League, the next M to the Europa League" in
+ * that fixed order. Per-position mapping lets a save say (as the real
+ * competitions do) that 1st–4th go to the Champions League, 5th–6th to the
+ * Europa League and 7th to the Conference League — or any other arrangement the
+ * user builds at setup, including gaps.
+ */
+export type EuroSlotMap = number[];
+
 /** The whole European layer for the current season. Absent entirely when the
  * save didn't enable it (or has fewer than the required European countries). */
 export interface EuropeanState {
@@ -923,10 +961,12 @@ export interface EuropeanState {
   /** The cups actually in progress this season. Empty in season 1, since
    * qualification reads the previous season's final tables. */
   cups: EuroCupState[];
-  /** Per-nation qualification counts, keyed by country code then cup tier —
-   * e.g. `{ ENG: [4, 2, 1] }` means 4 into the Champions League, 2 into the
-   * Europa League and 1 into the Conference League. */
-  slots: Record<string, [number, number, number]>;
+  /** Per-nation qualification map, keyed by country code: which cup each
+   * finishing position enters. See `EuroSlotMap`. */
+  slots: Record<string, EuroSlotMap>;
+  /** Whether the domestic cup winner takes a Europa League place (v1.65) —
+   * user-configurable at setup. Defaults to true. */
+  cupWinnerQualifies?: boolean;
 }
 
 // ── Youth Academy (§18, v4) ───────────────────────────────────────────────
@@ -1220,6 +1260,16 @@ export interface UserAccolades {
   /** Individual player honours won by players AT the user's club (Player of the
    * Season, Golden Boot, etc.) — a running count of silverware in the cabinet. */
   playerAwards: number;
+  /** Clubs bought into the Global Club Network across the save (v1.64). */
+  gcnClubsBought: number;
+  /** Clubs founded from scratch for the network. */
+  gcnClubsFounded: number;
+  /** The highest buy price the network has ever paid for a club. */
+  gcnBiggestClubPurchase: number;
+  /** Highest GCN treasury balance ever reached (high-water mark). */
+  gcnPeakTreasury: number;
+  /** Feeder loans sent to network-owned clubs across the save. */
+  gcnFeederLoans: number;
 }
 
 /** An earned achievement (v1.45): the id of an ACHIEVEMENT_DEFS entry, plus the

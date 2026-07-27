@@ -16,7 +16,7 @@ import { academyGrowthSummary, prospectGrowth, type ProspectGrowth } from "@/lib
 import { formatMoney } from "@/lib/value";
 import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan, type TrainingPlanDef } from "@/lib/config/training";
 import { POS_ORDER } from "@/lib/config/positions";
-import { Card, Flag, GhostButton, GoldButton, Ovr, PlayerCard, PlayerGrid, PosBadge, Tabs, UpgradeCard, usePlayerView, ViewToggle } from "../ui";
+import { Card, displayFullName, Flag, GhostButton, GoldButton, Ovr, PlayerCard, PlayerGrid, PosBadge, Tabs, UpgradeCard, usePlayerView, ViewToggle } from "../ui";
 import StaffPanel from "./StaffPanel";
 
 // Columns the Training Plans list can be sorted by. Position is the default —
@@ -283,7 +283,7 @@ function TrainingPlansTab() {
                 >
                   <span className={`shrink-0 text-[10px] text-faint transition-transform ${isOpen ? "rotate-90" : ""}`}>▶</span>
                   <Flag nat={p.nationality} size={12} />
-                  <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
+                  <span className="truncate font-medium transition-colors group-hover:text-gold">{displayFullName(p)}</span>
                   {inAcademy && <AcademyTag />}
                   {last && last.toOverall !== last.fromOverall && (
                     <span className={`text-[11px] tnum ${last.toOverall > last.fromOverall ? "text-win" : "text-loss"}`}>
@@ -397,53 +397,6 @@ function TrainingPlansTab() {
 // player's `devLog`, which the rollover writes for senior players too, so
 // nothing about it is academy-specific but the name.
 
-/** A prospect's overall plotted over the seasons on record. Inline SVG, scaled
- * to the player's own range so a modest climb still reads as a climb. */
-function GrowthSparkline({ g, width = 150, height = 40 }: { g: ProspectGrowth; width?: number; height?: number }) {
-  const pts = g.points;
-  if (pts.length < 2) return <span className="text-[11px] text-faint">No history yet</span>;
-
-  const values = pts.map((p) => p.overall);
-  const lo = Math.min(...values);
-  const hi = Math.max(...values);
-  const span = Math.max(1, hi - lo);
-  const pad = 4;
-  const x = (i: number) => pad + (i / (pts.length - 1)) * (width - pad * 2);
-  const y = (v: number) => height - pad - ((v - lo) / span) * (height - pad * 2);
-
-  const line = pts.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.overall).toFixed(1)}`).join(" ");
-  const area = `${line} L${x(pts.length - 1).toFixed(1)},${height - pad} L${x(0).toFixed(1)},${height - pad} Z`;
-  const rising = g.totalGain >= 0;
-  const stroke = rising ? "var(--color-gold-hi)" : "#e0576b";
-  const gid = `sq-spark-${g.player.id}`;
-
-  return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="overflow-visible">
-      <defs>
-        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={stroke} stopOpacity="0.28" />
-          <stop offset="100%" stopColor={stroke} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={area} fill={`url(#${gid})`} />
-      <path d={line} fill="none" stroke={stroke} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
-      {pts.map((p, i) => (
-        <circle
-          key={i}
-          cx={x(i)}
-          cy={y(p.overall)}
-          r={p.live ? 2.6 : 1.8}
-          fill={p.live ? stroke : "var(--color-surface, #14161b)"}
-          stroke={stroke}
-          strokeWidth="1.2"
-        >
-          <title>{`S${p.season} · age ${p.age} · ${p.overall} OVR`}</title>
-        </circle>
-      ))}
-    </svg>
-  );
-}
-
 /** A signed overall delta, coloured and always explicitly signed. */
 function Delta({ value, suffix = "" }: { value: number; suffix?: string }) {
   if (!value) return <span className="tnum text-faint">—</span>;
@@ -466,7 +419,11 @@ const GROWTH_SORTS: { key: GrowthSort; label: string }[] = [
   { key: "age", label: "Age" },
 ];
 
-const GROWTH_GRID = "md:grid-cols-[2.25rem_1fr_2.5rem_9.5rem_3.5rem_4.5rem_4.5rem_4.5rem]";
+// No sparkline column (v1.63): the curve read as decoration next to the three
+// hard numbers beside it, and on a phone it ate a full row per player. Total /
+// Season / Per-yr carry the same story in a form you can actually compare down
+// the column.
+const GROWTH_GRID = "md:grid-cols-[2.25rem_1fr_2.5rem_3.5rem_4.5rem_4.5rem_4.5rem]";
 
 function GrowthTab() {
   const game = useGame((s) => s.game)!;
@@ -534,9 +491,9 @@ function GrowthTab() {
       <Card className="p-4">
         <div className="display font-semibold text-ink">How your squad is developing</div>
         <p className="mt-0.5 text-[12px] leading-relaxed text-faint">
-          Every first-team player&apos;s overall, season by season. The curve starts where he was first recorded and
-          ends on his rating right now — the filled point is today. Growth comes from minutes, your coaching staff and
-          your training facilities, so a flat line is usually a settled or declining player rather than a failing one.
+          How every first-team player&apos;s overall has moved: what he has added since he was first recorded, what he
+          has added this season, and his average per season. Growth comes from minutes, your coaching staff and your
+          training facilities, so a settled number usually means a player at his level rather than a failing one.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           {stats.map((s) => (
@@ -588,7 +545,6 @@ function GrowthTab() {
           <span>Pos</span>
           <span>Player</span>
           <span className="text-center">Age</span>
-          <span className="text-center">Progress</span>
           <span className="text-center">OVR</span>
           <span className="text-center" title="Overall gained since he was first recorded">
             Total
@@ -609,7 +565,7 @@ function GrowthTab() {
                 <button onClick={() => viewPlayer(p.id)} className="group min-w-0 flex-1 text-left md:flex-none">
                   <span className="flex items-center gap-1.5">
                     <Flag nat={p.nationality} size={11} />
-                    <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
+                    <span className="truncate font-medium transition-colors group-hover:text-gold">{displayFullName(p)}</span>
                   </span>
                   <span className="text-[11px] text-faint">
                     {g.seasons > 0 ? `${g.seasons} season${g.seasons === 1 ? "" : "s"} on record` : "First season"}
@@ -620,11 +576,6 @@ function GrowthTab() {
                   <span className="md:hidden">y</span>
                 </span>
               </div>
-
-              {/* The curve. Full width on phones, where the grid collapses. */}
-              <span className="mt-2 flex justify-center md:mt-0">
-                <GrowthSparkline g={g} />
-              </span>
 
               <span className="mt-2 flex items-center justify-center md:mt-0">
                 <Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />

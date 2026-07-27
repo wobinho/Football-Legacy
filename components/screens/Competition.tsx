@@ -4,8 +4,9 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useGame } from "@/store/gameStore";
-import type { Fixture, TableRow } from "@/lib/types";
+import type { EuroCupTier, Fixture, TableRow } from "@/lib/types";
 import { computeTable, computeForm, type FormResult } from "@/lib/season";
+import { EURO_CUP_DEFS, euroSlotForPosition } from "@/lib/european";
 import { formatDayShort } from "@/lib/calendar";
 import { Card, CountryFlag, Crest, Flag, Modal, Section, Tabs } from "../ui";
 
@@ -254,15 +255,25 @@ function TableCard({
   highlight,
   note,
   form,
+  euroSlot,
 }: {
   rows: TableRow[];
   highlight?: string;
   note?: (teamId: string, pos: number) => string;
   /** Last-5 form per team (playable leagues only); omit to hide the column. */
   form?: Record<string, FormResult[]>;
+  /** Which European cup a finishing position qualifies for (v1.63), 1-based.
+   * Omit — or return null — and the qualification stripe isn't drawn at all,
+   * which is what a table with no European places should look like. */
+  euroSlot?: (pos: number) => EuroCupTier | null;
 }) {
   const game = useGame((s) => s.game)!;
   const openTeam = useContext(OpenTeam);
+  // Which cups this table actually feeds, in tier order — the legend lists only
+  // these, so a nation sending clubs to one cup doesn't advertise three.
+  const cupsInPlay = euroSlot
+    ? EURO_CUP_DEFS.filter((d) => rows.some((_, i) => euroSlot(i + 1) === d.tier))
+    : [];
   return (
     <Card className="overflow-x-auto">
       {/* table-fixed (not auto) so the columns land in the SAME place in every
@@ -307,6 +318,9 @@ function TableCard({
             const t = game.teams[row.teamId];
             const mine = row.teamId === highlight;
             const flag = note?.(row.teamId, i + 1) ?? "";
+            // The European place this position carries, if any (v1.63).
+            const cupTier = euroSlot?.(i + 1) ?? null;
+            const cup = cupTier ? EURO_CUP_DEFS.find((d) => d.tier === cupTier) : undefined;
             return (
               <tr
                 key={row.teamId}
@@ -314,7 +328,21 @@ function TableCard({
                 className={`cursor-pointer border-b border-line/50 last:border-0 hover:bg-hover ${mine ? "bg-hover" : ""}`}
                 title={`View ${t.name}`}
               >
-                <td className={`py-1.5 pl-3 tnum ${i === 0 ? "gold-text font-bold" : "text-faint"}`}>{i + 1}</td>
+                <td className={`relative py-1.5 pl-3 tnum ${i === 0 ? "gold-text font-bold" : "text-faint"}`}>
+                  {/* Qualification stripe: a 3px bar in the cup's own colour down
+                      the left edge of the row. Colour alone never carries the
+                      meaning — the legend below names each cup, and the stripe
+                      carries the cup name as a title for a hover/screen reader. */}
+                  {cup && (
+                    <span
+                      className="absolute inset-y-0 left-0 w-[3px]"
+                      style={{ backgroundColor: cup.color }}
+                      title={`Qualifies for the ${cup.name}`}
+                      aria-label={`Qualifies for the ${cup.name}`}
+                    />
+                  )}
+                  {i + 1}
+                </td>
                 <td className="min-w-0 py-1.5">
                   <span className={`flex min-w-0 items-center gap-2 ${mine ? "font-semibold" : ""}`}>
                     <Crest colors={t.colors} short={t.short} size={20} />
@@ -341,6 +369,17 @@ function TableCard({
           })}
         </tbody>
       </table>
+      {cupsInPlay.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line/60 px-3 py-2 text-[10px] text-faint">
+          <span className="uppercase tracking-widest">Qualification</span>
+          {cupsInPlay.map((d) => (
+            <span key={d.tier} className="flex items-center gap-1.5">
+              <span className="inline-block h-3 w-[3px] rounded-sm" style={{ backgroundColor: d.color }} />
+              {d.name}
+            </span>
+          ))}
+        </div>
+      )}
     </Card>
   );
 }
@@ -395,6 +434,7 @@ function LeagueView({ leagueId }: { leagueId: string }) {
             rows={table}
             highlight={game.userTeamId}
             form={form}
+            euroSlot={(pos) => euroSlotForPosition(game, leagueId, pos)}
             note={(_, pos) => {
               // The ladder may be 1–3 deep (v12): a middle tier has BOTH a
               // promotion zone at the top and a relegation zone at the bottom.
@@ -942,7 +982,7 @@ function SimLeagueView({ leagueId }: { leagueId: string }) {
           title={`Table — ${result.half === 0 ? "not started" : result.half === 1 ? "in progress" : "final"} (Season ${result.season})`}
           right={league && <span className="flex items-center gap-1.5 text-xs text-faint"><CountryFlag country={league.country} size={14} />{league.country}</span>}
         >
-          <TableCard rows={result.table} />
+          <TableCard rows={result.table} euroSlot={(pos) => euroSlotForPosition(game, leagueId, pos)} />
         </Section>
       </div>
       <div className="space-y-6">

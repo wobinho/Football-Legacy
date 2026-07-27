@@ -23,6 +23,7 @@ import type {
   EuroCupState,
   EuroCupTier,
   EuroGroupRow,
+  EuroSlotMap,
   EuroStage,
   EuroTie,
   EuropeanState,
@@ -112,50 +113,129 @@ export function canRunEuropeanCups(state: GameState): boolean {
 }
 
 /**
- * Default per-nation qualification slots. The strongest nations (by the average
- * reputation of their top division) get the most Champions League places, in the
- * familiar 4/3/2/1 shape. Returns a map of country code → [tier1, tier2, tier3]
- * counts, sized so the three cups fill to 32 each.
- *
- * The user can override any of this at setup; this is only the sensible default.
+ * How strong each European nation in the save is, best first — the average
+ * reputation of its top flight. This is the ranking the default slot allocation
+ * reads, and the order the setup screen lists countries in, so the two agree.
  */
-export function defaultEuroSlots(state: GameState, tiers: number): Record<string, [number, number, number]> {
-  const countries = europeanCountriesInSave(state);
-  // Rank nations by the strength of their top flight.
-  const strength = countries.map((code) => {
-    const top = Object.values(state.leagues).find(
-      (l) => l.tier === 1 && (l.id.startsWith(code) || l.country.toLowerCase().includes(code.toLowerCase()))
-    );
+export function rankEuropeanNations(
+  state: GameState
+): { code: string; rep: number; size: number; leagueName: string }[] {
+  const rows = europeanCountriesInSave(state).map((code) => {
+    const top = topFlightOf(state, code);
     const rep = top
       ? top.teamIds.reduce((n, id) => n + (state.teams[id]?.reputation ?? 0), 0) / Math.max(1, top.teamIds.length)
       : 0;
-    return { code, rep, size: top?.teamIds.length ?? 0 };
+    return { code, rep, size: top?.teamIds.length ?? 0, leagueName: top?.name ?? code };
   });
-  strength.sort((a, b) => b.rep - a.rep);
+  rows.sort((a, b) => b.rep - a.rep);
+  return rows;
+}
 
-  const slots: Record<string, [number, number, number]> = {};
-  strength.forEach((s, i) => {
-    // Top 4 nations get 4 CL places, next 4 get 3, then 2, then 1 — bounded by
-    // how many clubs the nation actually has to send.
-    const cl = i < 4 ? 4 : i < 8 ? 3 : i < 12 ? 2 : 1;
-    const el = tiers >= 2 ? (i < 4 ? 3 : i < 12 ? 2 : 1) : 0;
-    const ecl = tiers >= 3 ? (i < 8 ? 2 : 1) : 0;
-    const cap = Math.max(0, s.size);
-    const t1 = Math.min(cl, cap);
-    const t2 = Math.min(el, Math.max(0, cap - t1));
-    const t3 = Math.min(ecl, Math.max(0, cap - t1 - t2));
-    slots[s.code] = [t1, t2, t3];
+/** A country's top division, or undefined if the save doesn't contain one. */
+function topFlightOf(state: GameState, code: string) {
+  return Object.values(state.leagues).find(
+    (l) => l.tier === 1 && (l.id.startsWith(code) || l.country.toLowerCase().includes(code.toLowerCase()))
+  );
+}
+
+/**
+ * The default qualification map for one nation, given its rank among the
+ * European countries in the save and how many cups are running.
+ *
+ * Shaped like the real competitions: the strongest nations send four clubs to
+ * the Champions League and fill the Europa/Conference places from the positions
+ * immediately below, while smaller nations send their champion to the Champions
+ * League and one or two more to the lower cups. Returns a per-position array —
+ * index 0 is the champion — so the result is exactly the shape the user then
+ * edits at setup.
+ */
+export function defaultSlotMapFor(rank: number, tiers: number, divisionSize: number): EuroSlotMap {
+  // Places per cup for a nation at this rank, in the familiar 4/3/2/1 shape.
+  const cl = rank < 4 ? 4 : rank < 8 ? 3 : rank < 12 ? 2 : 1;
+  const el = tiers >= 2 ? (rank < 4 ? 2 : rank < 12 ? 2 : 1) : 0;
+  const ecl = tiers >= 3 ? (rank < 8 ? 2 : 1) : 0;
+
+  const map: EuroSlotMap = [];
+  const push = (tier: number, n: number) => {
+    for (let i = 0; i < n && map.length < divisionSize; i++) map.push(tier);
+  };
+  push(1, cl);
+  push(2, el);
+  push(3, ecl);
+  return map;
+}
+
+/**
+ * Default per-nation qualification maps for a new save. The user can rewrite any
+ * of this in the setup modal; this is only the sensible starting point.
+ */
+export function defaultEuroSlots(state: GameState, tiers: number): Record<string, EuroSlotMap> {
+  const slots: Record<string, EuroSlotMap> = {};
+  rankEuropeanNations(state).forEach((n, i) => {
+    slots[n.code] = defaultSlotMapFor(i, tiers, n.size);
   });
   return slots;
 }
 
-/** A fresh, empty European layer for a new save. */
-export function initEuropeanState(state: GameState, tiers: number): EuropeanState {
+/** A fresh, empty European layer for a new save. `slots` may be supplied by the
+ * setup screen (the user's own qualification design); omitted, the defaults
+ * above are used. */
+export function initEuropeanState(
+  state: GameState,
+  tiers: number,
+  slots?: Record<string, EuroSlotMap>,
+  cupWinnerQualifies = true
+): EuropeanState {
   return {
     tiers: Math.max(1, Math.min(3, tiers)),
     cups: [], // filled at the first rollover — qualification needs a finished season
-    slots: defaultEuroSlots(state, tiers),
+    slots: slots && Object.keys(slots).length ? slots : defaultEuroSlots(state, tiers),
+    cupWinnerQualifies,
   };
+}
+
+/** How many clubs a nation's map sends to each cup — the running totals the
+ * setup screen shows so the user can see a competition filling up. */
+export function slotCounts(map: EuroSlotMap): [number, number, number] {
+  const out: [number, number, number] = [0, 0, 0];
+  for (const tier of map) {
+    if (tier >= 1 && tier <= 3) out[tier - 1]++;
+  }
+  return out;
+}
+
+/** Total clubs entering each cup across every nation, for the setup screen's
+ * "24 / 32" readouts. */
+export function totalSlotCounts(slots: Record<string, EuroSlotMap>): [number, number, number] {
+  const out: [number, number, number] = [0, 0, 0];
+  for (const map of Object.values(slots)) {
+    const counts = slotCounts(map);
+    for (let i = 0; i < 3; i++) out[i] += counts[i];
+  }
+  return out;
+}
+
+/**
+ * The cup a given finishing position in a given league qualifies for, or null.
+ *
+ * This is what the league table's qualification stripe reads (v1.63) — the same
+ * per-position map `qualifyForEuropeanCups` walks at the rollover, so what the
+ * table promises is exactly what the season delivers. Only a country's TOP
+ * division has European places; a second-tier table returns null throughout,
+ * which is correct rather than an omission.
+ *
+ * `position` is 1-based, as the table renders it.
+ */
+export function euroSlotForPosition(state: GameState, leagueId: string, position: number): EuroCupTier | null {
+  const euro = state.european;
+  if (!euro || euro.tiers < 1) return null;
+  const league = state.leagues[leagueId];
+  // Europe only, top flight only — the places belong to the country's first tier.
+  if (!league || league.tier !== 1) return null;
+  const code = /^([A-Z]{3})\d*$/.exec(leagueId)?.[1];
+  if (!code) return null;
+  const tier = euro.slots[code]?.[position - 1] ?? 0;
+  return tier >= 1 && tier <= euro.tiers ? (tier as EuroCupTier) : null;
 }
 
 // ── Qualification ─────────────────────────────────────────────────────────
@@ -188,10 +268,16 @@ function finalOrderFor(state: GameState, code: string): string[] {
 /**
  * Work out who qualifies for each cup, from the season just played.
  *
- * Per nation, the top `slots[0]` clubs enter the Champions League, the next
- * `slots[1]` the Europa League, and the next `slots[2]` the Conference League.
- * The domestic cup winner takes a Europa place if they haven't already qualified
- * for something better (the playable nation only — sim nations run no cup).
+ * Each nation carries a per-position map (v1.65): the club that finished in
+ * position N enters the cup its map names at index N, or none at all if the map
+ * says 0 there. That is what lets a save express the real shape — 1st–4th to the
+ * Champions League, 5th–6th to the Europa League, 7th to the Conference League —
+ * as well as anything else the user built at setup. A map entry naming a cup
+ * this save doesn't run is ignored.
+ *
+ * The domestic cup winner takes a Europa place if enabled and they haven't
+ * already qualified for something better (the playable nation only — sim nations
+ * run no cup).
  *
  * Each cup is then trimmed or topped up to exactly 32: short fields are filled
  * from the best-reputation clubs not already in a European competition, so the
@@ -204,15 +290,17 @@ export function qualifyForEuropeanCups(state: GameState, euro: EuropeanState): s
   for (const code of europeanCountriesInSave(state)) {
     const order = finalOrderFor(state, code);
     if (!order.length) continue;
-    const slots = euro.slots[code] ?? [1, 0, 0];
-    let cursor = 0;
-    for (let tier = 0; tier < euro.tiers; tier++) {
-      for (let n = 0; n < (slots[tier] ?? 0) && cursor < order.length; n++) {
-        const id = order[cursor++];
-        if (taken.has(id)) continue;
-        taken.add(id);
-        perCup[tier].push(id);
-      }
+    const map = euro.slots[code] ?? [1];
+    // Walk the final table in order, sending each club wherever its finishing
+    // position is mapped. Reading the table (not the map) as the outer loop is
+    // what keeps position and club aligned when the map has gaps in it.
+    for (let pos = 0; pos < order.length; pos++) {
+      const tier = map[pos] ?? 0;
+      if (tier < 1 || tier > euro.tiers) continue;
+      const id = order[pos];
+      if (taken.has(id)) continue;
+      taken.add(id);
+      perCup[tier - 1].push(id);
     }
   }
 
@@ -220,15 +308,28 @@ export function qualifyForEuropeanCups(state: GameState, euro: EuropeanState): s
   // nations have no knockout cup to win). If they already qualified higher, the
   // slot simply isn't used — they can't play in two competitions.
   const cupWinner = state.cup.winnerId;
-  if (euro.tiers >= 2 && cupWinner && !taken.has(cupWinner)) {
+  if ((euro.cupWinnerQualifies ?? true) && euro.tiers >= 2 && cupWinner && !taken.has(cupWinner)) {
     taken.add(cupWinner);
     perCup[1].push(cupWinner);
   }
 
   // Top each cup up to 32 (or trim an over-filled one), best clubs first. A cup
   // that can't be filled at all is dropped by the caller.
+  //
+  // The pool is European clubs only — a short field is a gap in the user's own
+  // slot design, and filling it from outside Europe would put a club in a
+  // continental competition its country could never enter.
+  const euroCodes = new Set(europeanCountriesInSave(state));
+  const euroLeagueIds = new Set(
+    Object.values(state.leagues)
+      .filter((l) => {
+        const code = /^([A-Z]{3})\d*$/.exec(l.id)?.[1];
+        return !!code && euroCodes.has(code);
+      })
+      .map((l) => l.id)
+  );
   const spare = Object.values(state.teams)
-    .filter((t) => !taken.has(t.id))
+    .filter((t) => !taken.has(t.id) && euroLeagueIds.has(t.leagueId))
     .sort((a, b) => b.reputation - a.reputation);
   let spareIdx = 0;
   for (let tier = 0; tier < euro.tiers; tier++) {

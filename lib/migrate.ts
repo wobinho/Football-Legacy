@@ -515,6 +515,18 @@ export function migrateSave(state: GameState): GameState {
     migrateV34toV35(state);
     state.schemaVersion = 35;
   }
+  if (state.schemaVersion < 36) {
+    migrateV35toV36(state);
+    state.schemaVersion = 36;
+  }
+  if (state.schemaVersion < 37) {
+    migrateV36toV37(state);
+    state.schemaVersion = 37;
+  }
+  if (state.schemaVersion < 38) {
+    migrateV37toV38(state);
+    state.schemaVersion = 38;
+  }
   // future migrations chain here
   state.schemaVersion = SCHEMA_VERSION;
   return state;
@@ -1025,6 +1037,110 @@ function migrateV33toV34(state: GameState): void {
 function migrateV34toV35(state: GameState): void {
   for (const p of Object.values(state.players)) {
     if (p.u21Tier && !p.academyTier) p.academyTier = p.u21Tier;
+  }
+}
+
+/**
+ * v35 → v36: the GCN minimum hold, home-country ring-fencing, the AI subsidies
+ * and the network achievement shelf (v1.64).
+ *
+ * The new accolade counters backfill to 0 through `ensureProgress` and accrue
+ * from here on — a network built before this version can't have its purchases
+ * and feeder loans reconstructed, so `gcnClubsBought`/`gcnClubsFounded` are
+ * seeded from the clubs actually held today, which is the honest floor.
+ *
+ * Clubs already in the network get no `gcnAcquiredSeason`: with no record of
+ * when they were bought, treating them as long-held (immediately sellable) is
+ * the only reading that can't retroactively lock a manager out of a sale he was
+ * already entitled to. Ring-fencing IS applied retroactively, since it's a rule
+ * about where a club sits, not when it was bought.
+ *
+ * The removed "Out of the Third Tier" achievement is dropped from the earned set
+ * so it can't render as an unlocked entry with no definition behind it.
+ */
+function migrateV35toV36(state: GameState): void {
+  const prog = ensureProgress(state);
+  delete prog.earned["winEngThirdTier"];
+
+  const gcn = state.gcn;
+  if (!gcn) return;
+  const userCountry = state.leagues[state.teams[state.userTeamId]?.leagueId ?? ""]?.country ?? "";
+  for (const id of gcn.clubIds) {
+    const club = state.teams[id];
+    if (!club) continue;
+    if (userCountry && state.leagues[club.leagueId]?.country === userCountry) {
+      club.gcnRingFenced = true;
+      // A ring-fenced club takes no network money — drop any standing order it
+      // was drawing before the rule existed.
+      if (gcn.autoFunding) delete gcn.autoFunding[id];
+    }
+  }
+  const a = prog.accolades;
+  a.gcnClubsBought = Math.max(a.gcnClubsBought, gcn.clubIds.length);
+  a.gcnPeakTreasury = Math.max(a.gcnPeakTreasury, gcn.treasury);
+  syncProgress(state);
+}
+
+/**
+ * v36 → v37: per-position European qualification (v1.65).
+ *
+ * `european.slots` used to be a count per cup — `{ ENG: [4, 2, 1] }` meaning
+ * "top 4 to the Champions League, next 2 to the Europa League, next 1 to the
+ * Conference League". It is now a map indexed by finishing position, so a save
+ * can put any position into any cup (and leave gaps).
+ *
+ * The old shape converts exactly: the counts describe consecutive blocks running
+ * down the table from 1st, so expanding them in order reproduces precisely the
+ * qualification the save was already playing. Nobody's European place moves.
+ *
+ * `cupWinnerQualifies` backfills to true, which is what the old code did
+ * unconditionally.
+ */
+function migrateV36toV37(state: GameState): void {
+  const euro = state.european;
+  if (!euro) return;
+  euro.cupWinnerQualifies ??= true;
+  const converted: Record<string, number[]> = {};
+  for (const [code, slots] of Object.entries(euro.slots ?? {})) {
+    if (!Array.isArray(slots)) continue;
+    // This only ever runs on a save stamped < 37, so `slots` is always the old
+    // 3-entry count array: [clPlaces, elPlaces, eclPlaces]. Expanding it in
+    // order gives the consecutive blocks it described.
+    const map: number[] = [];
+    for (let tier = 1; tier <= 3; tier++) {
+      for (let n = 0; n < (slots[tier - 1] ?? 0); n++) map.push(tier);
+    }
+    converted[code] = map;
+  }
+  euro.slots = converted;
+}
+
+/**
+ * v37 → v38: de-duplicate academy-promotion transfer rows (v1.63).
+ *
+ * "<Club> Youth Academy → <Club>" was written by three separate paths — the
+ * promotion to the senior squad, signing a graduate out of the waiting queue,
+ * and (wrongly) a scouted prospect joining the academy in the first place. A
+ * player who took more than one of those roads collected the same line two or
+ * three times, and the profile's Transfer History showed every copy.
+ *
+ * The rule is now "once, ever" at the writer. Here we collapse what saves
+ * already carry: for each player, every academy row naming the same academy and
+ * the same destination club is reduced to its EARLIEST — that is the one that
+ * actually records when he stepped up. Rows are otherwise untouched, so a real
+ * transfer is never touched even if a club renamed itself into the same shape.
+ */
+function migrateV37toV38(state: GameState): void {
+  for (const career of Object.values(state.careers ?? {})) {
+    if (!career?.transfers?.length) continue;
+    const seen = new Set<string>();
+    career.transfers = career.transfers.filter((t) => {
+      if (!t.from?.endsWith(" Youth Academy")) return true;
+      const key = `${t.from}→${t.to}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }
 }
 

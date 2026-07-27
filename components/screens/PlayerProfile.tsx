@@ -8,7 +8,8 @@ import { useState } from "react";
 import { useGame } from "@/store/gameStore";
 import { getArchetype } from "@/lib/config/archetypes";
 import { POS_LABELS, posColors } from "@/lib/config/positions";
-import { formatHeight, formatMoney } from "@/lib/value";
+import { formatHeight, formatMoney, playerWage } from "@/lib/value";
+import { TUNING } from "@/lib/config/tuning";
 import { yearsLeft } from "@/lib/contracts";
 import { seasonGrowth } from "@/lib/development";
 import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan } from "@/lib/config/training";
@@ -16,7 +17,7 @@ import { MAX_KIT_NUMBER, MIN_KIT_NUMBER, squadNumbersFor } from "@/lib/kitnumber
 import { ACCOLADE_META } from "@/lib/accolades";
 import { TIER_COLOR, TIER_LABEL, migrateProspectTier } from "@/lib/scouts";
 import type { Accolade, AccoladeType, GameState, PlayerBio } from "@/lib/types";
-import { ArchetypeIcon, AttrGrid, Card, ConfirmButton, Crest, displayFullName, Flag, FitnessBar, FormChip, GhostButton, GoldButton, GrowthBadge, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip, useEscapeKey } from "../ui";
+import { ArchetypeIcon, AttrGrid, Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, FitnessBar, FormChip, GhostButton, GoldButton, GrowthBadge, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip, useEscapeKey } from "../ui";
 import ContractModal from "./ContractModal";
 import { LoanOfferModal, SellPlayerModal } from "./SquadMoveModals";
 import { transferWindowState } from "@/lib/calendar";
@@ -172,6 +173,21 @@ export default function PlayerProfileModal() {
             )}
             <div className="display tnum text-xl font-semibold">{p.retired ? "—" : formatMoney(p.value)}</div>
             <div className="text-[10px] uppercase tracking-widest text-faint">Market value</div>
+            {/* Wage sits beside the value so a player's cost reads at a glance
+                anywhere the profile opens — not just for the user's own squad,
+                where the Contract section below carries the full terms. A player
+                with no signed deal (a free agent, a scouted preview) shows what
+                his rating would command. */}
+            {!p.retired && (
+              <div className="mt-1.5">
+                <div className="display tnum text-sm font-semibold text-ink">
+                  {formatMoney(p.contract?.wage ?? playerWage(p.overall, TUNING))}/wk
+                </div>
+                <div className="text-[10px] uppercase tracking-widest text-faint">
+                  {p.contract ? "Weekly wage" : "Wage demand"}
+                </div>
+              </div>
+            )}
             {!p.retired && (
               <div className="mt-1.5">
                 <PotentialBadge game={game} p={p} />
@@ -529,12 +545,18 @@ export default function PlayerProfileModal() {
                 <div className="text-sm text-faint">First season in progress — history is written at the season&apos;s end.</div>
               ) : (
                 <Card className="overflow-x-auto">
-                  <table className="w-full min-w-[520px] text-sm">
+                  <table className="w-full min-w-[580px] text-sm">
                     <thead>
                       <tr className="border-b border-line text-[11px] uppercase tracking-widest text-faint">
                         <th className="px-3 py-2 text-left">Season</th>
                         <th className="px-2 py-2 text-left">Club</th>
                         <th className="px-2 py-2 text-left">Competition</th>
+                        <th
+                          className="w-12 px-2 py-2 text-center"
+                          title="His overall at the start of that season"
+                        >
+                          OVR
+                        </th>
                         <th className="w-12 px-2 py-2 text-center">Apps</th>
                         <th className="w-10 px-2 py-2 text-center">G</th>
                         <th className="w-10 px-2 py-2 text-center">A</th>
@@ -545,8 +567,15 @@ export default function PlayerProfileModal() {
                       {career.seasons.slice().reverse().map((row, i) => (
                         <tr key={i} className="border-b border-line/50 last:border-0">
                           <td className="px-3 py-1.5 tnum text-dim">S{row.season}</td>
-                          <td className="px-2 py-1.5">{row.clubName}</td>
+                          <td className="px-2 py-1.5">
+                            <CareerClub game={game} clubId={row.clubId} name={row.clubName} />
+                          </td>
                           <td className="px-2 py-1.5 text-dim">{row.competition}</td>
+                          {/* Rows written before v1.63 never recorded it — a dash
+                              beats inventing a rating the save doesn't hold. */}
+                          <td className="px-2 py-1.5 text-center tnum">
+                            {typeof row.startOverall === "number" ? row.startOverall : <span className="text-faint">—</span>}
+                          </td>
                           <td className="px-2 py-1.5 text-center tnum">{row.apps}</td>
                           <td className="px-2 py-1.5 text-center tnum">{row.goals}</td>
                           <td className="px-2 py-1.5 text-center tnum">{row.assists}</td>
@@ -618,9 +647,36 @@ function AcademyOriginSection({ game, p }: { game: GameState; p: PlayerBio }) {
         >
           {TIER_LABEL[tier]}
         </span>
-        {club && <span className="text-sm text-dim">· {club.name} Youth Academy</span>}
+        {club && (
+          <span className="flex min-w-0 items-center gap-2 text-sm text-dim">
+            <span className="text-faint">·</span>
+            <Crest colors={club.colors} short={club.short} size={20} />
+            <CountryFlag country={game.leagues[club.leagueId]?.country ?? ""} size={12} />
+            <span className="truncate">{club.name} Youth Academy</span>
+          </span>
+        )}
       </Card>
     </Section>
+  );
+}
+
+/** A club in the season-by-season table (v1.65): its badge and country flag
+ * beside the name, so a career that moves between leagues reads as one. Rows
+ * written before v1.65 carry no club id and fall back to a neutral crest from
+ * the stored name — the same fallback transfer rows use. */
+function CareerClub({ game, clubId, name }: { game: GameState; clubId?: string; name: string }) {
+  const club = clubId ? game.teams[clubId] : undefined;
+  const country = club ? game.leagues[club.leagueId]?.country : undefined;
+  return (
+    <span className="flex min-w-0 items-center gap-1.5" title={name}>
+      <Crest
+        colors={club?.colors ?? (["#2a2c33", "#8a8f9a"] as [string, string])}
+        short={club?.short ?? name.slice(0, 3).toUpperCase()}
+        size={18}
+      />
+      {country && <CountryFlag country={country} size={11} />}
+      <span className="truncate">{name}</span>
+    </span>
   );
 }
 
@@ -642,9 +698,14 @@ function TransferEndpoint({
   const club = clubId ? game.teams[clubId] : undefined;
   const short = club?.short ?? name.slice(0, 3).toUpperCase();
   const colors = club?.colors ?? (["#2a2c33", "#8a8f9a"] as [string, string]);
+  // The club's country (v1.65) — a career that crosses borders should read as
+  // one. Non-club endpoints ("Free agency", "Contract expired") have no league
+  // and so no flag, which is correct: they aren't anywhere.
+  const country = club ? game.leagues[club.leagueId]?.country : undefined;
   return (
     <span className="flex min-w-0 items-center gap-1.5" title={name}>
       <Crest colors={colors} short={short} size={20} />
+      {country && <CountryFlag country={country} size={11} />}
       <span className={`truncate ${strong ? "text-ink" : "text-dim"}`}>{name}</span>
     </span>
   );

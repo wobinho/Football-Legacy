@@ -239,9 +239,13 @@ export function PosBadge({ pos }: { pos: Pos | string }) {
  *
  * Only the real-world databases author a separate full name; generated players
  * and old saves carry one name only, so this falls back to `name` and the two
- * read identically. Use it wherever a player has a whole row/header to himself
- * (the profile modal); keep `p.name` for lists, tables and the pitch view, where
- * the abbreviated form is what keeps a column narrow.
+ * read identically.
+ *
+ * This is the DEFAULT (v1.63): a player should be called by his whole name
+ * wherever the layout can hold it — profile headers, cards, squad and list rows,
+ * pickers. Reach for the short `p.name` only where the space genuinely won't
+ * take it: the pitch tokens on the tactics board, match commentary lines, and
+ * fixed-width table columns that would otherwise truncate mid-name.
  */
 export function displayFullName(p: Pick<PlayerBio, "name" | "fullName">): string {
   const full = p.fullName?.trim();
@@ -914,7 +918,7 @@ export function PlayerCard({
   badges,
   stats,
   actions,
-  fullName = false,
+  fullName = true,
 }: {
   p: PlayerBio;
   onOpen?: () => void;
@@ -925,9 +929,9 @@ export function PlayerCard({
   badges?: React.ReactNode;
   stats?: React.ReactNode;
   actions?: React.ReactNode;
-  /** Render the player's full name rather than the list abbreviation (v1.5).
-   * Opt-in per screen: Transfers is browsing unfamiliar players and wants the
-   * whole name, while a squad list the user already knows stays compact. */
+  /** Render the abbreviated list name instead of the full one. Cards have a
+   * whole row to themselves, so the full name is the default (v1.63) — pass
+   * false only somewhere genuinely too tight for it. */
   fullName?: boolean;
 }) {
   return (
@@ -989,7 +993,7 @@ export function PlayerSelect({
           <>
             <Flag nat={current.nationality} size={11} />
             <PosBadge pos={current.positions[0]} />
-            <span className="min-w-0 flex-1 truncate">{current.name}</span>
+            <span className="min-w-0 flex-1 truncate">{displayFullName(current)}</span>
           </>
         ) : (
           <span className="flex-1 text-faint">{placeholder}</span>
@@ -1024,7 +1028,7 @@ export function PlayerSelect({
               >
                 <Flag nat={p.nationality} size={11} />
                 <PosBadge pos={p.positions[0]} />
-                <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                <span className="min-w-0 flex-1 truncate">{displayFullName(p)}</span>
                 <Ovr value={p.overall} size="sm" />
               </button>
             ))}

@@ -28,7 +28,7 @@ import {
   mentorGrowthBonus,
   weeklyProgressTick,
 } from "./development";
-import { weeklyEconomyTick, applySeasonPrizes, facilityGrowthMult } from "./economy";
+import { weeklyEconomyTick, applySeasonPrizes, applyAiSeasonSubsidy, facilityGrowthMult } from "./economy";
 import { gcnWeeklyTick } from "./gcn";
 import {
   aiWeeklyTransferTick,
@@ -39,7 +39,7 @@ import {
 } from "./transfers";
 import { activePlayers, pruneRetired } from "./archive";
 import { refreshClubStances } from "./ai/strategy";
-import { rolloverContracts, ensureContracts, openContractResolution } from "./contracts";
+import { rolloverContracts, ensureContracts, openContractResolution, repriceSquadForLeague } from "./contracts";
 import { resolveSimLeagues } from "./simresolver";
 import { buildSeasonSummary, trackBiggestWin } from "./recordbook";
 import { ACCOLADE_META, runSeasonAwardsCeremony } from "./accolades";
@@ -58,7 +58,7 @@ import {
   academyPostDevRollover,
   graduateAwardNews,
   pruneGraduateQueue,
-  promoteGraduatesToFieldable,
+  pendingGraduates,
 } from "./academy";
 
 const cfg = TUNING;
@@ -634,7 +634,12 @@ function appendCareerRows(state: GameState) {
     state.careers[p.id].seasons.push({
       season: state.season,
       clubName,
+      clubId: p.clubId ?? undefined,
       competition: compName,
+      // Where his rating STARTED this season (v1.63). This runs before the
+      // summer development pass re-stamps the baseline, so the field still
+      // holds the season that just finished.
+      startOverall: p.seasonStartOverall,
       apps: p.stats.apps,
       goals: p.stats.goals,
       assists: p.stats.assists,
@@ -645,11 +650,15 @@ function appendCareerRows(state: GameState) {
     // youth football gets its own history line (§18): U21 league or loan spell
     const ys = p.youthStats;
     if (ys && ys.apps > 0) {
-      const loanClub = p.loan ? state.teams[p.loan.toClubId]?.name : null;
+      const loanClubId = p.loan?.toClubId;
+      const loanClub = loanClubId ? state.teams[loanClubId]?.name : null;
       state.careers[p.id].seasons.push({
         season: state.season,
         clubName: loanClub ?? clubName,
+        // The club actually played for — the loan destination on a loan row.
+        clubId: (loanClub ? loanClubId : p.clubId) ?? undefined,
         competition: loanClub ? `Loan from ${clubName}` : "U21 League",
+        startOverall: p.seasonStartOverall,
         apps: ys.apps,
         goals: ys.goals,
         assists: ys.assists,
@@ -683,6 +692,16 @@ export function runSeasonRollover(state: GameState) {
   summary.promotedTo = move.promotedTo;
   summary.relegatedFrom = move.relegatedFrom;
   summary.relegatedTo = move.relegatedTo;
+
+  // Wages follow the division (v1.65). A club that just went down would
+  // otherwise carry top-flight contracts into a tier whose income can't cover
+  // them, and a promoted club would field a squad paid at the level it left.
+  move.promotedIds.forEach((id, i) => {
+    repriceSquadForLeague(state, id, move.promotedFrom[i], move.promotedTo[i], cfg);
+  });
+  move.relegatedIds.forEach((id, i) => {
+    repriceSquadForLeague(state, id, move.relegatedFrom[i], move.relegatedTo[i], cfg);
+  });
   state.recordBook.seasons.push(summary);
   graduateAwardNews(state);
 
@@ -801,6 +820,9 @@ export function runSeasonRollover(state: GameState) {
 
   // new season scaffolding — old fixtures compress into the record book
   state.season += 1;
+  // Start-of-season grant for every AI club (v1.64), paid the moment the new
+  // season begins so the world enters the summer window able to trade.
+  applyAiSeasonSubsidy(state, cfg);
   state.schedule = buildSeasonSchedule(state.season);
   const playableDivs = Array.from(new Set(state.divisionIds));
   state.fixtures = playableDivs.flatMap((id, idx) =>
@@ -876,24 +898,25 @@ export function runSeasonRollover(state: GameState) {
 
   // Last line of defence (v1.51): expiries and retirements both land at the
   // rollover, so a squad the manager hasn't topped up can fall below a legal
-  // side. Two sources, in the order a real club would use them.
+  // side.
   //
-  // The club's OWN graduates come first. They're already on the books awaiting a
-  // decision, they're free, and promoting a kid rather than signing a stranger is
-  // what a short-handed club actually does. This also stops the queue growing
-  // without bound when a manager never answers it.
-  const calledUpGraduates = promoteGraduatesToFieldable(state, cfg);
-  if (calledUpGraduates.length) {
+  // Graduates are deliberately NOT drawn on here (v1.63). Signing a prospect is
+  // the manager's call and only the manager's — a kid who appeared in the senior
+  // squad without being asked for is exactly the "the game signed players behind
+  // my back" problem the graduate queue exists to prevent. A thin squad is
+  // topped up from the free-agent market instead, and the waiting graduates stay
+  // waiting until they're signed or released on the Academy screen.
+  const waitingGraduates = pendingGraduates(state).length;
+  if (waitingGraduates > 0) {
     pushInbox(
       state,
       "academy",
-      "Graduates called up",
-      `With the senior squad too thin to field a side, ${calledUpGraduates.join(", ")} ` +
-        `${calledUpGraduates.length === 1 ? "was" : "were"} given senior contracts from the academy. ` +
-        `Resolve your graduates on the Academy screen if you'd rather choose who steps up.`
+      waitingGraduates === 1 ? "A graduate is still waiting on you" : `${waitingGraduates} graduates are still waiting on you`,
+      `${waitingGraduates === 1 ? "One prospect has" : `${waitingGraduates} prospects have`} outgrown the academy and ` +
+        `${waitingGraduates === 1 ? "is" : "are"} waiting on a senior contract. Nobody joins the senior squad unless you ` +
+        `sign ${waitingGraduates === 1 ? "him" : "them"} — resolve the queue on the Academy screen.`
     );
   }
-  // Only if that still isn't enough does the club go to the free-agent market.
   const emergencySignings = ensureFieldableSquad(state, cfg);
   if (emergencySignings.length) {
     pushInbox(

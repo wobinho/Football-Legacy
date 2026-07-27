@@ -18,7 +18,7 @@ import { TUNING } from "@/lib/config/tuning";
 import { academyLoanSuitors } from "@/lib/academy";
 import { saleSuitors } from "@/lib/transfers";
 import { formatMoney } from "@/lib/value";
-import { Card, CountryFlag, Crest, Flag, GoldButton, Modal, Ovr, PosBadge } from "../ui";
+import { Card, CountryFlag, Crest, displayFullName, Flag, GoldButton, Modal, Ovr, PosBadge } from "../ui";
 
 /** The player's identity line, shared by both choosers so the two modals read as
  * one feature rather than two screens that happen to be adjacent. */
@@ -32,7 +32,7 @@ function PlayerHeader({ playerId, blurb }: { playerId: string; blurb: string }) 
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
           <Flag nat={p.nationality} size={11} />
-          <span className="truncate font-semibold text-ink">{p.name}</span>
+          <span className="truncate font-semibold text-ink">{displayFullName(p)}</span>
           <span className="tnum text-sm text-dim">· {p.age}y</span>
           <Ovr value={p.overall} size="sm" />
         </div>

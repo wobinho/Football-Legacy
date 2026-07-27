@@ -17,6 +17,7 @@ import {
   clubSalePrice,
   clubStanding,
   foundableLeagues,
+  fundableClubIds,
   gcnClubFinance,
   gcnClubStatus,
   gcnDealsWeekly,
@@ -26,7 +27,10 @@ import {
   gcnPlayerSalePrice,
   groupClubsCap,
   isBuyableClub,
+  isHomeCountryClub,
+  isRingFenced,
   networkClubIds,
+  seasonsUntilSellable,
   totalAutoFunding,
   type GcnClubFinance,
 } from "@/lib/gcn";
@@ -450,7 +454,8 @@ function FundClubModal({ onClose }: { onClose: () => void }) {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const fund = useGame((s) => s.gcnFundClub);
-  const clubIds = game.gcn?.clubIds ?? [];
+  // Ring-fenced home-country clubs take no network money, so they aren't listed.
+  const clubIds = fundableClubIds(game);
   const treasury = game.gcn?.treasury ?? 0;
   const [clubId, setClubId] = useState<string | null>(clubIds[0] ?? null);
   const [amount, setAmount] = useState(0);
@@ -462,7 +467,9 @@ function FundClubModal({ onClose }: { onClose: () => void }) {
     return (
       <Modal title="Fund a club" onClose={onClose}>
         <p className="py-6 text-center text-sm text-dim">
-          The network doesn't own any clubs yet — found or buy one first.
+          {(game.gcn?.clubIds.length ?? 0) > 0
+            ? "Every club the network owns is ring-fenced in your own country — none of them can take network money."
+            : "The network doesn't own any clubs yet — found or buy one first."}
         </p>
       </Modal>
     );
@@ -523,7 +530,8 @@ function AutoFundingModal({ onClose }: { onClose: () => void }) {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const setAuto = useGame((s) => s.gcnSetAutoFunding);
-  const clubIds = game.gcn?.clubIds ?? [];
+  // Ring-fenced home-country clubs can't draw a standing order, so they're out.
+  const clubIds = fundableClubIds(game);
   const treasury = game.gcn?.treasury ?? 0;
 
   // A local draft so a half-typed figure isn't committed on every keystroke.
@@ -541,7 +549,9 @@ function AutoFundingModal({ onClose }: { onClose: () => void }) {
     return (
       <Modal title="Automate funding" onClose={onClose}>
         <p className="py-6 text-center text-sm text-dim">
-          The network doesn't own any clubs yet — found or buy one first.
+          {(game.gcn?.clubIds.length ?? 0) > 0
+            ? "Every club the network owns is ring-fenced in your own country — none of them can draw a standing order."
+            : "The network doesn't own any clubs yet — found or buy one first."}
         </p>
       </Modal>
     );
@@ -634,6 +644,20 @@ function AutoFundingModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** Marks a home-country holding (v1.64). Ring-fenced clubs are owned at arm's
+ * length — the tag is the manager's reminder that none of the network's levers
+ * reach them. */
+function RingFenceBadge({ title }: { title?: string } = {}) {
+  return (
+    <span
+      className="display shrink-0 rounded-sm border border-line px-1.5 py-0.5 text-[10px] font-semibold text-dim"
+      title={title ?? "Home country — ring-fenced: no network funding, players or feeder loans."}
+    >
+      RING-FENCED
+    </span>
+  );
+}
+
 /** Sell a Club (v1.63): the counterpart to Buy a Club. The club survives as an
  * ordinary AI side — the network just cashes out, at its current worth less the
  * resale haircut, into the treasury. */
@@ -649,6 +673,8 @@ function SellClubModal({ onClose }: { onClose: () => void }) {
   const price = clubId ? clubSalePrice(game, clubId, TUNING) : 0;
   const st = clubId ? gcnClubStatus(game, clubId) : null;
   const autoOrder = clubId ? autoFundingOf(game, clubId) : 0;
+  // Minimum hold (v1.64) — a recently acquired club can't be sold on yet.
+  const held = clubId ? seasonsUntilSellable(game, clubId, TUNING) : 0;
 
   if (clubIds.length === 0) {
     return (
@@ -669,6 +695,15 @@ function SellClubModal({ onClose }: { onClose: () => void }) {
             onChange={(id) => { setClubId(id); setConfirming(false); }}
           />
         </div>
+
+        {club && held > 0 && (
+          <p className="rounded border border-loss/40 bg-loss/10 px-3 py-2 text-[11px] leading-relaxed text-loss">
+            {club.name} is inside its {TUNING.gcnMinHoldSeasons}-season minimum hold. The network
+            can't sell it until season{" "}
+            <span className="tnum">{game.season + held}</span> — {held}{" "}
+            {held === 1 ? "season" : "seasons"} away. Clubs join the network for the long term.
+          </p>
+        )}
 
         {club && st && (
           <>
@@ -704,7 +739,7 @@ function SellClubModal({ onClose }: { onClose: () => void }) {
             {confirming ? (
               <GoldButton onClick={() => { sell(clubId!); onClose(); }}>Confirm sale</GoldButton>
             ) : (
-              <GoldButton disabled={!clubId} onClick={() => setConfirming(true)}>
+              <GoldButton disabled={!clubId || held > 0} onClick={() => setConfirming(true)}>
                 Sell club
               </GoldButton>
             )}
@@ -731,7 +766,11 @@ function FinancePanel({ fin }: { fin: GcnClubFinance }) {
     { label: "Matchday gate", amount: fin.gateIncome },
     { label: "Facilities", amount: fin.facilityIncome },
     { label: "Sponsorship", amount: fin.sponsorIncome },
-    { label: "Player wages", amount: -fin.wageBill },
+    { label: "Solidarity payment", amount: fin.solidarityIncome },
+    { label: "Network funding", amount: fin.networkIncome },
+    // In a sim league the wage bill isn't debited weekly, so it's shown as the
+    // squad's cost rather than a line in the net (see `banksOwnBooks`).
+    { label: fin.banksOwnBooks ? "Player wages" : "Squad wage bill (not charged)", amount: -fin.wageBill },
     { label: "Staff wages", amount: -fin.staffWages },
   ].filter((r) => r.amount !== 0);
 
@@ -760,6 +799,13 @@ function FinancePanel({ fin }: { fin: GcnClubFinance }) {
           </div>
         ))}
       </Card>
+      {!fin.banksOwnBooks && (
+        <p className="text-[11px] leading-relaxed text-faint">
+          This club plays in a simulated league, where matchday and TV money — and the wage bill —
+          are abstracted rather than banked week to week. Its funds move on network payments and
+          transfers only.
+        </p>
+      )}
       {fin.weeksOfCover !== null && (
         <p className="text-[11px] text-faint">
           Running at a loss — the current funds cover roughly{" "}
@@ -847,8 +893,15 @@ function BuyClubModal({ onClose }: { onClose: () => void }) {
   // Buyable clubs, cheapest first, filtered by a name/league search.
   const q = query.trim().toLowerCase();
   const buyable = Object.values(game.teams)
-    .filter((t) => isBuyableClub(game, t.id))
-    .map((t) => ({ team: t, price: clubBuyPrice(game, t.id, TUNING), league: game.leagues[t.leagueId] }))
+    .filter((t) => isBuyableClub(game, t.id, TUNING))
+    .map((t) => ({
+      team: t,
+      price: clubBuyPrice(game, t.id, TUNING),
+      league: game.leagues[t.leagueId],
+      // A home-country club is bought on ring-fenced terms — flag it in the list
+      // so the manager knows before he pays, not after.
+      home: isHomeCountryClub(game, t.id),
+    }))
     .filter(({ team, league }) => !q || team.name.toLowerCase().includes(q) || league?.name.toLowerCase().includes(q) || league?.country.toLowerCase().includes(q))
     .sort((a, b) => a.price - b.price)
     .slice(0, 60);
@@ -862,6 +915,12 @@ function BuyClubModal({ onClose }: { onClose: () => void }) {
             before buying another.
           </p>
         )}
+        <p className="text-[11px] leading-relaxed text-faint">
+          Clubs in your own country can be bought, but only as{" "}
+          <span className="text-ink">ring-fenced</span> holdings: no network funding, no players
+          moving either way, no feeder loans — and never a club in your own division. You own the
+          balance sheet, not the sporting advantage.
+        </p>
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -869,13 +928,16 @@ function BuyClubModal({ onClose }: { onClose: () => void }) {
           className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-gold"
         />
         <div className="max-h-[55vh] space-y-1.5 overflow-y-auto">
-          {buyable.map(({ team, price, league }) => {
+          {buyable.map(({ team, price, league, home }) => {
             const afford = treasury >= price;
             return (
               <div key={team.id} className="flex items-center gap-3 rounded border border-line bg-raised px-3 py-2">
                 <Crest colors={team.colors} short={team.short} size={28} />
                 <div className="min-w-0 flex-1">
-                  <div className="display truncate text-sm font-semibold">{team.name}</div>
+                  <div className="display flex items-center gap-1.5 truncate text-sm font-semibold">
+                    <span className="truncate">{team.name}</span>
+                    {home && <RingFenceBadge />}
+                  </div>
                   <div className="flex items-center gap-1.5 text-[11px] text-faint">
                     {league && <CountryFlag country={league.country} size={11} />}
                     <span className="truncate">{league?.name}</span>
@@ -890,8 +952,8 @@ function BuyClubModal({ onClose }: { onClose: () => void }) {
           {buyable.length === 0 && <p className="py-6 text-center text-sm text-faint">No clubs match.</p>}
         </div>
         <p className="text-[11px] text-faint">
-          Price = squad value × {TUNING.gcnBuyValueMultiplier}, plus premiums for league and club
-          reputation. Treasury: <span className="gold-text tnum">{formatMoney(treasury)}</span>.
+          Treasury: <span className="gold-text tnum">{formatMoney(treasury)}</span>. A club joins the
+          network for at least {TUNING.gcnMinHoldSeasons} seasons before it can be sold on.
         </p>
       </div>
     </Modal>
@@ -943,10 +1005,19 @@ function ClubsTab() {
             >
               <Crest colors={t.colors} short={t.short} size={30} />
               <div className="min-w-0 flex-1">
-                <div className="display truncate text-sm font-semibold">{t.name}</div>
+                <div className="display flex items-center gap-1.5 text-sm font-semibold">
+                  <span className="truncate">{t.name}</span>
+                  {isRingFenced(game, id) && <RingFenceBadge />}
+                </div>
                 <div className="flex items-center gap-1.5 text-[11px] text-faint">
                   {league && <CountryFlag country={league.country} size={11} />}
                   <span className="truncate">{league?.name}</span>
+                  {seasonsUntilSellable(game, id, TUNING) > 0 && (
+                    <span title={`Minimum hold — sellable from S${game.season + seasonsUntilSellable(game, id, TUNING)}`}>
+                      · held {seasonsUntilSellable(game, id, TUNING)}
+                      {seasonsUntilSellable(game, id, TUNING) === 1 ? " season" : " seasons"}
+                    </span>
+                  )}
                 </div>
               </div>
               {/* League position and cash in hand — the two numbers worth seeing
@@ -1006,6 +1077,7 @@ function SquadPanel({ clubId }: { clubId: string }) {
     .filter((p): p is PlayerBio => !!p)
     .sort((a, b) => b.overall - a.overall);
   const atMin = squad.length <= TUNING.gcnSellMinSquadSize;
+  const fenced = isRingFenced(game, clubId);
 
   if (squad.length === 0) return <p className="py-4 text-center text-sm text-faint">No players.</p>;
 
@@ -1030,15 +1102,20 @@ function SquadPanel({ clubId }: { clubId: string }) {
             <ConfirmButton
               label="Sell"
               confirmLabel="Confirm"
-              disabled={atMin || !!p.loan}
+              disabled={atMin || !!p.loan || fenced}
               onConfirm={() => sellPlayerAction(p.id)}
               className="!px-2 !py-1 !text-[11px]"
             />
           </div>
         ))}
       </div>
-      <p className="text-[11px] text-faint">
-        {atMin ? (
+      <p className="text-[11px] leading-relaxed text-faint">
+        {fenced ? (
+          <span className="text-loss">
+            This club is in your own country and ring-fenced — its squad can't be sold from or moved
+            into the network. You own the club; you don't run its transfers.
+          </span>
+        ) : atMin ? (
           <span className="text-loss">
             This squad is down to the {TUNING.gcnSellMinSquadSize}-player minimum — nothing more can
             be sold.

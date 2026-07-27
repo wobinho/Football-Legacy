@@ -53,6 +53,7 @@ import {
 import { formatMoney } from "@/lib/value";
 import type { GcnFacility } from "@/lib/types";
 import { setKitNumber } from "@/lib/kitnumbers";
+import { syncProgress, achievementTitles } from "@/lib/achievements";
 import { saveTactic, loadSavedTactic, deleteSavedTactic, renameSavedTactic } from "@/lib/tactics";
 import { deleteInboxItem, clearInbox } from "@/lib/inbox";
 import { optimalTrainingPlan } from "@/lib/config/training";
@@ -169,6 +170,10 @@ interface GameStore {
   /** Add/remove a player from the user's chosen bench (v25). Toggling a player
    * already benched removes him; adding respects the matchday bench cap. */
   toggleBench: (playerId: string) => void;
+  /** Take a player out of the matchday squad entirely (v1.63): out of the XI if
+   * he was starting, off the bench if he was a sub. What dragging him back onto
+   * the squad pool on the Tactics screen means. */
+  dropFromMatchday: (playerId: string) => void;
   /** Auto-pick the whole bench (v1.53): fill it with the strongest available
    * subs not already in the XI — a keeper first, then by overall — mirroring the
    * engine's own empty-bench fallback. Replaces the current bench outright. */
@@ -265,6 +270,8 @@ interface GameStore {
   gcnSendFeeder: (playerId: string, toClubId: string, role: "starter" | "rotation") => void;
   /** Buy the next level of a GCN Operations facility. */
   upgradeGcn: (facility: GcnFacility) => void;
+  /** Re-run the achievement check after a network action, toasting any unlock. */
+  gcnSyncAchievements: () => void;
 
   // ── Academy graduates awaiting a senior decision (v1.51) ──
   graduateSign: (playerId: string, terms?: { wage: number; years: number; releaseClause?: number }) => void;
@@ -788,6 +795,16 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
+  dropFromMatchday: (playerId) => {
+    const g = get().game;
+    if (!g) return;
+    for (const [slot, id] of Object.entries(g.lineup)) {
+      if (id === playerId) delete g.lineup[slot];
+    }
+    g.userBench = (g.userBench ?? []).filter((id) => id !== playerId);
+    get().bump(true);
+  },
+
   toggleBench: (playerId) => {
     const g = get().game;
     if (!g) return;
@@ -1052,6 +1069,16 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   // ── Global Club Network (v34) ──
+  // Every GCN action that can move a milestone (unlocking, buying, founding,
+  // treasury moves, feeder loans) runs the achievement check itself — the
+  // network's achievements (v1.64) don't wait for a match or a rollover to fire.
+  gcnSyncAchievements: () => {
+    const g = get().game;
+    if (!g) return;
+    const titles = achievementTitles(syncProgress(g));
+    if (titles.length) get().showToast(`Achievement unlocked — ${titles.join(", ")}`);
+  },
+
   openGcnUnlockPrompt: () => set({ gcnUnlockPromptOpen: true }),
   closeGcnUnlockPrompt: () => set({ gcnUnlockPromptOpen: false }),
 
@@ -1073,6 +1100,7 @@ export const useGame = create<GameStore>((set, get) => ({
     else {
       set({ gcnUnlockPromptOpen: false });
       get().showToast(`${name.trim()} founded — the Global Club Network is live.`);
+      get().gcnSyncAchievements();
     }
     get().bump(true);
   },
@@ -1082,6 +1110,7 @@ export const useGame = create<GameStore>((set, get) => ({
     if (!g) return;
     const err = depositToTreasury(g, amount);
     if (err) get().showToast(err);
+    else get().gcnSyncAchievements();
     get().bump(true);
   },
 
@@ -1148,7 +1177,10 @@ export const useGame = create<GameStore>((set, get) => ({
     const name = g.teams[clubId]?.name;
     const err = buyClub(g, clubId, TUNING);
     if (err) get().showToast(err);
-    else get().showToast(`${name} joins the network.`);
+    else {
+      get().showToast(`${name} joins the network.`);
+      get().gcnSyncAchievements();
+    }
     get().bump(true);
   },
 
@@ -1157,7 +1189,10 @@ export const useGame = create<GameStore>((set, get) => ({
     if (!g) return;
     const err = foundClub(g, leagueId, name, TUNING);
     if (err) get().showToast(err);
-    else get().showToast(`${name.trim()} founded — a new club in the network.`);
+    else {
+      get().showToast(`${name.trim()} founded — a new club in the network.`);
+      get().gcnSyncAchievements();
+    }
     get().bump(true);
   },
 
@@ -1174,6 +1209,7 @@ export const useGame = create<GameStore>((set, get) => ({
     if (!g) return;
     const err = sendToFeeder(g, playerId, toClubId, role, TUNING);
     if (err) get().showToast(err);
+    else get().gcnSyncAchievements();
     get().bump(true);
   },
 

@@ -444,6 +444,25 @@ export interface TuningConfig {
   /** Age at/above which players prefer shorter deals (won't sign long). */
   contractVeteranAge: number;
 
+  // ── Wage market scale (v1.65) ────────────────────────────────────────────
+  // The wage curve alone priced every player by ability, so a 70-overall player
+  // cost the same in a fourth-tier side as in the Premier League — which made
+  // the lower divisions and the smaller nations unaffordable by construction.
+  // Wages are now multiplied by the market a player is actually paid in: the
+  // division's tier, and the standing of the country's league system. Both are
+  // pure data; nothing in the engine names a country.
+  /** Wage multiplier by division tier, index = tier−1. A club below the last
+   * entry keeps the last one. Tier 1 is the reference (1.0). */
+  wageTierMult: number[];
+  /** Wage multiplier by country league-system band. `wageCountryBands` lists
+   * the country codes in each band; the multiplier is the matching entry of
+   * `wageCountryBandMult`. A country in no band takes `wageCountryBandDefault`. */
+  wageCountryBands: string[][];
+  wageCountryBandMult: number[];
+  wageCountryBandDefault: number;
+  /** Floor on the combined multiplier, so no market can drive wages to nothing. */
+  wageMarketMultMin: number;
+
   // ── Release clauses (v21) ────────────────────────────────────────────────
   /** The lowest clause a player will entertain, as a multiple of his market
    * value. Anything under this is an insult — he rejects the term outright. */
@@ -832,6 +851,23 @@ export interface TuningConfig {
   gcnSellPlayerPriceFactor: number;
   /** An owned club may not be sold down below this squad size. */
   gcnSellMinSquadSize: number;
+  /** Seasons a club must stay in the network after it is bought or founded
+   * before it may be sold (v1.64) — the network can't flip clubs for a quick
+   * treasury profit. */
+  gcnMinHoldSeasons: number;
+  /** Buying a club in the manager's OWN country is allowed (v1.64) but such a
+   * club is "ring-fenced": it takes no network money, moves no players with the
+   * rest of the network, and can't be used as a feeder. This is the flag that
+   * turns that behaviour on at all — off makes home-country clubs unbuyable. */
+  gcnAllowHomeCountryClubs: boolean;
+
+  // ── AI club solvency (v1.64) ──
+  // AI clubs were running multi-million weekly wage bills against tier income
+  // that could never cover them. Two subsidies keep the world's clubs solvent.
+  /** Paid into every non-GCN club's budget at the start of each season. */
+  aiSeasonSubsidy: number;
+  /** Extra weekly income every non-GCN club books, on top of its normal lines. */
+  aiWeeklySubsidy: number;
 
   // Calibration targets (for the harness printout)
   targetGoalsPerMatch: number;
@@ -1217,6 +1253,23 @@ export const TUNING: TuningConfig = {
   contractAcceptRatio: 0.98,
   contractRejectRatio: 0.8,
   contractVeteranAge: 32,
+
+  // Wage market scale (v1.65). A tier-2 club pays ~55% of top-flight wages for
+  // the same player, tier 3 ~32%, tier 4 ~20%, tier 5+ ~13% — the shape of the
+  // real drop-off between a top division and the semi-professional game, and
+  // enough that a lower-league budget can actually carry a squad.
+  wageTierMult: [1.0, 0.55, 0.32, 0.2, 0.13],
+  // Country bands, strongest first. The big five pay the headline rate; the
+  // next band (the strong mid-size systems) roughly two-thirds of it; everyone
+  // else lands on the default. Codes only — the engine never reads a name.
+  wageCountryBands: [
+    ["ENG", "GER", "ESP", "ITA", "FRA"],
+    ["POR", "NED", "TUR", "BEL", "SCO", "RUS", "UKR", "AUT", "SUI", "GRE"],
+    ["DEN", "SWE", "NOR", "CZE", "POL", "CRO", "SRB", "ROU", "HUN", "BUL", "ISR", "CYP"],
+  ],
+  wageCountryBandMult: [1.0, 0.62, 0.4],
+  wageCountryBandDefault: 0.3,
+  wageMarketMultMin: 0.08,
   // A clause at 1.5× value is a real escape hatch and earns the full 12% off the
   // wage; by 4× it's priced out of reach and buys nothing.
   releaseClauseMinMult: 1.5,
@@ -1558,6 +1611,11 @@ export const TUNING: TuningConfig = {
   gcnSellClubPriceFactor: 0.8,
   gcnSellPlayerPriceFactor: 0.9,
   gcnSellMinSquadSize: 16,
+  gcnMinHoldSeasons: 5,
+  gcnAllowHomeCountryClubs: true,
+
+  aiSeasonSubsidy: 30_000_000,
+  aiWeeklySubsidy: 250_000,
 
   targetGoalsPerMatch: 2.7,
   targetHomeWinPct: 45,

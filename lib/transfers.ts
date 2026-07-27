@@ -155,7 +155,9 @@ export function completeTransfer(
     to.playerIds.push(playerId);
     to.budget -= fee;
     if (terms) p.contract = makeContract(state, terms.wage, terms.years, terms.releaseClause);
-    else grantDefaultContract(state, p, TUNING);
+    // Priced in the league he's joining, not the one he's leaving — clubId
+    // still points at the old club at this point in the move (v1.65).
+    else grantDefaultContract(state, p, TUNING, undefined, to.leagueId);
   } else {
     p.contract = undefined; // released to free agency
   }
@@ -498,7 +500,7 @@ export function aiWeeklyTransferTick(state: GameState, cfg: TuningConfig): boole
               // Only clubs that can genuinely fund the deal bid (v19) — fee out
               // of spendable cash and the wages out of income. An offer the
               // buyer could never honour is noise on the user's screen.
-              canAfford(state, t, p.value, wageDemand(state, p, cfg), cfg) &&
+              canAfford(state, t, p.value, wageDemand(state, p, cfg, t.leagueId), cfg) &&
               t.reputation >= state.teams[state.userTeamId].reputation - 35
           )
           .map((t) => {
@@ -652,7 +654,7 @@ function aiSquadBuilding(state: GameState, rng: RNG, cfg: TuningConfig) {
         const price =
           Math.round((p.value * cfg.aiAcceptThreshold * sellerProfile.sellAsk * distressDiscount) / 100_000) * 100_000;
         if (price > buyBudgetFor(state, buyer, p, cfg)) continue;
-        if (!canAfford(state, buyer, price, wageDemand(state, p, cfg), cfg)) continue;
+        if (!canAfford(state, buyer, price, wageDemand(state, p, cfg, buyer.leagueId), cfg)) continue;
         if (!best || score > best.score) best = { player: p, score, price };
       }
     }
@@ -815,7 +817,7 @@ function trySimDeal(
       const price =
         Math.round((p.value * cfg.aiAcceptThreshold * sellerProfile.sellAsk * distressDiscount) / 100_000) * 100_000;
       if (price > buyBudgetFor(state, buyer, p, cfg)) continue;
-      if (!canAfford(state, buyer, price, wageDemand(state, p, cfg), cfg)) continue;
+      if (!canAfford(state, buyer, price, wageDemand(state, p, cfg, buyer.leagueId), cfg)) continue;
       if (!best || score > best.score) best = { player: p, score, price };
     }
   }
@@ -858,7 +860,7 @@ function aiSignFreeAgent(state: GameState, buyer: Team, need: PositionNeed, cfg:
     const score = targetScore(state, buyer, need, p, cfg);
     if (score <= 0) continue;
     // Free transfer: no fee, so the wage is the whole affordability question.
-    if (!canAfford(state, buyer, 0, wageDemand(state, p, cfg), cfg)) continue;
+    if (!canAfford(state, buyer, 0, wageDemand(state, p, cfg, buyer.leagueId), cfg)) continue;
     if (!best || score > best.score) best = { player: p, score };
   }
   if (!best) return;
@@ -1038,7 +1040,6 @@ export function saleSuitors(state: GameState, playerId: string, cfg: TuningConfi
   const p = state.players[playerId];
   if (!p || p.clubId !== state.userTeamId) return [];
   const rng = mulberry32(deriveSeed(state.seed, `salepick:${playerId}:${state.currentDay}`));
-  const wage = wageDemand(state, p, cfg);
 
   // Pass 1: who is interested at all, and how badly. `targetScore` is unbounded,
   // so the keenness that prices the offer is this player's score normalised
@@ -1062,7 +1063,10 @@ export function saleSuitors(state: GameState, playerId: string, cfg: TuningConfi
   for (const { team: t, need, score } of interested) {
     const fee = offerFeeFrom(state, t, p, topScore > 0 ? score / topScore : 0, cfg);
     if (fee <= 0) continue;
-    if (!canAfford(state, t, fee, wage, cfg)) continue;
+    // Priced in the buyer's own market (v1.65) — a lower-division suitor is
+    // quoted a lower-division wage, which is what makes it a plausible suitor
+    // at all rather than one filtered out by a top-flight wage it never pays.
+    if (!canAfford(state, t, fee, wageDemand(state, p, cfg, t.leagueId), cfg)) continue;
     rows.push({ team: t, fee, need, score });
   }
 

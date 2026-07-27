@@ -25,6 +25,7 @@ import { CountryFlag, Crest, Flag, GoldButton, GhostButton, Modal, Ovr, PosBadge
 import CreateClubModal, { customClubSeed, type CustomClub } from "./CreateClubModal";
 import CreatePlayerModal, { customPlayerSeed, type CustomPlayer } from "./CreatePlayerModal";
 import DatabaseEditor from "./DatabaseEditor";
+import EuroQualifyModal from "./EuroQualifyModal";
 import AudioPlayer from "./AudioPlayer";
 
 export default function MainMenu() {
@@ -214,6 +215,12 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
   // Only meaningful once enough European countries are included; the option is
   // hidden below that threshold rather than offered and silently ignored.
   const [europeanTiers, setEuropeanTiers] = useState<number>(3);
+  // The user's own qualification design (v1.65), keyed by country code: which
+  // cup each finishing position enters. Empty until they open the setup modal —
+  // worldgen falls back to the engine defaults for anything left unauthored.
+  const [europeanSlots, setEuropeanSlots] = useState<Record<string, number[]>>({});
+  const [euroCupWinnerQualifies, setEuroCupWinnerQualifies] = useState(true);
+  const [euroSetupOpen, setEuroSetupOpen] = useState(false);
   // per-country database choice, keyed by country code
   const [dbChoices, setDbChoices] = useState<Record<string, DbChoice>>({});
   // resolved preset databases, keyed by country code (lazy-loaded from /public)
@@ -251,6 +258,7 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
     return includedCodes.filter((c) => euro.has(c));
   }, [includedCodes]);
   const euroEligible = europeanIncluded.length >= EURO_MIN_COUNTRIES;
+
   const setDepth = (code: string, depth: number) => setDivisionDepths((m) => ({ ...m, [code]: depth }));
 
   const choiceFor = (code: string): DbChoice => dbChoices[code] ?? initialChoice(code);
@@ -286,6 +294,29 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
     if (engine) return engine;
     return presetDbs[code] ? proceduralFromPreset(presetDbs[code]) : null;
   };
+
+  // The European countries as the qualification modal needs them: display name
+  // and how many clubs are in the top flight (that's how many finishing
+  // positions there are to allocate). Ordered strongest-first by average club
+  // reputation — the same ranking the engine's defaults use, so the list the
+  // user edits reads in the order those defaults were built in.
+  const euroSetupCountries = useMemo(() => {
+    const rows = europeanIncluded.map((code) => {
+      const db = dbForChoice(code);
+      const top = db ? [...db.divisions].sort((a, b) => a.tier - b.tier)[0] : null;
+      const clubs = top?.clubs ?? [];
+      const rep = clubs.length ? clubs.reduce((n, c) => n + (c.rep ?? 0), 0) / clubs.length : 0;
+      return { code, name: OPTION_MAP[code]?.name ?? code, divisionSize: clubs.length, rep };
+    });
+    rows.sort((a, b) => b.rep - a.rep || a.name.localeCompare(b.name));
+    return rows;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [europeanIncluded, dbChoices, presetDbs]);
+
+  /** True once every European country's database has loaded — the modal needs
+   * real division sizes to show positions, so it stays disabled until then. */
+  const euroSetupReady =
+    euroSetupCountries.length > 0 && euroSetupCountries.every((c) => c.divisionSize > 0);
 
   /** The division id the created club (if any) targets in this country: its
    * explicit `divisionId`, or the top authored division when unset (older
@@ -463,6 +494,12 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
       divisionDepths,
       divisionDepth: playableDepth,
       europeanTiers: euroEligible ? europeanTiers : 0,
+      // Only the countries actually in the save — a slot table left over from a
+      // country the user then removed must not reach worldgen.
+      europeanSlots: Object.fromEntries(
+        Object.entries(europeanSlots).filter(([code]) => europeanIncluded.includes(code))
+      ),
+      europeanCupWinnerQualifies: euroCupWinnerQualifies,
       // Only send names the user actually typed; blanks keep the defaults.
       divisionNames: Object.fromEntries(
         Object.entries(divisionNames)
@@ -795,9 +832,28 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
             </div>
             <p className="mt-2 text-[11px] text-faint">
               32 clubs per competition &mdash; eight groups of four, then two-legged knockout rounds
-              and a one-off final. Qualification comes from the previous season&apos;s final league
-              tables, so the first European campaign is season two.
+              and a one-off final. All {europeanTiers > 1 ? `${europeanTiers} competitions run` : "competitions run"}{" "}
+              simultaneously. Qualification comes from the previous season&apos;s final league tables, so
+              the first European campaign is season two.
             </p>
+            {europeanTiers > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <GhostButton
+                  onClick={() => setEuroSetupOpen(true)}
+                  disabled={!euroSetupReady}
+                  className="!py-1.5 text-xs"
+                >
+                  Set up qualification →
+                </GhostButton>
+                <span className="text-[11px] text-faint">
+                  {!euroSetupReady
+                    ? "Loading databases…"
+                    : Object.keys(europeanSlots).length
+                      ? "Using your own slot table."
+                      : "Using the default slot table — open to choose which league places qualify."}
+                </span>
+              </div>
+            )}
           </>
         ) : (
           <p className="mt-2 text-[11px] text-faint">
@@ -897,6 +953,20 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
       </div>
 
       {guideOpen && <CustomDbGuide onClose={() => setGuideOpen(false)} />}
+      {euroSetupOpen && (
+        <EuroQualifyModal
+          countries={euroSetupCountries}
+          tiers={europeanTiers}
+          slots={europeanSlots}
+          cupWinnerQualifies={euroCupWinnerQualifies}
+          onApply={(slots, cupWinner) => {
+            setEuropeanSlots(slots);
+            setEuroCupWinnerQualifies(cupWinner);
+            setEuroSetupOpen(false);
+          }}
+          onClose={() => setEuroSetupOpen(false)}
+        />
+      )}
       {clubModalOpen && startDiv && (
         <CreateClubModal
           clubs={startDiv.clubs}

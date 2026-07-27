@@ -33,16 +33,24 @@ export function playerValue(p: Pick<PlayerBio, "overall" | "age" | "potential">,
 }
 
 /** Weekly wage the ability curve implies — the fallback when a player has no
- * individual contract yet (AI world, migrated saves before the first rollover). */
-export function playerWage(overall: number, cfg: TuningConfig): number {
-  return Math.round((cfg.wagePerOverallCurve.base * Math.exp(cfg.wagePerOverallCurve.exponent * overall)) / 100) * 100;
+ * individual contract yet (AI world, migrated saves before the first rollover).
+ * `marketMult` is the club's wage-market scale (v1.65, see contracts.ts) so the
+ * fallback agrees with what a real contract at that club would say; omitted, it
+ * quotes the top-flight rate as before. */
+export function playerWage(overall: number, cfg: TuningConfig, marketMult = 1): number {
+  const raw = cfg.wagePerOverallCurve.base * Math.exp(cfg.wagePerOverallCurve.exponent * overall) * marketMult;
+  return Math.round(raw / 100) * 100;
 }
 
 /** Squad wage bill (§10, v5): the sum of real contract wages. A player without a
  * contract (not yet negotiated) falls back to the ability-curve wage so the
  * bill never under-counts. */
-export function squadWageBill(players: Pick<PlayerBio, "overall" | "contract">[], cfg: TuningConfig): number {
-  return players.reduce((sum, p) => sum + (p.contract?.wage ?? playerWage(p.overall, cfg)), 0);
+export function squadWageBill(
+  players: Pick<PlayerBio, "overall" | "contract">[],
+  cfg: TuningConfig,
+  marketMult = 1
+): number {
+  return players.reduce((sum, p) => sum + (p.contract?.wage ?? playerWage(p.overall, cfg, marketMult)), 0);
 }
 
 export function formatMoney(n: number): string {

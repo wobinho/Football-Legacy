@@ -901,10 +901,18 @@ export function toggleFocus(state: GameState, playerId: string, cfg: TuningConfi
  * football" for a graduate the club raised itself. */
 function recordAcademyPromotion(state: GameState, playerId: string, team: Team) {
   state.careers[playerId] ??= { playerId, seasons: [], transfers: [] };
+  const from = `${team.name} Youth Academy`;
+  // Write it once, ever (v1.63). A player can reach the senior squad by more
+  // than one road — promoted, demoted back and promoted again, or promoted and
+  // later signed out of the graduate queue — and each road called in here, so
+  // the same "<Club> Youth Academy → <Club>" line was stacking up two and three
+  // deep in his history. Stepping up from the same academy twice is one fact.
+  const already = state.careers[playerId].transfers.some((t) => t.from === from && t.to === team.name);
+  if (already) return;
   state.careers[playerId].transfers.push({
     season: state.season,
     day: state.currentDay,
-    from: `${team.name} Youth Academy`,
+    from,
     to: team.name,
     fee: 0,
     toId: team.id,
@@ -995,28 +1003,11 @@ export function pendingGraduates(state: GameState): PlayerBio[] {
     .sort((a, b) => b.overall - a.overall);
 }
 
-/**
- * Safety net for a manager who never answers the graduate queue (v1.51).
- *
- * Holding graduates for a decision is right, but it can't be allowed to leave
- * the club unable to field a side — that would replace one silent problem
- * (players appearing unasked) with a worse one (a squad quietly starving). When
- * the senior squad is below `matchdaySquad` at the rollover, the best waiting
- * graduates are given senior contracts until it isn't, and the manager is told.
- *
- * Best first, because if the choice is being made for you it should at least be
- * the choice you'd have made. Returns the names promoted.
- */
-export function promoteGraduatesToFieldable(state: GameState, cfg: TuningConfig): string[] {
-  const team = userTeam(state);
-  const promoted: string[] = [];
-  // Best first — pendingGraduates is already sorted by overall.
-  for (const p of pendingGraduates(state)) {
-    if (team.playerIds.filter((id) => !state.players[id]?.retired).length >= cfg.matchdaySquad) break;
-    if (!signGraduate(state, p.id, cfg)) promoted.push(p.name);
-  }
-  return promoted;
-}
+// A graduate is NEVER signed automatically (v1.63). The rollover used to call
+// the best of the queue up when the senior squad fell below a legal matchday
+// size; that put players on the books the manager never asked for, which is the
+// exact complaint the queue was built to answer. A thin squad is now topped up
+// from the free-agent market only (`ensureFieldableSquad`), and the queue waits.
 
 /** Drop entries whose player has retired or otherwise left the club, so an
  * undecided graduate can't linger in the list forever. Called at the rollover. */
@@ -1375,7 +1366,19 @@ export function signProspect(state: GameState, reportId: string, cfg: TuningConf
   (team.academyPlayerIds ??= []).push(p.id);
   assignKitNumber(state, p);
   state.careers[p.id] = { playerId: p.id, seasons: [], transfers: [] };
-  state.careers[p.id].transfers.push({ season: state.season, day: state.currentDay, from: `${team.name} Youth Academy`, to: team.name, fee: 0, toId: team.id });
+  // A scouted find joins from OUTSIDE — he never came through this club's youth
+  // setup, so the row must not claim he did (v1.63). Writing "<Club> Youth
+  // Academy → <Club>" here also collided with the identical line the promotion
+  // to the senior squad writes later, which is how a graduate ended up with the
+  // same academy transfer twice in his history.
+  state.careers[p.id].transfers.push({
+    season: state.season,
+    day: state.currentDay,
+    from: "Youth football",
+    to: `${team.name} Youth Academy`,
+    fee: 0,
+    toId: team.id,
+  });
   ac.reports = ac.reports.filter((r) => r.id !== reportId);
   state.news.unshift(`${team.name} sign ${p.age}-year-old ${p.name} for the academy.`);
   return null;
@@ -1944,7 +1947,8 @@ export function academyPostDevRollover(state: GameState, cfg: TuningConfig) {
       "academy",
       "Final academy season",
       `${leavers.map((p) => p.name).join(", ")} ${leavers.length === 1 ? "is" : "are"} now ${cfg.academyMaxAge} — ` +
-        `promote, sell, or loan them this season, or they'll graduate into the senior squad automatically next summer.`
+        `promote, sell, or loan them this season. Next summer they outgrow the academy and wait on your decision: ` +
+        `nobody joins the senior squad unless you sign them.`
     );
   }
 

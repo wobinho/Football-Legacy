@@ -50,7 +50,7 @@ import { transferWindowState, formatDayShort } from "@/lib/calendar";
 import { formatMoney } from "@/lib/value";
 import { matchesPlayerName } from "@/lib/search";
 import { staffSlotsForDept } from "@/lib/staff";
-import { Card, ConfirmButton, CountryFlag, Crest, Flag, GhostButton, GoldButton, Modal, Ovr, PlayerCard, PlayerGrid, PosBadge, PotentialBadge, Section, Stars, StarRange, Tabs, UpgradeCard, usePlayerView, ViewToggle } from "../ui";
+import { Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, GhostButton, GoldButton, Modal, Ovr, PlayerCard, PlayerGrid, PosBadge, PotentialBadge, Section, Stars, StarRange, Tabs, UpgradeCard, usePlayerView, ViewToggle } from "../ui";
 // The loan chooser is shared with the senior squad now (v1.52) — both squads
 // resolve a move the same way, so the modal lives outside this screen.
 import { LoanOfferModal } from "./SquadMoveModals";
@@ -764,7 +764,7 @@ function SquadTab() {
                 <button onClick={() => viewPlayer(p.id)} className="group min-w-0 flex-1 text-left md:flex-none">
                   <span className="flex items-center gap-1.5">
                     <Flag nat={p.nationality} size={11} />
-                    <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
+                    <span className="truncate font-medium transition-colors group-hover:text-gold">{displayFullName(p)}</span>
                     <TierTag tier={p.u21Tier} />
                   </span>
                   <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-faint">
@@ -1194,7 +1194,7 @@ function AcademyDevelopmentTab() {
                   >
                     <span className={`shrink-0 text-[10px] text-faint transition-transform ${isOpen ? "rotate-90" : ""}`}>▶</span>
                     <Flag nat={p.nationality} size={12} />
-                    <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
+                    <span className="truncate font-medium transition-colors group-hover:text-gold">{displayFullName(p)}</span>
                     <TierTag tier={p.u21Tier} />
                     {last && last.toOverall !== last.fromOverall && (
                       <span className={`text-[11px] tnum ${last.toOverall > last.fromOverall ? "text-win" : "text-loss"}`}>
@@ -1310,60 +1310,6 @@ function AcademyDevelopmentTab() {
 // the intake as a whole was trending. This tab charts every prospect's overall
 // over time and totals it into a few squad-level numbers.
 
-/**
- * A prospect's overall plotted over the seasons on record.
- *
- * Deliberately an inline SVG rather than a charting dependency: the curve is
- * four or five points, it has to sit inside a table row, and it needs to inherit
- * the gold accent. The y-axis is scaled to the player's own range (padded), so
- * the shape shows the climb rather than being flattened against a 1–99 axis.
- */
-function GrowthSparkline({ g, width = 150, height = 40 }: { g: ProspectGrowth; width?: number; height?: number }) {
-  const pts = g.points;
-  if (pts.length < 2) return <span className="text-[11px] text-faint">No history yet</span>;
-
-  const values = pts.map((p) => p.overall);
-  const lo = Math.min(...values);
-  const hi = Math.max(...values);
-  // Pad a flat line into the middle of the box instead of dividing by zero.
-  const span = Math.max(1, hi - lo);
-  const pad = 4;
-  const x = (i: number) => pad + (i / (pts.length - 1)) * (width - pad * 2);
-  const y = (v: number) => height - pad - ((v - lo) / span) * (height - pad * 2);
-
-  const line = pts.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.overall).toFixed(1)}`).join(" ");
-  const area = `${line} L${x(pts.length - 1).toFixed(1)},${height - pad} L${x(0).toFixed(1)},${height - pad} Z`;
-  const rising = g.totalGain >= 0;
-  const stroke = rising ? "var(--color-gold-hi)" : "#e0576b";
-  const gid = `spark-${g.player.id}`;
-
-  return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="overflow-visible">
-      <defs>
-        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={stroke} stopOpacity="0.28" />
-          <stop offset="100%" stopColor={stroke} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={area} fill={`url(#${gid})`} />
-      <path d={line} fill="none" stroke={stroke} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
-      {pts.map((p, i) => (
-        <circle
-          key={i}
-          cx={x(i)}
-          cy={y(p.overall)}
-          r={p.live ? 2.6 : 1.8}
-          fill={p.live ? stroke : "var(--color-surface, #14161b)"}
-          stroke={stroke}
-          strokeWidth="1.2"
-        >
-          <title>{`S${p.season} · age ${p.age} · ${p.overall} OVR`}</title>
-        </circle>
-      ))}
-    </svg>
-  );
-}
-
 /** A signed overall delta, coloured and always explicitly signed. */
 function Delta({ value, suffix = "" }: { value: number; suffix?: string }) {
   if (!value) return <span className="tnum text-faint">—</span>;
@@ -1386,7 +1332,8 @@ const GROWTH_SORTS: { key: GrowthSort; label: string }[] = [
   { key: "age", label: "Age" },
 ];
 
-const GROWTH_GRID = "md:grid-cols-[2.25rem_1fr_2.5rem_9.5rem_3.5rem_4.5rem_4.5rem_4.5rem]";
+// No sparkline column (v1.63) — see the matching note on the senior Growth tab.
+const GROWTH_GRID = "md:grid-cols-[2.25rem_1fr_2.5rem_3.5rem_4.5rem_4.5rem_4.5rem]";
 
 function AcademyGrowthTab() {
   const game = useGame((s) => s.game)!;
@@ -1444,9 +1391,9 @@ function AcademyGrowthTab() {
       <Card className="p-4">
         <div className="display font-semibold text-ink">How your academy is developing</div>
         <p className="mt-0.5 text-[12px] leading-relaxed text-faint">
-          Every prospect&apos;s overall, season by season. The curve starts where he was first recorded and ends on
-          his rating right now — the filled point is today. Growth comes from U21 minutes, your Youth Coach and the
-          Academy facility, so a flat line usually means a prospect who isn&apos;t playing.
+          How every prospect&apos;s overall has moved: what he has added since he was first recorded, what he has added
+          this season, and his average per season. Growth comes from U21 minutes, your Youth Coach and the Academy
+          facility, so a prospect stuck on zero is usually one who isn&apos;t playing.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           {stats.map((s) => (
@@ -1498,7 +1445,6 @@ function AcademyGrowthTab() {
           <span>Pos</span>
           <span>Prospect</span>
           <span className="text-center">Age</span>
-          <span className="text-center">Progress</span>
           <span className="text-center">OVR</span>
           <span className="text-center" title="Overall gained since he was first recorded">
             Total
@@ -1519,7 +1465,7 @@ function AcademyGrowthTab() {
                 <button onClick={() => viewPlayer(p.id)} className="group min-w-0 flex-1 text-left md:flex-none">
                   <span className="flex items-center gap-1.5">
                     <Flag nat={p.nationality} size={11} />
-                    <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
+                    <span className="truncate font-medium transition-colors group-hover:text-gold">{displayFullName(p)}</span>
                     <TierTag tier={p.u21Tier} />
                   </span>
                   <span className="text-[11px] text-faint">
@@ -1531,11 +1477,6 @@ function AcademyGrowthTab() {
                   <span className="md:hidden">y</span>
                 </span>
               </div>
-
-              {/* The curve. Full width on phones, where the grid collapses. */}
-              <span className="mt-2 flex justify-center md:mt-0">
-                <GrowthSparkline g={g} />
-              </span>
 
               <span className="mt-2 flex items-center justify-center md:mt-0">
                 <Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />
@@ -1628,7 +1569,7 @@ function LoanedTab() {
               <button onClick={() => viewPlayer(p.id)} className="group min-w-0 text-left">
                 <span className="flex items-center gap-1.5">
                   <Flag nat={p.nationality} size={11} />
-                  <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
+                  <span className="truncate font-medium transition-colors group-hover:text-gold">{displayFullName(p)}</span>
                   <span
                     className={`display rounded-sm border px-1 text-[9px] font-semibold ${
                       academy ? "border-gold-lo/50 text-gold" : "border-line text-dim"
@@ -1791,7 +1732,7 @@ function U21RegistrationPanel() {
                   <button onClick={() => viewPlayer(p.id)} className="group min-w-0 flex-1 truncate text-left text-sm">
                     <span className="flex items-center gap-1.5">
                       <Flag nat={p.nationality} size={11} />
-                      <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
+                      <span className="truncate font-medium transition-colors group-hover:text-gold">{displayFullName(p)}</span>
                       <span className="tnum text-[11px] text-faint">{p.age}y</span>
                       {focus.has(p.id) && <span className="display text-[9px] font-semibold text-gold">★</span>}
                     </span>
@@ -1860,7 +1801,7 @@ function U21ProspectsModal({ opp, onClose }: { opp: U21Opponent; onClose: () => 
               <div className="flex items-center gap-2">
                 <PosBadge pos={p.positions[0]} />
                 <button onClick={() => viewPlayer(p.id)} className="group min-w-0 flex-1 truncate text-left text-sm">
-                  <span className="truncate font-medium transition-colors group-hover:text-gold">{p.name}</span>
+                  <span className="truncate font-medium transition-colors group-hover:text-gold">{displayFullName(p)}</span>
                   <span className="ml-1.5 tnum text-[11px] text-faint">{p.age}y</span>
                   {/* The rival's badge in the tier's own colour — the price he
                       is quoted at keys off exactly this, so it should read the
@@ -2035,7 +1976,7 @@ function U21Tab() {
                 <div key={p.id} className="flex items-center justify-between px-4 py-2 text-sm">
                   <span className="flex min-w-0 items-center gap-2">
                     <PosBadge pos={p.positions[0]} />
-                    <span className="truncate">{p.name}</span>
+                    <span className="truncate">{displayFullName(p)}</span>
                   </span>
                   <span className="tnum text-xs text-dim">
                     {ys.apps} apps · {ys.goals}g · {(ys.ratingSum / ys.apps).toFixed(2)}
@@ -2251,7 +2192,7 @@ function ScoutingTab() {
                     <button onClick={() => viewProspect(p)} className="group flex min-w-0 items-center gap-2 text-left">
                       <PosBadge pos={p.positions[0]} />
                       <Flag nat={p.nationality} size={12} />
-                      <span className="truncate font-semibold transition-colors group-hover:text-gold">{p.name}</span>
+                      <span className="truncate font-semibold transition-colors group-hover:text-gold">{displayFullName(p)}</span>
                       <span className="tnum text-xs text-faint">age {p.age}</span>
                       {r.region && (
                         <span className="display rounded-sm border border-line px-1 text-[9px] font-semibold text-faint">

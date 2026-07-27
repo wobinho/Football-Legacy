@@ -10,7 +10,7 @@ import { POS_LABELS, POS_ORDER } from "@/lib/config/positions";
 import { yearsLeft } from "@/lib/contracts";
 import { formatMoney } from "@/lib/value";
 import { matchesPlayerName } from "@/lib/search";
-import { ArchetypeIcon, Card, FitnessBar, Flag, FormChip, Money, Ovr, PlayerCard, PlayerGrid, PosBadge, Section, usePlayerView, ViewToggle } from "../ui";
+import { ArchetypeIcon, Card, displayFullName, FitnessBar, Flag, FormChip, Money, Ovr, PlayerCard, PlayerGrid, PosBadge, Section, usePlayerView, ViewToggle } from "../ui";
 
 // The contract used to be a single column (years, then wage as a tiebreak). It's
 // now split so wage/week and years-left are each their own sortable column with
@@ -265,7 +265,7 @@ export default function SquadScreen() {
                 <td className="px-2 py-2">
                   <span className="flex items-center gap-2">
                     <Flag nat={p.nationality} size={14} />
-                    <span className="font-medium">{p.name}</span>
+                    <span className="font-medium">{displayFullName(p)}</span>
                     {game.transferList.includes(p.id) && <span className="text-[10px] text-gold">LISTED</span>}
                     {!p.loan && game.academy.loanList.includes(p.id) && (
                       <span className="text-[10px] text-win">LOAN-LISTED</span>
