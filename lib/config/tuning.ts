@@ -84,6 +84,17 @@ export interface TuningConfig {
   setPieceTakerBias: number; // scorer/assist weight multiplier for the designated taker
 
   /**
+   * How often a goal is credited to a provider (v1.66). Real football assists
+   * roughly three goals in four; the engine used to hand out an assist on only
+   * 65% of open-play goals, so creative midfielders never built the season
+   * numbers their archetype implied. A penalty is unassisted by definition, so
+   * it is excluded in the engine rather than given its own rate here.
+   */
+  assistChance: number;
+  /** Corners and free kicks are worked balls — nearly all of them are assisted. */
+  assistChanceSetPiece: number;
+
+  /**
    * Hidden style×mentality counter matrix (§6 strong/weak-against). Looked up as
    * counterMatrix[ownStyle][oppStyle] and a parallel mentality table; the product
    * multiplies own ATTACK at kickoff. Values sit inside a tight band so a good
@@ -911,6 +922,8 @@ export const TUNING: TuningConfig = {
   cornerChance: 0.1,
   penaltyConversion: 0.76,
   setPieceTakerBias: 6,
+  assistChance: 0.82,
+  assistChanceSetPiece: 0.93,
 
   // Rock-paper-scissors, hidden. Counter beats Possession, Possession beats
   // Direct, Direct beats Counter. Diagonal (mirror) is neutral 1.0. Off-diagonal

@@ -85,7 +85,7 @@ export default function Shell() {
 
       {/* sidebar — fixed drawer on mobile (slides in), static column on md+ */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-60 max-w-[80%] flex-col border-r border-line bg-surface transition-transform md:static md:z-auto md:w-48 md:max-w-none md:translate-x-0 ${
+        className={`inset-safe fixed inset-y-0 left-0 z-40 flex w-60 max-w-[80%] flex-col border-r border-line bg-surface transition-transform md:static md:z-auto md:w-48 md:max-w-none md:translate-x-0 ${
           navOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -162,7 +162,11 @@ export default function Shell() {
 
       {/* main column */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-line bg-surface px-3 sm:gap-4 sm:px-5">
+        {/* Installed to the home screen the app draws under the status bar, so
+            the header pads itself clear of the clock and battery. min-h rather
+            than h: the inset is added on top of the bar's own 3.5rem height
+            instead of eating into it, so the controls never get squashed. */}
+        <header className="pt-safe mx-safe flex min-h-[3.5rem] shrink-0 items-center justify-between gap-2 border-b border-line bg-surface px-3 sm:gap-4 sm:px-5">
           <div className="flex min-w-0 items-center gap-2 sm:gap-4">
             {/* hamburger — mobile only */}
             <button
@@ -217,7 +221,9 @@ export default function Shell() {
           </div>
         </header>
 
-        <main className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5">
+        {/* mb-safe clears the home indicator on a gesture-nav phone; mx-safe
+            keeps content out of the rounded corners in landscape. */}
+        <main className="mb-safe mx-safe min-h-0 flex-1 overflow-y-auto p-3 sm:p-5">
           {screen === "home" && <HomeScreen />}
           {screen === "squad" && <SquadScreen />}
           {screen === "tactics" && <TacticsScreen />}

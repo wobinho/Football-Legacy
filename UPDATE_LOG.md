@@ -7,6 +7,36 @@ Save-schema version is noted where it moved. The game auto-migrates older saves 
 
 ---
 
+## 2026-07-28 — Club Players, a fuller assist picture, and a tidier board
+
+No save-schema change — everything here is computed from data the save already carries.
+
+- **Club → Club Players.** A new tab, between History & Records and Save: everyone who has ever
+  played for the club, one row per **spell**. Each row carries the season he joined, the season he
+  left — or **"still in club"** for anyone on the books today — and what he did in the shirt
+  (apps, goals, assists, average rating). Filterable by current/former, searchable by name,
+  sortable by spell length or any stat column, and every row opens the player's profile.
+  A player who left and later returned gets one row per spell rather than one invented
+  continuous stay.
+- **Most goals now have an assist.** The engine credited a provider on only ~62% of goals, so
+  creative midfielders never built the season numbers their archetype implied. Assisted goals now
+  sit at **~78%**, in line with real football. Penalties are correctly **unassisted**; corners and
+  free kicks are assisted at a higher rate than open play. Both rates are tuning values
+  (`assistChance`, `assistChanceSetPiece`) rather than engine constants, and `npm run calibrate`
+  now reports the assisted-goal share alongside the scoring targets. Scoring balance is unchanged
+  (2.74 goals/match, 46.1% home wins).
+- **Tactics: the XI and the bench, side by side.** On desktop the two lists now sit in two columns
+  of one row instead of stacked, so picking a side and naming the subs are visible at once and a
+  drag from bench to XI no longer crosses a scroll. They stack again below `lg`, and phones keep
+  the tap-driven lineup unchanged — two columns of player rows don't fit a 390px viewport.
+- **Investments: major and minor split, offers shown in place.** The sponsorship portfolio is now
+  two sections — **Major Sponsorships** (lump-sum landmark deals) and **Minor Sponsorships**
+  (weekly top-ups) — because the decision each asks for is a different size. The separate
+  "Offers On The Table" section is gone: a live offer now rides on the row of the slot it wants to
+  sponsor, always expanded since it's the one thing on the page that expires.
+
+---
+
 ## 2026-07-25 — The Global Club Network: an end-game empire
 
 Save schema: **v33 → v34** (the optional `gcn` and `gcnFunds` blocks on the save, plus a

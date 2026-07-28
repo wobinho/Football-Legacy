@@ -16,7 +16,7 @@ import {
   type BreakdownItem,
   type Facility,
 } from "@/lib/economy";
-import { clubAllTimeRecords } from "@/lib/recordbook";
+import { clubAllTimeRecords, clubPlayerHistory } from "@/lib/recordbook";
 import { academyGraduates } from "@/lib/academy";
 import {
   SPONSOR_SLOTS,
@@ -31,13 +31,14 @@ import {
   slotCapacity,
   sponsorCooldownUntil,
 } from "@/lib/sponsors";
+import type { SponsorDeal, SponsorOffer } from "@/lib/types";
 import { formatMoney } from "@/lib/value";
 import { gcnFundsOf, gcnOverview } from "@/lib/gcn";
-import { Card, Flag, GhostButton, GoldButton, MoneyInput, Section, Stars, Tabs, UpgradeCard } from "../ui";
+import { Card, Flag, GhostButton, GoldButton, MoneyInput, Section, Stars, Tabs } from "../ui";
 import SeasonDetailModal from "./SeasonDetailModal";
 
 // v7: staff moved to Development → Staff, so the Club page no longer has a Staff tab.
-type Tab = "finances" | "income" | "investments" | "history" | "save";
+type Tab = "finances" | "income" | "investments" | "history" | "players" | "save";
 
 export default function ClubScreen() {
   const [tab, setTab] = useState<Tab>("finances");
@@ -49,6 +50,7 @@ export default function ClubScreen() {
           { id: "income", label: "Income" },
           { id: "investments", label: "Investments" },
           { id: "history", label: "History & Records" },
+          { id: "players", label: "Club Players" },
           { id: "save", label: "Save" },
         ]}
         active={tab}
@@ -58,6 +60,7 @@ export default function ClubScreen() {
       {tab === "income" && <IncomeTab />}
       {tab === "investments" && <InvestmentsTab />}
       {tab === "history" && <HistoryTab />}
+      {tab === "players" && <ClubPlayersTab />}
       {tab === "save" && <SaveTab />}
     </div>
   );
@@ -477,62 +480,176 @@ function IncomeTab() {
   const totalLevels = facilities.reduce((s, f) => s + f.level, 0);
   const capLevels = facilities.length * TUNING.facilityMaxLevel;
 
+  const rows = facilities.map((f) => {
+    const nextCost = facilityNextCost(game, game.userTeamId, f.key, TUNING);
+    return {
+      ...f,
+      nextCost,
+      maxed: nextCost === null,
+      current: f.level * f.perLevel,
+      afterUpgrade: (f.level + 1) * f.perLevel,
+      canAfford: nextCost !== null && team.budget >= nextCost,
+    };
+  });
+
+  // Affordable upgrades first, then the rest, maxed streams last (v1.65). The
+  // page's whole job is "what should I buy next", and the answer used to be
+  // buried somewhere in eight identical full-size cards read top to bottom.
+  const ordered = rows.slice().sort((a, b) => {
+    const rank = (r: (typeof rows)[number]) => (r.maxed ? 2 : r.canAfford ? 0 : 1);
+    return rank(a) - rank(b) || (a.nextCost ?? Infinity) - (b.nextCost ?? Infinity);
+  });
+  const affordable = rows.filter((r) => r.canAfford).length;
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-stretch gap-3">
-        <Card className="flex-1 border-gold bg-gradient-to-br from-gold-lo/[0.10] to-transparent px-4 py-3 shadow-[0_0_0_1px_rgba(217,164,65,0.15)]">
+    <div className="space-y-5">
+      {/* One summary strip instead of three separate cards — the same three facts
+          on a single line, so the page opens with a sentence rather than a wall. */}
+      <Card className="flex flex-wrap items-center gap-x-8 gap-y-3 border-gold bg-gradient-to-br from-gold-lo/[0.08] to-transparent px-4 py-3">
+        <div>
           <div className="text-[10px] uppercase tracking-widest text-faint">Facilities income</div>
           <div className="display gold-text text-2xl font-bold tnum">+{formatMoney(totalNow)}/wk</div>
+        </div>
+        <div className="text-sm text-dim">
+          <span className="display tnum font-semibold text-ink">{totalLevels}</span>
+          <span className="text-faint">/{capLevels}</span> levels built ·{" "}
+          <span className="display tnum font-semibold text-ink">{maxedCount}</span>
+          <span className="text-faint">/{facilities.length}</span> maxed
+        </div>
+        <div className="ml-auto text-sm">
+          {affordable > 0 ? (
+            <span className="text-win">
+              <span className="display tnum font-semibold">{affordable}</span> upgrade
+              {affordable === 1 ? "" : "s"} you can afford now
+            </span>
+          ) : (
+            <span className="text-faint">No upgrade is affordable yet</span>
+          )}
+        </div>
+      </Card>
+
+      <Section
+        title="Income Streams"
+        right={<span className="text-xs text-faint">Best value first · tap a stream for detail</span>}
+      >
+        <Card className="divide-y divide-line/50">
+          {ordered.map((f) => (
+            <FacilityRow key={f.key} f={f} onUpgrade={() => upgrade(f.key)} />
+          ))}
         </Card>
-        <Card className="px-4 py-3">
-          <div className="text-[10px] uppercase tracking-widest text-faint">Total levels</div>
-          <div className="display text-2xl font-bold tnum">
-            {totalLevels}<span className="text-faint">/{capLevels}</span>
+      </Section>
+    </div>
+  );
+}
+
+/**
+ * One income stream as a single scannable line (v1.65).
+ *
+ * The page used to render eight `UpgradeCard`s — each an h2, a blurb, a pip bar
+ * and a three-column stat grid — so comparing two streams meant scrolling
+ * between two screen-height blocks, and the one number that decides the choice
+ * (cost vs. what it adds) was never next to its neighbour's. Collapsed, a row is
+ * icon, name, level bar, what it pays, what the next level costs, and the
+ * button. The blurb and the payback maths are still here, one tap away, for when
+ * you actually want them.
+ */
+function FacilityRow({
+  f,
+  onUpgrade,
+}: {
+  f: {
+    key: Facility;
+    title: string;
+    blurb: string;
+    icon: string;
+    accent: string;
+    level: number;
+    perLevel: number;
+    nextCost: number | null;
+    maxed: boolean;
+    current: number;
+    afterUpgrade: number;
+    canAfford: boolean;
+  };
+  onUpgrade: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const maxLevel = TUNING.facilityMaxLevel;
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2.5 sm:flex-nowrap">
+        <button
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+        >
+          <span
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-base"
+            style={{ borderColor: `${f.accent}66`, background: `${f.accent}14` }}
+          >
+            {f.icon}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-baseline gap-2">
+              <span className="display truncate font-semibold" style={{ color: f.accent }}>
+                {f.title}
+              </span>
+              <span className="shrink-0 tnum text-[11px] text-faint">
+                {f.level}/{maxLevel}
+              </span>
+              <span className={`shrink-0 text-[10px] text-faint transition-transform ${open ? "rotate-90" : ""}`}>▶</span>
+            </span>
+            {/* Level bar: the same information the old pip row carried, at a
+                fraction of the height. */}
+            <span className="mt-1 flex gap-0.5">
+              {Array.from({ length: maxLevel }).map((_, i) => (
+                <span
+                  key={i}
+                  className="h-1 flex-1 rounded-full"
+                  style={{ background: i < f.level ? f.accent : "var(--color-line)" }}
+                />
+              ))}
+            </span>
+          </span>
+        </button>
+
+        <div className="flex shrink-0 items-center gap-4 text-right text-sm">
+          <div className="w-24">
+            <div className="text-[10px] uppercase tracking-widest text-faint">Pays</div>
+            <div className="display tnum font-semibold text-win">+{formatMoney(f.current)}/wk</div>
           </div>
-        </Card>
-        <Card className="px-4 py-3">
-          <div className="text-[10px] uppercase tracking-widest text-faint">Fully built</div>
-          <div className="display text-2xl font-bold tnum">
-            {maxedCount}<span className="text-faint">/{facilities.length}</span>
+          <div className="w-24">
+            <div className="text-[10px] uppercase tracking-widest text-faint">{f.maxed ? "Status" : "Next level"}</div>
+            <div className="display tnum font-semibold">
+              {f.maxed ? <span className="text-gold">MAX</span> : formatMoney(f.nextCost!)}
+            </div>
           </div>
-        </Card>
+          {f.maxed ? (
+            <span className="display w-24 rounded-md border border-gold-lo/50 py-1.5 text-center text-[11px] font-semibold text-gold">
+              MAX
+            </span>
+          ) : (
+            <GoldButton onClick={onUpgrade} disabled={!f.canAfford} className="w-24 !py-1.5 text-xs">
+              UPGRADE
+            </GoldButton>
+          )}
+        </div>
       </div>
 
-      <Section title="Income Streams" right={<span className="text-xs text-faint">Each level lifts your weekly income</span>}>
-        <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">
-          {facilities.map((f) => {
-            const nextCost = facilityNextCost(game, game.userTeamId, f.key, TUNING);
-            const maxed = nextCost === null;
-            const current = f.level * f.perLevel;
-            const afterUpgrade = (f.level + 1) * f.perLevel;
-            const canAfford = nextCost !== null && team.budget >= nextCost;
-            return (
-              <UpgradeCard
-                key={f.key}
-                title={f.title}
-                icon={f.icon}
-                accent={f.accent}
-                level={f.level}
-                maxLevel={TUNING.facilityMaxLevel}
-                blurb={f.blurb}
-                effectNow={`+${formatMoney(current)}/wk`}
-                effectNext={`+${formatMoney(afterUpgrade)}/wk`}
-                cost={maxed ? "—" : formatMoney(nextCost!)}
-                maxed={maxed}
-                canAfford={canAfford}
-                note={
-                  maxed
-                    ? "Fully upgraded."
-                    : canAfford
-                      ? `Pays for itself in about ${Math.ceil(nextCost! / f.perLevel)} weeks.`
-                      : "Not enough budget yet — sell players or climb the table."
-                }
-                onUpgrade={() => upgrade(f.key)}
-              />
-            );
-          })}
+      {open && (
+        <div className="border-t border-line/40 bg-base/40 px-3 py-2.5 text-[12px] leading-relaxed text-dim">
+          <p>{f.blurb}</p>
+          <p className="mt-1.5 text-[11px] text-faint">
+            {f.maxed
+              ? "Fully upgraded — this stream is paying everything it can."
+              : `Level ${f.level + 1} would pay +${formatMoney(f.afterUpgrade)}/wk, ${formatMoney(
+                  f.perLevel
+                )}/wk more than now — about ${Math.ceil(f.nextCost! / f.perLevel)} weeks to pay for itself.` +
+                (f.canAfford ? "" : " Not enough budget yet — sell players or climb the table.")}
+          </p>
         </div>
-      </Section>
+      )}
     </div>
   );
 }
@@ -542,7 +659,7 @@ function IncomeTab() {
 // this club looks to a brand. It's the one number behind how many suitors call,
 // how good they are, and what they pay — so it leads the page, and it shows its
 // working (which players are drawing them in) rather than being a mystery score.
-function MarketabilityPanel() {
+function MarketabilityPanel({ weekly, upfrontThisSeason }: { weekly: number; upfrontThisSeason: number }) {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const stars = marketabilityStars(game, game.userTeamId, TUNING);
@@ -550,63 +667,80 @@ function MarketabilityPanel() {
   const contributors = marketabilityContributors(game, game.userTeamId);
   const liveOffers = marketabilityMaxLiveOffers(game, game.userTeamId, TUNING);
   const moneyBonus = Math.round((stars - 1) * TUNING.sponsorMarketabilityPerStar * 100);
+  // The explanation and the "who's drawing them in" list are reference material,
+  // not something you read every visit — they fold away (v1.65) so the header is
+  // four numbers on one line instead of half a screen of prose.
+  const [open, setOpen] = useState(false);
 
   return (
-    <Section title="Sponsor Marketability">
-      <Card className="border-gold bg-gradient-to-br from-gold-lo/[0.10] to-transparent p-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <div className="display text-2xl leading-none">
-              <Stars n={whole} />
-            </div>
-            <div className="display mt-1.5 text-lg font-bold gold-text">{marketabilityLabel(stars)}</div>
-          </div>
-          <div className="flex flex-wrap gap-4 text-right">
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-faint">Offer value</div>
-              <div className="display text-lg font-bold tnum text-win">
-                {moneyBonus > 0 ? `+${moneyBonus}%` : "Base"}
-              </div>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-faint">Suitors at once</div>
-              <div className="display text-lg font-bold tnum">{liveOffers}</div>
-            </div>
+    <Card className="border-gold bg-gradient-to-br from-gold-lo/[0.08] to-transparent px-4 py-3">
+      <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-faint">Weekly from sponsors</div>
+          <div className="display gold-text text-2xl font-bold tnum">+{formatMoney(weekly)}/wk</div>
+          {upfrontThisSeason > 0 && (
+            <div className="text-[11px] text-win">{formatMoney(upfrontThisSeason)} in lump sums this season</div>
+          )}
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-faint">Marketability</div>
+          <div className="display flex items-baseline gap-2 text-lg leading-tight">
+            <Stars n={whole} />
+            <span className="gold-text text-sm font-bold">{marketabilityLabel(stars)}</span>
           </div>
         </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-faint">Offer value</div>
+          <div className="display text-lg font-bold tnum text-win">{moneyBonus > 0 ? `+${moneyBonus}%` : "Base"}</div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-faint">Suitors at once</div>
+          <div className="display text-lg font-bold tnum">{liveOffers}</div>
+        </div>
+        <button
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="ml-auto text-xs text-gold hover:underline"
+        >
+          {open ? "Hide detail" : "What drives this?"}
+        </button>
+      </div>
 
-        <p className="mt-3 border-t border-line/60 pt-3 text-[13px] leading-relaxed text-dim">
-          How appealing the club looks to sponsors. A higher rating means more brands come calling, better-known
-          names among them, and larger offers on the table. Marketable players in your senior squad are what
-          drives it — sign or develop commercial draws to climb the scale.
-        </p>
-
-        {contributors.length > 0 ? (
-          <div className="mt-3 border-t border-line/60 pt-3">
-            <div className="mb-2 text-[10px] uppercase tracking-widest text-faint">Who&apos;s drawing them in</div>
-            <div className="space-y-1.5">
-              {contributors.slice(0, 6).map((c) => (
-                <div key={c.playerId} className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
-                  <span className="min-w-0">
-                    <span className="display font-semibold">{c.name}</span>
-                    <span className="ml-2 text-[11px] tnum text-faint">{c.overall}</span>
-                  </span>
-                  <span className="text-[11px] text-gold">{c.traits.join(" · ")}</span>
-                </div>
-              ))}
-              {contributors.length > 6 && (
-                <div className="text-[11px] text-faint">+{contributors.length - 6} more</div>
-              )}
+      {open && (
+        <div className="mt-3 border-t border-line/60 pt-3">
+          <p className="text-[13px] leading-relaxed text-dim">
+            How appealing the club looks to sponsors. A higher rating means more brands come calling,
+            better-known names among them, and larger offers on the table. Marketable players in your senior
+            squad are what drives it — sign or develop commercial draws to climb the scale.
+          </p>
+          {contributors.length > 0 ? (
+            <div className="mt-3">
+              <div className="mb-2 text-[10px] uppercase tracking-widest text-faint">Who&apos;s drawing them in</div>
+              <div className="space-y-1.5">
+                {contributors.slice(0, 6).map((c) => (
+                  <div key={c.playerId} className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+                    <span className="min-w-0">
+                      <span className="display font-semibold">{c.name}</span>
+                      <span className="ml-2 text-[11px] tnum text-faint">{c.overall}</span>
+                    </span>
+                    <span className="text-[11px] text-gold">{c.traits.join(" · ")}</span>
+                  </div>
+                ))}
+                {contributors.length > 6 && (
+                  <div className="text-[11px] text-faint">+{contributors.length - 6} more</div>
+                )}
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="mt-3 border-t border-line/60 pt-3 text-[13px] text-faint">
-            Nobody in the senior squad is a commercial draw yet — offers are built on reputation alone. A player
-            with the <span className="text-gold">Marketable</span> trait would lift every deal you&apos;re shown.
-          </div>
-        )}
-      </Card>
-    </Section>
+          ) : (
+            <div className="mt-3 text-[13px] text-faint">
+              Nobody in the senior squad is a commercial draw yet — offers are built on reputation alone. A
+              player with the <span className="text-gold">Marketable</span> trait would lift every deal
+              you&apos;re shown.
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -625,255 +759,243 @@ function InvestmentsTab() {
     .filter((d) => d.kind === "major" && d.signedSeason === game.season)
     .reduce((s, d) => s + d.upfront, 0);
 
-  const majorSlots = SPONSOR_SLOTS.filter((d) => d.kind === "major");
-  const minorSlots = SPONSOR_SLOTS.filter((d) => d.kind === "minor");
+  const capacityOf = (kind: "major" | "minor") =>
+    SPONSOR_SLOTS.filter((s) => s.kind === kind).reduce((n, s) => n + slotCapacity(s.slot, TUNING), 0);
+  const majorCap = capacityOf("major");
+  const minorCap = capacityOf("minor");
+  const minorsHeld = deals.filter((d) => d.kind === "minor").length;
 
-  const slotBlock = (def: (typeof SPONSOR_SLOTS)[number]) => {
-    // A slot can now hold several deals (v19) — regional partners, boot deals —
-    // so render all of them and only offer the slot as "full" at capacity.
+  // The only thing on this page that needs acting on: offers waiting for a
+  // yes/no. They used to be scattered one per slot card among five silent ones,
+  // so an expiring deal could sit unseen at the bottom of the page.
+  const liveOffers = SPONSOR_SLOTS.map((def) => ({
+    def,
+    offer: offers.find((o) => o.slot === def.slot),
+    blocked: slotBlockedReason(game, game.userTeamId, def.slot, TUNING),
+  })).filter((x) => x.offer && !x.blocked);
+
+  // One slot's full picture, so the portfolio rows can carry their own offer
+  // (v1.66) rather than pointing at a separate list further up the page.
+  const slotState = (def: (typeof SPONSOR_SLOTS)[number]) => {
+    // A slot can hold several deals (v19) — regional partners, boot deals — so
+    // it's "full" only at capacity, not at the first signing.
     const slotDeals = dealsInSlot(game, game.userTeamId, def.slot);
     const capacity = slotCapacity(def.slot, TUNING);
     const blocked = slotBlockedReason(game, game.userTeamId, def.slot, TUNING);
-    const offer = offers.find((o) => o.slot === def.slot);
-    const isMajor = def.kind === "major";
-    // Strong visual separation of the two investment kinds: majors read as gold
-    // "big deal" cards; minors read as cool, steady weekly cards.
-    const cardCls = isMajor
-      ? "border-gold bg-gradient-to-br from-gold-lo/[0.10] to-transparent shadow-[0_0_0_1px_rgba(217,164,65,0.15)]"
-      : "border-[#4a7bd0]/60 bg-gradient-to-br from-[#4a7bd0]/[0.08] to-transparent";
+    const offer = liveOffers.find((x) => x.def.slot === def.slot)?.offer ?? null;
+    const cooldown = sponsorCooldownUntil(game, def.slot);
+    const status = blocked
+      ? blocked
+      : offer
+        ? "A brand is at the table — decide below."
+        : slotDeals.length >= capacity
+          ? capacity > 1
+            ? "Full — every partnership in this slot is signed."
+            : "Signed."
+          : cooldown
+            ? `No suitors right now — expect interest again in about ${cooldown - game.currentDay} days.`
+            : slotDeals.length > 0
+              ? `Room for ${capacity - slotDeals.length} more — another partner should come calling soon.`
+              : "No offer here right now — one should arrive in the coming days.";
+    return { def, deals: slotDeals, capacity, status, offer };
+  };
+
+  const majorSlots = SPONSOR_SLOTS.filter((d) => d.kind === "major").map(slotState);
+  const minorSlots = SPONSOR_SLOTS.filter((d) => d.kind === "minor").map(slotState);
+
+  const renderGroup = (
+    slots: ReturnType<typeof slotState>[],
+    opts: { title: string; blurb: string; held: number; cap: number }
+  ) => {
+    const waiting = slots.filter((s) => s.offer).length;
     return (
       <Section
-        key={def.slot}
-        title={def.title}
+        title={opts.title}
         right={
           <span className="text-xs text-faint">
-            {/* Capacity is the headline fact for a stackable slot. */}
-            {capacity > 1 && (
-              <span className="mr-2 tnum text-dim">
-                {slotDeals.length}/{capacity} signed
+            {waiting > 0 && (
+              <span className="mr-2 text-gold">
+                {waiting} offer{waiting === 1 ? "" : "s"} waiting
               </span>
             )}
-            {slotDeals.length >= capacity ? (
-              <span className="text-win">{capacity > 1 ? "Full" : "Deal signed"}</span>
-            ) : offer ? (
-              "Offer on the table"
-            ) : (
-              "No offer yet"
-            )}
+            <span className="tnum text-dim">{opts.held}</span>/{opts.cap} signed
           </span>
         }
       >
-        <Card className={`p-4 ${cardCls}`}>
-          <div className="flex flex-wrap items-center gap-4">
-            <div
-              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border text-2xl ${
-                isMajor ? "border-gold-lo/50 bg-gold-lo/10" : "border-line bg-raised"
-              }`}
-            >
-              {def.icon}
-            </div>
-            <div className="min-w-0 flex-1">
-              <span
-                className={`display inline-block rounded-sm px-1.5 py-0.5 text-[9px] font-bold ${
-                  isMajor ? "gold-grad text-black" : "border border-[#4a7bd0]/50 text-[#8fb4ee]"
-                }`}
-              >
-                {isMajor ? "MAJOR · LUMP SUM" : "MINOR · WEEKLY"}
-              </span>
-              <p className="mt-1.5 text-[13px] leading-relaxed text-dim">{def.blurb}</p>
-            </div>
-          </div>
-
-          {/* Signed deals in this slot — one row each, since a stackable slot
-              can be running several partnerships at once. */}
-          {slotDeals.map((deal) => (
-            <div
-              key={deal.id}
-              className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-3"
-            >
-              <div>
-                <span className="display font-semibold">{deal.brand}</span>
-                <span className="ml-2 text-[11px] text-faint">
-                  runs through S{deal.expirySeason} · {deal.seasons} season{deal.seasons > 1 ? "s" : ""}
-                </span>
-              </div>
-              {deal.kind === "major" ? (
-                <span className="display tnum font-semibold text-win">{formatMoney(deal.upfront)} paid</span>
-              ) : (
-                <span className="display tnum font-semibold text-win">+{formatMoney(deal.weeklyAmount)}/wk</span>
-              )}
-            </div>
+        <p className="mb-2 text-[11px] leading-snug text-faint">{opts.blurb}</p>
+        <Card className="divide-y divide-line/50">
+          {slots.map((s) => (
+            <SlotRow
+              key={s.def.slot}
+              def={s.def}
+              deals={s.deals}
+              capacity={s.capacity}
+              status={s.status}
+              offer={s.offer}
+              daysLeft={s.offer ? s.offer.expiresDay - game.currentDay : 0}
+              onSign={() => s.offer && sign(s.offer.id)}
+              onPass={() => s.offer && pass(s.offer.id)}
+            />
           ))}
-
-          {offer && !blocked ? (
-            <div className="mt-3 border-t border-line/60 pt-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <span className="display font-semibold">{offer.brand}</span>
-                  <span className="ml-2 display rounded-sm border border-gold-lo/50 px-1.5 text-[9px] font-semibold text-gold">
-                    {offer.tier.toUpperCase()}
-                  </span>
-                  <div className="text-[11px] text-faint">
-                    {offer.seasons} season{offer.seasons > 1 ? "s" : ""} commitment
-                  </div>
-                </div>
-                {isMajor ? (
-                  <span className="text-right">
-                    <span className="display block tnum font-semibold text-win">{formatMoney(offer.upfront)}</span>
-                    <span className="text-[10px] text-faint">one-time, paid now</span>
-                  </span>
-                ) : (
-                  <span className="display tnum font-semibold text-win">+{formatMoney(offer.weeklyAmount)}/wk</span>
-                )}
-              </div>
-              {/* The deadline — the decision pressure this panel is built around.
-                  Escalates to loss red in the final stretch. */}
-              {(() => {
-                const daysLeft = offer.expiresDay - game.currentDay;
-                const urgent = daysLeft <= 4;
-                return (
-                  <div
-                    className={`mt-3 flex items-center gap-2 rounded-md border px-3 py-1.5 text-[11px] ${
-                      urgent ? "border-loss/50 bg-loss/10 text-loss" : "border-line bg-raised text-dim"
-                    }`}
-                  >
-                    <span>{urgent ? "⏳" : "🗓"}</span>
-                    <span>
-                      <span className="display font-bold tnum">{daysLeft}</span> day{daysLeft === 1 ? "" : "s"} to decide —
-                      {urgent ? " they walk if you don't sign." : " the offer is withdrawn after that."}
-                    </span>
-                  </div>
-                );
-              })()}
-              <div className="mt-3 flex items-center justify-end gap-2">
-                <GhostButton onClick={() => pass(offer.id)} className="!px-3 !py-1 text-xs">
-                  Pass
-                </GhostButton>
-                <GoldButton onClick={() => sign(offer.id)} className="!px-4 !py-1 text-xs">
-                  {isMajor ? "TAKE THE LUMP SUM" : "ACCEPT DEAL"}
-                </GoldButton>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-3 border-t border-line/60 pt-3 text-[12px] text-faint">
-              {(() => {
-                if (blocked) return blocked;
-                const until = sponsorCooldownUntil(game, def.slot);
-                if (until) {
-                  return `No suitors right now — after the last offer lapsed, expect interest again in about ${
-                    until - game.currentDay
-                  } days.`;
-                }
-                return capacity > slotDeals.length && slotDeals.length > 0
-                  ? `Room for ${capacity - slotDeals.length} more here — another partner should come calling soon.`
-                  : "No offer in this slot right now — one should arrive in the coming days.";
-              })()}
-            </div>
-          )}
         </Card>
       </Section>
     );
   };
 
   return (
-    <div className="space-y-6">
-      <MarketabilityPanel />
+    <div className="space-y-5">
+      <MarketabilityPanel weekly={weekly} upfrontThisSeason={upfrontThisSeason} />
 
-      {/* Portfolio capacity (v19): the landmark assets are each exclusive, the
-          smaller partnerships stack — so both counts are worth showing. */}
-      {(() => {
-        const capacityOf = (kind: "major" | "minor") =>
-          SPONSOR_SLOTS.filter((s) => s.kind === kind).reduce((n, s) => n + slotCapacity(s.slot, TUNING), 0);
-        const majorCap = capacityOf("major");
-        const minorCap = capacityOf("minor");
-        const minorsHeld = deals.filter((d) => d.kind === "minor").length;
-        return (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Card className="border-gold bg-gradient-to-br from-gold-lo/[0.10] to-transparent px-4 py-2.5 shadow-[0_0_0_1px_rgba(217,164,65,0.12)]">
-              <div className="text-[10px] uppercase tracking-widest text-faint">Weekly from minors</div>
-              <div className="display gold-text text-xl font-bold tnum">+{formatMoney(weekly)}/wk</div>
-              {upfrontThisSeason > 0 && (
-                <div className="mt-0.5 text-[11px] text-win">{formatMoney(upfrontThisSeason)} lump sums this season</div>
-              )}
-            </Card>
-            <Card className="px-4 py-2.5">
-              <div className="text-[10px] uppercase tracking-widest text-faint">Major deals</div>
-              <div className="display text-xl font-bold tnum">
-                {majorsHeld}<span className="text-faint">/{majorCap}</span>
-              </div>
-              <div className="mt-0.5 text-[11px] text-faint">
-                {majorsHeld >= majorCap ? "Every landmark asset sold" : "Exclusive — one per asset"}
-              </div>
-            </Card>
-            <Card className="px-4 py-2.5">
-              <div className="text-[10px] uppercase tracking-widest text-faint">Minor partners</div>
-              <div className="display text-xl font-bold tnum">
-                {minorsHeld}<span className="text-faint">/{minorCap}</span>
-              </div>
-              <div className="mt-0.5 text-[11px] text-faint">
-                {minorsHeld >= minorCap ? "Portfolio full" : "Several can run at once"}
-              </div>
-            </Card>
+      {/* Major and minor are two different businesses (v1.66) — a lump-sum
+          landmark deal and a weekly top-up shouldn't share a list, because the
+          decision each asks for is a different size. Each slot now carries its
+          own live offer inline, so a brand at the table is shown against the
+          thing it wants to sponsor rather than in a separate section above. */}
+      {renderGroup(majorSlots, {
+        title: "Major Sponsorships",
+        blurb:
+          "The landmark deals — shirt, kit, ground and back-of-shirt. Each pays a single large lump sum into the budget on signing, and runs for several seasons.",
+        held: majorsHeld,
+        cap: majorCap,
+      })}
+
+      {renderGroup(minorSlots, {
+        title: "Minor Sponsorships",
+        blurb:
+          "The secondary partnerships. Smaller money, paid weekly rather than up front — but several can run at once and together they add up.",
+        held: minorsHeld,
+        cap: minorCap,
+      })}
+    </div>
+  );
+}
+
+/**
+ * One portfolio slot as a line: what it is, what's signed in it, and what the
+ * slot is doing right now. The blurb expands on tap for anyone who wants it.
+ *
+ * Since v1.66 a live offer for this slot rides on the row itself rather than
+ * living in a separate "Offers On The Table" section — the decision and the
+ * thing being decided about are the same object, and splitting them meant
+ * reading a brand's name in one place and what it wanted to sponsor in another.
+ * The offer strip is always expanded: it is the one thing on this page that
+ * expires, so it must never be hidden behind a tap.
+ */
+function SlotRow({
+  def,
+  deals,
+  capacity,
+  status,
+  offer,
+  daysLeft,
+  onSign,
+  onPass,
+}: {
+  def: (typeof SPONSOR_SLOTS)[number];
+  deals: SponsorDeal[];
+  capacity: number;
+  status: string;
+  offer: SponsorOffer | null;
+  daysLeft: number;
+  onSign: () => void;
+  onPass: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const isMajor = def.kind === "major";
+  const urgent = daysLeft <= 4;
+  return (
+    <div className={offer ? "bg-gold-lo/[0.04]" : ""}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-hover"
+      >
+        <span className="text-xl">{def.icon}</span>
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-baseline gap-2">
+            <span className="display font-semibold">{def.title}</span>
+            {offer && (
+              <span className="display rounded-sm bg-gold-lo/20 px-1 text-[9px] font-semibold text-gold">
+                OFFER WAITING
+              </span>
+            )}
+            <span className={`text-[10px] text-faint transition-transform ${open ? "rotate-90" : ""}`}>▶</span>
+          </span>
+          <span className="mt-0.5 block truncate text-[11px] text-faint">
+            {deals.length > 0 ? deals.map((d) => d.brand).join(", ") : status}
+          </span>
+        </span>
+        <span className="shrink-0 text-right">
+          <span className="display block tnum text-sm font-semibold">
+            {deals.length}
+            <span className="text-faint">/{capacity}</span>
+          </span>
+          <span className="text-[10px] uppercase tracking-widest text-faint">signed</span>
+        </span>
+      </button>
+
+      {/* The live offer — always visible, because it is on a clock. */}
+      {offer && (
+        <div
+          className={`flex flex-wrap items-center gap-x-4 gap-y-2 border-t px-3 py-2.5 ${
+            isMajor
+              ? "border-gold-lo/40 bg-gradient-to-r from-gold-lo/[0.10] to-transparent"
+              : "border-[#4a7bd0]/40 bg-gradient-to-r from-[#4a7bd0]/[0.08] to-transparent"
+          }`}
+        >
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-baseline gap-2">
+              <span className="display font-semibold">{offer.brand}</span>
+              <span
+                className={`display rounded-sm border px-1 text-[9px] font-semibold ${
+                  isMajor ? "border-gold-lo/50 text-gold" : "border-[#4a7bd0]/50 text-[#8fb4ee]"
+                }`}
+              >
+                {offer.tier.toUpperCase()}
+              </span>
+            </div>
+            <div className="text-[11px] text-faint">
+              {offer.seasons} season{offer.seasons > 1 ? "s" : ""} ·{" "}
+              {isMajor ? "one-time lump sum" : "paid weekly"}
+            </div>
           </div>
-        );
-      })()}
-
-      {/* Active slots panel: every signed deal at a glance (v7) */}
-      <Section title="Active Investments" right={<span className="text-xs text-faint">{deals.length} signed</span>}>
-        {deals.length === 0 ? (
-          <Card className="p-4 text-sm text-faint">No deals signed yet — accept an offer below.</Card>
-        ) : (
-          <Card className="divide-y divide-line/50">
-            {deals.map((d) => {
-              const def = SPONSOR_SLOTS.find((s) => s.slot === d.slot);
-              return (
-                <div key={d.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className="text-lg">{def?.icon}</span>
-                    <span className="min-w-0">
-                      <span className="display font-semibold">{d.brand}</span>
-                      <span
-                        className={`ml-2 display rounded-sm border px-1 text-[9px] font-semibold ${
-                          d.kind === "major" ? "border-gold-lo/50 text-gold" : "border-line text-dim"
-                        }`}
-                      >
-                        {d.kind === "major" ? "MAJOR" : "MINOR"}
-                      </span>
-                      <span className="ml-2 text-[11px] text-faint">
-                        {def?.title} · runs through S{d.expirySeason}
-                      </span>
-                    </span>
-                  </span>
-                  <span className="display tnum font-semibold text-win">
-                    {d.kind === "major" ? `${formatMoney(d.upfront)} paid` : `+${formatMoney(d.weeklyAmount)}/wk`}
-                  </span>
-                </div>
-              );
-            })}
-          </Card>
-        )}
-      </Section>
-
-      <div>
-        <div className="mb-3 flex items-center gap-3 rounded-md border border-gold-lo/40 bg-gradient-to-r from-gold-lo/[0.12] to-transparent px-4 py-2.5">
-          <span className="text-2xl">💰</span>
-          <div>
-            <div className="display text-sm font-bold text-gold">Major Investment</div>
-            <div className="text-[11px] text-dim">One big lump sum up front, locked in for several seasons.</div>
+          <div className="text-right">
+            <div className="display tnum text-lg font-bold text-win">
+              {isMajor ? formatMoney(offer.upfront) : `+${formatMoney(offer.weeklyAmount)}/wk`}
+            </div>
+            <div className={`text-[11px] ${urgent ? "text-loss" : "text-faint"}`}>
+              {urgent ? "⏳ " : ""}
+              <span className="tnum font-semibold">{daysLeft}</span> day{daysLeft === 1 ? "" : "s"} to decide
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <GhostButton onClick={onPass} className="!px-3 !py-1 text-xs">
+              Pass
+            </GhostButton>
+            <GoldButton onClick={onSign} className="!px-4 !py-1 text-xs">
+              ACCEPT
+            </GoldButton>
           </div>
         </div>
-        <div className="grid grid-cols-1 gap-x-6 lg:grid-cols-2">{majorSlots.map(slotBlock)}</div>
-      </div>
-      <div>
-        <div className="mb-3 flex items-center gap-3 rounded-md border border-[#4a7bd0]/40 bg-gradient-to-r from-[#4a7bd0]/[0.10] to-transparent px-4 py-2.5">
-          <span className="text-2xl">📆</span>
-          <div>
-            <div className="display text-sm font-bold text-[#8fb4ee]">Minor Investment</div>
-            <div className="text-[11px] text-dim">Steady weekly income, one season at a time.</div>
-          </div>
+      )}
+
+      {open && (
+        <div className="border-t border-line/40 bg-base/40 px-3 py-2.5">
+          <p className="text-[12px] leading-relaxed text-dim">{def.blurb}</p>
+          {deals.map((d) => (
+            <div key={d.id} className="mt-1.5 flex flex-wrap items-baseline justify-between gap-2 text-[12px]">
+              <span>
+                <span className="display font-semibold">{d.brand}</span>
+                <span className="ml-2 text-[11px] text-faint">runs through S{d.expirySeason}</span>
+              </span>
+              <span className="display tnum font-semibold text-win">
+                {d.kind === "major" ? `${formatMoney(d.upfront)} paid` : `+${formatMoney(d.weeklyAmount)}/wk`}
+              </span>
+            </div>
+          ))}
+          {deals.length > 0 && <p className="mt-1.5 text-[11px] text-faint">{status}</p>}
         </div>
-        <div className="grid grid-cols-1 gap-x-6 lg:grid-cols-2">{minorSlots.map(slotBlock)}</div>
-      </div>
+      )}
     </div>
   );
 }
@@ -1042,6 +1164,179 @@ function RecordList({
         );
       })}
     </Card>
+  );
+}
+
+/**
+ * Club Players (v1.66) — everyone who has ever played for the club.
+ *
+ * The record book answers "who scored the most"; this answers "who has been
+ * here". One row per spell: when he arrived, when he left (or that he is still
+ * here), and what he did in the shirt. Sortable, because the question changes —
+ * sometimes it's "who is the club's longest server", sometimes "who scored".
+ */
+function ClubPlayersTab() {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const viewPlayer = useGame((s) => s.viewPlayer);
+  const [sort, setSort] = useState<"recent" | "apps" | "goals" | "assists" | "spell">("recent");
+  const [filter, setFilter] = useState<"all" | "current" | "past">("all");
+  const [q, setQ] = useState("");
+
+  const all = clubPlayerHistory(game, game.userTeamId);
+
+  const spellLength = (s: (typeof all)[number]) =>
+    (s.leftSeason ?? game.season) - s.joinedSeason + 1;
+
+  const rows = all
+    .filter((s) => (filter === "all" ? true : filter === "current" ? s.current : !s.current))
+    .filter((s) => (q ? s.name.toLowerCase().includes(q.toLowerCase()) : true))
+    .slice()
+    .sort((a, b) => {
+      switch (sort) {
+        case "apps":
+          return b.apps - a.apps;
+        case "goals":
+          return b.goals - a.goals;
+        case "assists":
+          return b.assists - a.assists;
+        case "spell":
+          return spellLength(b) - spellLength(a);
+        default:
+          return 0; // clubPlayerHistory already returns current-first, most-recent-first
+      }
+    });
+
+  const currentCount = all.filter((s) => s.current).length;
+
+  return (
+    <div className="space-y-4">
+      <Card className="flex flex-wrap items-center gap-x-8 gap-y-3 border-gold bg-gradient-to-br from-gold-lo/[0.08] to-transparent px-4 py-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-faint">Players on the books</div>
+          <div className="display gold-text text-2xl font-bold tnum">{all.length}</div>
+        </div>
+        <div className="text-sm text-dim">
+          <span className="display tnum font-semibold text-ink">{currentCount}</span> in the squad today ·{" "}
+          <span className="display tnum font-semibold text-ink">{all.length - currentCount}</span> former
+        </div>
+        <div className="ml-auto text-xs text-faint">Click a name for the full profile</div>
+      </Card>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {(["all", "current", "past"] as const).map((f) => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={`display rounded px-3 py-1 text-xs font-semibold ${
+              filter === f ? "gold-grad text-black" : "border border-line text-dim hover:text-ink"
+            }`}
+          >
+            {f === "all" ? "All" : f === "current" ? "Current" : "Former"}
+          </button>
+        ))}
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search a name…"
+          className="ml-auto min-w-0 rounded-md border border-line bg-surface px-3 py-1.5 text-sm outline-none focus:border-gold"
+        />
+      </div>
+
+      <Card className="overflow-hidden">
+        {/* Wide on desktop, and the whole table scrolls sideways on a phone
+            rather than crushing the stat columns into unreadable slivers. */}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
+            <thead>
+              <tr className="border-b border-line/60 bg-raised text-[10px] uppercase tracking-widest text-faint">
+                <th className="px-3 py-2 text-left font-medium">Player</th>
+                <SortHeader label="Spell" active={sort === "spell"} onClick={() => setSort("spell")} align="left" />
+                <SortHeader label="Apps" active={sort === "apps"} onClick={() => setSort("apps")} />
+                <SortHeader label="Goals" active={sort === "goals"} onClick={() => setSort("goals")} />
+                <SortHeader label="Assists" active={sort === "assists"} onClick={() => setSort("assists")} />
+                <th className="px-3 py-2 text-right font-medium">Avg</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line/40">
+              {rows.map((s, i) => (
+                <tr
+                  key={`${s.playerId}-${s.joinedSeason}-${i}`}
+                  onClick={() => viewPlayer(s.playerId)}
+                  className="cursor-pointer hover:bg-hover"
+                >
+                  <td className="px-3 py-2">
+                    <span className="flex min-w-0 items-center gap-2">
+                      {s.nationality && <Flag nat={s.nationality} size={11} />}
+                      <span className="truncate">{s.name}</span>
+                      {s.pos && (
+                        <span className="shrink-0 rounded-sm bg-raised px-1 text-[9px] font-semibold text-faint">
+                          {s.pos}
+                        </span>
+                      )}
+                      {s.current && (
+                        <span className="display shrink-0 rounded-sm bg-gold-lo/20 px-1 text-[9px] font-semibold text-gold">
+                          IN SQUAD
+                        </span>
+                      )}
+                      {s.retired && !s.current && (
+                        <span className="shrink-0 rounded-sm border border-line px-1 text-[9px] text-faint">
+                          RETIRED
+                        </span>
+                      )}
+                    </span>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 text-[12px] text-dim">
+                    <span className="tnum">S{s.joinedSeason}</span>
+                    <span className="text-faint"> → </span>
+                    {s.leftSeason === null ? (
+                      <span className="text-win">still in club</span>
+                    ) : (
+                      <span className="tnum">S{s.leftSeason}</span>
+                    )}
+                    <span className="ml-1.5 text-[11px] text-faint">
+                      ({spellLength(s)} {spellLength(s) === 1 ? "season" : "seasons"})
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-right tnum">{s.apps}</td>
+                  <td className="px-3 py-2 text-right tnum">{s.goals}</td>
+                  <td className="px-3 py-2 text-right tnum">{s.assists}</td>
+                  <td className="px-3 py-2 text-right tnum text-dim">{s.avgRating ? s.avgRating.toFixed(2) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {rows.length === 0 && (
+          <div className="px-4 py-6 text-center text-sm text-faint">
+            {all.length === 0
+              ? "Nobody has played for the club yet — the ledger fills as seasons are played."
+              : "No player matches that filter."}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function SortHeader({
+  label,
+  active,
+  onClick,
+  align = "right",
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  align?: "left" | "right";
+}) {
+  return (
+    <th className={`px-3 py-2 font-medium ${align === "left" ? "text-left" : "text-right"}`}>
+      <button onClick={onClick} className={`uppercase tracking-widest hover:text-ink ${active ? "text-gold" : ""}`}>
+        {label}
+        {active && " ▾"}
+      </button>
+    </th>
   );
 }
 

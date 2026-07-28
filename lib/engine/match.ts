@@ -276,7 +276,15 @@ function pickScorer(rng: RNG, side: SideState, cfg: TuningConfig, setPiece: SetP
     return w;
   });
   let assister: OnPitch | null = null;
-  const assistChance = setPiece === "corner" ? 0.85 : 0.65;
+  // A penalty is scored from a dead ball with nobody to credit — every other
+  // kind of goal is assisted at the rate the tuning sets, set pieces higher
+  // because a corner or a free kick is by definition delivered by someone.
+  const assistChance =
+    setPiece === "penalty"
+      ? 0
+      : setPiece === "corner" || setPiece === "freekick"
+        ? cfg.assistChanceSetPiece
+        : cfg.assistChance;
   if (rng() < assistChance) {
     const others = active.filter((op) => op !== scorer);
     if (others.length) {

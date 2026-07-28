@@ -29,6 +29,48 @@ body {
   font-size: 14px;
 }
 
+/* ── Standalone / "Add to Home Screen" safe areas ─────────────────────────
+   Installed to the home screen, the page runs full-bleed under the status
+   bar (viewportFit: "cover" + black-translucent), so the header would sit
+   beneath the clock and battery. These variables resolve to the device's
+   safe-area insets and to 0 everywhere else, so the same classes are inert
+   in a normal browser tab and on desktop. */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+/* Push content clear of the status bar / notch, and clear the home indicator
+   at the bottom of a gesture-nav phone. Both use margin rather than padding so
+   they ADD to whatever p-* utility the element already carries — padding would
+   replace it, and the element would silently lose its own spacing. */
+.mt-safe {
+  margin-top: var(--safe-top);
+}
+.mb-safe {
+  margin-bottom: var(--safe-bottom);
+}
+/* The header is the one place a real padding-top is wanted: it draws the
+   surface colour up behind the status bar instead of leaving a bare gap. */
+.pt-safe {
+  padding-top: var(--safe-top);
+}
+/* Landscape notch / rounded corners on the left and right edges. Uses margin
+   rather than padding so it composes with Tailwind's px-* utilities instead of
+   colliding with them (both set the same property, and source order decides). */
+.mx-safe {
+  margin-left: var(--safe-left);
+  margin-right: var(--safe-right);
+}
+/* A fixed panel (the mobile nav drawer) has to inset itself on all sides. */
+.inset-safe {
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+  padding-left: var(--safe-left);
+}
+
 /* the signature: a thin gold thread */
 .gold-thread {
   height: 1px;

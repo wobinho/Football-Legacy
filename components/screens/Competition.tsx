@@ -6,7 +6,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { useGame } from "@/store/gameStore";
 import type { EuroCupTier, Fixture, TableRow } from "@/lib/types";
 import { computeTable, computeForm, type FormResult } from "@/lib/season";
-import { EURO_CUP_DEFS, euroSlotForPosition } from "@/lib/european";
+import { EURO_CUP_DEFS, euroCompetitionId, euroSlotForPosition } from "@/lib/european";
 import { formatDayShort } from "@/lib/calendar";
 import { Card, CountryFlag, Crest, Flag, Modal, Section, Tabs } from "../ui";
 
@@ -23,7 +23,11 @@ import EuropeanView, { OpenTeamCtx } from "./EuropeanView";
  * rather than its id, so it holds for any playable country (v7 divisions are
  * data-driven). Gold stays reserved for the cup — the prestige competition —
  * per the design language; the leagues take cool, distinct hues. */
-type CompStyle = { label: string; dot: string; chip: string };
+/** `dot`/`chip` are Tailwind class strings for the palette-driven competitions;
+ * `color` is a literal hex for the ones whose colour is data (the European cups
+ * carry their own brand colour in EURO_CUP_DEFS). When `color` is set it wins,
+ * and the class strings are left empty. */
+type CompStyle = { label: string; dot: string; chip: string; color?: string };
 
 function useCompStyles(): Record<string, CompStyle> {
   const game = useGame((s) => s.game)!;
@@ -46,8 +50,36 @@ function useCompStyles(): Record<string, CompStyle> {
       const hue = TIER_HUES[Math.min(i, TIER_HUES.length - 1)];
       map[id] = { label: game.leagues[id]?.name ?? id, ...hue };
     });
+    // The three European cups, each in its own competition colour (v1.65). Without
+    // these a Europa or Conference fixture fell through to the grey fallback and
+    // was labelled with its raw key ("EURO2") — the two secondary cups were the
+    // only competitions on the page with no visual identity of their own. The
+    // colours are the same ones the qualification stripes use, so a place in the
+    // table and a result from that cup read as the same competition.
+    if (game.european) {
+      for (const d of EURO_CUP_DEFS) {
+        map[euroCompetitionId(d.tier)] = {
+          label: d.name,
+          dot: "",
+          chip: "",
+          color: d.color,
+        };
+      }
+    }
     return map;
-  }, [game.divisionIds, game.leagues]);
+  }, [game.divisionIds, game.leagues, game.european]);
+}
+
+/** The competition's colour dot — a class-driven hue for the leagues and cup, a
+ * literal brand colour for the European cups. */
+function CompDot({ s, className = "" }: { s: CompStyle; className?: string }) {
+  return (
+    <span
+      className={`h-1.5 w-1.5 shrink-0 rounded-full ${s.color ? "" : s.dot} ${className}`}
+      style={s.color ? { backgroundColor: s.color } : undefined}
+      title={s.label}
+    />
+  );
 }
 
 function compStyleFor(styles: Record<string, CompStyle>, competition: string, leagueName?: string): CompStyle {
@@ -113,6 +145,31 @@ export default function CompetitionScreen() {
       <div>
         <div className="mb-4 flex flex-wrap items-end justify-between gap-2 border-b border-line">
           <Tabs<string> tabs={tabs} active={otherSelected ? "" : tab} onChange={setTab} className="!mb-0 !border-0" />
+          {/* Which continental cups this save actually runs (v1.65). The Europe tab
+              is one word for three competitions, so the Europa and Conference
+              Leagues were invisible until you opened it — these chips name them
+              in their own colours, the same colours the qualification stripes and
+              Match History dots use. */}
+          {game.european && game.european.cups.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 pb-1.5">
+              {game.european.cups.map((c) => (
+                <button
+                  key={c.tier}
+                  onClick={() => setTab("EURO")}
+                  title={`Open the ${c.name}`}
+                  className="display flex items-center gap-1.5 rounded-sm border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide transition-opacity hover:opacity-100"
+                  style={{
+                    borderColor: `${c.color}80`,
+                    color: c.color,
+                    opacity: tab === "EURO" ? 1 : 0.75,
+                  }}
+                >
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: c.color }} />
+                  {EURO_CUP_DEFS.find((d) => d.tier === c.tier)?.short ?? c.name}
+                </button>
+              ))}
+            </div>
+          )}
           {otherLeagues.length > 0 && (
             <div className="pb-1.5">
               <OtherLeaguesDropdown
@@ -753,7 +810,7 @@ function MatchHistoryView() {
           <div className="hidden flex-wrap items-center gap-2.5 sm:flex">
             {Object.entries(styles).map(([id, s]) => (
               <span key={id} className="flex items-center gap-1.5 text-[11px] text-faint">
-                <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
+                <CompDot s={s} />
                 {s.label}
               </span>
             ))}
@@ -825,7 +882,7 @@ function HistoryRow({ f, styles, onOpen }: { f: Fixture; styles: Record<string, 
       className={`flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-hover ${mine ? "bg-hover/40" : ""}`}
       title="View match details"
     >
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${s.dot}`} title={s.label} />
+      <CompDot s={s} />
       <span className="flex flex-1 items-center justify-end gap-1.5 truncate">
         <span className="truncate">{h.name}</span>
         <Crest colors={h.colors} short={h.short} size={16} />
@@ -882,7 +939,10 @@ function MatchDetailModal({ f, styles, onClose }: { f: Fixture; styles: Record<s
   return (
     <Modal title="Match Details" onClose={onClose}>
       <div className="mb-3 flex items-center justify-between">
-        <span className={`display rounded-sm border px-1.5 py-0.5 text-[9px] font-semibold ${s.chip}`}>
+        <span
+          className={`display rounded-sm border px-1.5 py-0.5 text-[9px] font-semibold ${s.color ? "" : s.chip}`}
+          style={s.color ? { borderColor: `${s.color}80`, color: s.color } : undefined}
+        >
           {s.label.toUpperCase()}
         </span>
         <span className="text-[11px] text-faint">{formatDayShort(f.day)}</span>

@@ -21,6 +21,7 @@ import { flagForNat } from "../lib/config/flags";
 import { ARCHETYPES } from "../lib/config/archetypes";
 import { TRAITS, RETIRED_TRAIT_IDS } from "../lib/config/traits";
 import { SPONSOR_SLOTS } from "../lib/sponsors";
+import { clubPlayerHistory } from "../lib/recordbook";
 
 const SEASONS = Number(process.argv[2] ?? 3);
 
@@ -201,3 +202,20 @@ const json = JSON.stringify(state);
 const back = JSON.parse(json);
 console.log(`save JSON: ${(json.length / 1024 / 1024).toFixed(2)} MB, round-trips: ${back.season === state.season}`);
 console.log(`inbox items: ${state.inbox.length}, careers tracked: ${Object.keys(state.careers).length}`);
+
+// ── Club Players (v1.66) ──────────────────────────────────────────────────
+// Everyone who has ever worn the shirt. Checked here because it is built by
+// walking career rows, which the rollover folds (lib/archive.ts) — a spell has
+// to survive that fold, so it needs a multi-season save to be worth asserting.
+const roll = clubPlayerHistory(state, state.userTeamId);
+const stillHere = roll.filter((s) => s.leftSeason === null);
+console.log(`\n── Club Players ──`);
+console.log(`ever played for the club: ${roll.length} (${stillHere.length} still in club, ${roll.length - stillHere.length} former)`);
+const longest = roll.slice().sort((a, b) => (b.leftSeason ?? state.season) - b.joinedSeason - ((a.leftSeason ?? state.season) - a.joinedSeason))[0];
+if (longest) {
+  console.log(
+    `longest spell: ${longest.name} S${longest.joinedSeason}→${longest.leftSeason ?? "present"} — ${longest.apps} apps, ${longest.goals}g ${longest.assists}a`
+  );
+}
+const squadCovered = state.teams[state.userTeamId].playerIds.every((id) => roll.some((s) => s.playerId === id));
+console.log(`every current squad member listed: ${squadCovered}`);

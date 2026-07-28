@@ -706,6 +706,33 @@ export function useEscapeKey(onClose: () => void) {
   }, [onClose]);
 }
 
+/** Tailwind's `sm` breakpoint, in px — the line this app already draws between
+ * "phone" and "everything else" in its responsive classes. Kept in one place so
+ * the JS-side check and the CSS-side one can't drift apart. */
+const MOBILE_BREAKPOINT = 640;
+
+/**
+ * True on a phone-sized viewport. For layout that CSS alone can't express —
+ * chiefly the Tactics board, where the drag-and-drop pitch is replaced by list
+ * controls on a phone rather than merely restyled.
+ *
+ * Starts false and corrects itself after mount: the server has no viewport, so
+ * rendering the desktop tree first is what keeps hydration consistent. Anything
+ * gated on this must therefore be a progressive swap, never the only route to a
+ * feature.
+ */
+export function useIsMobile(): boolean {
+  const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
+    const sync = () => setMobile(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  return mobile;
+}
+
 export function Tabs<T extends string>({
   tabs,
   active,

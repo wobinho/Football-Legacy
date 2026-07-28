@@ -52,7 +52,7 @@ export default function KeyGate({ children }: { children: React.ReactNode }) {
 
   // locked — key entry
   return (
-    <div className="flex min-h-[100dvh] items-center justify-center px-6 py-12">
+    <div className="mt-safe mb-safe flex min-h-[100dvh] items-center justify-center px-6 py-12">
       <div className="w-full max-w-md">
         <header className="mb-8 text-center">
           <div className="display text-4xl font-bold tracking-wide sm:text-5xl">

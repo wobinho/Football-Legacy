@@ -12,7 +12,7 @@ import { TUNING } from "@/lib/config/tuning";
 import { selectionScore } from "@/lib/selection";
 import { ensureUserLineup } from "@/lib/gameloop";
 import { MAX_SAVED_TACTICS, savedTactics, tacticSummary } from "@/lib/tactics";
-import { ConfirmButton, displayFullName, Flag, GhostButton, GoldButton, Modal, Ovr, PlayerSelect, PosBadge, Section, TraitChip } from "../ui";
+import { ConfirmButton, displayFullName, Flag, GhostButton, GoldButton, Modal, Ovr, PlayerSelect, PosBadge, Section, Tabs, TraitChip, useIsMobile } from "../ui";
 
 const MENTALITIES = MENTALITY_OPTIONS;
 const STYLES = STYLE_OPTIONS;
@@ -350,10 +350,31 @@ interface DragState {
  * tap on a touchscreen. */
 const DRAG_SLOP = 6;
 
-/** Drop zones register themselves here by DOM node, so hit-testing is a plain
- * geometric scan — no dependency on pointer-events or elementFromPoint, which
- * the floating drag token would otherwise sit on top of and block. */
-type ZoneMap = Map<Element, Exclude<DropTarget, null>>;
+/** Drop zones register themselves here, so hit-testing is a plain geometric
+ * scan — no dependency on pointer-events or elementFromPoint, which the
+ * floating drag token would otherwise sit on top of and block.
+ *
+ * Keyed by a STRING identity of the target rather than by the DOM node. The ref
+ * callbacks are created inline during render, so React detaches and reattaches
+ * every zone on each re-render — and a drag re-renders on every pointermove.
+ * Keying by node meant an attach could be undone by the matching detach that
+ * followed it, leaving the map empty exactly while a drag was in flight. */
+type ZoneMap = Map<string, { node: HTMLElement; target: Exclude<DropTarget, null> }>;
+
+/**
+ * Stable string key for a registered zone — the map's identity.
+ *
+ * The same drop TARGET is offered by two different surfaces: a formation slot is
+ * both a token on the pitch and a row in the Starting XI list, and dropping on
+ * either must field the player in that slot. They therefore need distinct keys
+ * but identical targets, which is what `surface` separates. Keying on the target
+ * alone would let the list's registration overwrite the pitch's, and the pitch —
+ * the surface you actually drag onto — would stop accepting drops.
+ */
+function zoneKey(t: Exclude<DropTarget, null>, surface: string): string {
+  const id = t.kind === "slot" ? `slot:${t.slotId}` : t.kind === "bench" ? `bench:${t.index}` : "squad";
+  return `${surface}/${id}`;
+}
 
 /**
  * The whole drag interaction, as one hook.
@@ -374,26 +395,32 @@ function useLineupDrag(onDrop: (source: DragSource, target: Exclude<DropTarget, 
     setDrag(next);
   }, []);
 
-  const registerZone = useCallback((target: Exclude<DropTarget, null>) => {
+  const registerZone = useCallback((target: Exclude<DropTarget, null>, surface = "pitch") => {
+    const key = zoneKey(target, surface);
     return (node: HTMLElement | null) => {
-      // Re-registering the same target on re-render: drop the stale node first
-      // so the map never accumulates detached elements.
-      for (const [el, t] of zones.current) {
-        if (t.kind === target.kind && (t as { slotId?: string; index?: number }).slotId === (target as { slotId?: string }).slotId && (t as { index?: number }).index === (target as { index?: number }).index) {
-          zones.current.delete(el);
-        }
-      }
-      if (node) zones.current.set(node, target);
+      // Attach writes the current node; detach only clears the entry if the node
+      // it held has actually left the document. That ordering is what makes this
+      // safe when React reattaches every ref mid-drag (a drag re-renders on each
+      // pointermove): a stale detach can no longer wipe the fresh registration
+      // that has already replaced it.
+      if (node) zones.current.set(key, { node, target });
+      else if (zones.current.get(key)?.node.isConnected === false) zones.current.delete(key);
     };
   }, []);
 
-  /** Which registered zone is under (x, y), if any. */
+  /** Which registered zone is under (x, y), if any. Slots and bench rows are
+   * checked before the squad pool: the pool is a large container that can
+   * overlap the smaller zones, and the specific target must win. */
   const hitTest = useCallback((x: number, y: number): DropTarget => {
-    for (const [el, target] of zones.current) {
-      const r = el.getBoundingClientRect();
-      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return target;
+    let pool: DropTarget = null;
+    for (const { node, target } of zones.current.values()) {
+      if (!node.isConnected) continue;
+      const r = node.getBoundingClientRect();
+      if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
+      if (target.kind === "squad") pool = target;
+      else return target;
     }
-    return null;
+    return pool;
   }, []);
 
   const begin = useCallback(
@@ -485,6 +512,244 @@ function fitRing(fit: number): string {
   if (fit >= 1) return "border-gold-lo bg-raised";
   if (fit > TUNING.outOfPositionFloor) return "border-draw/60 bg-raised";
   return "border-loss/70 bg-raised";
+}
+
+/**
+ * The phone lineup (v1.64): the same side, picked entirely by tapping.
+ *
+ * A phone gets no squad pool and no drag surface. Dragging a token across a
+ * 390px screen means fighting the page scroll for a target the size of a
+ * fingertip, and the squad pool below it is a second scroll container inside
+ * the first — the gesture that reads well with a mouse is the worst way to do
+ * this on a touchscreen. So the phone keeps only what a tap can drive: the XI
+ * as a list of slots, each opening the existing picker, and the bench with an
+ * Auto-pick and a remove button per row.
+ *
+ * Nothing here is phone-only capability — it is the same store actions and the
+ * same picker modal the desktop board falls back to when you tap rather than
+ * drag. The pitch diagram is kept (it is read-only on a phone, but it is how
+ * you see your shape); what's dropped is the dragging, not the information.
+ */
+function MobileLineup({
+  onPickSlot,
+  onOpenPlayer,
+}: {
+  onPickSlot: (slotId: string) => void;
+  onOpenPlayer: (playerId: string) => void;
+}) {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const dropFromMatchday = useGame((s) => s.dropFromMatchday);
+  const autoBench = useGame((s) => s.autoBench);
+  const bump = useGame((s) => s.bump);
+
+  const team = game.teams[game.userTeamId];
+  const tactic = team.tactic;
+  const formation = getFormation(tactic.formationId);
+  const cap = TUNING.matchdaySquad - 11;
+
+  const inLineup = new Set(Object.values(game.lineup));
+  const benchIds = (game.userBench ?? []).filter(
+    (id) => !inLineup.has(id) && game.players[id] && !game.players[id].loan
+  );
+  const benched = benchIds.map((id) => game.players[id]).filter((p): p is PlayerBio => !!p);
+
+  const autoPick = () => {
+    game.lineup = {};
+    ensureUserLineup(game);
+    bump(true);
+  };
+
+  const filled = Object.values(game.lineup).filter((id) => game.players[id]).length;
+
+  const startersScore =
+    Object.entries(game.lineup).reduce((sum, [slotId, pid]) => {
+      const p = game.players[pid];
+      const slot = formation.slots.find((s) => s.id === slotId);
+      if (!p || !slot) return sum;
+      return (
+        sum +
+        p.overall *
+          positionFit(p.positions, slot.pos, TUNING.adjacentPositionMult, TUNING.outOfPositionFloor) *
+          synergyOf(p, tactic.style)
+      );
+    }, 0) / Math.max(1, Object.keys(game.lineup).length);
+
+  return (
+    <>
+      {/* Shape, read-only — the pitch is still the clearest picture of the side. */}
+      <Section
+        title="Lineup"
+        right={
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-faint">
+              <span className="display tnum text-sm text-ink">{filled}</span>/11 picked
+            </span>
+            <GhostButton onClick={autoPick} className="!px-3 !py-1 text-xs">
+              Auto-pick
+            </GhostButton>
+          </div>
+        }
+      >
+        <div
+          className="relative mx-auto aspect-[3/4] w-full max-w-md select-none overflow-hidden rounded-md border border-line"
+          style={{ background: "linear-gradient(180deg, #0e1512 0%, #0c110e 100%)" }}
+        >
+          <div className="absolute inset-x-[12%] top-0 h-[14%] rounded-b border border-t-0 border-white/10" />
+          <div className="absolute inset-x-[12%] bottom-0 h-[14%] rounded-t border border-b-0 border-white/10" />
+          <div className="absolute inset-x-0 top-1/2 h-px bg-white/10" />
+          <div className="absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/10" />
+
+          {formation.slots.map((slot) => {
+            const pid = game.lineup[slot.id];
+            const p = pid ? game.players[pid] : null;
+            const fit = p
+              ? positionFit(p.positions, slot.pos, TUNING.adjacentPositionMult, TUNING.outOfPositionFloor)
+              : 1;
+            return (
+              <div
+                key={slot.id}
+                className="absolute -translate-x-1/2 translate-y-1/2"
+                style={{ left: `${slot.x}%`, bottom: `${slot.y}%` }}
+              >
+                <button
+                  onClick={() => onPickSlot(slot.id)}
+                  title={p ? `${displayFullName(p)} — tap to change` : `Tap to pick a ${slot.label}`}
+                  className="flex w-16 cursor-pointer flex-col items-center"
+                >
+                  <span
+                    className={`display flex h-10 w-10 items-center justify-center rounded-full border text-sm font-bold ${
+                      p ? `${fitRing(fit)} text-ink` : "border-dashed border-line bg-surface text-faint"
+                    }`}
+                  >
+                    {p ? p.overall : slot.label}
+                  </span>
+                  <span className="mt-0.5 w-full truncate text-center text-[10px] leading-tight text-dim">
+                    {p ? p.name.split(" ").slice(-1)[0] : slot.label}
+                  </span>
+                  {p && fit < 1 && (
+                    <span className="text-[8px] uppercase leading-none tracking-wide text-loss">
+                      {fit <= TUNING.outOfPositionFloor ? "out of pos" : "adapted"}
+                    </span>
+                  )}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-3 text-[10px] text-faint">
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2.5 w-2.5 rounded-full border border-gold-lo" /> natural
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2.5 w-2.5 rounded-full border border-draw/60" /> adapted
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2.5 w-2.5 rounded-full border border-loss/70" /> out of position
+          </span>
+        </div>
+      </Section>
+
+      {/* The XI as a list of slots — tapping one opens the picker. */}
+      <Section
+        title="Starting XI"
+        right={
+          <span className="text-xs text-faint">
+            effective ≈{" "}
+            <span className="display tnum text-sm text-ink">{startersScore ? startersScore.toFixed(1) : "—"}</span>
+          </span>
+        }
+      >
+        <p className="mb-2 text-[11px] leading-snug text-faint">
+          Tap a position to choose who plays there.
+        </p>
+        <div className="space-y-1">
+          {formation.slots.map((slot) => {
+            const pid = game.lineup[slot.id];
+            const p = pid ? game.players[pid] : null;
+            const fit = p
+              ? positionFit(p.positions, slot.pos, TUNING.adjacentPositionMult, TUNING.outOfPositionFloor)
+              : 1;
+            return (
+              <button
+                key={slot.id}
+                onClick={() => onPickSlot(slot.id)}
+                className="flex w-full items-center gap-2 rounded-md border border-line bg-surface px-2.5 py-2 text-left hover:bg-hover"
+              >
+                <PosBadge pos={slot.label} />
+                {p ? (
+                  <>
+                    <Flag nat={p.nationality} size={12} />
+                    <span className="min-w-0 shrink truncate font-medium">{displayFullName(p)}</span>
+                    {fit < 1 && (
+                      <span className="shrink-0 text-[10px] text-loss" title="Out of natural position">
+                        {fit <= TUNING.outOfPositionFloor ? "OUT OF POS" : "adapted"}
+                      </span>
+                    )}
+                    <span className="ml-auto" />
+                    <SynergyDot p={p} style={tactic.style} />
+                    <Ovr value={p.overall} size="sm" />
+                  </>
+                ) : (
+                  <span className="flex-1 text-faint">— tap to pick</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </Section>
+
+      {/* The bench: Auto-pick fills it, ✕ clears a row, tapping opens a player. */}
+      <Section
+        title="Bench"
+        right={
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] text-faint">
+              <span className="tnum">{benched.length}</span>/{cap} subs · used in order
+            </span>
+            <GhostButton onClick={autoBench} className="!px-2.5 !py-1 text-[11px]">
+              Auto-pick
+            </GhostButton>
+          </div>
+        }
+      >
+        <div className="space-y-1">
+          {benched.map((p, i) => (
+            <div
+              key={p.id}
+              className="flex items-center gap-2 rounded-md border border-gold-lo/50 bg-hover px-2.5 py-2"
+            >
+              <button
+                onClick={() => onOpenPlayer(p.id)}
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+              >
+                <span className="w-4 shrink-0 text-center tnum text-[11px] text-faint">{i + 1}</span>
+                <PosBadge pos={p.positions[0]} />
+                <Flag nat={p.nationality} size={12} />
+                <span className="min-w-0 flex-1 truncate">{displayFullName(p)}</span>
+                <Ovr value={p.overall} size="sm" />
+              </button>
+              <button
+                onClick={() => dropFromMatchday(p.id)}
+                title="Take him out of the matchday squad"
+                aria-label={`Remove ${displayFullName(p)} from the bench`}
+                className="shrink-0 px-1 text-sm leading-none text-faint hover:text-loss"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          {benched.length === 0 && (
+            <div className="rounded-md border border-dashed border-line px-3 py-2.5 text-center text-[11px] text-faint">
+              No substitutes named — tap Auto-pick, or leave it empty and the best of the rest are
+              benched automatically.
+            </div>
+          )}
+        </div>
+      </Section>
+    </>
+  );
 }
 
 /**
@@ -748,57 +1013,63 @@ function MatchdayBoard({
         </div>
       </Section>
 
-      {/* ── 3. The starting XI, read as a list ────────────────────────── */}
-      <StartingXIList onPickSlot={onPickSlot} registerZone={registerZone} begin={begin} drag={drag} />
+      {/* ── 3+4. The XI and the bench, side by side (v1.66) ────────────
+          The two lists are one decision — who starts and who backs them up —
+          and stacked they pushed the bench a full screen below the XI it
+          relates to. Two columns puts both in view at once, which also means a
+          drag from the bench into the XI no longer crosses a scroll. They stack
+          again below `lg`, where there isn't the width for two readable lists. */}
+      <div className="grid grid-cols-1 gap-x-6 lg:grid-cols-2">
+        <StartingXIList onPickSlot={onPickSlot} registerZone={registerZone} begin={begin} drag={drag} />
 
-      {/* ── 4. The bench, directly beneath the XI it backs up ─────────── */}
-      <Section
-        title="Bench"
-        right={
-          <div className="flex items-center gap-3">
-            <span className="text-[10px] text-faint">
-              <span className="tnum">{benched.length}</span>/{cap} subs · used in order
-            </span>
-            <GhostButton onClick={autoBench} className="!px-2.5 !py-1 text-[11px]">
-              Auto-pick
-            </GhostButton>
-          </div>
-        }
-      >
-        <div className="space-y-1">
-          {benched.map((p, i) => (
-            <BenchRow
-              key={p.id}
-              p={p}
-              index={i}
-              registerZone={registerZone}
-              isTarget={drag?.target?.kind === "bench" && drag.target.index === i}
-              isSource={p.id === dragging}
-              onPointerDown={(e) => begin({ kind: "bench", playerId: p.id, index: i }, e)}
-              onClick={() => onOpenPlayer(p.id)}
-              onRemove={() => dropFromMatchday(p.id)}
-            />
-          ))}
-
-          {/* Tail drop zone: always present so there is somewhere to drop a
-              player when the bench is empty, and so dropping past the last row
-              appends rather than missing entirely. */}
-          {benched.length < cap && (
-            <div
-              ref={registerZone({ kind: "bench", index: benched.length })}
-              className={`rounded-md border border-dashed px-3 py-2.5 text-center text-[11px] transition-colors ${
-                drag?.target?.kind === "bench" && drag.target.index === benched.length
-                  ? "border-gold bg-hover text-ink"
-                  : "border-line text-faint"
-              }`}
-            >
-              {benched.length === 0
-                ? "Drop a player here to name your substitutes — or leave it empty and the best of the rest are benched automatically."
-                : "Drop here to add a substitute"}
+        <Section
+          title="Bench"
+          right={
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] text-faint">
+                <span className="tnum">{benched.length}</span>/{cap} subs · used in order
+              </span>
+              <GhostButton onClick={autoBench} className="!px-2.5 !py-1 text-[11px]">
+                Auto-pick
+              </GhostButton>
             </div>
-          )}
-        </div>
-      </Section>
+          }
+        >
+          <div className="space-y-1">
+            {benched.map((p, i) => (
+              <BenchRow
+                key={p.id}
+                p={p}
+                index={i}
+                registerZone={registerZone}
+                isTarget={drag?.target?.kind === "bench" && drag.target.index === i}
+                isSource={p.id === dragging}
+                onPointerDown={(e) => begin({ kind: "bench", playerId: p.id, index: i }, e)}
+                onClick={() => onOpenPlayer(p.id)}
+                onRemove={() => dropFromMatchday(p.id)}
+              />
+            ))}
+
+            {/* Tail drop zone: always present so there is somewhere to drop a
+                player when the bench is empty, and so dropping past the last row
+                appends rather than missing entirely. */}
+            {benched.length < cap && (
+              <div
+                ref={registerZone({ kind: "bench", index: benched.length }, "bench")}
+                className={`rounded-md border border-dashed px-3 py-2.5 text-center text-[11px] transition-colors ${
+                  drag?.target?.kind === "bench" && drag.target.index === benched.length
+                    ? "border-gold bg-hover text-ink"
+                    : "border-line text-faint"
+                }`}
+              >
+                {benched.length === 0
+                  ? "Drop a player here to name your substitutes — or leave it empty and the best of the rest are benched automatically."
+                  : "Drop here to add a substitute"}
+              </div>
+            )}
+          </div>
+        </Section>
+      </div>
 
       {drag && dragged && <DragGhost p={dragged} x={drag.x} y={drag.y} />}
     </>
@@ -818,7 +1089,7 @@ function StartingXIList({
   drag,
 }: {
   onPickSlot: (slotId: string) => void;
-  registerZone: (t: Exclude<DropTarget, null>) => (node: HTMLElement | null) => void;
+  registerZone: (t: Exclude<DropTarget, null>, surface?: string) => (node: HTMLElement | null) => void;
   begin: (source: DragSource, e: React.PointerEvent) => void;
   drag: DragState | null;
 }) {
@@ -862,7 +1133,7 @@ function StartingXIList({
           const fit = p ? positionFit(p.positions, slot.pos, TUNING.adjacentPositionMult, TUNING.outOfPositionFloor) : 1;
           const isTarget = drag?.target?.kind === "slot" && drag.target.slotId === slot.id;
           return (
-            <div key={slot.id} ref={registerZone({ kind: "slot", slotId: slot.id })}>
+            <div key={slot.id} ref={registerZone({ kind: "slot", slotId: slot.id }, "xi-list")}>
               <button
                 onPointerDown={(e) => {
                   if (p) begin({ kind: "slot", playerId: p.id, slotId: slot.id }, e);
@@ -928,7 +1199,7 @@ function BenchRow({
 }: {
   p: PlayerBio;
   index: number;
-  registerZone: (t: Exclude<DropTarget, null>) => (node: HTMLElement | null) => void;
+  registerZone: (t: Exclude<DropTarget, null>, surface?: string) => (node: HTMLElement | null) => void;
   isTarget: boolean;
   isSource: boolean;
   onPointerDown: (e: React.PointerEvent) => void;
@@ -937,7 +1208,7 @@ function BenchRow({
 }) {
   return (
     <div
-      ref={registerZone({ kind: "bench", index })}
+      ref={registerZone({ kind: "bench", index }, "bench")}
       className={`flex items-center gap-2 rounded-md border bg-hover px-2.5 py-2 transition-colors sm:gap-3 sm:px-3 ${
         isTarget ? "border-gold ring-1 ring-gold/50" : "border-gold-lo/50"
       } ${isSource ? "opacity-30" : ""}`}
@@ -1091,14 +1362,24 @@ function SavedTactics() {
   );
 }
 
+/** The two halves of the Tactics screen (v1.65). Picking the side and setting
+ * the side up are two different jobs done at different moments — the squad board
+ * is the one you land on, the setup panel is where formation, saved tactics and
+ * on-pitch roles live. Splitting them means neither has to share a column with
+ * the other, so both get the full width on every screen size. */
+type TacticsSection = "squad" | "setup";
+
 export default function TacticsScreen() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const setTactic = useGame((s) => s.setTactic);
   const setLineupSlot = useGame((s) => s.setLineupSlot);
   const viewPlayer = useGame((s) => s.viewPlayer);
+  const [section, setSection] = useState<TacticsSection>("squad");
   const [pickSlot, setPickSlot] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Phones get the tap-driven lineup instead of the drag-and-drop board.
+  const isMobile = useIsMobile();
   /** Formation the user has clicked but not yet confirmed — see the switch
    * confirm below. Null when no switch is pending. */
   const [formationSwitch, setFormationSwitch] = useState<string | null>(null);
@@ -1129,9 +1410,37 @@ export default function TacticsScreen() {
     : undefined;
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <div>
-        <SavedTactics />
+    <div>
+      {/* Squad first and selected by default (v1.65): picking the side is what
+          this screen is for, so it's what you land on. Setup — saved tactics,
+          formation, instructions and on-pitch roles — is the second section,
+          visited when you want to change how the side plays rather than who is
+          in it. Mobile drops the drag-and-drop surfaces — see MatchdayBoard. */}
+      <Tabs<TacticsSection>
+        tabs={[
+          { id: "squad", label: "Squad" },
+          { id: "setup", label: "Setup" },
+        ]}
+        active={section}
+        onChange={setSection}
+      />
+
+      <div className={section === "squad" ? "" : "hidden"}>
+        {isMobile ? (
+          <MobileLineup onPickSlot={setPickSlot} onOpenPlayer={viewPlayer} />
+        ) : (
+          <MatchdayBoard onPickSlot={setPickSlot} onOpenPlayer={viewPlayer} />
+        )}
+      </div>
+
+      {/* Setup keeps its subtree mounted (hidden rather than unmounted) so the
+          Advanced-instructions disclosure and any half-typed state survive a
+          trip to the Squad section and back. */}
+      <div className={`grid grid-cols-1 gap-x-6 lg:grid-cols-2 ${section === "setup" ? "" : "hidden"}`}>
+        <div>
+          <SavedTactics />
+          <Assignments />
+        </div>
         <Section title="Setup">
           <div className="space-y-4">
             <div>
@@ -1196,15 +1505,6 @@ export default function TacticsScreen() {
             </p>
           </div>
         </Section>
-
-        <Assignments />
-      </div>
-
-      {/* The matchday board: squad pool, pitch, starting XI and bench, in the
-          order you work in. On a phone the two columns stack, so the whole
-          sequence — setup, then squad, pitch, XI, bench — reads top to bottom. */}
-      <div>
-        <MatchdayBoard onPickSlot={setPickSlot} onOpenPlayer={viewPlayer} />
       </div>
 
       {formationSwitch && (

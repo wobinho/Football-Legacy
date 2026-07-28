@@ -145,6 +145,122 @@ export function trackBiggestWin(state: GameState, fixture: { homeId: string; awa
   state.recordBook.biggestWin = { season: state.season, text, margin, goalsFor: own };
 }
 
+/**
+ * Everyone who has ever pulled on the shirt (v1.66) — the club's roll of honour.
+ *
+ * Built from the same source as the record book: career rows name the club they
+ * were played for, so a spell is the run of seasons carrying this club's name,
+ * plus the current season for anyone on the books right now. `leftSeason` is
+ * null while a player is still here, which is what the UI renders as "present".
+ *
+ * A player who left and came back has one entry per spell — that is what a club
+ * history actually records, and folding them into one row would invent a
+ * continuous stay that never happened.
+ */
+export interface ClubSpell {
+  playerId: string;
+  name: string;
+  nationality?: string;
+  pos?: import("./types").Pos;
+  /** Season the spell began, and the season it ended — null while still here. */
+  joinedSeason: number;
+  leftSeason: number | null;
+  current: boolean;
+  apps: number;
+  goals: number;
+  assists: number;
+  cleanSheets: number;
+  /** Minutes-weighted mean of the seasons in this spell, 0 when he never played. */
+  avgRating: number;
+  retired: boolean;
+}
+
+export function clubPlayerHistory(state: GameState, teamId: string): ClubSpell[] {
+  const teamName = state.teams[teamId].name;
+  const currentSquad = new Set(state.teams[teamId].playerIds);
+  const out: ClubSpell[] = [];
+
+  const seen = new Set<string>();
+  for (const c of Object.values(state.careers)) {
+    const rows = c.seasons.filter((r) => r.clubName === teamName);
+    if (!rows.length) continue;
+    seen.add(c.playerId);
+    const p = state.players[c.playerId];
+    rows.sort((a, b) => a.season - b.season);
+
+    // Walk the rows and cut a new spell wherever there is a gap in the seasons.
+    // A folded summary row (lib/archive.ts) covers a RANGE, so its end season is
+    // read off the `from–to` label it carries rather than assumed to be one year.
+    let spell: { rows: typeof rows; from: number; to: number } | null = null;
+    const spells: { rows: typeof rows; from: number; to: number }[] = [];
+    for (const row of rows) {
+      const m = /^(\d+)–(\d+)/.exec(row.competition);
+      const to = m ? Number(m[2]) : row.season;
+      if (spell && row.season <= spell.to + 1) {
+        spell.rows.push(row);
+        spell.to = Math.max(spell.to, to);
+      } else {
+        spell = { rows: [row], from: row.season, to };
+        spells.push(spell);
+      }
+    }
+
+    for (const s of spells) {
+      const apps = s.rows.reduce((n, r) => n + r.apps, 0);
+      const ratingSum = s.rows.reduce((n, r) => n + r.avgRating * r.apps, 0);
+      // The last spell is the live one only if he is on the books today.
+      const isCurrent = s === spells[spells.length - 1] && currentSquad.has(c.playerId);
+      out.push({
+        playerId: c.playerId,
+        name: p?.name ?? "?",
+        nationality: p?.nationality,
+        pos: p?.positions[0],
+        joinedSeason: s.from,
+        leftSeason: isCurrent ? null : s.to,
+        current: isCurrent,
+        apps: apps + (isCurrent ? p?.stats.apps ?? 0 : 0),
+        goals: s.rows.reduce((n, r) => n + r.goals, 0) + (isCurrent ? p?.stats.goals ?? 0 : 0),
+        assists: s.rows.reduce((n, r) => n + r.assists, 0) + (isCurrent ? p?.stats.assists ?? 0 : 0),
+        cleanSheets:
+          s.rows.reduce((n, r) => n + (r.cleanSheets ?? 0), 0) + (isCurrent ? p?.stats.cleanSheets ?? 0 : 0),
+        avgRating: apps ? Math.round((ratingSum / apps) * 100) / 100 : 0,
+        retired: !!p?.retired,
+      });
+    }
+  }
+
+  // Anyone signed this season has no career row yet — his first one is written
+  // at the rollover — so the current squad is added from live stats.
+  for (const pid of state.teams[teamId].playerIds) {
+    if (seen.has(pid)) continue;
+    const p = state.players[pid];
+    if (!p) continue;
+    out.push({
+      playerId: p.id,
+      name: p.name,
+      nationality: p.nationality,
+      pos: p.positions[0],
+      joinedSeason: state.season,
+      leftSeason: null,
+      current: true,
+      apps: p.stats.apps,
+      goals: p.stats.goals,
+      assists: p.stats.assists,
+      cleanSheets: p.stats.cleanSheets ?? 0,
+      avgRating: p.stats.apps ? Math.round((p.stats.ratingSum / p.stats.apps) * 100) / 100 : 0,
+      retired: !!p.retired,
+    });
+  }
+
+  // Current players first, then the most recent departures.
+  return out.sort(
+    (a, b) =>
+      Number(b.current) - Number(a.current) ||
+      (b.leftSeason ?? Infinity) - (a.leftSeason ?? Infinity) ||
+      b.apps - a.apps
+  );
+}
+
 /** All-time club records computed from careers on demand (no extra store). */
 export function clubAllTimeRecords(state: GameState, teamId: string) {
   const teamName = state.teams[teamId].name;

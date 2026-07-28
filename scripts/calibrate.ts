@@ -35,6 +35,9 @@ let upsets = 0, decidedWithFavorite = 0;
 let bigGaps = 0, bigGapUpsets = 0;
 const goalDist = new Map<number, number>();
 let shots = 0;
+// Assisted-goal share (v1.66) — a tuned number since `assistChance` moved into
+// TUNING, so the harness reports it alongside the scoring targets.
+let assisted = 0;
 
 for (let i = 0; i < N; i++) {
   const hi = Math.floor(rng() * teamIds.length);
@@ -58,6 +61,7 @@ for (let i = 0; i < N; i++) {
   else draws++;
   if (res.awayGoals === 0) homeCS++;
   if (res.homeGoals === 0) awayCS++;
+  for (const s of res.scorers) if (s.assistId) assisted++;
 
   const sh = strengths.get(homeId)!;
   const sa = strengths.get(awayId)!;
@@ -78,6 +82,7 @@ const pct = (x: number, of = N) => ((100 * x) / of).toFixed(1) + "%";
 console.log(`\n── Calibration: ${N} matches (ENG1 squads) ─────────────────`);
 console.log(`avg goals/match      ${(goals / N).toFixed(2)}   (target ${TUNING.targetGoalsPerMatch})`);
 console.log(`home / draw / away   ${pct(homeWins)} / ${pct(draws)} / ${pct(awayWins)}   (target ~${TUNING.targetHomeWinPct}% home)`);
+console.log(`goals with an assist ${pct(assisted, goals)}   (real football ~75–80%)`);
 console.log(`clean sheets         home ${pct(homeCS)}  away ${pct(awayCS)}`);
 console.log(`upset rate           ${pct(upsets, Math.max(1, decidedWithFavorite))} of decided matches (weaker team wins)`);
 console.log(`big-gap upsets       ${pct(bigGapUpsets, Math.max(1, bigGaps))} (strength gap ≥ 8)`);

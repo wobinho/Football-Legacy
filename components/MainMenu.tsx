@@ -33,7 +33,7 @@ export default function MainMenu() {
   const logout = useGame((s) => s.logout);
   const who = storedKey();
   return (
-    <div className="relative mx-auto flex min-h-screen max-w-3xl flex-col justify-center px-6 py-12">
+    <div className="mt-safe mb-safe relative mx-auto flex min-h-screen max-w-3xl flex-col justify-center px-6 py-12">
       {/* The soundtrack is running before a save is even loaded, so the widget
           belongs here too. It positions itself (fixed, bottom-right), so it just
           needs mounting — no wrapper. */}

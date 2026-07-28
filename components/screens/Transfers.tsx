@@ -16,7 +16,7 @@ import { transferWindowState, formatDayShort, seasonYearLabel } from "@/lib/cale
 import { formatMoney } from "@/lib/value";
 import { matchesPlayerName } from "@/lib/search";
 import { nameForNat } from "@/lib/config/flags";
-import { ArchetypeIcon, Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, GhostButton, GoldButton, Modal, Money, MoneyInput, Ovr, PlayerCard, PlayerGrid, PosBadge, Tabs, usePlayerView, ViewToggle } from "../ui";
+import { ArchetypeIcon, Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, GhostButton, GoldButton, Modal, Money, MoneyInput, Ovr, PlayerCard, PlayerGrid, PosBadge, Tabs, useIsMobile, usePlayerView, ViewToggle } from "../ui";
 import ReleaseClauseField from "./ReleaseClauseField";
 import { LoanOfferModal, SellPlayerModal } from "./SquadMoveModals";
 
@@ -87,11 +87,44 @@ function WageDemand({ p, className = "" }: { p: PlayerBio; className?: string })
   );
 }
 
-function PlayerRowButton({ p, right, onClick }: { p: PlayerBio; right: React.ReactNode; onClick: () => void }) {
+/**
+ * Label for the button that carries a row's primary action on a phone. The two
+ * things a market row opens are a negotiation (someone else's player) and a
+ * signing (a free agent), so the word matches which one it is.
+ */
+function openLabel(p: PlayerBio): string {
+  return p.clubId ? "Open" : "Sign";
+}
+
+/**
+ * A market row. `right` sits inside the row button (data columns — clicking them
+ * still opens the player); `actions` sits outside it, because buttons can't nest
+ * inside a button and its controls must not fall through to the row's onClick.
+ *
+ * Mobile (v1.65): the row body is NOT clickable. The market lists are long and
+ * scrolled by dragging a finger straight down them, so a full-width tap target
+ * meant every imprecise scroll gesture landed as "open this player" and threw up
+ * a modal the user never asked for. On a phone the row becomes inert and the
+ * action moves to an explicit button, which is the only way in — deliberate taps
+ * only. Desktop keeps the whole-row click: a mouse doesn't scroll by dragging,
+ * so the hazard doesn't exist there and the big target is genuinely nicer.
+ */
+function PlayerRowButton({
+  p,
+  right,
+  actions,
+  onClick,
+}: {
+  p: PlayerBio;
+  right: React.ReactNode;
+  actions?: React.ReactNode;
+  onClick: () => void;
+}) {
   const game = useGame((s) => s.game)!;
   const club = p.clubId ? game.teams[p.clubId] : null;
-  return (
-    <button onClick={onClick} className="flex w-full items-center gap-3 border-b border-line/50 px-3 py-2 text-left text-sm last:border-0 hover:bg-hover">
+  const isMobile = useIsMobile();
+  const row = (
+    <>
       <PosBadge pos={p.positions[0]} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 truncate font-medium">
@@ -117,20 +150,73 @@ function PlayerRowButton({ p, right, onClick }: { p: PlayerBio; right: React.Rea
       </div>
       <Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />
       {right}
-    </button>
+    </>
+  );
+  const shell = "flex w-full items-center gap-3 border-b border-line/50 px-3 py-2 text-left text-sm last:border-0";
+
+  if (isMobile) {
+    // Inert body + an explicit action. When the row already carries its own
+    // actions (Sign / Shortlist), those ARE the deliberate taps — no extra
+    // button is added, since the primary action is already reachable.
+    return (
+      <div className={shell}>
+        <span className="flex min-w-0 flex-1 items-center gap-3">{row}</span>
+        {actions ?? (
+          <button
+            onClick={onClick}
+            aria-label={`${openLabel(p)} — ${displayFullName(p)}`}
+            className="display shrink-0 rounded border border-gold-lo/50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gold"
+          >
+            {openLabel(p)}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  if (!actions) {
+    return (
+      <button onClick={onClick} className={`${shell} hover:bg-hover`}>
+        {row}
+      </button>
+    );
+  }
+  return (
+    <div className={`group ${shell} hover:bg-hover`}>
+      <button onClick={onClick} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+        {row}
+      </button>
+      {actions}
+    </div>
   );
 }
 
 /** Grid-view counterpart to PlayerRowButton — the same identity + market info as
  * a card, with `right` (fee / free / listing action) tucked into the actions
- * row. Used by every browse tab so list and grid carry the same data. */
-function PlayerCardButton({ p, right, onClick }: { p: PlayerBio; right: React.ReactNode; onClick: () => void }) {
+ * row. Used by every browse tab so list and grid carry the same data.
+ *
+ * `right` already carries its own buttons on the Search tab; pass
+ * `rightHasActions` there so the phone doesn't grow a second, redundant one. */
+function PlayerCardButton({
+  p,
+  right,
+  onClick,
+  rightHasActions = false,
+}: {
+  p: PlayerBio;
+  right: React.ReactNode;
+  onClick: () => void;
+  rightHasActions?: boolean;
+}) {
   const game = useGame((s) => s.game)!;
   const club = p.clubId ? game.teams[p.clubId] : null;
+  // Same rule as the row (v1.65): on a phone the card body doesn't open anything
+  // — the action lives in the actions strip, where a tap is unambiguous.
+  const isMobile = useIsMobile();
   return (
     <PlayerCard
       p={p}
-      onOpen={onClick}
+      onOpen={isMobile ? undefined : onClick}
       fullName
       ovr={<Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />}
       sub={
@@ -149,8 +235,62 @@ function PlayerCardButton({ p, right, onClick }: { p: PlayerBio; right: React.Re
           <span className="text-win">Free agent</span>
         )
       }
-      actions={<span className="flex w-full items-center justify-end gap-2">{right}</span>}
+      actions={
+        <span className="flex w-full items-center justify-end gap-2">
+          {right}
+          {isMobile && !rightHasActions && (
+            <button
+              onClick={onClick}
+              aria-label={`${openLabel(p)} — ${displayFullName(p)}`}
+              className="display shrink-0 rounded border border-gold-lo/50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gold"
+            >
+              {openLabel(p)}
+            </button>
+          )}
+        </span>
+      }
     />
+  );
+}
+
+/**
+ * The two things a manager wants to do with a search result without reading the
+ * whole profile first: open the bid, or park him for later. Shortlisting is a
+ * toggle, so a man already on the list reads as "SHORTLISTED" and one more tap
+ * takes him off again.
+ */
+function SearchActions({ p, onSign }: { p: PlayerBio; onSign: () => void }) {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const toggle = useGame((s) => s.toggleShortlist);
+  const listed = (game.shortlist ?? []).includes(p.id);
+  const btn =
+    "display shrink-0 rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors";
+  return (
+    <span className="flex shrink-0 items-center gap-1.5">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onSign();
+        }}
+        title={p.clubId ? `Open negotiations for ${displayFullName(p)}` : `Sign ${displayFullName(p)} on a free transfer`}
+        className={`${btn} border-gold-lo/50 text-gold hover:border-gold-lo hover:bg-gold-lo/[0.12]`}
+      >
+        Sign
+      </button>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          toggle(p.id);
+        }}
+        title={listed ? "Remove from shortlist" : "Add to shortlist"}
+        className={`${btn} ${
+          listed ? "border-win/50 text-win hover:border-loss/50 hover:text-loss" : "border-line text-faint hover:border-win/50 hover:text-win"
+        }`}
+      >
+        {listed ? "★ Shortlisted" : "+ Shortlist"}
+      </button>
+    </span>
   );
 }
 
@@ -343,11 +483,15 @@ function SearchTab() {
               key={p.id}
               p={p}
               onClick={() => setTarget(p)}
+              rightHasActions
               right={
-                <span className="flex items-baseline gap-2">
-                  <Money value={p.value} className="text-dim" />
-                  <WageDemand p={p} className="text-[11px] text-faint" />
-                </span>
+                <>
+                  <span className="flex items-baseline gap-2">
+                    <Money value={p.value} className="text-dim" />
+                    <WageDemand p={p} className="text-[11px] text-faint" />
+                  </span>
+                  <SearchActions p={p} onSign={() => setTarget(p)} />
+                </>
               }
             />
           ))}
@@ -361,6 +505,7 @@ function SearchTab() {
             <span className="w-9 shrink-0 text-center">Ovr</span>
             <span className="w-24 shrink-0 text-right">Value</span>
             <span className="w-24 shrink-0 text-right">Wage demand</span>
+            <span className="w-[10.5rem] shrink-0 text-right">Actions</span>
           </div>
           {results.map((p) => (
             <PlayerRowButton
@@ -376,6 +521,11 @@ function SearchTab() {
                     <WageDemand p={p} className="text-dim" />
                   </div>
                 </>
+              }
+              actions={
+                <span className="flex w-[10.5rem] shrink-0 justify-end">
+                  <SearchActions p={p} onSign={() => setTarget(p)} />
+                </span>
               }
             />
           ))}
