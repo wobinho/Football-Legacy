@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useGame } from "@/store/gameStore";
-import type { Fixture, MatchEvent, MatchResult, Mentality, Style } from "@/lib/types";
+import type { Fixture, MatchEvent, MatchResult, Mentality, PlayerBio, Style } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
 import {
   createMatch,
@@ -17,6 +17,7 @@ import {
 } from "@/lib/engine/match";
 import { MENTALITY_OPTIONS, STYLE_OPTIONS, styleLabel } from "@/lib/config/formations";
 import { buildSideInput, headCoachMult } from "@/lib/selection";
+import { rotationContextFor, rotationMultiplier } from "@/lib/rotation";
 import { ensureUserLineup, matchSeed } from "@/lib/gameloop";
 import { Card, Crest, GhostButton, GoldButton, Section } from "../ui";
 
@@ -79,9 +80,17 @@ export default function MatchDayScreen() {
       const coach = teamId === game.userTeamId ? headCoachMult(t.staff.headCoach?.stars ?? 0, TUNING) : 1;
       const assignments = teamId === game.userTeamId ? t.assignments : undefined;
       const bench = teamId === game.userTeamId ? game.userBench : undefined;
-      return teamId === game.userTeamId
-        ? buildSideInput(teamId, t.name, t.short, players, t.tactic, TUNING, userLineup, coach, assignments, bench)
-        : buildSideInput(teamId, t.name, t.short, players, t.tactic, TUNING, undefined, coach, assignments);
+      if (teamId === game.userTeamId) {
+        return buildSideInput(teamId, t.name, t.short, players, t.tactic, TUNING, userLineup, coach, assignments, bench);
+      }
+      // The AI opponent rotates for this fixture the same way it does in a
+      // simulated one (v1.66) — otherwise the side the user watches would be
+      // picked by different rules from the side the rest of the league faces.
+      const ctx = rotationContextFor(game, teamId, fixture, TUNING);
+      const weight = (p: PlayerBio) => rotationMultiplier(game, p, ctx, TUNING);
+      return buildSideInput(
+        teamId, t.name, t.short, players, t.tactic, TUNING, undefined, coach, assignments, undefined, weight
+      );
     };
     return { homeSide: mk(fixture.homeId), awaySide: mk(fixture.awayId) };
   };

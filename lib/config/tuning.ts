@@ -118,6 +118,59 @@ export interface TuningConfig {
   subUpgradeMargin: number;
   clutchMinute: number; // Clutch trait activates from here
 
+  // ── Dynamic substitutions (v1.66) ─────────────────────────────────────────
+  // The old auto-sub pass only ever swapped a tired starter for a better bench
+  // option, so a side that stayed fresh made zero changes and the bench never
+  // played. An AI manager now has three separate reasons to make a change, each
+  // with its own trigger, and a floor on how many it makes at all.
+  /** Fewest changes a manager tries to make in a match, fitness permitting. The
+   * engine works down its reason list until it has made this many. */
+  minSubsPerMatch: number;
+  /** Fitness at/below which a starter is pulled off on fatigue grounds alone —
+   * no quality test, fresh legs win. Below `subFitnessThreshold`, which gates the
+   * older "only if the bench is nearly as good" rotation. */
+  fatigueSubFitness: number;
+  /** Goal margin at/after `garbageTimeMinute` that makes the game safe enough to
+   * empty the bench for minutes rather than results. */
+  garbageTimeLead: number;
+  garbageTimeMinute: number;
+  /** In garbage time the quality bar drops to this fraction of the starter's
+   * effectiveness — the point is to give squad players and prospects minutes. */
+  garbageTimeUpgradeMargin: number;
+  /** Age at/below which a bench player counts as a prospect and is favoured for
+   * garbage-time minutes. */
+  garbageTimeProspectAge: number;
+  /** Match rating at/below which a starter is hooked for performance. Checked at
+   * the halftime and early-second-half windows only. */
+  performanceSubRating: number;
+  /** Latest minute a performance sub is made — after this a manager rides it out. */
+  performanceSubLastMinute: number;
+
+  // ── Pre-match rotation (v1.66) ────────────────────────────────────────────
+  // Selection now looks at fitness and fixture density before it picks, so a
+  // congested week or a low-priority cup tie rotates rather than grinding the
+  // same XI into the ground.
+  /** Fitness below which a starter is rested if a credible deputy exists. */
+  rotationFitnessThreshold: number;
+  /** Days between matches at/below which the fixture list counts as congested,
+   * lowering the rotation bar further. */
+  congestedFixtureDays: number;
+  /** Extra fitness points added to the rotation threshold in a congested week. */
+  congestedRotationBonus: number;
+  /** How much worse a deputy may be (fraction of the starter's selection score)
+   * and still be rotated in. Separate values for league and low-priority cup. */
+  rotationQualityFloor: number;
+  cupRotationQualityFloor: number;
+  /** Squad-role targets (v1.66). A player's share of available league minutes
+   * the AI manager aims at, by role. Drives the rotation nudge that favours
+   * whoever is furthest below their target. */
+  roleMinutesTargetStarter: number;
+  roleMinutesTargetRotation: number;
+  roleMinutesTargetImpactSub: number;
+  /** How strongly a minutes deficit against the role target biases selection,
+   * as a fraction of selection score per unit of deficit. */
+  roleMinutesSelectionWeight: number;
+
   // Fitness
   fitnessDrainPerMatch: number; // full 90 at age 27
   fitnessDrainAgeFactor: number; // extra drain per year over 30
@@ -187,6 +240,24 @@ export interface TuningConfig {
   // fading to 1× as overall approaches `growthCatchupBelow`.
   growthCatchupBelow: number; // overall below which the catch-up boost applies
   growthCatchupMult: number; // max growth multiplier at the quality floor
+  // Elite resistance (v1.66) — the mirror of the catch-up band at the TOP end.
+  // Every other growth lever (minutes, coach, facility, training plan, academy
+  // loan/U21/focus) is a multiplier that ignores how good the player already is,
+  // so a stacked development environment moved an 88-rated player exactly as fast
+  // as a 60-rated one. Headroom was the only brake, and `youthPotentialFloor`
+  // guaranteed a ceiling near the cap to almost every youngster — which is how a
+  // 19-year-old reached 90+ and a 75 became a 93 in two seasons.
+  //
+  // Growth is now multiplied by a factor that decays from 1 to
+  // `growthEliteMultFloor` as overall climbs from `growthEliteAbove` to
+  // `growthEliteCeiling`, so the last stretch to 90+ takes several seasons of
+  // genuine excellence rather than one good campaign. The decay is exponential
+  // (`growthEliteCurve` > 1 biases the damping toward the very top), so a 78 is
+  // barely touched while an 88 crawls.
+  growthEliteAbove: number; // overall at/below which there is no damping (1×)
+  growthEliteCeiling: number; // overall at which damping reaches its floor
+  growthEliteMultFloor: number; // the smallest multiplier the damping applies
+  growthEliteCurve: number; // >1 pushes the damping toward the top of the band
   // Age → growth-rate curve (v17). Growth used to scale linearly with how far a
   // player sat below growthEndAge, which made the YOUNGEST player the fastest
   // developer — a 12-year-old projected +19 in a season. That is backwards:
@@ -572,6 +643,61 @@ export interface TuningConfig {
    * is a genuine best-and-final rather than a token nudge. */
   negotiationBestAndFinalShare: number;
 
+  // ── Player transfer consent (§10, v1.66) ─────────────────────────────────
+  // A move is no longer decided by the buying club alone: the player has to be
+  // willing to go. Two things gate it — the standard of football he'd be
+  // dropping to (division + club reputation), and the wage, which is floored by
+  // what he is rather than by what the buyer can afford. Both loosen over time
+  // for a player who isn't playing, which is the "desperation curve" that lets a
+  // fallen star eventually drop down without letting him do it instantly.
+
+  /** Overall at/above which a player is a "top-tier" name and applies the hard
+   * division gate below. Under this he'll go wherever the football is. */
+  consentEliteOverall: number;
+  /** Divisions below his current one an elite player will drop, at full standing.
+   * 1 = he'll go one tier down and no further. */
+  consentMaxTierDrop: number;
+  /** Club-reputation gap (his club's rep minus the buyer's) an elite player
+   * tolerates. Beyond it he refuses even inside the tier limit — this is what
+   * stops a Premier League star joining a newly-promoted top-flight minnow. */
+  consentMaxRepDrop: number;
+  /** Reputation a club needs before an elite player treats it as a peer
+   * regardless of tier — a big foreign club in a lesser division. */
+  consentPeerReputation: number;
+
+  // ── Wage floors (v1.66) ──
+  // The v1.65 market scaling quotes a player his league's going rate, which gave
+  // lower-division buyers an automatic discount on exactly the players they
+  // shouldn't be able to afford. A player now carries a personal floor from his
+  // ability and standing, and the buyer either meets it or fails canAfford.
+  /** Fraction of his CURRENT market-rate wage a player will never sign below,
+   * whatever division the buyer is in. */
+  wageFloorShareOfCurrent: number;
+  /** Ability-anchored floor: the share of his own top-market (tier-1) wage he
+   * demands regardless of where he's going. Anchors free agents and players
+   * whose current deal is out of step with their ability. */
+  wageFloorShareOfAbility: number;
+  /** Extra floor per point of overall above `consentEliteOverall` — a star
+   * prices himself further out of a small club's reach than a squad player. */
+  wageFloorEliteStep: number;
+
+  // ── Expectation decay / desperation curve (v1.66) ──
+  // A player who isn't playing, or who has no club at all, gradually accepts
+  // less. Decay is measured in in-game days of inactivity, tracked on the player.
+  /** Days of inactivity before the curve starts to bite at all. */
+  desperationGraceDays: number;
+  /** Days from the end of grace to full desperation (the caps below). */
+  desperationFullDays: number;
+  /** At full desperation: extra tiers he'll drop, and the fraction of his wage
+   * floor he'll accept. Both interpolate from 0 / 1.0 across the curve. */
+  desperationMaxExtraTierDrop: number;
+  desperationMinWageFloorShare: number;
+  /** Share of a season's available minutes below which a squad player counts as
+   * "not playing" and starts accruing inactivity. */
+  desperationMinutesShare: number;
+  /** A free agent decays faster — no club at all is worse than a bad one. */
+  desperationFreeAgentMult: number;
+
   // ── Club AI strategy (§10) ──
   // A club's stance is re-evaluated when each window opens; these are the
   // thresholds that classify it. Per-stance behaviour lives in the
@@ -596,6 +722,19 @@ export interface TuningConfig {
   freeAgentPoolFloor: number; // free agents the AI leaves unsigned, so the user's tab is never empty (v1.51)
   aiSimDealsPerLeaguePerWindow: number; // intra-league AI↔AI deals each sim league does per window (v1.44)
   aiSimCrossLeagueDealsPerWindow: number; // cross-league AI↔AI deals across the whole sim world per window (v1.44)
+
+  // ── Peer-club priority (v1.66) ──
+  // When a high-reputation player comes available, his own level of club gets
+  // first refusal. A lower-tier club can still sign him, but only once the peers
+  // have had their window and passed.
+  /** Player reputation (overall) at/above which the priority window applies. */
+  peerPriorityOverall: number;
+  /** Days from a player becoming available during which only peer clubs may bid.
+   * Measured from `availableSince` on the player. */
+  peerPriorityDays: number;
+  /** A club counts as a peer if it is within this many tiers of the player's own
+   * division, or over `consentPeerReputation`. */
+  peerPriorityTierBand: number;
 
   // ── AI financial discipline (v19) ──
   // AI clubs must live within their means: a fee has to clear the budget with
@@ -982,11 +1121,44 @@ export const TUNING: TuningConfig = {
     Attacking: { Defensive: 0.96, Balanced: 0.98, Attacking: 1.0 },
   },
 
-  subMinutes: [60, 75],
+  // Four windows rather than two (v1.66): the break (performance changes only),
+  // the classic hour mark, and two late ones. Segment boundaries sit at 0/15/30/
+  // 45/60/75, and a window is only checked when it lands on one — so these four
+  // are the real decision points a manager gets.
+  subMinutes: [45, 60, 75],
   maxSubs: 5,
   subFitnessThreshold: 86,
   subUpgradeMargin: 0.94,
   clutchMinute: 75,
+
+  // Dynamic substitutions (v1.66). Three changes is the floor a manager aims for
+  // — that alone turns the bench from decoration into ~250 minutes a match spread
+  // across squad players. Fatigue pulls below 74 unconditionally; the quality
+  // test above (subFitnessThreshold/subUpgradeMargin) still governs the rest.
+  minSubsPerMatch: 3,
+  fatigueSubFitness: 74,
+  // Two goals up with 20 to play is safe enough to think about next week.
+  garbageTimeLead: 2,
+  garbageTimeMinute: 70,
+  garbageTimeUpgradeMargin: 0.72, // a real drop in quality — the point is minutes
+  garbageTimeProspectAge: 21,
+  performanceSubRating: 5.9,
+  performanceSubLastMinute: 60,
+
+  // Pre-match rotation (v1.66). 82 is the line below which a starter is carrying
+  // real fatigue into a match; a congested week lifts it to 88, which in practice
+  // rotates most of the XI across a midweek-plus-weekend pair.
+  rotationFitnessThreshold: 82,
+  congestedFixtureDays: 4,
+  congestedRotationBonus: 6,
+  // A league deputy must be within 12% of the starter; a low-priority cup tie
+  // accepts a 25% drop, which is what actually empties the fringe of the squad.
+  rotationQualityFloor: 0.88,
+  cupRotationQualityFloor: 0.75,
+  roleMinutesTargetStarter: 0.75,
+  roleMinutesTargetRotation: 0.4,
+  roleMinutesTargetImpactSub: 0.18,
+  roleMinutesSelectionWeight: 0.12,
 
   fitnessDrainPerMatch: 22,
   fitnessDrainAgeFactor: 0.8,
@@ -1016,8 +1188,17 @@ export const TUNING: TuningConfig = {
   youthProdigyChance: 0.03,
   youthProdigyKeepMin: 0.55,
   youthProdigyKeepMax: 0.9,
-  youthPotentialFloor: 88,
-  youthPotentialBandTop: 96,
+  // v1.66: 88/96 → 72/92. The old band handed EVERY still-growing player in the
+  // world a hidden ceiling of 88–96, which meant headroom — the one brake on the
+  // growth formula — effectively never bound, and the world filled with players
+  // whose ceiling was world-class. A ceiling that everybody has is not a ceiling.
+  // The floor now sits at "solid professional" and the band spreads wide enough
+  // that a genuine 90+ ceiling is a minority roll (the top ~quarter of the band),
+  // restoring the scarcity that makes a wonderkid worth finding. Players whose
+  // generated overall + headroom already exceeds this keep the higher number —
+  // the band is a floor, not a clamp.
+  youthPotentialFloor: 72,
+  youthPotentialBandTop: 92,
 
   // Elite generation (superstars). A rep-90 giant lifts its top ~4 starters by up
   // to +6, so its best players land in the high 80s / low 90s (the world-class
@@ -1058,10 +1239,28 @@ export const TUNING: TuningConfig = {
   declineOnsetAge: 35,
   declineOnsetLongevitySwing: 1,
   declineOnsetPaceReliancePenalty: 0.9,
-  growthPerSeasonMax: 6,
+  // v1.66: 6 → 4.5. The headline growth budget was set when the multiplier stack
+  // was thinner; with coach (×1.4), facility (×1.6), plan (×1.1) and the academy
+  // bonuses all compounding on top, 6 produced ~8-overall seasons for a fully
+  // invested youngster. The elite-resistance curve below handles the top end;
+  // this trims the whole band so even a mid-rated prospect climbs in 3–5 point
+  // steps rather than 8.
+  growthPerSeasonMax: 4.5,
   declinePerSeasonBase: 1.6,
+  // v1.66: 1.8 → 1.35. The catch-up band compounds with coach, facility, plan and
+  // the academy bonuses, so at full investment it was producing +12 seasons for a
+  // raw teenager — the fast lane into the elite band that the resistance curve
+  // then had to fight. Raw players still climb briskly out of the 50s, just not
+  // in a single summer.
   growthCatchupBelow: 60,
-  growthCatchupMult: 1.8,
+  growthCatchupMult: 1.35,
+  // Elite resistance (v1.66). No damping at or below 70; by 80 growth runs at
+  // roughly half rate, by 88 at ~18%, and it bottoms out at 12% by 94. Combined
+  // with the lower potential floor, this is what stops the 19-year-old 90.
+  growthEliteAbove: 62,
+  growthEliteCeiling: 92,
+  growthEliteMultFloor: 0.08,
+  growthEliteCurve: 1.25,
   // Peaked age curve (v17). 17 is the breakout year at full strength; each year
   // below that costs 0.16 (so a 14-year-old sits at 1.0 − 0.48 → 0.52 of a
   // 17-year-old's rate) and each year above costs 0.09,
@@ -1366,6 +1565,39 @@ export const TUNING: TuningConfig = {
   negotiationCounterStep: 0.55,
   negotiationBestAndFinalShare: 0.94,
 
+  // ── Player transfer consent (v1.66) ──
+  // 76 is a first-choice top-flight footballer: comfortably above a mid-table
+  // squad player (~68-72) and below a genuine star (~82+). One tier is the whole
+  // allowance — a Premier League regular will drop to the Championship for
+  // football and no further, which is exactly the immersion break being fixed.
+  consentEliteOverall: 76,
+  consentMaxTierDrop: 1,
+  // Reputation runs 1-100. A 30-point gap is roughly "European regular to
+  // mid-table", which is about as far as a good player will fall in one move.
+  consentMaxRepDrop: 30,
+  // A club this well-regarded is a peer wherever it plays.
+  consentPeerReputation: 72,
+
+  // Wage floors. 0.85 of his current wage means a move is allowed to cost him a
+  // little (a step up in football is worth something) but never the 60-80% cut a
+  // fourth-tier quote used to represent. The ability anchor is the real gate on
+  // lower-league buyers: 0.5 of his top-market rate is still far beyond what a
+  // League One wage budget clears in canAfford.
+  wageFloorShareOfCurrent: 0.85,
+  wageFloorShareOfAbility: 0.5,
+  wageFloorEliteStep: 0.02, // +2% of the anchor per overall point above elite
+
+  // Desperation curve. A month of not playing before anything moves, then a
+  // season and a half to bottom out — slow enough that a benched star doesn't
+  // drop two divisions inside one window, fast enough that a genuinely finished
+  // player eventually finds his level.
+  desperationGraceDays: 30,
+  desperationFullDays: 420,
+  desperationMaxExtraTierDrop: 2, // at full decay an elite player will fall 3 tiers
+  desperationMinWageFloorShare: 0.55, // …and take 55% of his floor
+  desperationMinutesShare: 0.25,
+  desperationFreeAgentMult: 2.0,
+
   // Club AI strategy. Top ~25% of a league with no financial trouble reads as a
   // title push; a club two-tenths of a table below its reputation is
   // underperforming. A squad averaging 28+ is ageing.
@@ -1413,6 +1645,13 @@ export const TUNING: TuningConfig = {
   // just as visibly across seasons.
   aiSimDealsPerLeaguePerWindow: 7,
   aiSimCrossLeagueDealsPerWindow: 14,
+
+  // Peer priority (v1.66). Two weeks of exclusivity for clubs at his own level —
+  // one weekly AI tick plus a window-open burst, so the peers genuinely get first
+  // refusal before anyone below can approach.
+  peerPriorityOverall: 74,
+  peerPriorityDays: 14,
+  peerPriorityTierBand: 1,
   // Chance per window an AI club proactively renews a first-team player who is in
   // the final year of his deal, rather than risk losing him for nothing. Keeps AI
   // squads intact and mirrors the contract pressure the user feels.
@@ -1463,17 +1702,21 @@ export const TUNING: TuningConfig = {
   intakeClassPerLevel: 0.5,
   intakeAgeMin: 14,
   intakeAgeMax: 17,
-  intakeOverallBase: 50,
+  intakeOverallBase: 46,
   intakeOverallSpread: 6,
-  intakePotentialBase: 60,
+  // v1.66: the intake ceiling distribution pulled down a touch and its spread
+  // widened, so an ordinary class is genuinely ordinary and the standouts stand
+  // out. A maxed academy at a giant club still centres near 80 via the level /
+  // coach / reputation terms — that investment is the point.
+  intakePotentialBase: 56,
   intakePotentialPerLevel: 2.2,
   intakePotentialPerCoachStar: 1.4,
   intakePotentialRepFactor: 0.08,
-  intakePotentialSpread: 11,
+  intakePotentialSpread: 12,
   goldenGenChance: 0.06,
   goldenGenExtra: 2,
-  goldenGenPotentialMin: 84,
-  goldenGenPotentialMax: 93,
+  goldenGenPotentialMin: 80,
+  goldenGenPotentialMax: 90,
 
   fogBaseWidth: 15,
   fogBaseError: 9,
@@ -1570,15 +1813,21 @@ export const TUNING: TuningConfig = {
   // as a star range without arithmetic: bronze tops out at 3★, silver spans
   // 3–3.5★, gold 3.5–4★, diamond 4.5–5★, and the top two are the full five.
   prospectTierBands: {
-    bronze: { overall: [50, 58], potential: [62, 74] },
-    silver: { overall: [54, 64], potential: [73, 84] },
-    gold: { overall: [60, 71], potential: [80, 89] },
-    diamond: { overall: [68, 80], potential: [85, 95] },
-    obsidian: { overall: [74, 84], potential: [90, 97] },
-    legacy: { overall: [78, 87], potential: [93, 99] },
+    // v1.66: every band's starting overall pulled down and the top ceilings
+    // trimmed. A prospect is now RAW — even a Legacy find arrives in the 60s and
+    // has to be developed, where before he walked in at 78–87 and needed only a
+    // season or two of the (then much faster) youth curve to be world-class.
+    // Ceilings still separate the tiers cleanly; they just no longer start the
+    // top three rungs most of the way to their own ceiling.
+    bronze: { overall: [44, 52], potential: [58, 70] },
+    silver: { overall: [47, 56], potential: [66, 78] },
+    gold: { overall: [51, 60], potential: [74, 84] },
+    diamond: { overall: [55, 65], potential: [80, 89] },
+    obsidian: { overall: [59, 69], potential: [85, 93] },
+    legacy: { overall: [62, 72], potential: [89, 96] },
     // Pre-v1.53 saves can still carry a `platinum` badge; it maps onto the
     // diamond band so a migrated prospect never falls through to bronze.
-    platinum: { overall: [68, 80], potential: [85, 95] },
+    platinum: { overall: [55, 65], potential: [80, 89] },
   },
   fogJudgementStarReduction: 0.09,
   scoutWageBase: 3_000,
@@ -1606,13 +1855,17 @@ export const TUNING: TuningConfig = {
   loanGrowthMaxAge: 24,
 
   // Academy development boosts (v1.55)
-  academyLoanGrowthBonus: 0.1, // +10% for a developmental season out on loan
-  academyLoanGrowthPerApp: 0.01, // +1% per loan appearance made
-  academyLoanGrowthPerAppCap: 0.25, // …up to +25% from appearances alone
-  academyU21GrowthBonus: 0.2, // +20% for playing the U21 league
-  academyU21TeamPerfBonus: 0.15, // + up to this again for a top U21 finish
+  // v1.66: the academy bonuses were the last uncapped compounding layer — loan
+  // (up to +35%) or U21 (up to +55%) times focus (+10%) landed on top of coach,
+  // facility and plan. Each is roughly halved so the routes still matter for
+  // WHERE a prospect develops without doubling his rate.
+  academyLoanGrowthBonus: 0.06, // +6% for a developmental season out on loan
+  academyLoanGrowthPerApp: 0.005, // +0.5% per loan appearance made
+  academyLoanGrowthPerAppCap: 0.12, // …up to +12% from appearances alone
+  academyU21GrowthBonus: 0.1, // +10% for playing the U21 league
+  academyU21TeamPerfBonus: 0.08, // + up to this again for a top U21 finish
   academyU21RatingPivot: 7.0, // a U21 average rating above here counts as starring
-  academyU21RatingBonus: 0.2, // + up to this again for a standout U21 campaign
+  academyU21RatingBonus: 0.1, // + up to this again for a standout U21 campaign
 
   // Player regen (v1.55)
   regenMinPeakOverall: 75,

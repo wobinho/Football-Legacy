@@ -49,6 +49,11 @@ export interface EnginePlayer {
   traits: string[];
   form: number;
   fitness: number; // at kickoff
+  /** Age (v1.66) — read only by the garbage-time sub rule, which favours giving
+   * a prospect the minutes when the game is already won. Optional so a caller
+   * building an EnginePlayer by hand (the harness) needn't supply it; absent
+   * simply means no prospect bias. */
+  age?: number;
 }
 
 export interface LineupEntry {
@@ -317,67 +322,182 @@ function goalText(rng: RNG, scorer: OnPitch, assister: OnPitch | null): string {
   return text;
 }
 
-/**
- * Auto-subs at cfg.subMinutes: rotate fresh legs on for starters who have tired.
- *
- * A starter becomes a rotation candidate once his in-match fitness drops to
- * cfg.subFitnessThreshold — set high enough that ordinary late-match tiredness
- * (players finish ~78-82 fitness over 90') qualifies, so rotation actually
- * happens, not only when someone is exhausted. He's then replaced when a bench
- * option reaches cfg.subUpgradeMargin of his *current, drained* effectiveness —
- * a fraction below 1, so late rotation accepts a small quality dip for fresh
- * legs. That's what gives squad players real minutes instead of the XI playing
- * the full 90 every week.
- */
-function maybeSubs(state: MatchState, side: SideState, minute: number) {
-  const cfg = state.cfg;
-  if (side.subsUsed >= cfg.maxSubs) return;
-  const drainMult = drainRateMult(side, cfg);
-  const active = activePlayers(side)
-    .filter((op) => op.entry.slotPos !== "GK")
-    .map((op) => {
-      const played = minute - op.enteredMinute;
-      const currentFitness = op.entry.player.fitness - (played / 90) * cfg.fitnessDrainPerMatch * drainMult;
-      return { op, currentFitness };
-    })
-    .sort((a, b) => a.currentFitness - b.currentFitness);
+/** A starter's in-match fitness right now — his kickoff figure less what the
+ * minutes he's actually been on the pitch have taken out of him. */
+function currentFitnessOf(op: OnPitch, side: SideState, minute: number, cfg: TuningConfig): number {
+  const played = minute - op.enteredMinute;
+  return op.entry.player.fitness - (played / 90) * cfg.fitnessDrainPerMatch * drainRateMult(side, cfg);
+}
 
-  // Consider up to two changes per window, tiredest first.
-  for (const { op, currentFitness } of active.slice(0, 2)) {
-    if (side.subsUsed >= cfg.maxSubs) break;
-    if (currentFitness > cfg.subFitnessThreshold) continue;
-    const slotPos = op.entry.slotPos;
-    const candidates = side.bench.filter((b) => b.positions[0] !== "GK");
-    if (!candidates.length) continue;
-    // best bench option for this slot
-    let best: EnginePlayer | null = null;
-    let bestEff = 0;
-    for (const b of candidates) {
-      const fit = positionFit(b.positions, slotPos, cfg.adjacentPositionMult, cfg.outOfPositionFloor);
-      const eff = b.overall * fit * fitnessMult(b.fitness, cfg);
-      if (eff > bestEff) {
-        bestEff = eff;
-        best = b;
-      }
-    }
-    const tiredEff = op.entry.player.overall * fitnessMult(currentFitness, cfg);
-    if (best && bestEff > tiredEff * cfg.subUpgradeMargin) {
-      op.leftMinute = minute;
-      side.bench = side.bench.filter((b) => b.id !== best.id);
-      side.onPitch.push({
-        entry: { slotPos, player: best },
-        enteredMinute: minute,
-        leftMinute: null,
-      });
-      side.subsUsed++;
-      state.events.push({
-        minute,
-        type: "sub",
-        teamId: side.input.teamId,
-        text: `${side.input.short}: ${best.name} replaces ${op.entry.player.name}.`,
-      });
+/** The best bench option for a slot, and how good it would be there. Fresh legs
+ * are already priced in through `fitnessMult` on the bench player's own fitness. */
+function bestBenchFor(
+  side: SideState,
+  slotPos: Pos,
+  cfg: TuningConfig,
+  /** Weight applied per candidate — garbage time uses it to favour prospects. */
+  bias: (b: EnginePlayer) => number = () => 1
+): { player: EnginePlayer; eff: number } | null {
+  let best: EnginePlayer | null = null;
+  let bestEff = 0;
+  for (const b of side.bench) {
+    // An outfield slot is never filled by the reserve keeper — he's cover for
+    // one position and one only.
+    if (b.positions[0] === "GK") continue;
+    const fit = positionFit(b.positions, slotPos, cfg.adjacentPositionMult, cfg.outOfPositionFloor);
+    const eff = b.overall * fit * fitnessMult(b.fitness, cfg) * bias(b);
+    if (eff > bestEff) {
+      bestEff = eff;
+      best = b;
     }
   }
+  return best ? { player: best, eff: bestEff } : null;
+}
+
+/** Put the change through: the starter comes off, the sub takes his slot. */
+function makeSub(
+  state: MatchState,
+  side: SideState,
+  op: OnPitch,
+  incoming: EnginePlayer,
+  minute: number,
+  why: string
+) {
+  op.leftMinute = minute;
+  side.bench = side.bench.filter((b) => b.id !== incoming.id);
+  side.onPitch.push({
+    entry: { slotPos: op.entry.slotPos, player: incoming },
+    enteredMinute: minute,
+    leftMinute: null,
+  });
+  side.subsUsed++;
+  state.events.push({
+    minute,
+    type: "sub",
+    teamId: side.input.teamId,
+    text: `${side.input.short}: ${incoming.name} replaces ${op.entry.player.name}${why}.`,
+  });
+}
+
+/**
+ * The AI manager's substitution pass, run at each window in cfg.subMinutes.
+ *
+ * The old pass had exactly one reason to make a change — a tired starter who
+ * could be upgraded — so a side that stayed fresh made none at all and the bench
+ * never played. A manager now works down four reasons in priority order, and
+ * keeps going until he's made `minSubsPerMatch` changes or run out of bench:
+ *
+ *  1. Performance (halftime and the early second half only): a starter having a
+ *     poor game comes off regardless of his legs. A manager who is going to make
+ *     this change makes it at the break, not on 80 minutes.
+ *  2. Fatigue: anyone at/below `fatigueSubFitness` comes off unconditionally —
+ *     fresh legs beat tired quality, so there is no upgrade test on this one.
+ *     This is what guarantees changes get made in every match.
+ *  3. Garbage time: two goals up after `garbageTimeMinute`, the game is safe and
+ *     the bench plays. The quality bar drops to `garbageTimeUpgradeMargin` and
+ *     young players are favoured, which is where prospects get their minutes.
+ *  4. Rotation: the original behaviour — a tiring starter replaced when a bench
+ *     option comes within `subUpgradeMargin` of his drained effectiveness.
+ *
+ * Every threshold is a tuning number; nothing here reads a player's name,
+ * archetype or trait.
+ */
+function maybeSubs(state: MatchState, side: SideState, opponent: SideState, minute: number) {
+  const cfg = state.cfg;
+  if (side.subsUsed >= cfg.maxSubs) return;
+
+  // Outfield starters, most tired first — the order every reason works through.
+  const outfield = () =>
+    activePlayers(side)
+      .filter((op) => op.entry.slotPos !== "GK")
+      .map((op) => ({ op, fit: currentFitnessOf(op, side, minute, cfg) }))
+      .sort((a, b) => a.fit - b.fit);
+
+  const canContinue = () => side.subsUsed < cfg.maxSubs && side.bench.some((b) => b.positions[0] !== "GK");
+
+  // ── 1. Performance ────────────────────────────────────────────────────────
+  // Ratings aren't computed until full time, so the in-match read is the honest
+  // proxy a watching manager has: how the player has actually affected the game.
+  if (minute <= cfg.performanceSubLastMinute) {
+    for (const { op } of outfield()) {
+      if (!canContinue()) break;
+      if (liveRating(state, side, op, minute) > cfg.performanceSubRating) continue;
+      const best = bestBenchFor(side, op.entry.slotPos, cfg);
+      // Only if the replacement is a genuine like-for-like — hooking a poor
+      // performer for someone worse helps nobody.
+      if (best && best.eff > op.entry.player.overall * cfg.subUpgradeMargin) {
+        makeSub(state, side, op, best.player, minute, " — a change after a poor first half");
+      }
+    }
+  }
+
+  // ── 2. Fatigue ────────────────────────────────────────────────────────────
+  for (const { op, fit } of outfield()) {
+    if (!canContinue()) break;
+    if (fit > cfg.fatigueSubFitness) continue;
+    const best = bestBenchFor(side, op.entry.slotPos, cfg);
+    if (best) makeSub(state, side, op, best.player, minute, " — tiring");
+  }
+
+  // ── 3. Garbage time ───────────────────────────────────────────────────────
+  const lead = side.goals - opponent.goals;
+  if (minute >= cfg.garbageTimeMinute && lead >= cfg.garbageTimeLead) {
+    // Favour the kids: a prospect is worth a notch more than his rating here,
+    // because the whole point of the change is the appearance, not the result.
+    const prospectBias = (b: EnginePlayer) =>
+      b.age !== undefined && b.age <= cfg.garbageTimeProspectAge ? 1.15 : 1;
+    for (const { op, fit } of outfield()) {
+      if (!canContinue()) break;
+      const best = bestBenchFor(side, op.entry.slotPos, cfg, prospectBias);
+      const tiredEff = op.entry.player.overall * fitnessMult(fit, cfg);
+      if (best && best.eff > tiredEff * cfg.garbageTimeUpgradeMargin) {
+        makeSub(state, side, op, best.player, minute, " — minutes for the bench with the game won");
+      }
+    }
+  }
+
+  // ── 4. Rotation, to the minimum ───────────────────────────────────────────
+  // Whatever the reasons above produced, a manager makes his changes: keep
+  // rotating tiring starters until the floor is met.
+  for (const { op, fit } of outfield()) {
+    if (!canContinue() || side.subsUsed >= cfg.minSubsPerMatch) break;
+    if (fit > cfg.subFitnessThreshold) continue;
+    const best = bestBenchFor(side, op.entry.slotPos, cfg);
+    const tiredEff = op.entry.player.overall * fitnessMult(fit, cfg);
+    if (best && best.eff > tiredEff * cfg.subUpgradeMargin) {
+      makeSub(state, side, op, best.player, minute, "");
+    }
+  }
+}
+
+/**
+ * A watching manager's read on how a player is going, on the same 1-10 scale
+ * `finalizeResult` uses at full time. Built from the facts available mid-match —
+ * goals, assists, and how the side is doing — so a performance sub is made on
+ * the same evidence the final rating will be.
+ *
+ * Deliberately shares the shape of the full-time formula rather than being a
+ * second opinion; the difference is only that it has fewer minutes to judge.
+ */
+function liveRating(state: MatchState, side: SideState, op: OnPitch, minute: number): number {
+  const p = op.entry.player;
+  const goals = state.scorers.filter((s) => s.playerId === p.id).length;
+  const assists = state.scorers.filter((s) => s.assistId === p.id).length;
+  const gd = side.goals - (side === state.home ? state.away.goals : state.home.goals);
+  // Seeded off the player and the window, so the same match always makes the
+  // same decision — the engine's determinism rule applies to subs too.
+  const jitter = mulberry32(hashId(p.id) ^ (minute * 2654435761))() - 0.5;
+  return 6.5 + goals * 1.0 + assists * 0.5 + gd * 0.15 + jitter * 0.8;
+}
+
+/** Cheap string hash for seeding a per-player decision inside a match. */
+function hashId(id: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
 }
 
 function playSegment(state: MatchState) {
@@ -385,11 +505,12 @@ function playSegment(state: MatchState) {
   const seg = state.segment;
   const segStart = seg * cfg.minutesPerSegment;
 
-  // subs at configured minutes that fall on this segment boundary
+  // subs at configured minutes that fall on this segment boundary. Each side is
+  // passed its opponent so the manager can read the scoreline (garbage time).
   for (const m of cfg.subMinutes) {
     if (m === segStart) {
-      maybeSubs(state, state.home, m);
-      maybeSubs(state, state.away, m);
+      maybeSubs(state, state.home, state.away, m);
+      maybeSubs(state, state.away, state.home, m);
     }
   }
 

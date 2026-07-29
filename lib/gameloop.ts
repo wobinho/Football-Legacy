@@ -38,6 +38,8 @@ import {
   ensureFieldableSquad,
 } from "./transfers";
 import { activePlayers, pruneRetired } from "./archive";
+import { tickInactivity } from "./consent";
+import { rotationContextFor, rotationMultiplier } from "./rotation";
 import { refreshClubStances } from "./ai/strategy";
 import { rolloverContracts, ensureContracts, openContractResolution, repriceSquadForLeague } from "./contracts";
 import { resolveSimLeagues } from "./simresolver";
@@ -170,7 +172,15 @@ export function matchSeed(state: GameState, fixture: Fixture): number {
   return deriveSeed(state.seed, `match:${state.season}:${fixture.id}:${hashString(fixture.homeId + fixture.awayId)}`);
 }
 
-function sideInputFor(state: GameState, teamId: string, fixedLineup?: { slotId: string; player: import("./types").PlayerBio }[]) {
+function sideInputFor(
+  state: GameState,
+  teamId: string,
+  fixedLineup?: { slotId: string; player: import("./types").PlayerBio }[],
+  /** The fixture being played (v1.66) — drives pre-match rotation: fitness,
+   * fixture congestion and whether this is a low-priority cup tie. Omitted, the
+   * side is picked on pure merit exactly as before. */
+  fixture?: Fixture
+) {
   const t = state.teams[teamId];
   // players out on loan (§18) are away and can't be fielded by their owner
   const players = t.playerIds.map((id) => state.players[id]).filter((p) => p && !p.retired && !p.loan);
@@ -182,7 +192,29 @@ function sideInputFor(state: GameState, teamId: string, fixedLineup?: { slotId: 
   const assignments = teamId === state.userTeamId ? t.assignments : undefined;
   // Only the user picks a bench (v25); AI sides auto-derive theirs.
   const fixedBench = teamId === state.userTeamId ? state.userBench : undefined;
-  return buildSideInput(teamId, t.name, t.short, players, t.tactic, cfg, fixedLineup, coachMult, assignments, fixedBench);
+  // Pre-match rotation (v1.66). Applies to any auto-picked side — every AI club,
+  // and the user's when they haven't named an XI themselves. `buildSideInput`
+  // ignores the weight entirely when a fixed lineup is supplied, so a manager who
+  // picked his own team always gets it.
+  const weight = fixture
+    ? (() => {
+        const ctx = rotationContextFor(state, teamId, fixture, cfg);
+        return (p: import("./types").PlayerBio) => rotationMultiplier(state, p, ctx, cfg);
+      })()
+    : undefined;
+  return buildSideInput(
+    teamId,
+    t.name,
+    t.short,
+    players,
+    t.tactic,
+    cfg,
+    fixedLineup,
+    coachMult,
+    assignments,
+    fixedBench,
+    weight
+  );
 }
 
 /** Apply a finished match to the world: stats, fatigue, form, table data. */
@@ -246,8 +278,8 @@ export function applyMatchResult(state: GameState, fixture: Fixture, result: Mat
 }
 
 function simAiFixture(state: GameState, fixture: Fixture) {
-  const home = sideInputFor(state, fixture.homeId);
-  const away = sideInputFor(state, fixture.awayId);
+  const home = sideInputFor(state, fixture.homeId, undefined, fixture);
+  const away = sideInputFor(state, fixture.awayId, undefined, fixture);
   const result = simulateMatch(home, away, cfg, matchSeed(state, fixture));
   applyMatchResult(state, fixture, result);
 }
@@ -406,6 +438,11 @@ function advanceDay(state: GameState): StopReason | null {
       mulberry32(deriveSeed(state.seed, `progress:${state.season}:${day}`)),
       (p) => facilityGrowthMult(state, state.userTeamId, p, cfg)
     );
+    // Expectation decay (v1.66): players who aren't getting minutes, and free
+    // agents, accrue inactivity — which gradually widens how far down the pyramid
+    // they'll drop and how much of their wage floor they'll give up. Run before
+    // the market tick so this week's transfers see this week's desperation.
+    tickInactivity(state, activePlayers(state), 7, cfg);
     const offerLanded = aiWeeklyTransferTick(state, cfg);
     if (offerLanded) return { kind: "offer" };
   }
@@ -586,9 +623,9 @@ export function advanceToDay(state: GameState, targetDay: number, ignoreGate?: s
 function autoPlayUserFixture(state: GameState, fixture: Fixture) {
   const userIsHome = fixture.homeId === state.userTeamId;
   const userLineup = ensureUserLineup(state);
-  const userSide = sideInputFor(state, state.userTeamId, userLineup);
+  const userSide = sideInputFor(state, state.userTeamId, userLineup, fixture);
   const oppId = userIsHome ? fixture.awayId : fixture.homeId;
-  const oppSide = sideInputFor(state, oppId);
+  const oppSide = sideInputFor(state, oppId, undefined, fixture);
   const home = userIsHome ? userSide : oppSide;
   const away = userIsHome ? oppSide : userSide;
   const result = simulateMatch(home, away, cfg, matchSeed(state, fixture));

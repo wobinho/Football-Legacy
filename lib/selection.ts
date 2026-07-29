@@ -17,6 +17,7 @@ export function toEnginePlayer(p: PlayerBio): EnginePlayer {
     traits: p.traits,
     form: p.form,
     fitness: p.fitness,
+    age: p.age,
   };
 }
 
@@ -27,6 +28,14 @@ export function selectionScore(p: PlayerBio, slotPos: Pos, cfg: TuningConfig): n
 }
 
 /**
+ * Per-player selection weight for a rotation-aware pick (v1.66). Supplied by the
+ * caller (the matchday path builds one from lib/rotation.ts); omitted, every
+ * player weighs 1 and selection is the pure best-XI it always was — which is
+ * what the harness, `teamStrength` and the user's auto-pick still want.
+ */
+export type SelectionWeight = (p: PlayerBio) => number;
+
+/**
  * Greedy assignment: fill the scarcest slots first (GK, then by candidate
  * count) so a lone striker isn't stolen by a wing slot.
  */
@@ -34,7 +43,10 @@ export function pickLineup(
   players: PlayerBio[],
   formation: Formation,
   cfg: TuningConfig,
-  respectFitness = true
+  respectFitness = true,
+  /** Rotation weighting (v1.66) — rests tired starters and pulls players short
+   * of their role's minutes up the order. See lib/rotation.ts. */
+  weight?: SelectionWeight
 ): { lineup: { slotId: string; player: PlayerBio }[]; bench: PlayerBio[] } {
   const available = players.filter((p) => !p.retired);
   const pool = new Set(available.map((p) => p.id));
@@ -47,13 +59,15 @@ export function pickLineup(
     return na - nb;
   });
 
+  const scoreFor = (p: PlayerBio, pos: Pos) => selectionScore(p, pos, cfg) * (weight ? weight(p) : 1);
+
   for (const slot of slots) {
     let best: PlayerBio | null = null;
     let bestScore = -1;
     for (const id of pool) {
       const p = byId.get(id)!;
       if (respectFitness && p.fitness < cfg.minFitnessToStart && p.positions[0] !== "GK") continue;
-      const score = selectionScore(p, slot.pos, cfg);
+      const score = scoreFor(p, slot.pos);
       if (score > bestScore) {
         bestScore = score;
         best = p;
@@ -63,7 +77,7 @@ export function pickLineup(
     if (!best) {
       for (const id of pool) {
         const p = byId.get(id)!;
-        const score = selectionScore(p, slot.pos, cfg);
+        const score = scoreFor(p, slot.pos);
         if (score > bestScore) {
           bestScore = score;
           best = p;
@@ -76,7 +90,12 @@ export function pickLineup(
     }
   }
 
-  const rest = [...pool].map((id) => byId.get(id)!).sort((a, b) => b.overall - a.overall);
+  // The bench is ordered by the same weighting as the XI (v1.66), so a player
+  // owed minutes is not just eligible but actually named among the subs — the
+  // in-match sub pass can only pick from who is on it.
+  const rest = [...pool]
+    .map((id) => byId.get(id)!)
+    .sort((a, b) => b.overall * (weight ? weight(b) : 1) - a.overall * (weight ? weight(a) : 1));
   const bench: PlayerBio[] = [];
   const gk = rest.find((p) => p.positions[0] === "GK");
   if (gk) bench.push(gk);
@@ -100,10 +119,13 @@ export function buildSideInput(
   /** Explicit, ordered bench (v25, user team). Ids are honoured in order, then
    * topped up to the matchday cap with the best of whoever remains — so a
    * partial bench still fields a full squad. Ignored for AI sides. */
-  fixedBench?: string[]
+  fixedBench?: string[],
+  /** Rotation weighting for this fixture (v1.66). Applied only when the side is
+   * auto-picked — a user who named his own XI gets exactly the XI he named. */
+  weight?: SelectionWeight
 ): SideInput {
   const formation = getFormation(tactic.formationId);
-  const picked = fixedLineup ?? pickLineup(players, formation, cfg).lineup;
+  const picked = fixedLineup ?? pickLineup(players, formation, cfg, true, weight).lineup;
   const usedIds = new Set(picked.map((e) => e.player.id));
   const benchCap = cfg.matchdaySquad - 11;
   let bench: PlayerBio[];
@@ -128,7 +150,7 @@ export function buildSideInput(
   } else {
     bench = fixedLineup
       ? players.filter((p) => !usedIds.has(p.id) && !p.retired).sort((a, b) => b.overall - a.overall).slice(0, benchCap)
-      : pickLineup(players, formation, cfg).bench;
+      : pickLineup(players, formation, cfg, true, weight).bench;
   }
 
   const slotById = new Map(formation.slots.map((s) => [s.id, s]));

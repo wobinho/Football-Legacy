@@ -1122,8 +1122,12 @@ export function releaseGraduate(state: GameState, playerId: string): string | nu
 
 /** Days until a scout's next report. Experience is what makes a scout quick as
  * well as thorough, so the cadence keys off that rating; with no scout named
- * (legacy saves, season reset) the best experience on the books stands in. */
-function reportCadence(state: GameState, cfg: TuningConfig, scout?: Scout): number {
+ * (legacy saves, season reset) the best experience on the books stands in.
+ *
+ * Exported so the assignment cards can draw a "how far through this cycle"
+ * progress bar off the same number the engine schedules by — the UI must never
+ * re-derive the cadence itself. */
+export function reportCadence(state: GameState, cfg: TuningConfig, scout?: Scout): number {
   const experience = scout?.experience ?? userScouts(state).reduce((b, s) => Math.max(b, s.experience), 0);
   return Math.max(10, cfg.scoutReportDaysBase - experience * cfg.scoutReportDaysPerStar);
 }

@@ -22,6 +22,7 @@ import { saveGame, loadGame, listSaves, deleteSave, exportSave, importSave, back
 import { cloudOwner } from "@/lib/cloud";
 import { forgetKey, rememberLastSave, lastSave, clearLastSave } from "@/lib/auth";
 import { userBid, respondToOffer, releasePlayer, sellToClub, signedThisSeason, type BidOutcome, type OfferResponse } from "@/lib/transfers";
+import { markAvailable, clearAvailable } from "@/lib/consent";
 import { hireStaff, dismissCandidate, fireStaff } from "@/lib/staff";
 import { hireScout, fireScout, dismissScoutCandidate } from "@/lib/scouts";
 import { acceptSponsor, declineSponsor } from "@/lib/sponsors";
@@ -925,6 +926,9 @@ export const useGame = create<GameStore>((set, get) => ({
     if (!g) return;
     if (g.transferList.includes(playerId)) {
       g.transferList = g.transferList.filter((id) => id !== playerId);
+      // Off the list — his peer-priority window closes with it (v1.66).
+      const p = g.players[playerId];
+      if (p) clearAvailable(p);
     } else {
       // A player signed this season can't be sold on, so he can't be listed
       // either (v1.54).
@@ -934,6 +938,9 @@ export const useGame = create<GameStore>((set, get) => ({
         return;
       }
       g.transferList.push(playerId);
+      // Listing him is what puts him on the market, so it starts the window in
+      // which only clubs at his own level may approach (v1.66).
+      if (p) markAvailable(g, p);
     }
     get().bump(true);
   },

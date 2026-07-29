@@ -19,6 +19,7 @@ import {
   focusSlots,
   pendingGraduates,
   potentialView,
+  reportCadence,
   scoutCapacity,
   u21Eligible,
   u21OpponentByName,
@@ -2037,6 +2038,202 @@ function archetypesForGroup(group: ScoutPosGroup) {
 const posGroupLabel = (id: ScoutPosGroup) =>
   POS_OPTIONS.find((o) => o.id === id)?.label ?? POS_LABELS[id as Pos] ?? id;
 
+// ── Scouting card furniture (v1.66) ────────────────────────────────────────
+// Small presentational pieces shared by the assignment cards and the prospect
+// reports. They exist so the two columns speak the same visual language: the
+// same urgency ramp, the same progress bar, the same metadata tag.
+
+/** A metadata tag on a prospect card. The report's context line used to be one
+ * long grey sentence of dot-separated clauses, where the archetype, the age of
+ * the find and the scout all had equal (low) weight. Each clause is now its own
+ * bordered chip with a leading glyph, so they scan as discrete facts. */
+function MetaTag({
+  icon,
+  children,
+  className = "",
+  title,
+}: {
+  icon: string;
+  children: React.ReactNode;
+  className?: string;
+  title?: string;
+}) {
+  return (
+    <span
+      className={`display inline-flex items-center gap-1 rounded-sm border border-line bg-raised px-1.5 py-0.5 text-[10px] text-dim ${className}`}
+      title={title}
+    >
+      <span className="opacity-60" aria-hidden>
+        {icon}
+      </span>
+      {children}
+    </span>
+  );
+}
+
+/** A thin progress bar. `pct` is clamped, so a stale or out-of-range input can
+ * never render a bar that overflows its track. */
+function MiniBar({ pct, className = "", trackClass = "bg-line" }: { pct: number; className?: string; trackClass?: string }) {
+  const w = Math.max(0, Math.min(100, pct));
+  return (
+    <div className={`h-1 w-full overflow-hidden rounded-full ${trackClass}`}>
+      <div className={`h-full rounded-full transition-[width] duration-300 ${className}`} style={{ width: `${w}%` }} />
+    </div>
+  );
+}
+
+/**
+ * How long a trail stays warm, as a badge plus a draining bar.
+ *
+ * The expiry used to be the tail of a grey sentence, which is exactly backwards:
+ * it is the one number on the card with a deadline attached. The ramp is derived
+ * from the tuned expiry window rather than hardcoded days, so retuning
+ * `scoutReportExpiryDays` moves the thresholds with it — under a third of the
+ * window is urgent (red), under two thirds is a warning (amber).
+ */
+function TrailTimer({ daysLeft }: { daysLeft: number }) {
+  const window = TUNING.scoutReportExpiryDays;
+  const left = Math.max(0, daysLeft);
+  const frac = window > 0 ? left / window : 0;
+  const tone =
+    frac <= 1 / 3
+      ? { text: "text-loss", border: "border-loss/50", bg: "bg-loss/10", bar: "bg-loss" }
+      : frac <= 2 / 3
+        ? { text: "text-gold", border: "border-gold-lo/50", bg: "bg-gold-lo/10", bar: "gold-grad" }
+        : { text: "text-dim", border: "border-line", bg: "bg-raised", bar: "bg-dim/60" };
+  return (
+    <span
+      className="inline-flex min-w-[128px] flex-col gap-1"
+      title={`This trail goes cold in ${left} day${left === 1 ? "" : "s"} — after that the prospect is gone.`}
+    >
+      {/* No tracking on this chip: the display face's uppercase letter-spacing
+          pushes the unit away from the number, so a "20d" countdown reads as
+          "200". The unit is spelled out for the same reason. */}
+      <span
+        className={`display inline-flex items-center gap-1 self-start rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-normal ${tone.border} ${tone.bg} ${tone.text}`}
+      >
+        <span aria-hidden>⏳</span>
+        cold in <span className="tnum">{left}</span> {left === 1 ? "day" : "days"}
+      </span>
+      <MiniBar pct={frac * 100} className={tone.bar} />
+    </span>
+  );
+}
+
+/**
+ * The overall rating on a prospect card, in a value-graded pill.
+ *
+ * Potential already reads instantly (gold stars); the overall next to it was a
+ * bare number, so the two halves of the same judgement were weighted very
+ * differently. The bands are the metal ladder a manager already expects —
+ * grey / bronze / silver / gold — and they key off the same thresholds `Ovr`
+ * uses for its text colour, so the pill and the number never disagree.
+ */
+function OvrPill({ value }: { value: number }) {
+  const band =
+    value >= 80
+      ? { border: "rgba(217,164,65,0.55)", bg: "rgba(217,164,65,0.12)", label: "Gold" }
+      : value >= 70
+        ? { border: "rgba(196,202,212,0.45)", bg: "rgba(196,202,212,0.10)", label: "Silver" }
+        : value >= 60
+          ? { border: "rgba(176,124,78,0.50)", bg: "rgba(176,124,78,0.12)", label: "Bronze" }
+          : { border: "rgba(255,255,255,0.10)", bg: "rgba(255,255,255,0.03)", label: "Raw" };
+  return (
+    <span
+      className="inline-flex items-center rounded-md border px-2 py-0.5"
+      style={{ borderColor: band.border, backgroundColor: band.bg }}
+      title={`${band.label} — overall ${value}`}
+    >
+      <Ovr value={value} size="sm" />
+    </span>
+  );
+}
+
+/**
+ * A summary of the whole scouting operation, filling the space under the
+ * assignment list (a full department is only three scouts, so the bottom of that
+ * column is otherwise permanently empty).
+ *
+ * Everything here is read off state that already exists — there is no
+ * per-department spend ledger in the save, so the money figure is the standing
+ * weekly wage bill of the scouts on the books rather than an invented
+ * cumulative total.
+ */
+function ScoutingNetworkSummary() {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const roster = game.teams[game.userTeamId].scouts ?? [];
+  const assignments = game.academy.assignments;
+  const reports = game.academy.reports.filter((r) => r.expiresDay > game.currentDay);
+
+  const wageBill = roster.reduce((sum, s) => sum + s.wage, 0);
+  // Regions currently covered, with how many scouts sit in each.
+  const byRegion = new Map<string, number>();
+  for (const a of assignments) {
+    const label = scoutRegion(a.region).label;
+    byRegion.set(label, (byRegion.get(label) ?? 0) + 1);
+  }
+  const regions = [...byRegion.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  // Where the live prospects came from — the network's actual output.
+  const byTier = new Map<string, number>();
+  for (const r of reports) if (r.tier) byTier.set(r.tier, (byTier.get(r.tier) ?? 0) + 1);
+  const tiers = TUNING.prospectTierOrder.filter((t) => byTier.has(t)).reverse();
+
+  if (roster.length === 0) return null;
+
+  return (
+    <Section title="Scouting Network">
+      <Card className="space-y-4 p-4">
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { label: "Wage bill", value: `${formatMoney(wageBill)}/wk`, hint: "Combined weekly wages of every scout on the books" },
+            { label: "Regions covered", value: `${regions.length}`, hint: "Distinct regions your scouts are currently working" },
+            { label: "Live prospects", value: `${reports.length}`, hint: "Reports still on the board — they expire as trails go cold" },
+          ].map((s) => (
+            <div key={s.label} title={s.hint}>
+              <div className="text-[9px] uppercase tracking-widest text-mute">{s.label}</div>
+              <div className="display tnum text-sm font-semibold text-ink">{s.value}</div>
+            </div>
+          ))}
+        </div>
+
+        <div>
+          <div className="mb-1.5 text-[10px] uppercase tracking-widest text-faint">Active regions</div>
+          {regions.length === 0 ? (
+            <p className="text-[11px] text-faint">Nobody is out. Send a scout and the regions they cover show up here.</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {regions.map(([label, n]) => (
+                <MetaTag key={label} icon="📍" className="!text-ink">
+                  {label}
+                  {n > 1 && <span className="tnum text-faint">×{n}</span>}
+                </MetaTag>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {tiers.length > 0 && (
+          <div>
+            <div className="mb-1.5 text-[10px] uppercase tracking-widest text-faint">Prospects on the board</div>
+            <div className="flex flex-wrap gap-1.5">
+              {tiers.map((t) => (
+                <span
+                  key={t}
+                  className="display rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold"
+                  style={{ borderColor: `${TIER_COLOR[t]}55`, color: TIER_COLOR[t] }}
+                >
+                  <span className="tnum">{byTier.get(t)}</span> {TIER_LABEL[t].toLowerCase()}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
+    </Section>
+  );
+}
+
 /**
  * Scouting (v1.65): the whole academy talent operation on one page.
  *
@@ -2089,11 +2286,26 @@ function ScoutingTab() {
           ))}
         </div>
         {/* The department at a glance, visible from either pane — the numbers
-            that explain what you can and can't do right now. */}
-        <div className="flex flex-wrap gap-2">
-          <DeptStat label="Youth coach" value={youthCoach ? `${youthCoach.stars}★` : "None"} warn={!youthCoach} />
-          <DeptStat label="Scouts" value={`${roster.length}/${cap}`} warn={roster.length === 0} />
-          <DeptStat label="Live reports" value={`${reports.length}`} />
+            that explain what you can and can't do right now. Borderless: three
+            boxed tiles read as a separate widget floating above the page, so
+            they're now a plain icon list divided by hairlines. Live reports is
+            not here — it belongs to the reports column and is rendered there. */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          <DeptStat
+            icon="🎓"
+            label="Youth coach"
+            value={youthCoach ? `${youthCoach.stars}★` : "None"}
+            warn={!youthCoach}
+            title={youthCoach ? `${youthCoach.name} — ${youthCoach.stars}★ youth coach` : "No youth coach appointed"}
+          />
+          <span className="h-6 w-px bg-line" aria-hidden />
+          <DeptStat
+            icon="🔍"
+            label="Scouts"
+            value={`${roster.length}/${cap}`}
+            warn={roster.length === 0}
+            title={`${roster.length} scout${roster.length === 1 ? "" : "s"} employed of ${cap} maximum`}
+          />
         </div>
       </div>
 
@@ -2102,13 +2314,30 @@ function ScoutingTab() {
   );
 }
 
-/** One number in the scouting department's status strip. */
-function DeptStat({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
+/** One number in the scouting department's status strip. No border of its own —
+ * the strip is a horizontal icon list, so the icon carries the identity and the
+ * label sits inline with the value rather than stacked above it in a box. */
+function DeptStat({
+  icon,
+  label,
+  value,
+  warn,
+  title,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+  warn?: boolean;
+  title?: string;
+}) {
   return (
-    <div className="rounded-md border border-line bg-surface px-3 py-1.5">
-      <div className="text-[9px] uppercase tracking-widest text-mute">{label}</div>
-      <div className={`display tnum text-sm font-semibold ${warn ? "text-gold" : "text-ink"}`}>{value}</div>
-    </div>
+    <span className="flex items-center gap-2" title={title}>
+      <span className="text-sm leading-none opacity-70" aria-hidden>
+        {icon}
+      </span>
+      <span className="text-[9px] uppercase tracking-widest text-mute">{label}</span>
+      <span className={`display tnum text-sm font-semibold ${warn ? "text-gold" : "text-ink"}`}>{value}</span>
+    </span>
   );
 }
 
@@ -2173,6 +2402,13 @@ function ScoutOperationsPane() {
                 {assignments.map((a) => {
                   const briefArch = (a.archetypes ?? []).map((id) => getArchetype(id).name);
                   const s = scoutById(game, a.scoutId);
+                  // How far through the current report cycle this scout is. The
+                  // assignment stores only the next report day, so the cycle
+                  // start is that day minus the engine's own cadence for this
+                  // scout — never re-derived here (see reportCadence).
+                  const cadence = Math.max(1, reportCadence(game, TUNING, s ?? undefined));
+                  const daysToReport = Math.max(0, a.nextReportDay - game.currentDay);
+                  const cyclePct = ((cadence - Math.min(daysToReport, cadence)) / cadence) * 100;
                   return (
                     <div key={a.id} className="flex flex-wrap items-center gap-2 rounded border border-line bg-raised px-3 py-2">
                       <div className="min-w-0 flex-1">
@@ -2206,18 +2442,38 @@ function ScoutOperationsPane() {
                           ) : (
                             <span className="italic">any player type</span>
                           )}
-                          <span className="ml-1">· next report ~{Math.max(1, a.nextReportDay - game.currentDay)}d</span>
-                          {a.endsDay !== undefined && (
-                            <span className="ml-1">
-                              · returns in ~{Math.max(1, Math.round((a.endsDay - game.currentDay) / 7))}w
+                        </div>
+
+                        {/* The trip's timeline. "next report ~15d" as bare text
+                            gave no sense of movement; the bar fills as the cycle
+                            runs down, so an assignment about to file reads
+                            differently from one just sent. */}
+                        <div className="mt-2 space-y-1">
+                          <MiniBar pct={cyclePct} className={daysToReport <= 2 ? "gold-grad" : "bg-dim/60"} trackClass="bg-line/70" />
+                          <div className="flex items-center justify-between gap-2 text-[10px] text-faint">
+                            {/* Number and unit stay inside one tnum span — split
+                                across two, the display tracking reads "14d" as
+                                "140". */}
+                            <span title="Days until this scout files their next batch of prospects">
+                              Next report ~
+                              <span className="tnum text-dim">{Math.max(1, a.nextReportDay - game.currentDay)}d</span>
                             </span>
-                          )}
+                            {a.endsDay !== undefined && (
+                              <span title="When the assignment ends and the scout comes home">
+                                Returns ~
+                                <span className="tnum text-dim">
+                                  {Math.max(1, Math.round((a.endsDay - game.currentDay) / 7))}w
+                                </span>
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <button
                         onClick={() => removeScout(a.id)}
                         title="Recall this scout — frees them for a new brief"
-                        className="h-9 w-9 shrink-0 rounded border border-line text-sm text-dim hover:border-loss/50 hover:text-loss md:h-7 md:w-7"
+                        aria-label="Recall this scout"
+                        className="h-9 w-9 shrink-0 self-start rounded border border-line bg-surface text-sm text-dim transition-colors hover:border-loss/60 hover:bg-loss/10 hover:text-loss md:h-7 md:w-7"
                       >
                         ✕
                       </button>
@@ -2248,9 +2504,26 @@ function ScoutOperationsPane() {
             </Card>
           )}
         </Section>
+
+        {/* A department caps out at a handful of scouts, so the foot of this
+            column would otherwise always be dead space. */}
+        <ScoutingNetworkSummary />
       </div>
 
-      <Section title="Prospect Reports" right={<span className="text-xs text-faint">{reports.length} active</span>}>
+      <Section
+        title="Prospect Reports"
+        right={
+          <span className="flex items-center gap-1.5 text-xs" title="Reports still on the board — each expires when its trail goes cold">
+            <span className="opacity-70" aria-hidden>
+              📋
+            </span>
+            <span className="text-[9px] uppercase tracking-widest text-mute">Live reports</span>
+            <span className={`display tnum text-sm font-semibold ${reports.length > 0 ? "text-gold" : "text-dim"}`}>
+              {reports.length}
+            </span>
+          </span>
+        }
+      >
         {reports.length === 0 ? (
           <Card className="p-4 text-sm text-faint">No live reports. Trails go cold after {TUNING.scoutReportExpiryDays} days.</Card>
         ) : (
@@ -2267,7 +2540,11 @@ function ScoutOperationsPane() {
               return (
                 <Card key={r.id} className="p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <button onClick={() => viewProspect(p)} className="group flex min-w-0 items-center gap-2 text-left">
+                    <button
+                      onClick={() => viewProspect(p)}
+                      title="Open the full report — attributes, traits and history — before you sign"
+                      className="group flex min-w-0 items-center gap-2 text-left"
+                    >
                       <PosBadge pos={p.positions[0]} />
                       <Flag nat={p.nationality} size={12} />
                       <span className="truncate font-semibold transition-colors group-hover:text-gold">{displayFullName(p)}</span>
@@ -2289,34 +2566,63 @@ function ScoutOperationsPane() {
                     </button>
                     <div className="flex items-center gap-3">
                       <span className="text-xs text-faint">OVR</span>
-                      <Ovr value={p.overall} size="sm" />
+                      <OvrPill value={p.overall} />
                       <span className="text-xs text-faint">POT</span>
                       <StarRange lo={v.loStars} hi={v.hiStars} />
                     </div>
                   </div>
-                  <div className="mt-1.5 text-[11px] text-faint">
-                    {getArchetype(p.archetypeId).name}
-                    {" · "}
-                    {game.currentDay - r.day <= 0 ? "found today" : `found ${game.currentDay - r.day}d ago`}
+                  {/* Discrete tags rather than one dot-separated grey sentence,
+                      with the scout pushed right — whose find this is reads as a
+                      byline, not as another clause in the middle of the line. */}
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <MetaTag icon="🎯" title="Player type your scout filed this prospect under">
+                      {getArchetype(p.archetypeId).name}
+                    </MetaTag>
+                    <MetaTag icon="📅" title="How long ago this report was filed">
+                      {(() => {
+                        const age = game.currentDay - r.day;
+                        // Spelled out rather than "25d ago": in the condensed
+                        // display face the tracking between the number and a
+                        // bare "d" makes "25d" read as "250".
+                        if (age <= 0) return "Found today";
+                        return `Found ${age} ${age === 1 ? "day" : "days"} ago`;
+                      })()}
+                    </MetaTag>
                     {(() => {
                       const s = scoutById(game, r.scoutId);
-                      return s ? ` · scouted by ${s.name}` : "";
+                      if (!s) return null;
+                      return (
+                        <span className="ml-auto flex items-center gap-1 text-[10px] text-faint" title="The scout who filed this report">
+                          <span className="opacity-60" aria-hidden>
+                            🔍
+                          </span>
+                          {s.name}
+                        </span>
+                      );
                     })()}
-                    {" · click the name for full stats before you sign"}
                   </div>
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-3">
-                    <span className="text-xs text-faint">
-                      <span className="display text-sm font-semibold text-win">Free</span> · youth terms · trail cold in{" "}
-                      {r.expiresDay - game.currentDay}d
-                      {academyFull && <span className="ml-1 text-loss">· academy full</span>}
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-line/60 pt-3">
+                    <span className="flex flex-wrap items-center gap-3 text-xs text-faint">
+                      <span>
+                        <span className="display text-sm font-semibold text-win">Free</span> · youth terms
+                      </span>
+                      <TrailTimer daysLeft={r.expiresDay - game.currentDay} />
+                      {academyFull && <span className="text-loss">Academy full</span>}
                     </span>
                     <span className="flex flex-wrap items-center justify-end gap-2">
                       <GhostButton onClick={() => viewProspect(p)} className="!px-3 !py-1 text-xs">
                         View
                       </GhostButton>
-                      <GhostButton onClick={() => dismiss(r.id)} className="!px-3 !py-1 text-xs">
+                      {/* Passing throws the prospect away, so it must not look
+                          like View. Muted red outline: clearly dismissive, but
+                          still quieter than the gold primary. */}
+                      <button
+                        onClick={() => dismiss(r.id)}
+                        title="Pass — drop this prospect from the board"
+                        className="rounded-md border border-loss/40 bg-transparent px-3 py-1 text-xs text-loss/80 transition-colors hover:border-loss/70 hover:bg-loss/10 hover:text-loss"
+                      >
                         Pass
-                      </GhostButton>
+                      </button>
                       <GoldButton
                         onClick={() => sign(r.id)}
                         disabled={academyFull}

@@ -31,6 +31,19 @@ import {
   type PositionNeed,
 } from "./ai/strategy";
 import { wageDemand } from "./contracts";
+import { effectiveWageDemand, willJoin, markAvailable, clearAvailable } from "./consent";
+import { canApproach, byPeerPriority } from "./ai/market";
+
+/**
+ * The wage a buying club must budget for a target (v1.66). His going rate in
+ * THEIR market, floored by what he'll personally accept — see lib/consent.ts.
+ * Every affordability test in this module prices through here, so no path can
+ * quote a player a lower-league wage he'd never sign for and thereby let an
+ * unaffordable club sneak past `canAfford`.
+ */
+function askWage(state: GameState, p: PlayerBio, cfg: TuningConfig, atLeagueId?: string): number {
+  return effectiveWageDemand(state, p, cfg, wageDemand(state, p, cfg, atLeagueId));
+}
 
 export function windowOpen(state: GameState): boolean {
   return transferWindowState(state.currentDay, state.schedule).open;
@@ -168,6 +181,16 @@ export function completeTransfer(
   else p.acquiredSeason = undefined;
   p.clubId = toClubId;
   p.form = 1.0;
+  // Market status (v1.66): joining a club takes him off the market and resets the
+  // desperation curve — he's somewhere, and presumed to be playing until the
+  // weekly inactivity tick says otherwise. Being released does the opposite: it
+  // puts him on the market and starts his peer-priority window.
+  if (toClubId) {
+    clearAvailable(p);
+    p.inactiveDays = 0;
+  } else {
+    markAvailable(state, p);
+  }
   // Shirt number (v15): the old club's number is given up on the way out and a
   // free one at the new club is taken on the way in.
   clearKitNumber(p);
@@ -240,6 +263,19 @@ export function userBid(
   const user = state.teams[state.userTeamId];
   if (!windowOpen(state)) return { kind: "error", reason: "The transfer window is closed." };
   if (p.clubId === state.userTeamId) return { kind: "error", reason: "Already your player." };
+
+  // The player's own verdict on the move (v1.66). The user manages a club like
+  // any other, so the same standard-of-football gate applies to them: a manager
+  // in the third tier can't sign a top-flight star simply because the wage their
+  // league quotes happens to fit the budget. The refusal is explicit rather than
+  // silent, so the user learns the rule rather than wondering why bids vanish.
+  const verdict = willJoin(state, p, user, cfg);
+  if (!verdict.ok) return { kind: "rejected", reason: verdict.reason };
+  // Wages are floored by what he'll accept, not by what the user's division pays.
+  const wage = askWage(state, p, cfg, user.leagueId);
+  if (terms && terms.wage < wage) {
+    return { kind: "rejected", reason: `${p.name} won't sign for less than ${fmtWage(wage)}/wk.` };
+  }
 
   // Free agent (v21): there is no selling club and so no fee to negotiate — the
   // deal is the contract. The fee argument is ignored rather than validated, so
@@ -448,6 +484,12 @@ function fmtFee(fee: number): string {
   return fee >= 1_000_000 ? `£${(fee / 1_000_000).toFixed(1)}M` : `£${Math.round(fee / 1000)}k`;
 }
 
+/** Weekly wages are a much smaller number than fees — rendered in k, matching
+ * the contract screens rather than the fee formatter. */
+function fmtWage(wage: number): string {
+  return wage >= 1_000 ? `£${(wage / 1000).toFixed(wage >= 10_000 ? 0 : 1)}k` : `£${wage}`;
+}
+
 /**
  * Weekly AI activity while a window is open:
  *  - occasional AI bid on a user player (interrupt-worthy, §3)
@@ -500,7 +542,10 @@ export function aiWeeklyTransferTick(state: GameState, cfg: TuningConfig): boole
               // Only clubs that can genuinely fund the deal bid (v19) — fee out
               // of spendable cash and the wages out of income. An offer the
               // buyer could never honour is noise on the user's screen.
-              canAfford(state, t, p.value, wageDemand(state, p, cfg, t.leagueId), cfg) &&
+              canAfford(state, t, p.value, askWage(state, p, cfg, t.leagueId), cfg) &&
+              // The player has to be willing, and a lower-tier club has to wait
+              // out his peer-priority window (v1.66).
+              canApproach(state, t, p, cfg) &&
               t.reputation >= state.teams[state.userTeamId].reputation - 35
           )
           .map((t) => {
@@ -540,9 +585,11 @@ export function aiWeeklyTransferTick(state: GameState, cfg: TuningConfig): boole
           // suitors off against each other. The keenest clubs bid, in order of how
           // badly they want him, each with its own independent negotiation state —
           // so the user picks between real, simultaneous offers.
-          const suitors = interested
-            .slice()
-            .sort((a, b) => b.score - a.score)
+          // Peers first, then keenness (v1.66) — a club at the player's own level
+          // gets to the table before a lower-division side that wants him just as
+          // badly, which is what stops the bidding on a good player being led by
+          // whoever the weighted draw happened to favour.
+          const suitors = byPeerPriority(state, p, interested, cfg)
             .filter((x) => !state.offers.some((o) => o.status === "pending" && o.playerId === p.id && o.fromClubId === x.team.id));
           if (!suitors.length) continue;
           // A hotly-wanted player draws more of them; how many actually move is
@@ -650,11 +697,14 @@ function aiSquadBuilding(state: GameState, rng: RNG, cfg: TuningConfig) {
         if (p.loan) continue;
         const score = targetScore(state, buyer, need, p, cfg);
         if (score <= 0) continue;
+        // Would he even go there (v1.66)? Cheapest way to keep a top-flight name
+        // out of a third-division squad is to never consider the move at all.
+        if (!canApproach(state, buyer, p, cfg)) continue;
         // Can the buyer actually afford the seller's price — fee AND wages (v19)?
         const price =
           Math.round((p.value * cfg.aiAcceptThreshold * sellerProfile.sellAsk * distressDiscount) / 100_000) * 100_000;
         if (price > buyBudgetFor(state, buyer, p, cfg)) continue;
-        if (!canAfford(state, buyer, price, wageDemand(state, p, cfg, buyer.leagueId), cfg)) continue;
+        if (!canAfford(state, buyer, price, askWage(state, p, cfg, buyer.leagueId), cfg)) continue;
         if (!best || score > best.score) best = { player: p, score, price };
       }
     }
@@ -814,10 +864,11 @@ function trySimDeal(
       if (p.loan) continue;
       const score = targetScore(state, buyer, need, p, cfg);
       if (score <= 0) continue;
+      if (!canApproach(state, buyer, p, cfg)) continue;
       const price =
         Math.round((p.value * cfg.aiAcceptThreshold * sellerProfile.sellAsk * distressDiscount) / 100_000) * 100_000;
       if (price > buyBudgetFor(state, buyer, p, cfg)) continue;
-      if (!canAfford(state, buyer, price, wageDemand(state, p, cfg, buyer.leagueId), cfg)) continue;
+      if (!canAfford(state, buyer, price, askWage(state, p, cfg, buyer.leagueId), cfg)) continue;
       if (!best || score > best.score) best = { player: p, score, price };
     }
   }
@@ -859,8 +910,13 @@ function aiSignFreeAgent(state: GameState, buyer: Team, need: PositionNeed, cfg:
     if (!p.positions.includes(need.pos) && !p.positions.some((pos) => positionAdjacent(pos, need.pos))) continue;
     const score = targetScore(state, buyer, need, p, cfg);
     if (score <= 0) continue;
-    // Free transfer: no fee, so the wage is the whole affordability question.
-    if (!canAfford(state, buyer, 0, wageDemand(state, p, cfg, buyer.leagueId), cfg)) continue;
+    // A free agent still has to want the move (v1.66) — being unattached widens
+    // what he'll accept through the desperation curve, but on day one a released
+    // star is not yet ready to drop three divisions.
+    if (!canApproach(state, buyer, p, cfg)) continue;
+    // Free transfer: no fee, so the wage is the whole affordability question —
+    // and his personal floor, not the buyer's league rate, is what must clear.
+    if (!canAfford(state, buyer, 0, askWage(state, p, cfg, buyer.leagueId), cfg)) continue;
     if (!best || score > best.score) best = { player: p, score };
   }
   if (!best) return;
@@ -1049,6 +1105,10 @@ export function saleSuitors(state: GameState, playerId: string, cfg: TuningConfi
     if (t.id === state.userTeamId) continue;
     if (t.playerIds.length >= cfg.squadCap) continue;
     if (isDistressed(state, t, cfg)) continue;
+    // He has to be willing to go there, and a lower-tier club has to have waited
+    // out his peer window (v1.66) — the chooser must never show the user a suitor
+    // the player would refuse, because the sale completes the moment it's picked.
+    if (!canApproach(state, t, p, cfg)) continue;
     // The hole he'd fill. No need for his position → no interest, same as the AI.
     const need = squadNeeds(state, t, cfg).find((n) => p.positions.includes(n.pos));
     if (!need) continue;
@@ -1065,8 +1125,10 @@ export function saleSuitors(state: GameState, playerId: string, cfg: TuningConfi
     if (fee <= 0) continue;
     // Priced in the buyer's own market (v1.65) — a lower-division suitor is
     // quoted a lower-division wage, which is what makes it a plausible suitor
-    // at all rather than one filtered out by a top-flight wage it never pays.
-    if (!canAfford(state, t, fee, wageDemand(state, p, cfg, t.leagueId), cfg)) continue;
+    // at all rather than one filtered out by a top-flight wage it never pays —
+    // but floored by what the player will personally accept (v1.66), so the
+    // discount can't reach the point where a small club can afford a star.
+    if (!canAfford(state, t, fee, askWage(state, p, cfg, t.leagueId), cfg)) continue;
     rows.push({ team: t, fee, need, score });
   }
 

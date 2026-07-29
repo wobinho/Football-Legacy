@@ -48,6 +48,34 @@ export function catchupMult(overall: number, cfg: TuningConfig): number {
 }
 
 /**
+ * Elite-resistance multiplier (v1.66): growth slows the better a player already
+ * is. The mirror of `catchupMult` at the top of the scale.
+ *
+ * Every other lever in the growth formula — minutes, dev coach, training
+ * facility, training plan, the academy loan/U21/focus bonuses — is a plain
+ * multiplier that never asks how good the player already is. Stacked, they
+ * moved an 88-rated youngster as fast as a 60-rated one, and the only brake
+ * (headroom) was neutralised by a `youthPotentialFloor` that handed nearly every
+ * young player a near-cap ceiling. That is how a 75 became a 93 in two seasons.
+ *
+ * The curve is flat (1×) up to `growthEliteAbove`, then decays exponentially to
+ * `growthEliteMultFloor` at `growthEliteCeiling`. `growthEliteCurve` > 1 pushes
+ * the damping toward the very top, so an ordinary pro improving through the 70s
+ * is barely affected while the last few points before 90 have to be earned over
+ * several seasons.
+ *
+ * Applied to the youth AND prime branches, and to both in-season ticks, so there
+ * is no path around it.
+ */
+export function eliteResistMult(overall: number, cfg: TuningConfig): number {
+  if (overall <= cfg.growthEliteAbove) return 1;
+  const span = Math.max(1, cfg.growthEliteCeiling - cfg.growthEliteAbove);
+  const t = Math.min(1, (overall - cfg.growthEliteAbove) / span);
+  const decay = Math.pow(t, cfg.growthEliteCurve);
+  return Math.max(cfg.growthEliteMultFloor, 1 - (1 - cfg.growthEliteMultFloor) * decay);
+}
+
+/**
  * Age → growth-rate multiplier (v17). Peaks at cfg.growthPeakAge and falls away
  * on both sides, so the late teens are the breakout window.
  *
@@ -186,9 +214,20 @@ export function developPlayer(
     const coach = 1 + devCoachStars * 0.08;
     const facility = 1 + trainingLevel * cfg.trainingFacilityGrowthPerLevel;
     const catchup = catchupMult(p.overall, cfg);
+    // v1.66: the whole multiplier stack is damped by how good he already is.
+    const elite = eliteResistMult(p.overall, cfg);
     const base =
-      cfg.growthPerSeasonMax * (0.35 + 0.65 * minutesFactor) * coach * facility * extraGrowthMult * planGrowthMult * catchup;
-    delta = Math.min(headroom, base * ageBoost * randRange(rng, 0.6, 1.1) * 0.55 + perf);
+      cfg.growthPerSeasonMax *
+      (0.35 + 0.65 * minutesFactor) *
+      coach *
+      facility *
+      extraGrowthMult *
+      planGrowthMult *
+      catchup *
+      elite;
+    // `perf` is damped too — it used to be a flat +1 added OUTSIDE the stack,
+    // which handed a well-rated 90 a free point a season no matter what.
+    delta = Math.min(headroom, base * ageBoost * randRange(rng, 0.6, 1.1) * 0.55 + perf * elite);
     delta = Math.max(0, delta);
   } else if (p.age < declineOnset) {
     phase = "prime";
@@ -219,7 +258,10 @@ export function developPlayer(
         (1 + devCoachStars * 0.08) *
         (1 + trainingLevel * cfg.trainingFacilityGrowthPerLevel) *
         extraGrowthMult *
-        planGrowthMult;
+        planGrowthMult *
+        // v1.66: same top-end damping the youth branch gets, so a 27-year-old
+        // 88 can't sidestep the curve by having aged out of the growth phase.
+        eliteResistMult(p.overall, cfg);
       delta = Math.min(headroom, earned);
     } else if (primePerf < -cfg.primeDeclineTolerance) {
       // A genuinely poor season — well below the pivot, not merely average — and
@@ -400,6 +442,7 @@ export function applyWeeklyProgress(
       (cfg.growthPerSeasonMax * IN_SEASON_GROWTH_SHARE / 38) *
       ageGrowthMult(p.age, cfg) *
       catchupMult(p.overall, cfg) *
+      eliteResistMult(p.overall, cfg) *
       coach *
       facility *
       Math.max(0, 0.35 + perf);
@@ -437,6 +480,7 @@ export function applyWeeklyProgress(
     const rate =
       ((cfg.primeGrowthPerSeasonMax * cfg.primeInSeasonShare) / 38) *
       Math.min(1, primePerf) *
+      eliteResistMult(p.overall, cfg) *
       coach *
       facility;
     if (rng() < rate) return 1;
@@ -522,7 +566,14 @@ export function seasonGrowthEstimate(
     const coach = 1 + devCoachStars * 0.08;
     const facility = 1 + trainingLevel * cfg.trainingFacilityGrowthPerLevel;
     // Assumes a solid campaign: rating ~0.3 over the pivot, near-full minutes.
-    const earned = cfg.primeGrowthPerSeasonMax * Math.min(1, 0.3 / 1.2) * 0.91 * coach * facility * (plan?.growthMult ?? 1);
+    const earned =
+      cfg.primeGrowthPerSeasonMax *
+      Math.min(1, 0.3 / 1.2) *
+      0.91 *
+      coach *
+      facility *
+      (plan?.growthMult ?? 1) *
+      eliteResistMult(p.overall, cfg);
     return { delta: Math.max(0, Math.min(headroom, Math.round(earned))) };
   }
   const headroom = p.potential - p.overall; // hidden — used to bound, never shown
@@ -533,7 +584,8 @@ export function seasonGrowthEstimate(
   const facility = 1 + trainingLevel * cfg.trainingFacilityGrowthPerLevel;
   const planMult = plan?.growthMult ?? 1;
   const catchup = catchupMult(p.overall, cfg);
-  const base = cfg.growthPerSeasonMax * (0.35 + 0.65 * minutesFactor) * coach * facility * planMult * catchup;
+  const elite = eliteResistMult(p.overall, cfg);
+  const base = cfg.growthPerSeasonMax * (0.35 + 0.65 * minutesFactor) * coach * facility * planMult * catchup * elite;
   // same 0.85 mid-point and 0.55 shape factor developPlayer applies
   const raw = base * ageBoost * 0.85 * 0.55;
   const delta = Math.max(0, Math.min(headroom, Math.round(raw)));

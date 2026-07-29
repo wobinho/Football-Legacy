@@ -166,6 +166,19 @@ export interface PlayerBio {
    * for AI clubs (only the user's sell paths read it). Absent = not a fresh
    * signing (academy graduate, worldgen squad member, or signed in a past season). */
   acquiredSeason?: number;
+  /** Consecutive in-game days this player has gone without meaningful football
+   * (v1.66) — either unattached, or attached and playing under
+   * `desperationMinutesShare` of his side's available minutes. Drives the
+   * desperation curve in lib/consent.ts: the longer it runs, the further down the
+   * pyramid he'll drop and the more of his wage floor he'll give up. Reset to 0
+   * the moment he plays enough or signs somewhere. Absent = never idle. */
+  inactiveDays?: number;
+  /** Absolute day this player last became available to the market (v1.66) — put
+   * on the transfer list, released, or left to run his contract down. Peer clubs
+   * hold exclusive rights to bid for `peerPriorityDays` after it, so a big name
+   * isn't hoovered up by a lower division before his own level has looked.
+   * Absent = not currently on the market through any of those routes. */
+  availableSince?: number;
 }
 
 /** A per-league or save-wide season award (v24). Individual honours (Player of
