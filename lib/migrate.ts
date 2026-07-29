@@ -6,7 +6,7 @@ import { SCHEMA_VERSION } from "./types";
 import { TUNING, type TuningConfig } from "./config/tuning";
 import { generateScoutMarket } from "./scouts";
 import { buildSeasonSchedule } from "./calendar";
-import { initAcademyState } from "./academy";
+import { ensureProspectTier, initAcademyState } from "./academy";
 import { ensureContracts, openContractResolution } from "./contracts";
 import { migrateOldRegion } from "./config/scouting";
 import { aiCommercialIncome, refreshSponsorOffers, seedAiSponsorBooks } from "./sponsors";
@@ -526,6 +526,10 @@ export function migrateSave(state: GameState): GameState {
   if (state.schemaVersion < 38) {
     migrateV37toV38(state);
     state.schemaVersion = 38;
+  }
+  if (state.schemaVersion < 39) {
+    migrateV38toV39(state);
+    state.schemaVersion = 39;
   }
   // future migrations chain here
   state.schemaVersion = SCHEMA_VERSION;
@@ -1141,6 +1145,29 @@ function migrateV37toV38(state: GameState): void {
       seen.add(key);
       return true;
     });
+  }
+}
+
+/**
+ * v38 → v39: every academy prospect wears a tier badge (v1.65).
+ *
+ * Only two routes into the academy ever rolled a Bronze→Legacy tier — intake day
+ * and a scout's find. A prospect who arrived any other way (the keeper a new
+ * save seeds to make the U21s legal, a rival's kid bought out of the U21 league,
+ * a senior youngster demoted back down after promotion cleared his badge) sat on
+ * the squad list with no tag at all. All those writers now stamp one; this
+ * backfills the prospects a save is already carrying, reading the tier each
+ * player's own potential describes rather than inventing a roll.
+ *
+ * Only the user's academy roster is touched — `u21Tier` is the live academy
+ * label, and a senior player is meant to have none.
+ */
+function migrateV38toV39(state: GameState): void {
+  const academy = state.teams?.[state.userTeamId]?.academyPlayerIds ?? [];
+  for (const id of academy) {
+    const p = state.players?.[id];
+    if (!p || p.retired) continue;
+    ensureProspectTier(p, TUNING);
   }
 }
 

@@ -302,6 +302,14 @@ export interface TuningConfig {
   academyPartnerUpgradeCost: number[];
   academyPartnerIncomePerLevel: number; // feeder-club & community partnerships
 
+  // Two further revenue streams (v1.67). Ticketing sits at the cheap end of the
+  // ladder alongside membership; digital is a mid-priced modern stream between
+  // events and media.
+  ticketingUpgradeCost: number[];
+  ticketingIncomePerLevel: number; // ticketing platform, fan zone & concessions
+  digitalUpgradeCost: number[];
+  digitalIncomePerLevel: number; // app, e-commerce, esports & digital products
+
   // Staff market (v6) — dismiss-to-refresh cadence.
   staffRefreshDays: number; // days until a dismissed slot's new crop arrives
   /** Full turnover of the staff & scout for-hire pools every N days (v20), on
@@ -506,6 +514,14 @@ export interface TuningConfig {
   // never exceeding u21FocusMax (the absolute cap).
   focusSlotMaxLevel: number; // levels available; each level is +1 focus slot
   focusSlotUpgradeCost: number[]; // one-time cost to reach each level
+
+  // Youth PR facility (v1.65): media and commercial work around the academy that
+  // raises what the market thinks your prospects are worth. Bought from the
+  // Academy Upgrades tab. Value multiplier = 1 + level*youthPrValuePerLevel,
+  // applied to academy prospects only.
+  youthPrMaxLevel: number;
+  youthPrValuePerLevel: number; // +fraction of value per level (0.03 = +3%)
+  youthPrUpgradeCost: number[]; // one-time cost to reach each level
 
   // Transfers (§10 — interim rules pending design session)
   valueCurve: { base: number; exponent: number }; // value ≈ base * exp(exponent*overall)
@@ -1139,6 +1155,13 @@ export const TUNING: TuningConfig = {
   eventsIncomePerLevel: 45_000,
   academyPartnerUpgradeCost: [5_250_000, 12_250_000, 26_250_000, 49_000_000, 84_000_000],
   academyPartnerIncomePerLevel: 40_000,
+  // Same payback shape as the v21 streams (~125 weeks at level 1, lengthening
+  // with each level), so the ladder stays consistent rather than these two
+  // being a shortcut past the existing facilities.
+  ticketingUpgradeCost: [3_937_500, 9_625_000, 21_000_000, 38_500_000, 68_250_000],
+  ticketingIncomePerLevel: 32_000,
+  digitalUpgradeCost: [7_000_000, 16_625_000, 35_000_000, 63_875_000, 110_250_000],
+  digitalIncomePerLevel: 50_000,
 
   staffRefreshDays: 2,
   marketRefreshDays: 10,
@@ -1303,6 +1326,14 @@ export const TUNING: TuningConfig = {
 
   focusSlotMaxLevel: 7, // base 3 + 7 levels → up to 10 focus slots
   focusSlotUpgradeCost: [12_000_000, 24_000_000, 40_000_000, 60_000_000, 84_000_000, 112_000_000, 144_000_000],
+
+  youthPrMaxLevel: 10, // 10 levels × 3% → +30% prospect value at max
+  youthPrValuePerLevel: 0.03,
+  // £25M for the first level, +£15M for each one after it.
+  youthPrUpgradeCost: [
+    25_000_000, 40_000_000, 55_000_000, 70_000_000, 85_000_000,
+    100_000_000, 115_000_000, 130_000_000, 145_000_000, 160_000_000,
+  ],
 
   valueCurve: { base: 9_600, exponent: 0.104 }, // v1.42: −20% across the board to unstick the transfer market
   youthPotentialValueBoost: 1.8,

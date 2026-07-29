@@ -79,7 +79,11 @@ export default function HomeScreen() {
             ) : undefined
           }
         >
-          <div className="space-y-2">
+          {/* The inbox is capped rather than growing with the mail (v1.67): a
+              busy week used to stretch this column far past the sidebar, so the
+              rest of the page sat marooned at the top of a very long scroll.
+              It now scrolls inside itself and keeps the page one screen tall. */}
+          <div className="max-h-[calc(100vh-13rem)] min-h-[18rem] space-y-2 overflow-y-auto pr-1">
             {game.inbox.length === 0 && (
               <Card className="border-dashed p-6 text-center text-sm text-faint">
                 Nothing yet — club news, offers and reports land here.

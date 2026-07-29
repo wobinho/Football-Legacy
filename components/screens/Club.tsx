@@ -471,6 +471,26 @@ function IncomeTab() {
       icon: "🤝",
       accent: "#9d8ee0", // periwinkle
     },
+    // v1.67: two more streams — one at the cheap end of the ladder, one modern
+    // mid-priced stream, so the buy order has more shape between the extremes.
+    {
+      key: "ticketing",
+      title: "Ticketing & Fan Experience",
+      blurb: "Own the ticketing platform and work the fan zone — booking fees, concessions and matchday extras on every gate.",
+      level: team.ticketingLevel ?? 0,
+      perLevel: TUNING.ticketingIncomePerLevel,
+      icon: "🎫",
+      accent: "#d6b25f", // brass
+    },
+    {
+      key: "digital",
+      title: "Digital & Gaming",
+      blurb: "The club app, online store, esports side and digital collectibles — a young audience that pays all year round.",
+      level: team.digitalLevel ?? 0,
+      perLevel: TUNING.digitalIncomePerLevel,
+      icon: "🎮",
+      accent: "#6fd0c0", // teal
+    },
   ];
 
   // Running totals across every income stream — the headline this page was
@@ -812,17 +832,17 @@ function InvestmentsTab() {
       <Section
         title={opts.title}
         right={
-          <span className="text-xs text-faint">
+          <span className="text-xs text-dim">
             {waiting > 0 && (
               <span className="mr-2 text-gold">
                 {waiting} offer{waiting === 1 ? "" : "s"} waiting
               </span>
             )}
-            <span className="tnum text-dim">{opts.held}</span>/{opts.cap} signed
+            <span className="tnum text-ink">{opts.held}</span>/{opts.cap} total signed
           </span>
         }
       >
-        <p className="mb-2 text-[11px] leading-snug text-faint">{opts.blurb}</p>
+        <p className="mb-2 max-w-3xl text-[12px] leading-snug text-dim">{opts.blurb}</p>
         <Card className="divide-y divide-line/50">
           {slots.map((s) => (
             <SlotRow
@@ -905,76 +925,93 @@ function SlotRow({
   const urgent = daysLeft <= 4;
   return (
     <div className={offer ? "bg-gold-lo/[0.04]" : ""}>
+      {/* The category header. Slightly raised background so it reads as the
+          parent of anything nested beneath it, and the signed count sits with
+          the title rather than stranded against the right edge (v1.67). */}
       <button
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-hover"
+        className={`flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-hover ${
+          offer ? "bg-raised/80" : "bg-raised/40"
+        }`}
       >
         <span className="text-xl">{def.icon}</span>
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-baseline gap-2">
-            <span className="display font-semibold">{def.title}</span>
+            <span className="display font-semibold uppercase tracking-wide">{def.title}</span>
+            <span
+              className={`display shrink-0 rounded-sm border px-1.5 py-px text-[9px] font-bold tnum tracking-wider ${
+                deals.length >= capacity
+                  ? "border-win/40 text-win"
+                  : "border-line text-dim"
+              }`}
+            >
+              {deals.length}/{capacity} SIGNED
+            </span>
             {offer && (
-              <span className="display rounded-sm bg-gold-lo/20 px-1 text-[9px] font-semibold text-gold">
+              <span className="display shrink-0 rounded-sm bg-gold-lo/25 px-1.5 py-px text-[9px] font-bold tracking-wider text-gold">
                 OFFER WAITING
               </span>
             )}
             <span className={`text-[10px] text-faint transition-transform ${open ? "rotate-90" : ""}`}>▶</span>
           </span>
-          <span className="mt-0.5 block truncate text-[11px] text-faint">
+          <span className="mt-0.5 block truncate text-[11px] text-dim">
             {deals.length > 0 ? deals.map((d) => d.brand).join(", ") : status}
           </span>
         </span>
-        <span className="shrink-0 text-right">
-          <span className="display block tnum text-sm font-semibold">
-            {deals.length}
-            <span className="text-faint">/{capacity}</span>
-          </span>
-          <span className="text-[10px] uppercase tracking-widest text-faint">signed</span>
-        </span>
       </button>
 
-      {/* The live offer — always visible, because it is on a clock. */}
+      {/* The Decision Zone — always visible, because it is on a clock. Indented
+          and boxed so it reads as belonging to the category above it rather than
+          as a sibling row, and everything sits left-aligned in a compact grid
+          instead of being stretched across the full width (v1.67). */}
       {offer && (
-        <div
-          className={`flex flex-wrap items-center gap-x-4 gap-y-2 border-t px-3 py-2.5 ${
-            isMajor
-              ? "border-gold-lo/40 bg-gradient-to-r from-gold-lo/[0.10] to-transparent"
-              : "border-[#4a7bd0]/40 bg-gradient-to-r from-[#4a7bd0]/[0.08] to-transparent"
-          }`}
-        >
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-baseline gap-2">
-              <span className="display font-semibold">{offer.brand}</span>
-              <span
-                className={`display rounded-sm border px-1 text-[9px] font-semibold ${
-                  isMajor ? "border-gold-lo/50 text-gold" : "border-[#4a7bd0]/50 text-[#8fb4ee]"
-                }`}
+        <div className="border-t border-line/40 py-2.5 pl-[3.25rem] pr-3">
+          <div
+            className={`inline-flex w-full max-w-2xl flex-wrap items-center gap-x-6 gap-y-3 rounded-md border-l-2 border-y border-r px-3 py-2.5 ${
+              isMajor
+                ? "border-l-gold-lo border-gold-lo/30 bg-gold-lo/[0.07]"
+                : "border-l-[#4a7bd0] border-[#4a7bd0]/30 bg-[#4a7bd0]/[0.07]"
+            }`}
+          >
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-baseline gap-2">
+                <span className="display font-semibold">{offer.brand}</span>
+                <span
+                  className={`display rounded-sm border px-1 text-[9px] font-semibold ${
+                    isMajor ? "border-gold-lo/50 text-gold" : "border-[#4a7bd0]/50 text-[#8fb4ee]"
+                  }`}
+                >
+                  {offer.tier.toUpperCase()}
+                </span>
+              </div>
+              <div className="text-[11px] text-dim">
+                {offer.seasons} season{offer.seasons > 1 ? "s" : ""} ·{" "}
+                {isMajor ? "one-time lump sum" : "paid weekly"}
+              </div>
+            </div>
+            <div>
+              <div className="display tnum text-lg font-bold leading-tight text-win">
+                {isMajor ? formatMoney(offer.upfront) : `+${formatMoney(offer.weeklyAmount)}/wk`}
+              </div>
+              <div className={`text-[11px] ${urgent ? "text-loss" : "text-dim"}`}>
+                {urgent ? "⏳ " : ""}
+                <span className="tnum font-semibold">{daysLeft}</span> day{daysLeft === 1 ? "" : "s"} to decide
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {/* Pass is a real button, not a hole in the page: a medium-dark
+                  fill reads as clickable without competing with Accept. */}
+              <button
+                onClick={onPass}
+                className="rounded-md border border-line bg-[#26282e] px-4 py-2 text-xs font-medium text-dim transition-colors hover:border-faint hover:bg-[#32353c] hover:text-ink"
               >
-                {offer.tier.toUpperCase()}
-              </span>
+                Pass
+              </button>
+              <GoldButton onClick={onSign} className="!px-7 !py-2.5 text-sm">
+                ACCEPT
+              </GoldButton>
             </div>
-            <div className="text-[11px] text-faint">
-              {offer.seasons} season{offer.seasons > 1 ? "s" : ""} ·{" "}
-              {isMajor ? "one-time lump sum" : "paid weekly"}
-            </div>
-          </div>
-          <div className="text-right">
-            <div className="display tnum text-lg font-bold text-win">
-              {isMajor ? formatMoney(offer.upfront) : `+${formatMoney(offer.weeklyAmount)}/wk`}
-            </div>
-            <div className={`text-[11px] ${urgent ? "text-loss" : "text-faint"}`}>
-              {urgent ? "⏳ " : ""}
-              <span className="tnum font-semibold">{daysLeft}</span> day{daysLeft === 1 ? "" : "s"} to decide
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <GhostButton onClick={onPass} className="!px-3 !py-1 text-xs">
-              Pass
-            </GhostButton>
-            <GoldButton onClick={onSign} className="!px-4 !py-1 text-xs">
-              ACCEPT
-            </GoldButton>
           </div>
         </div>
       )}
@@ -993,7 +1030,7 @@ function SlotRow({
               </span>
             </div>
           ))}
-          {deals.length > 0 && <p className="mt-1.5 text-[11px] text-faint">{status}</p>}
+          {deals.length > 0 && <p className="mt-1.5 text-[11px] text-dim">{status}</p>}
         </div>
       )}
     </div>

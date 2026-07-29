@@ -2,7 +2,7 @@
 // Single source of truth for all game data shapes. Schema-versioned so the
 // save/export format doubles as the modding format (GAME_DESIGN.md §2, §13).
 
-export const SCHEMA_VERSION = 38;
+export const SCHEMA_VERSION = 39;
 
 export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "LM" | "RM" | "AM" | "LW" | "RW" | "ST";
 
@@ -408,6 +408,11 @@ export interface Team {
    * focus at once (max = u21FocusBase + level, capped at u21FocusMax). One-time
    * upgrades in the Academy Upgrades tab. Optional for old saves (default 0). */
   focusSlotLevel?: number;
+  /** Youth PR facility (v1.65): commercial and media work around the academy
+   * that lifts the market value of every prospect on the academy roster
+   * (+youthPrValuePerLevel per level). Bought from the Academy Upgrades tab.
+   * Optional for old saves (default 0). */
+  youthPrLevel?: number;
   /** Academy squad (§18, v4): uncapped, ages 15–21, outside the senior cap.
    * `playerIds` stays senior-only so cap/selection/wage logic is untouched.
    * Only the user's club carries a populated academy roster. */
@@ -428,6 +433,11 @@ export interface Team {
   membershipLevel?: number;
   eventsLevel?: number;
   academyPartnerLevel?: number;
+  /** Two further revenue streams (v1.67), same pattern again:
+   *   ticketingLevel      → ticketing platform, matchday fan zone & concessions
+   *   digitalLevel        → app, e-commerce, esports & digital fan products */
+  ticketingLevel?: number;
+  digitalLevel?: number;
   /** On-pitch responsibilities (v6, captain + set-piece takers). */
   assignments?: TeamAssignments;
   /** Active season-long sponsorship deals (v6). Filled for every club since

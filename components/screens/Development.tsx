@@ -684,7 +684,10 @@ function FacilitiesTab() {
       maxLevel: TUNING.trainingFacilityMaxLevel,
       influence:
         "Speeds up how fast players under 25 develop toward their potential each season. Works together with your Development Coach.",
-      effectNow: `+${Math.round((team.trainingLevel ?? 0) * TUNING.trainingFacilityGrowthPerLevel * 100)}% development speed`,
+      // effectNow is the bare figure and effectNext carries the unit — the card
+      // renders them as "+0% ➔ +12% development speed", one progression rather
+      // than two columns to compare.
+      effectNow: `+${Math.round((team.trainingLevel ?? 0) * TUNING.trainingFacilityGrowthPerLevel * 100)}%`,
       effectNext: `+${Math.round(((team.trainingLevel ?? 0) + 1) * TUNING.trainingFacilityGrowthPerLevel * 100)}% development speed`,
     },
     {
@@ -696,7 +699,7 @@ function FacilitiesTab() {
       maxLevel: TUNING.trainingFacilityMaxLevel,
       influence:
         "Improves fitness recovery between matches and softens the extra fatigue older players (30+) pick up, so your squad can play more often.",
-      effectNow: `+${((team.medicalLevel ?? 0) * TUNING.medicalFacilityRecoveryPerLevel).toFixed(1)} fitness / day`,
+      effectNow: `+${((team.medicalLevel ?? 0) * TUNING.medicalFacilityRecoveryPerLevel).toFixed(1)}`,
       effectNext: `+${(((team.medicalLevel ?? 0) + 1) * TUNING.medicalFacilityRecoveryPerLevel).toFixed(1)} fitness / day`,
     },
     {
@@ -708,7 +711,7 @@ function FacilitiesTab() {
       maxLevel: TUNING.trainingFacilityMaxLevel,
       influence:
         "Strength and conditioning for the whole squad, every age. A broad development boost that stacks on top of the Training Centre — the Training Centre only helps your under-25s, this lifts everyone.",
-      effectNow: `+${Math.round((team.gymnasiumLevel ?? 0) * TUNING.gymnasiumGrowthPerLevel * 100)}% development (all ages)`,
+      effectNow: `+${Math.round((team.gymnasiumLevel ?? 0) * TUNING.gymnasiumGrowthPerLevel * 100)}%`,
       effectNext: `+${Math.round(((team.gymnasiumLevel ?? 0) + 1) * TUNING.gymnasiumGrowthPerLevel * 100)}% development (all ages)`,
     },
     {
@@ -720,7 +723,7 @@ function FacilitiesTab() {
       maxLevel: TUNING.academyMaxLevel,
       influence:
         "Bigger, better intake classes every March and faster growth for the academy squad. Costs a small weekly upkeep per level — the only thing academy players cost you.",
-      effectNow: `~${Math.max(2, Math.round(TUNING.intakeClassBase + (team.academyLevel ?? 0) * TUNING.intakeClassPerLevel))} per class, +${Math.round((team.academyLevel ?? 0) * TUNING.trainingFacilityGrowthPerLevel * 100)}% academy growth`,
+      effectNow: `~${Math.max(2, Math.round(TUNING.intakeClassBase + (team.academyLevel ?? 0) * TUNING.intakeClassPerLevel))} per class, +${Math.round((team.academyLevel ?? 0) * TUNING.trainingFacilityGrowthPerLevel * 100)}%`,
       effectNext: `~${Math.max(2, Math.round(TUNING.intakeClassBase + ((team.academyLevel ?? 0) + 1) * TUNING.intakeClassPerLevel))} per class, +${Math.round(((team.academyLevel ?? 0) + 1) * TUNING.trainingFacilityGrowthPerLevel * 100)}% academy growth`,
     },
     // Scouting-department upgrades (Max Scouts, Academy Squad Size) live on the
@@ -741,28 +744,28 @@ function FacilitiesTab() {
       key: "gkCentre", title: "Goalkeeping Centre", icon: "🧤", accent: "#c98cd4",
       level: team.gkCentreLevel ?? 0, maxLevel: TUNING.positionFacilityMaxLevel,
       influence: "A dedicated keeper unit — specialist coaching, shot-stopping rigs and distribution work. Speeds up development for every goalkeeper on your books.",
-      effectNow: `+${posPct(team.gkCentreLevel ?? 0)}% GK growth`,
+      effectNow: `+${posPct(team.gkCentreLevel ?? 0)}%`,
       effectNext: `+${posPct((team.gkCentreLevel ?? 0) + 1)}% GK growth`,
     },
     {
       key: "defenceCentre", title: "Defensive Unit", icon: "🛡️", accent: "#5b8fd6",
       level: team.defenceCentreLevel ?? 0, maxLevel: TUNING.positionFacilityMaxLevel,
       influence: "Back-line drills, shape work and duel training. Speeds up development for centre backs and full backs.",
-      effectNow: `+${posPct(team.defenceCentreLevel ?? 0)}% defender growth`,
+      effectNow: `+${posPct(team.defenceCentreLevel ?? 0)}%`,
       effectNext: `+${posPct((team.defenceCentreLevel ?? 0) + 1)}% defender growth`,
     },
     {
       key: "midfieldCentre", title: "Midfield Hub", icon: "⚙️", accent: "#5fbf8a",
       level: team.midfieldCentreLevel ?? 0, maxLevel: TUNING.positionFacilityMaxLevel,
       influence: "Rondos, tempo work and transition drills. Speeds up development for defensive, central and attacking midfielders.",
-      effectNow: `+${posPct(team.midfieldCentreLevel ?? 0)}% midfielder growth`,
+      effectNow: `+${posPct(team.midfieldCentreLevel ?? 0)}%`,
       effectNext: `+${posPct((team.midfieldCentreLevel ?? 0) + 1)}% midfielder growth`,
     },
     {
       key: "attackCentre", title: "Attacking Centre", icon: "⚔️", accent: "#d97a4a",
       level: team.attackCentreLevel ?? 0, maxLevel: TUNING.positionFacilityMaxLevel,
       influence: "Final-third patterns, movement in behind and one-v-one work. Speeds up development for wingers and strikers.",
-      effectNow: `+${posPct(team.attackCentreLevel ?? 0)}% forward growth`,
+      effectNow: `+${posPct(team.attackCentreLevel ?? 0)}%`,
       effectNext: `+${posPct((team.attackCentreLevel ?? 0) + 1)}% forward growth`,
     },
   ];
@@ -772,28 +775,28 @@ function FacilitiesTab() {
       key: "sportsScience", title: "Sports Science Lab", icon: "🔬", accent: "#4fb8b8",
       level: team.sportsScienceLevel ?? 0, maxLevel: TUNING.planFacilityMaxLevel,
       influence: "GPS tracking, load management and conditioning science. Amplifies the Pace & Movement and Strength & Stamina training plans.",
-      effectNow: `+${planPct(team.sportsScienceLevel ?? 0)}% on physical plans`,
+      effectNow: `+${planPct(team.sportsScienceLevel ?? 0)}%`,
       effectNext: `+${planPct((team.sportsScienceLevel ?? 0) + 1)}% on physical plans`,
     },
     {
       key: "techCentre", title: "Technical Centre", icon: "🎓", accent: "#8a7fd6",
       level: team.techCentreLevel ?? 0, maxLevel: TUNING.planFacilityMaxLevel,
       influence: "Video suites, pattern-of-play rooms and small-sided technical pitches. Amplifies the Playmaking, Ball Control and Defending plans.",
-      effectNow: `+${planPct(team.techCentreLevel ?? 0)}% on technical plans`,
+      effectNow: `+${planPct(team.techCentreLevel ?? 0)}%`,
       effectNext: `+${planPct((team.techCentreLevel ?? 0) + 1)}% on technical plans`,
     },
     {
       key: "finishingCentre", title: "Finishing School", icon: "🥅", accent: "#d9a441",
       level: team.finishingCentreLevel ?? 0, maxLevel: TUNING.planFacilityMaxLevel,
       influence: "Dedicated shooting pitches and finishing coaches working in and around the box. Amplifies the Finishing training plan.",
-      effectNow: `+${planPct(team.finishingCentreLevel ?? 0)}% on finishing plans`,
+      effectNow: `+${planPct(team.finishingCentreLevel ?? 0)}%`,
       effectNext: `+${planPct((team.finishingCentreLevel ?? 0) + 1)}% on finishing plans`,
     },
     {
       key: "youthDevCentre", title: "Youth Development Centre", icon: "🌿", accent: "#7fbf5f",
       level: team.youthDevCentreLevel ?? 0, maxLevel: TUNING.planFacilityMaxLevel,
       influence: `Age-group coaching, individual development plans and a pathway to the first team. Speeds up development for every player aged ${TUNING.academyMaxAge} or under, senior squad or academy.`,
-      effectNow: `+${youthPct(team.youthDevCentreLevel ?? 0)}% growth for U${TUNING.academyMaxAge + 1}s`,
+      effectNow: `+${youthPct(team.youthDevCentreLevel ?? 0)}%`,
       effectNext: `+${youthPct((team.youthDevCentreLevel ?? 0) + 1)}% growth for U${TUNING.academyMaxAge + 1}s`,
     },
   ];
@@ -816,40 +819,43 @@ function FacilitiesTab() {
         cost={maxed ? "—" : formatMoney(nextCost!)}
         maxed={maxed}
         canAfford={canAfford}
-        note={maxed ? "Fully upgraded." : canAfford ? "A long-term investment in your squad." : "Not enough budget yet."}
+        // Only a blocked state earns a note (v1.65). The old string here —
+        // "A long-term investment in your squad." — was identical on all twelve
+        // cards, so it carried no information and cost a line on each one.
+        note={canAfford || maxed ? undefined : "Not enough budget yet."}
         onUpgrade={() => upgradeTraining(f.key)}
       />
     );
   };
 
+  // The cards carry their own title now, so each family is introduced once by a
+  // gold-threaded section head rather than every card announcing itself.
+  const group = (title: string, blurb: string, rows: FacilityRow[]) => (
+    <section>
+      <h3 className="display text-base font-semibold uppercase tracking-wide text-ink">{title}</h3>
+      <div className="gold-thread mt-1 mb-2 w-full" />
+      <p className="mb-3 max-w-3xl text-[13px] leading-relaxed text-dim">{blurb}</p>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">{rows.map(renderCard)}</div>
+    </section>
+  );
+
   return (
-    <div className="space-y-8">
-      <div>
-        <p className="mb-4 text-[13px] leading-relaxed text-dim">
-          Infrastructure is the slowest and most permanent way to improve a squad. The core facilities lift everyone;
-          the specialist centres below are narrower but cheaper, so a club can build the identity it wants rather than
-          only scaling up.
-        </p>
-        <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">{facilities.map(renderCard)}</div>
-      </div>
-
-      <div>
-        <h3 className="display mb-1 text-base font-semibold uppercase tracking-wide text-dim">Position Centres</h3>
-        <p className="mb-4 text-[13px] leading-relaxed text-faint">
-          Each centre speeds up development for one position group. Cheaper than the Training Centre because each only
-          helps a quarter of the squad — build the ones your best prospects sit in.
-        </p>
-        <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">{positionFacilities.map(renderCard)}</div>
-      </div>
-
-      <div>
-        <h3 className="display mb-1 text-base font-semibold uppercase tracking-wide text-dim">Training Plan Centres</h3>
-        <p className="mb-4 text-[13px] leading-relaxed text-faint">
-          These amplify the training focuses you set on the Training Plans tab, so they pay off most when your squad is
-          actually training the matching plans.
-        </p>
-        <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">{planFacilities.map(renderCard)}</div>
-      </div>
+    <div className="space-y-7">
+      {group(
+        "Core Facilities",
+        "Infrastructure is the slowest and most permanent way to improve a squad. These four lift the whole club; the specialist centres below are narrower but cheaper, so you can build an identity rather than only scaling up.",
+        facilities
+      )}
+      {group(
+        "Position Centres",
+        "Each centre speeds up development for one position group. Cheaper than the Training Centre because each only helps a quarter of the squad — build the ones your best prospects sit in.",
+        positionFacilities
+      )}
+      {group(
+        "Training Plan Centres",
+        "These amplify the training focuses you set on the Training Plans tab, so they pay off most when your squad is actually training the matching plans.",
+        planFacilities
+      )}
     </div>
   );
 }

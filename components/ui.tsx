@@ -434,12 +434,19 @@ export function ArchetypeIcon({ archetypeId, size = 14 }: { archetypeId?: string
 /**
  * The one canonical "upgrade" container, shared by every upgrade surface —
  * Club → Income, Development → Facilities, and Academy → Upgrades — so they all
- * read as the same object. An optional `accent` hex tints the left border, icon
+ * read as the same object. An optional `accent` hex tints the card border, icon
  * chip and level pips; without it the card uses the neutral gold treatment.
  *
- * Layout (uniform across pages): title + level header, an icon chip beside the
- * blurb with level pips, a current / after-upgrade / cost row, then a footer
- * note and the UPGRADE (or MAX) action.
+ * Layout (v1.65). The card used to spend most of its height on furniture: five
+ * full-width level bars separating the description from the numbers, the current
+ * and post-upgrade effects as two columns the eye had to compare across, a cost
+ * stranded in a third column away from the button that spends it, and a line of
+ * flavour text repeated identically on every card. It now reads top to bottom in
+ * three beats:
+ *
+ *   1. header — icon, title, and the level as compact pips beside "3 / 5"
+ *   2. effect — ONE line showing the progression: "+0% ➔ +12% development speed"
+ *   3. action — the price sits inside the button that pays it
  */
 export function UpgradeCard({
   title,
@@ -467,85 +474,101 @@ export function UpgradeCard({
   cost: React.ReactNode;
   maxed: boolean;
   canAfford: boolean;
+  /** Only shown when it says something this card alone can say — a blocked or
+   * maxed state. Generic per-card flavour is deliberately not rendered. */
   note?: React.ReactNode;
   onUpgrade: () => void;
 }) {
   const pipOn = accent ?? "var(--color-gold-hi)";
   return (
-    <section>
-      <div className="mb-1 flex items-end justify-between">
-        <h2 className="display text-lg font-semibold" style={accent ? { color: accent } : undefined}>
-          {title}
-        </h2>
-        <span className="text-xs text-faint tnum">
-          Level {level} / {maxLevel}
-        </span>
+    <Card
+      className="flex flex-col p-4"
+      style={
+        accent
+          ? {
+              // Accent rings the WHOLE container (v15) rather than tinting one
+              // edge, so an upgrade card reads as a single bounded module.
+              border: `1px solid ${accent}`,
+              boxShadow: `0 0 0 1px ${accent}26, 0 1px 12px -6px ${accent}66`,
+              background: `linear-gradient(160deg, ${accent}12, transparent 55%)`,
+            }
+          : undefined
+      }
+    >
+      {/* 1 — identity + level, grouped together in one row */}
+      <div className="flex items-start gap-3">
+        <div
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border text-2xl"
+          style={
+            accent
+              ? { borderColor: `${accent}80`, background: `${accent}14` }
+              : { borderColor: "var(--color-line)", background: "var(--color-raised)" }
+          }
+        >
+          {icon}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <h2 className="display text-base font-semibold leading-tight" style={accent ? { color: accent } : undefined}>
+              {title}
+            </h2>
+            {/* Compact pips beside the count — the level lives in one place in
+                the corner instead of a full-width bar across the card. */}
+            <span className="flex shrink-0 items-center gap-1.5">
+              <span className="flex gap-[3px]">
+                {Array.from({ length: maxLevel }).map((_, i) => (
+                  <span
+                    key={i}
+                    className={`h-1.5 w-1.5 rounded-full ${i < level ? (accent ? "" : "gold-grad") : "bg-line"}`}
+                    style={accent && i < level ? { background: pipOn } : undefined}
+                  />
+                ))}
+              </span>
+              <span className="tnum text-[11px] text-dim">
+                {level}/{maxLevel}
+              </span>
+            </span>
+          </div>
+          <p className="mt-1 text-[12px] leading-relaxed text-dim">{blurb}</p>
+        </div>
       </div>
-      <div className="gold-thread mb-3 w-full" />
-      <Card
-        className="p-4"
-        style={
-          accent
-            ? {
-                // Accent rings the WHOLE container (v15) rather than tinting one
-                // edge, so an upgrade card reads as a single bounded module.
-                border: `1px solid ${accent}`,
-                boxShadow: `0 0 0 1px ${accent}26, 0 1px 12px -6px ${accent}66`,
-                background: `linear-gradient(160deg, ${accent}12, transparent 55%)`,
-              }
-            : undefined
-        }
-      >
-        <div className="flex flex-wrap items-center gap-4">
-          <div
-            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border text-2xl"
-            style={accent ? { borderColor: `${accent}80`, background: `${accent}14` } : { borderColor: "var(--color-line)", background: "var(--color-raised)" }}
-          >
-            {icon}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] leading-relaxed text-dim">{blurb}</p>
-            <div className="mt-2 flex gap-1">
-              {Array.from({ length: maxLevel }).map((_, i) => (
-                <span
-                  key={i}
-                  className={`h-1.5 flex-1 rounded-full ${i < level ? (accent ? "" : "gold-grad") : "bg-line"}`}
-                  style={accent && i < level ? { background: pipOn } : undefined}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-3 border-t border-line/60 pt-3 text-sm sm:grid-cols-3">
-          <div>
-            <div className="text-[10px] uppercase tracking-widest text-faint">Current effect</div>
-            <div className="display font-semibold text-win">{effectNow}</div>
-          </div>
-          {!maxed && (
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-faint">After upgrade</div>
-              <div className="display font-semibold text-win">{effectNext}</div>
-            </div>
-          )}
-          <div>
-            <div className="text-[10px] uppercase tracking-widest text-faint">Upgrade cost</div>
-            <div className="display tnum font-semibold">{maxed ? "—" : cost}</div>
-          </div>
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[11px] text-faint">{note}</span>
+      {/* 2 — the effect as a single progression, so the gain reads at a glance */}
+      <div className="mt-3 border-t border-line/60 pt-3">
+        <div className="text-[10px] uppercase tracking-widest text-mute">Effect</div>
+        <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm">
           {maxed ? (
-            <span className="display rounded-md border border-gold-lo/50 px-3 py-1.5 text-xs font-semibold text-gold">MAX</span>
+            <span className="display font-semibold text-win">{effectNow}</span>
           ) : (
-            <GoldButton onClick={onUpgrade} disabled={!canAfford} className="!py-1.5 text-xs">
-              UPGRADE
-            </GoldButton>
+            <>
+              <span className="display font-semibold text-dim">{effectNow}</span>
+              <span aria-hidden className="text-[11px] text-mute">
+                ➔
+              </span>
+              <span className="display font-semibold text-win">{effectNext}</span>
+            </>
           )}
         </div>
-      </Card>
-    </section>
+      </div>
+
+      {/* 3 — the price is part of the action that spends it */}
+      <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+        {note && <span className="mr-auto text-[11px] text-mute">{note}</span>}
+        {maxed ? (
+          <span className="display rounded-md border border-gold-lo/50 px-3 py-1.5 text-xs font-semibold text-gold">
+            MAX LEVEL
+          </span>
+        ) : (
+          <GoldButton onClick={onUpgrade} disabled={!canAfford} className="!py-1.5 text-xs">
+            <span className="flex items-center gap-2">
+              UPGRADE
+              <span className="tnum opacity-75">·</span>
+              <span className="tnum">{cost}</span>
+            </span>
+          </GoldButton>
+        )}
+      </div>
+    </Card>
   );
 }
 

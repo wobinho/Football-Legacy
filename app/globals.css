@@ -10,6 +10,11 @@
   --color-ink: #e9e7e1;
   --color-dim: #8b909c;
   --color-faint: #5a5f6b;
+  /* Secondary labels ("EFFECT", "UPGRADE COST") sit between dim and faint
+     (v1.65). `faint` is dark enough against the near-black page that small
+     uppercase labels strained to read; `mute` keeps them clearly subordinate to
+     the white and green values while staying legible. */
+  --color-mute: #767c8a;
   --color-gold: #d9b45c;
   --color-gold-hi: #f2d488;
   --color-gold-lo: #a87f2e;

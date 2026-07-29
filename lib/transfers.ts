@@ -11,7 +11,7 @@ import { positionFit } from "./config/positions";
 import { TUNING } from "./config/tuning";
 import { transferWindowState } from "./calendar";
 import { mulberry32, deriveSeed, pickWeighted, uid } from "./rng";
-import { playerValue } from "./value";
+import { valueWithYouthPr } from "./economy";
 import { grantDefaultContract, makeContract } from "./contracts";
 import { assignKitNumber, clearKitNumber } from "./kitnumbers";
 import { activePlayers } from "./archive";
@@ -1142,9 +1142,10 @@ export function sellToClub(
   return null;
 }
 
-/** Refresh values after aging or window openings. */
+/** Refresh values after aging or window openings. Academy prospects carry the
+ * club's Youth PR premium (v1.65), so this pass must not flatten it back out. */
 export function refreshValues(state: GameState, cfg: TuningConfig) {
   for (const p of activePlayers(state)) {
-    p.value = playerValue(p, cfg);
+    p.value = valueWithYouthPr(state, p, cfg);
   }
 }

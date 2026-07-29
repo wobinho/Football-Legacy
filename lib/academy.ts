@@ -87,6 +87,41 @@ function isEliteTier(cfg: TuningConfig, tier: ProspectTier | undefined): boolean
   return tierRank(cfg, tier) >= elite;
 }
 
+/**
+ * The tier a player's own quality earns him, for prospects that reach the
+ * academy by a route that never rolled one (v1.65).
+ *
+ * Every academy prospect wears a Bronze→Legacy badge, but only the two *rolled*
+ * routes — intake day and a scout's find — used to stamp one. A prospect who
+ * arrived any other way (the seeded keeper a new save guarantees, a rival's kid
+ * bought out of the U21 league, a senior youngster sent back down) landed on the
+ * squad list with no badge at all. Rather than invent a roll for him, this reads
+ * the tier his numbers already describe: the highest band whose potential floor
+ * he clears, falling back to the bottom rung. Table-driven off
+ * `prospectTierBands`, so a new rung in tuning classifies itself.
+ */
+function tierFromQuality(cfg: TuningConfig, p: Pick<PlayerBio, "overall" | "potential">): ProspectTier {
+  const ladder = cfg.prospectTierOrder;
+  for (let i = ladder.length - 1; i >= 0; i--) {
+    const band = cfg.prospectTierBands[ladder[i]];
+    if (band && p.potential >= band.potential[0]) return ladder[i];
+  }
+  return ladder[0];
+}
+
+/**
+ * Guarantee a prospect carries an academy badge. Leaves an existing tier alone
+ * (a rolled tier is the truth about how he was found); only fills the gap.
+ * Every path that puts a player into `academyPlayerIds` runs through this, so
+ * "some academy players have no tag" cannot recur from a new entry point.
+ */
+export function ensureProspectTier(p: PlayerBio, cfg: TuningConfig) {
+  const existing = migrateProspectTier(p.u21Tier);
+  const tier = existing ?? migrateProspectTier(p.academyTier) ?? tierFromQuality(cfg, p);
+  p.u21Tier = tier;
+  p.academyTier ??= tier;
+}
+
 function userTeam(state: GameState): Team {
   return state.teams[state.userTeamId];
 }
@@ -444,6 +479,9 @@ export function seedInitialAcademy(state: GameState, cfg: TuningConfig) {
     gk.value = playerValue(gk, cfg);
     gk.clubId = team.id;
     gk.academyClubId = team.id;
+    // This keeper is generated directly rather than rolled through the tier
+    // ladder, so his badge is read off the quality he was given.
+    ensureProspectTier(gk, cfg);
     state.players[gk.id] = gk;
     (team.academyPlayerIds ??= []).push(gk.id);
     assignKitNumber(state, gk);
@@ -965,6 +1003,9 @@ export function demoteToAcademy(state: GameState, playerId: string, cfg: TuningC
   if (!p || p.age > cfg.academyMaxAge) return `Only players ${cfg.academyMaxAge} or younger can join the academy squad.`;
   team.playerIds = team.playerIds.filter((id) => id !== playerId);
   (team.academyPlayerIds ??= []).push(playerId);
+  // Promotion strips the live badge, so a player sent back down needs it again —
+  // restored from his permanent academyTier where he has one.
+  ensureProspectTier(p, cfg);
   clearKitNumber(p);
   assignKitNumber(state, p);
   for (const [slot, id] of Object.entries(state.lineup)) {
@@ -1100,7 +1141,7 @@ export function addScoutAssignment(
   durationMonths?: number
 ): string | null {
   const ac = state.academy;
-  if (!hasScout(state)) return "Hire a scout in the Academy → Staff tab before sending one out.";
+  if (!hasScout(state)) return "Hire a scout in Academy → Scouting → Personnel before sending one out.";
   // A brief belongs to one scout — their experience sets the batch size and
   // their judgement the quality of what comes back. Pick the named scout if one
   // was chosen, otherwise the first one not already out on a trip.
@@ -1362,6 +1403,9 @@ export function signProspect(state: GameState, reportId: string, cfg: TuningConf
     p.u21Tier = migrateProspectTier(report.tier);
     p.academyTier = migrateProspectTier(report.tier);
   }
+  // An older report may carry no tier at all — fall back to the one his numbers
+  // describe so no signing lands on the squad list unbadged.
+  ensureProspectTier(p, cfg);
   state.players[p.id] = p;
   (team.academyPlayerIds ??= []).push(p.id);
   assignKitNumber(state, p);
@@ -1488,6 +1532,9 @@ export function signU21Prospect(state: GameState, playerId: string, cfg: TuningC
   opp.prospectIds = (opp.prospectIds ?? []).filter((id) => id !== playerId);
   if (from) from.playerIds = from.playerIds.filter((id) => id !== playerId);
   p.clubId = team.id;
+  // He keeps the badge his old club's academy gave him; this only covers a
+  // rival prospect that somehow reached us without one.
+  ensureProspectTier(p, cfg);
   (team.academyPlayerIds ??= []).push(p.id);
   assignKitNumber(state, p);
   state.careers[p.id] ??= { playerId: p.id, seasons: [], transfers: [] };

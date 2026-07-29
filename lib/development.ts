@@ -8,7 +8,7 @@ import { getArchetype } from "./config/archetypes";
 import { TRAIT_MAP } from "./config/traits";
 import { resolveTrainingPlan, type TrainingPlanDef } from "./config/training";
 import { randRange, type RNG } from "./rng";
-import { playerValue } from "./value";
+import { valueWithYouthPr } from "./economy";
 import { activePlayers } from "./archive";
 
 const FULL_SEASON_MINUTES = 3000; // ~33 full matches
@@ -310,7 +310,7 @@ export function applySeasonDevelopment(
     p.retired = true;
     p.clubId = null;
   }
-  p.value = p.retired ? 0 : playerValue(p, cfg);
+  p.value = p.retired ? 0 : valueWithYouthPr(state, p, cfg);
 
   // Record the summer's outcome for the Development page (keep last ~10).
   if (!p.retired) {
@@ -483,7 +483,7 @@ export function weeklyProgressTick(
     p.overall = Math.max(35, Math.min(p.age <= cfg.growthEndAge ? p.potential : 99, p.overall + delta));
     // Keep the attribute spread coherent with the headline number.
     distributeAttrs(p, delta);
-    p.value = playerValue(p, cfg);
+    p.value = valueWithYouthPr(state, p, cfg);
   }
 }
 

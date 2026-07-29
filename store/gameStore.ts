@@ -25,7 +25,7 @@ import { userBid, respondToOffer, releasePlayer, sellToClub, signedThisSeason, t
 import { hireStaff, dismissCandidate, fireStaff } from "@/lib/staff";
 import { hireScout, fireScout, dismissScoutCandidate } from "@/lib/scouts";
 import { acceptSponsor, declineSponsor } from "@/lib/sponsors";
-import { upgradeFacility, upgradeTrainingFacility, type Facility, type TrainingFacility } from "@/lib/economy";
+import { upgradeFacility, upgradeTrainingFacility, valueWithYouthPr, FACILITY_TITLE, type Facility, type TrainingFacility } from "@/lib/economy";
 import {
   depositToFunds,
   unlockGcn,
@@ -1036,7 +1036,7 @@ export const useGame = create<GameStore>((set, get) => ({
     if (!g) return;
     const err = upgradeFacility(g, facility, TUNING);
     if (err) get().showToast(err);
-    else get().showToast(facility === "stadium" ? "Stadium upgraded — matchday income up." : "Commercial deal upgraded — weekly income up.");
+    else get().showToast(`${FACILITY_TITLE[facility]} upgraded — weekly income up.`);
     get().bump(true);
   },
 
@@ -1054,6 +1054,7 @@ export const useGame = create<GameStore>((set, get) => ({
         scoutNetwork: "Max Scouts increased — send more scouts abroad.",
         academySquad: "Academy Squad Size increased — room for more prospects.",
         focusSlot: "Focus Slots increased — flag more prospects for focus.",
+        youthPr: "Youth PR upgraded — your prospects are worth more on the market.",
         gkCentre: "Goalkeeping Centre upgraded — keepers develop faster.",
         defenceCentre: "Defensive Unit upgraded — defenders develop faster.",
         midfieldCentre: "Midfield Hub upgraded — midfielders develop faster.",
@@ -1063,6 +1064,15 @@ export const useGame = create<GameStore>((set, get) => ({
         finishingCentre: "Finishing School upgraded — finishing plans go further.",
         youthDevCentre: "Youth Development Centre upgraded — under-21s develop faster.",
       };
+      // Youth PR is a valuation change, not a development one: re-price the
+      // academy now so the new premium shows the moment it's bought rather than
+      // waiting for the next weekly tick.
+      if (facility === "youthPr") {
+        for (const id of g.teams[g.userTeamId].academyPlayerIds ?? []) {
+          const p = g.players[id];
+          if (p && !p.retired) p.value = valueWithYouthPr(g, p, TUNING);
+        }
+      }
       get().showToast(msg[facility]);
     }
     get().bump(true);

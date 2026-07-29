@@ -55,7 +55,11 @@ import { Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, GhostBu
 // resolve a move the same way, so the modal lives outside this screen.
 import { LoanOfferModal } from "./SquadMoveModals";
 
-type Tab = "squad" | "development" | "growth" | "loaned" | "u21" | "scouting" | "staff" | "upgrades";
+// The Staff tab is gone (v1.65): the Youth Coach and the scout roster were split
+// across two tabs from the assignments they drive, so hiring a scout and sending
+// one out were different pages. Scouting is now the single academy-personnel
+// surface — coach, department, assignments and reports in one place.
+type Tab = "squad" | "development" | "growth" | "loaned" | "u21" | "scouting" | "upgrades";
 
 export default function AcademyScreen() {
   const game = useGame((s) => s.game)!;
@@ -72,7 +76,6 @@ export default function AcademyScreen() {
           { id: "scouting", label: "Scouting", badge: reports.length },
           { id: "development", label: "Development" },
           { id: "growth", label: "Growth" },
-          { id: "staff", label: "Staff" },
           { id: "upgrades", label: "Upgrades" },
           { id: "loaned", label: "Loaned Players", badge: loanedCount },
           { id: "u21", label: "U21 League" },
@@ -86,7 +89,6 @@ export default function AcademyScreen() {
       {tab === "loaned" && <LoanedTab />}
       {tab === "u21" && <U21Tab />}
       {tab === "scouting" && <ScoutingTab />}
-      {tab === "staff" && <AcademyStaffTab />}
       {tab === "upgrades" && <UpgradesTab />}
     </div>
   );
@@ -98,17 +100,6 @@ export default function AcademyScreen() {
 // gold-accented card), while Scouts read as a network of talent-finders — a
 // grid of scout cards with the "report speed" stat front and centre.
 
-function AcademyStaffTab() {
-  useGame((s) => s.rev);
-  const youthCoachDef = staffSlotsForDept("academy").find((d) => d.slot === "youthCoach")!;
-
-  return (
-    <div className="space-y-8">
-      <YouthCoachPanel def={youthCoachDef} />
-      <ScoutDepartmentPanel />
-    </div>
-  );
-}
 
 /** A scout's two ratings, side by side. Experience and judgement answer
  * different questions, so they're always shown together and always labelled —
@@ -205,7 +196,7 @@ function ScoutDepartmentPanel() {
       {/* employed scouts */}
       {roster.length === 0 ? (
         <Card className="mb-4 p-4 text-sm text-dim">
-          No scouts on the books. Hire one below, then send them out from the <b className="text-ink">Scouting</b> tab.
+          No scouts on the books. Hire one below, then send them out from <b className="text-ink">Operations</b>.
         </Card>
       ) : (
         <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -2046,7 +2037,94 @@ function archetypesForGroup(group: ScoutPosGroup) {
 const posGroupLabel = (id: ScoutPosGroup) =>
   POS_OPTIONS.find((o) => o.id === id)?.label ?? POS_LABELS[id as Pos] ?? id;
 
+/**
+ * Scouting (v1.65): the whole academy talent operation on one page.
+ *
+ * It used to be two tabs — Scouting held the assignments and the reports, Staff
+ * held the Youth Coach and the scouts themselves — which meant the answer to
+ * "why can't I send anyone out?" lived on a different page from the question. The
+ * two halves are now sub-sections of one tab, ordered the way the job runs:
+ * OPERATIONS (who is out, what they found) first, because that is what a manager
+ * checks every week, and PERSONNEL (coach, roster, hiring) behind it, because
+ * that is what he changes occasionally.
+ */
 function ScoutingTab() {
+  useGame((s) => s.rev);
+  const game = useGame((s) => s.game)!;
+  const [pane, setPane] = useState<"operations" | "personnel">("operations");
+
+  const roster = game.teams[game.userTeamId].scouts ?? [];
+  const reports = game.academy.reports.filter((r) => r.expiresDay > game.currentDay);
+  const cap = maxScouts(game, TUNING);
+  const youthCoach = game.teams[game.userTeamId].staff.youthCoach;
+
+  return (
+    <div className="space-y-5">
+      {/* A compact switch rather than a second row of page tabs — these are two
+          views of one department, not two departments. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex gap-1 rounded-lg border border-line bg-raised p-1">
+          {([
+            { id: "operations", label: "Operations", badge: reports.length },
+            { id: "personnel", label: "Personnel", badge: 0 },
+          ] as const).map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setPane(p.id)}
+              className={`display flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors ${
+                pane === p.id ? "gold-grad text-black" : "text-dim hover:text-ink"
+              }`}
+            >
+              {p.label}
+              {p.badge > 0 && (
+                <span
+                  className={`tnum rounded-full px-1.5 text-[10px] ${
+                    pane === p.id ? "bg-black/25" : "bg-line text-dim"
+                  }`}
+                >
+                  {p.badge}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+        {/* The department at a glance, visible from either pane — the numbers
+            that explain what you can and can't do right now. */}
+        <div className="flex flex-wrap gap-2">
+          <DeptStat label="Youth coach" value={youthCoach ? `${youthCoach.stars}★` : "None"} warn={!youthCoach} />
+          <DeptStat label="Scouts" value={`${roster.length}/${cap}`} warn={roster.length === 0} />
+          <DeptStat label="Live reports" value={`${reports.length}`} />
+        </div>
+      </div>
+
+      {pane === "operations" ? <ScoutOperationsPane /> : <ScoutPersonnelPane />}
+    </div>
+  );
+}
+
+/** One number in the scouting department's status strip. */
+function DeptStat({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <div className="rounded-md border border-line bg-surface px-3 py-1.5">
+      <div className="text-[9px] uppercase tracking-widest text-mute">{label}</div>
+      <div className={`display tnum text-sm font-semibold ${warn ? "text-gold" : "text-ink"}`}>{value}</div>
+    </div>
+  );
+}
+
+/** Coach + scout roster + hiring — the "who works here" half of Scouting. */
+function ScoutPersonnelPane() {
+  useGame((s) => s.rev);
+  const youthCoachDef = staffSlotsForDept("academy").find((d) => d.slot === "youthCoach")!;
+  return (
+    <div className="space-y-8">
+      <YouthCoachPanel def={youthCoachDef} />
+      <ScoutDepartmentPanel />
+    </div>
+  );
+}
+
+function ScoutOperationsPane() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const removeScout = useGame((s) => s.academyRemoveScout);
@@ -2085,9 +2163,9 @@ function ScoutingTab() {
         >
           {roster.length === 0 ? (
             <Card className="p-4 text-sm text-dim">
-              No scouts on the books — hire one on the <b className="text-ink">Staff</b> tab and you can start sending them
-              abroad. A scout&apos;s <b className="text-ink">experience</b> sets how many prospects a report brings back, and
-              their <b className="text-ink">judgement</b> sets how good those prospects are.
+              No scouts on the books — hire one under <b className="text-ink">Personnel</b> above and you can start
+              sending them abroad. A scout&apos;s <b className="text-ink">experience</b> sets how many prospects a report
+              brings back, and their <b className="text-ink">judgement</b> sets how good those prospects are.
             </Card>
           ) : (
             <Card className="p-4">
@@ -2156,7 +2234,7 @@ function ScoutingTab() {
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                 <span className="min-w-0 flex-1 text-[11px] text-faint">
                   {free.length === 0
-                    ? "Every scout is out. Recall one, or hire more on the Staff tab."
+                    ? "Every scout is out. Recall one, or hire more under Personnel."
                     : `${free.length} scout${free.length === 1 ? "" : "s"} available to send.`}
                 </span>
                 <GoldButton
@@ -2537,10 +2615,16 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Academy upgrades (§18 v8): Max Scouts, Academy Squad Size and Focus Slots.
- * Its own tab (after Staff). Each upgrade carries a distinct accent colour so
- * the three read as visually separate at a glance. All are one-time purchases
- * routed through the shared training-facility machinery. */
+/**
+ * Academy upgrades (§18 v8; reworked v1.65): Max Scouts, Academy Squad Size,
+ * Focus Slots and Youth PR. Each upgrade carries a distinct accent colour so
+ * they read as separate at a glance. All are one-time purchases routed through
+ * the shared training-facility machinery.
+ *
+ * The tab now leads with what the manager can actually spend and how far the
+ * academy is built out, so the cards below are read against a budget rather than
+ * in isolation.
+ */
 function UpgradesTab() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
@@ -2550,9 +2634,10 @@ function UpgradesTab() {
   const scoutLevel = team.scoutNetworkLevel ?? 0;
   const squadLevel = team.academySquadLevel ?? 0;
   const focusLevel = team.focusSlotLevel ?? 0;
+  const prLevel = team.youthPrLevel ?? 0;
 
   const upgrades: {
-    key: "scoutNetwork" | "academySquad" | "focusSlot";
+    key: "scoutNetwork" | "academySquad" | "focusSlot" | "youthPr";
     title: string;
     icon: string;
     accent: string; // hex accent for the coloured border + tint
@@ -2570,9 +2655,9 @@ function UpgradesTab() {
       level: scoutLevel,
       maxLevel: TUNING.scoutNetworkMaxLevel,
       influence:
-        "How many scouts you can employ. Each scout can be out on one assignment at a time, so headcount is what sets the size of your scouting operation. Hire them on the Staff tab.",
-      now: `${TUNING.scoutNetworkBase + scoutLevel} scouts (${team.scouts?.length ?? 0} employed)`,
-      next: `${TUNING.scoutNetworkBase + scoutLevel + 1} scouts`,
+        "How many scouts you can employ. Each scout can be out on one assignment at a time, so headcount sets the size of your whole scouting operation.",
+      now: `${TUNING.scoutNetworkBase + scoutLevel}`,
+      next: `${TUNING.scoutNetworkBase + scoutLevel + 1} scouts (${team.scouts?.length ?? 0} employed)`,
     },
     {
       key: "academySquad",
@@ -2582,7 +2667,7 @@ function UpgradesTab() {
       level: squadLevel,
       maxLevel: TUNING.academySquadMaxLevel,
       influence: "How many prospects the academy can hold at once — room for bigger intakes and more scouted signings.",
-      now: `${TUNING.academySquadSizeBase + squadLevel * TUNING.academySquadSizePerLevel} places`,
+      now: `${TUNING.academySquadSizeBase + squadLevel * TUNING.academySquadSizePerLevel}`,
       next: `${TUNING.academySquadSizeBase + (squadLevel + 1) * TUNING.academySquadSizePerLevel} places`,
     },
     {
@@ -2592,37 +2677,76 @@ function UpgradesTab() {
       accent: "#b07fd9", // violet
       level: focusLevel,
       maxLevel: TUNING.focusSlotMaxLevel,
-      influence: `How many prospects you can flag as focus at once (guaranteed U21 starts + coach attention). Base ${TUNING.u21FocusBase}, up to ${TUNING.u21FocusMax}.`,
-      now: `${Math.min(TUNING.u21FocusMax, TUNING.u21FocusBase + focusLevel)} slots`,
+      influence: `How many prospects you can flag as focus at once — guaranteed U21 starts and extra coach attention. Base ${TUNING.u21FocusBase}, up to ${TUNING.u21FocusMax}.`,
+      now: `${Math.min(TUNING.u21FocusMax, TUNING.u21FocusBase + focusLevel)}`,
       next: `${Math.min(TUNING.u21FocusMax, TUNING.u21FocusBase + focusLevel + 1)} slots`,
+    },
+    {
+      key: "youthPr",
+      title: "Youth PR",
+      icon: "📣",
+      accent: "#d97a4a", // amber
+      level: prLevel,
+      maxLevel: TUNING.youthPrMaxLevel,
+      influence:
+        "Media days, showcase friendlies and a club that talks its kids up. Raises what the market thinks every prospect in your academy is worth — it doesn't make them better players, it makes them cost more to buy.",
+      now: `+${Math.round(prLevel * TUNING.youthPrValuePerLevel * 100)}%`,
+      next: `+${Math.round((prLevel + 1) * TUNING.youthPrValuePerLevel * 100)}% prospect value`,
     },
   ];
 
+  const spent = upgrades.filter((u) => u.level >= u.maxLevel).length;
+
   return (
-    <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">
-      {upgrades.map((f) => {
-        const nextCost = trainingNextCost(game, game.userTeamId, f.key, TUNING);
-        const maxed = nextCost === null;
-        const canAfford = nextCost !== null && team.budget >= nextCost;
-        return (
-          <UpgradeCard
-            key={f.key}
-            title={f.title}
-            icon={f.icon}
-            accent={f.accent}
-            level={f.level}
-            maxLevel={f.maxLevel}
-            blurb={f.influence}
-            effectNow={f.now}
-            effectNext={f.next}
-            cost={maxed ? "—" : formatMoney(nextCost!)}
-            maxed={maxed}
-            canAfford={canAfford}
-            note={maxed ? "Fully upgraded." : canAfford ? "A one-time academy upgrade." : "Not enough budget yet."}
-            onUpgrade={() => upgradeTraining(f.key)}
-          />
-        );
-      })}
+    <div className="space-y-5">
+      <Card className="flex flex-wrap items-center justify-between gap-4 p-4">
+        <div className="min-w-0 flex-1">
+          <div className="display font-semibold text-ink">Academy infrastructure</div>
+          <p className="mt-0.5 max-w-2xl text-[12px] leading-relaxed text-mute">
+            One-time purchases that raise the ceiling on the academy itself — how many scouts you can run, how many
+            prospects you can hold, how many you can focus, and what the market pays for them. Nothing here has a weekly
+            cost.
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <div className="rounded-md border border-line bg-surface px-3 py-1.5">
+            <div className="text-[9px] uppercase tracking-widest text-mute">Transfer budget</div>
+            <div className="display tnum text-sm font-semibold text-ink">{formatMoney(team.budget)}</div>
+          </div>
+          <div className="rounded-md border border-line bg-surface px-3 py-1.5">
+            <div className="text-[9px] uppercase tracking-widest text-mute">Fully built</div>
+            <div className="display tnum text-sm font-semibold text-ink">
+              {spent}/{upgrades.length}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+        {upgrades.map((f) => {
+          const nextCost = trainingNextCost(game, game.userTeamId, f.key, TUNING);
+          const maxed = nextCost === null;
+          const canAfford = nextCost !== null && team.budget >= nextCost;
+          return (
+            <UpgradeCard
+              key={f.key}
+              title={f.title}
+              icon={f.icon}
+              accent={f.accent}
+              level={f.level}
+              maxLevel={f.maxLevel}
+              blurb={f.influence}
+              effectNow={f.now}
+              effectNext={f.next}
+              cost={maxed ? "—" : formatMoney(nextCost!)}
+              maxed={maxed}
+              canAfford={canAfford}
+              note={canAfford || maxed ? undefined : "Not enough budget yet."}
+              onUpgrade={() => upgradeTraining(f.key)}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }

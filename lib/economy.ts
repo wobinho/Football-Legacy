@@ -1,10 +1,10 @@
 // Economy (§8): one budget number per club, updated weekly.
 // income (division + league position + gate) − expenses (wages + staff).
 
-import type { GameState, Pos, Team } from "./types";
+import type { GameState, PlayerBio, Pos, Team } from "./types";
 import type { TuningConfig } from "./config/tuning";
 import { computeTable } from "./season";
-import { squadWageBill, playerWage } from "./value";
+import { squadWageBill, playerValue, playerWage } from "./value";
 import { leagueWageMult } from "./contracts";
 import { userStaffWages, STAFF_SLOT_MAP } from "./staff";
 import { sponsorWeeklyIncome } from "./sponsors";
@@ -56,7 +56,9 @@ export function facilityIncome(state: GameState, teamId: string, cfg: TuningConf
   const membership = (team.membershipLevel ?? 0) * cfg.membershipIncomePerLevel;
   const events = (team.eventsLevel ?? 0) * cfg.eventsIncomePerLevel;
   const academyPartner = (team.academyPartnerLevel ?? 0) * cfg.academyPartnerIncomePerLevel;
-  return stadium + commercial + media + hospitality + retail + membership + events + academyPartner;
+  const ticketing = (team.ticketingLevel ?? 0) * cfg.ticketingIncomePerLevel;
+  const digital = (team.digitalLevel ?? 0) * cfg.digitalIncomePerLevel;
+  return stadium + commercial + media + hospitality + retail + membership + events + academyPartner + ticketing + digital;
 }
 
 /** True for every club the manager doesn't run himself and doesn't own through
@@ -192,6 +194,8 @@ export function facilityIncomeItems(state: GameState, teamId: string, cfg: Tunin
     { label: "Membership", level: team.membershipLevel ?? 0, perLevel: cfg.membershipIncomePerLevel },
     { label: "Events & Conferences", level: team.eventsLevel ?? 0, perLevel: cfg.eventsIncomePerLevel },
     { label: "Academy Partnerships", level: team.academyPartnerLevel ?? 0, perLevel: cfg.academyPartnerIncomePerLevel },
+    { label: "Ticketing & Fan Experience", level: team.ticketingLevel ?? 0, perLevel: cfg.ticketingIncomePerLevel },
+    { label: "Digital & Gaming", level: team.digitalLevel ?? 0, perLevel: cfg.digitalIncomePerLevel },
   ];
   return rows
     .filter((r) => r.level > 0)
@@ -225,7 +229,10 @@ export type Facility =
   // v21
   | "membership"
   | "events"
-  | "academyPartner";
+  | "academyPartner"
+  // v1.67
+  | "ticketing"
+  | "digital";
 
 const FACILITY_LEVEL: Record<Facility, keyof GameState["teams"][string]> = {
   stadium: "stadiumLevel",
@@ -236,6 +243,8 @@ const FACILITY_LEVEL: Record<Facility, keyof GameState["teams"][string]> = {
   membership: "membershipLevel",
   events: "eventsLevel",
   academyPartner: "academyPartnerLevel",
+  ticketing: "ticketingLevel",
+  digital: "digitalLevel",
 };
 
 const FACILITY_COST_KEY: Record<Facility, keyof TuningConfig> = {
@@ -247,6 +256,23 @@ const FACILITY_COST_KEY: Record<Facility, keyof TuningConfig> = {
   membership: "membershipUpgradeCost",
   events: "eventsUpgradeCost",
   academyPartner: "academyPartnerUpgradeCost",
+  ticketing: "ticketingUpgradeCost",
+  digital: "digitalUpgradeCost",
+};
+
+/** Display name per income facility — so callers (the upgrade toast) can name
+ * the thing that was bought without branching on the facility id. */
+export const FACILITY_TITLE: Record<Facility, string> = {
+  stadium: "Stadium",
+  commercial: "Commercial",
+  media: "Media & Streaming",
+  hospitality: "Hospitality",
+  retail: "Retail",
+  membership: "Membership Scheme",
+  events: "Events & Conferences",
+  academyPartner: "Academy Partnerships",
+  ticketing: "Ticketing & Fan Experience",
+  digital: "Digital & Gaming",
 };
 
 function facilityLevelOf(state: GameState, teamId: string, facility: Facility): number {
@@ -285,6 +311,7 @@ export type TrainingFacility =
   | "scoutNetwork"
   | "academySquad"
   | "focusSlot"
+  | "youthPr"
   // specialist facilities (v15)
   | "gkCentre"
   | "defenceCentre"
@@ -309,6 +336,7 @@ const TRAINING_FACILITY_SPEC: Record<
   scoutNetwork: { levelKey: "scoutNetworkLevel", costKey: "scoutNetworkUpgradeCost", maxKey: "scoutNetworkMaxLevel" },
   academySquad: { levelKey: "academySquadLevel", costKey: "academySquadUpgradeCost", maxKey: "academySquadMaxLevel" },
   focusSlot: { levelKey: "focusSlotLevel", costKey: "focusSlotUpgradeCost", maxKey: "focusSlotMaxLevel" },
+  youthPr: { levelKey: "youthPrLevel", costKey: "youthPrUpgradeCost", maxKey: "youthPrMaxLevel" },
   gkCentre: { levelKey: "gkCentreLevel", costKey: "gkCentreUpgradeCost", maxKey: "positionFacilityMaxLevel" },
   defenceCentre: { levelKey: "defenceCentreLevel", costKey: "defenceCentreUpgradeCost", maxKey: "positionFacilityMaxLevel" },
   midfieldCentre: { levelKey: "midfieldCentreLevel", costKey: "midfieldCentreUpgradeCost", maxKey: "positionFacilityMaxLevel" },
@@ -406,6 +434,35 @@ export function facilityGrowthMult(
   }
 
   return mult;
+}
+
+/**
+ * The Youth PR multiplier on an academy prospect's market value (v1.65).
+ *
+ * Media days, showcase friendlies and a club that talks its kids up: the effect
+ * is on what the market thinks a prospect is worth, not on the player himself,
+ * so it multiplies value and touches nothing else. Returns 1 at level 0 and for
+ * any club that isn't the user's — only the user runs a visible academy.
+ */
+export function youthPrValueMult(state: GameState, teamId: string, cfg: TuningConfig): number {
+  return 1 + trainingLevelOf(state, teamId, "youthPr") * cfg.youthPrValuePerLevel;
+}
+
+/**
+ * A player's market value with the club's Youth PR applied, when he is one of
+ * that club's academy prospects. Every path that writes `player.value` for a
+ * user prospect goes through this, so the boost shows up everywhere a value is
+ * read — the profile, squad value, and what an AI club offers for him.
+ */
+export function valueWithYouthPr(
+  state: GameState,
+  p: Pick<PlayerBio, "id" | "overall" | "age" | "potential">,
+  cfg: TuningConfig
+): number {
+  const team = state.teams[state.userTeamId];
+  const base = playerValue(p, cfg);
+  if (!team || !(team.academyPlayerIds ?? []).includes(p.id)) return base;
+  return Math.round((base * youthPrValueMult(state, team.id, cfg)) / 1000) * 1000;
 }
 
 /** The academy's current prospect-slot cap (facility-driven, v7). */
