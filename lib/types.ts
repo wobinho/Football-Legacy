@@ -2,7 +2,7 @@
 // Single source of truth for all game data shapes. Schema-versioned so the
 // save/export format doubles as the modding format (GAME_DESIGN.md §2, §13).
 
-export const SCHEMA_VERSION = 39;
+export const SCHEMA_VERSION = 40;
 
 export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "LM" | "RM" | "AM" | "LW" | "RW" | "ST";
 
@@ -812,6 +812,13 @@ export interface SeasonSummary {
   yearLabel: string; // e.g. "2025/26"
   championsByLeague: Record<string, { teamId: string; teamName: string }>;
   cupWinner: { teamId: string; teamName: string } | null;
+  /** Who won each European competition this season (v1.67), best cup first.
+   * Recorded on the summary because the European state is rebuilt for the new
+   * season during the same rollover — after that the winner is unrecoverable, so
+   * a review that didn't capture it here could only ever show a dash. Absent on
+   * summaries written before v1.67, and empty in a season with no European
+   * football (season 1, or a save that runs no continental layer). */
+  europeanWinners?: { tier: number; cupName: string; teamId: string; teamName: string }[];
   finalTables: Record<string, TableRow[]>;
   topScorers: Record<string, { playerId: string; name: string; teamName: string; goals: number }>;
   playerOfSeason: { playerId: string; name: string; teamName: string } | null;
@@ -1093,6 +1100,36 @@ export interface ScoutAssignment {
   /** The duration the user chose, in months (v25). Stored for display so the
    * assignment card can show "3 months" rather than only a raw end day. */
   durationMonths?: number;
+  /** Auto-filter on what the scout is allowed to file (v1.67). A find that fails
+   * any set clause is discarded rather than reported, so the board only ever
+   * holds prospects worth the manager's attention. Absent = file everything,
+   * which is what every brief sent before this feature did. */
+  filter?: ScoutFilter;
+  /** How many consecutive report cycles filed nothing (v1.67). Reset the moment a
+   * find gets through, so the assignment card can warn that a filter is choking
+   * the pipeline without the UI having to remember history itself. */
+  emptyReports?: number;
+}
+
+/** The auto-filter clauses on a scouting brief (v1.67). Every field is optional
+ * and an unset field is simply not tested — a filter with nothing set behaves
+ * exactly like no filter at all.
+ *
+ * A narrow filter costs report volume, not scout time: the scout keeps its normal
+ * cadence and batch size, but a batch only contains the finds that matched, so a
+ * legacy-only brief may file nothing for weeks. That is the trade the manager is
+ * choosing, and it's why the UI shows the expected yield. */
+export interface ScoutFilter {
+  /** Inclusive age bounds on the prospect. */
+  minAge?: number;
+  maxAge?: number;
+  /** Inclusive bounds on current ability. */
+  minOverall?: number;
+  maxOverall?: number;
+  /** Rarity tiers the brief will accept. Empty/undefined = every tier. Stored
+   * post-migration (never `platinum`), and compared through
+   * `migrateProspectTier` so an old saved brief still matches. */
+  tiers?: ProspectTier[];
 }
 
 /** A youth prospect surfaced by the scout (§18). The player object is embedded

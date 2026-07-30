@@ -25,20 +25,23 @@ import type {
   PlayerBio,
   SeasonAccolades,
 } from "./types";
+import type { TuningConfig } from "./config/tuning";
+import { TUNING } from "./config/tuning";
 import { posGroup } from "./config/positions";
 import { activePlayers } from "./archive";
+import { computeTable } from "./season";
 
 /** Display metadata for each accolade — title, emblem, and a one-line blurb.
  * Pure data (no engine branches on it); the UI reads it to render a cabinet. */
 export const ACCOLADE_META: Record<AccoladeType, { title: string; emoji: string; blurb: string }> = {
-  playerOfSeason: { title: "Player of the Season", emoji: "🏆", blurb: "Highest average rating in the league" },
-  youngPlayerOfSeason: { title: "Young Player of the Season", emoji: "⭐", blurb: "Highest-rated player under 21" },
+  playerOfSeason: { title: "Player of the Season", emoji: "🏆", blurb: "Best season in the league — rating, weighted by what his side won" },
+  youngPlayerOfSeason: { title: "Young Player of the Season", emoji: "⭐", blurb: "Best season in the league by a player under 21" },
   goldenBoot: { title: "Golden Boot", emoji: "👟", blurb: "Most goals in the league" },
   goldenPlaymaker: { title: "Golden Playmaker", emoji: "🎯", blurb: "Most assists in the league" },
-  goldenGlove: { title: "Golden Glove", emoji: "🧤", blurb: "Highest-rated goalkeeper in the league" },
-  goldenWall: { title: "Golden Wall", emoji: "🧱", blurb: "Highest-rated centre-back in the league" },
+  goldenGlove: { title: "Golden Glove", emoji: "🧤", blurb: "Best season in the league by a goalkeeper" },
+  goldenWall: { title: "Golden Wall", emoji: "🧱", blurb: "Best season in the league by a centre-back" },
   teamOfSeason: { title: "Team of the Season", emoji: "✨", blurb: "Named in the league's XI of the season" },
-  legacyPlayerOfSeason: { title: "Legacy Player of the Year", emoji: "👑", blurb: "Highest-rated player in the world's top divisions" },
+  legacyPlayerOfSeason: { title: "Legacy Player of the Year", emoji: "👑", blurb: "Best season in the world's top divisions" },
   legacyTeamOfSeason: { title: "Legacy Team of the Year", emoji: "💎", blurb: "Named in the save's XI of the year" },
 };
 
@@ -64,6 +67,92 @@ const TEAM_SIZE = 11;
 /** A player's average match rating this season, or 0 if he never played. */
 function avgRating(p: PlayerBio): number {
   return p.stats.apps > 0 ? p.stats.ratingSum / p.stats.apps : 0;
+}
+
+// ── Team success weighting (v1.67) ────────────────────────────────────────
+// An individual award used to be decided on average match rating alone, which
+// gave the trophy to whoever farmed the best numbers regardless of whether his
+// side won anything. Real awards don't work that way: a title-winning season, a
+// cup run and a European campaign all carry a player's case. So a candidate's
+// score is now his rating LIFTED by what his club achieved:
+//
+//   score = avgRating × (1 + teamSuccess)
+//
+// where teamSuccess is the sum of three bounded components (league finish, the
+// domestic cup, Europe). The weights live in tuning, and the lift is deliberately
+// modest — the honour still belongs to the best player, not to the best team's
+// most ordinary starter. A 0.10 total lift is worth roughly 0.7 of a rating
+// point, which decides a close call and leaves a clear one alone.
+//
+// Every component is a table//ratio read off state, never a branch on a club or
+// competition name, so a save with a different pyramid or no European layer
+// simply contributes zero from that component.
+
+/** How far a club went in the domestic cup, as 0–1: 0 never entered or fell at
+ * the first hurdle, 1 won it. Derived from the round they were eliminated in
+ * against the number of rounds the schedule runs, so it needs no per-round table. */
+function cupProgress(state: GameState, teamId: string): number {
+  const rounds = state.schedule.cupRoundDays.length;
+  if (!rounds) return 0;
+  if (state.cup.winnerId === teamId) return 1;
+  // Still alive at the end without winning = beaten finalist territory. Otherwise
+  // count the cup fixtures they actually played: one more round survived is one
+  // more step up the ladder.
+  const played = state.fixtures.filter(
+    (f) => f.competition === "CUP" && f.played && (f.homeId === teamId || f.awayId === teamId)
+  ).length;
+  return Math.min(1, played / rounds);
+}
+
+/** How far a club went in Europe, as 0–1, weighted by which competition it was
+ * in — winning the third-tier cup is not winning the Champions League. Returns 0
+ * for a club that played no European football, and for a save with no European
+ * layer at all. */
+function euroProgress(state: GameState, cfg: AccoladeTuning, teamId: string): number {
+  const cups = state.european?.cups ?? [];
+  for (const cup of cups) {
+    if (!cup.teamIds.includes(teamId)) continue;
+    const stage = cup.winnerId === teamId ? "champion" : cup.exitStage[teamId];
+    const stageScore = stage ? cfg.awardEuroStageScore[stage] ?? 0 : 0;
+    // A lower-tier competition counts for less, per the tuning ladder.
+    const tierScale = cfg.awardEuroTierScale[cup.tier - 1] ?? 0;
+    return Math.max(0, Math.min(1, stageScore * tierScale));
+  }
+  return 0;
+}
+
+/** The tuning fields this module reads. Declared as a slice of TuningConfig so
+ * the signature says exactly what the weighting depends on. */
+type AccoladeTuning = Pick<
+  TuningConfig,
+  "awardLeagueWeight" | "awardCupWeight" | "awardEuroWeight" | "awardEuroStageScore" | "awardEuroTierScale"
+>;
+
+/**
+ * The success multiplier applied to a candidate's rating: `1 + teamSuccess`,
+ * where teamSuccess sums the three weighted components. 1.0 for a club that
+ * finished last, won nothing and played no European football.
+ *
+ * `leagueRank` is 0-based (0 = champions) within a table of `leagueSize`; pass
+ * -1 when the club's finishing position isn't known, which contributes nothing
+ * rather than guessing.
+ */
+function teamSuccessMult(
+  state: GameState,
+  cfg: AccoladeTuning,
+  teamId: string | null | undefined,
+  leagueRank: number,
+  leagueSize: number
+): number {
+  if (!teamId || !state.teams[teamId]) return 1;
+  // League finish, 1 for the champions decaying linearly to 0 for last.
+  const leaguePart =
+    leagueRank >= 0 && leagueSize > 1 ? 1 - leagueRank / (leagueSize - 1) : 0;
+  const success =
+    leaguePart * cfg.awardLeagueWeight +
+    cupProgress(state, teamId) * cfg.awardCupWeight +
+    euroProgress(state, cfg, teamId) * cfg.awardEuroWeight;
+  return 1 + Math.max(0, success);
 }
 
 function toWinner(state: GameState, p: PlayerBio, stat?: number): AwardWinner {
@@ -117,10 +206,10 @@ function best(pool: PlayerBio[], score: (p: PlayerBio) => number): PlayerBio | n
  * Season is never played without one between the posts. Returns the picks in
  * shape order (GK → DEF → MID → ATT).
  */
-function pickTeamOfSeason(pool: PlayerBio[]): PlayerBio[] {
+function pickTeamOfSeason(pool: PlayerBio[], score: (p: PlayerBio) => number = avgRating): PlayerBio[] {
   const eligible = pool
     .filter((p) => p.stats.apps >= MIN_APPS_FOR_RATING)
-    .sort((a, b) => avgRating(b) - avgRating(a));
+    .sort((a, b) => score(b) - score(a));
 
   const chosen: PlayerBio[] = [];
   const used = new Set<string>();
@@ -154,7 +243,7 @@ function pickTeamOfSeason(pool: PlayerBio[]): PlayerBio[] {
   // dropping the weakest outfielder to make room so the XI stays eleven strong.
   if (groupCount.GK === 0) {
     const keeper =
-      best(pool.filter((p) => p.positions[0] === "GK"), avgRating) ??
+      best(pool.filter((p) => p.positions[0] === "GK"), score) ??
       pool.filter((p) => p.positions[0] === "GK").sort((a, b) => b.overall - a.overall)[0];
     if (keeper && !used.has(keeper.id)) {
       if (chosen.length >= TEAM_SIZE) {
@@ -196,9 +285,38 @@ type Accolade = NonNullable<PlayerBio["accolades"]>[number];
  * Call at the season rollover AFTER the final sim resolution (stats populated)
  * and BEFORE the development pass clears them.
  */
-export function computeSeasonAccolades(state: GameState): SeasonAccolades {
+export function computeSeasonAccolades(state: GameState, cfg: AccoladeTuning = TUNING): SeasonAccolades {
   const season = state.season;
   const result: SeasonAccolades = { byLeague: {} };
+
+  // ── Team success, resolved once per club (v1.67) ─────────────────────────
+  // Every rating-based honour scores a candidate as `avgRating × (1 +
+  // teamSuccess)`, so what his side achieved counts alongside what he did. The
+  // multiplier is memoised per club: it's the same for every player at a club and
+  // the cup/European lookups walk the fixture list, which is far too expensive to
+  // repeat per player in a world of tens of thousands.
+  const multByTeam = new Map<string, number>();
+  for (const league of Object.values(state.leagues)) {
+    // Final ordering for this league — the real table where it's playable, the
+    // resolver's completed table where it isn't. Same sources the record book
+    // reads, so the awards and the season summary agree on who finished where.
+    const table = league.playable
+      ? computeTable(state.fixtures, league.id, league.teamIds)
+      : state.simResults.find((r) => r.leagueId === league.id && r.half === 2)?.table ?? [];
+    const size = table.length || league.teamIds.length;
+    table.forEach((row, rank) => {
+      multByTeam.set(row.teamId, teamSuccessMult(state, cfg, row.teamId, rank, size));
+    });
+    // A club with no table row (a league the resolver never filled) still gets its
+    // cup and European lift — it just contributes nothing from its league finish.
+    for (const id of league.teamIds) {
+      if (!multByTeam.has(id)) multByTeam.set(id, teamSuccessMult(state, cfg, id, -1, size));
+    }
+  }
+
+  /** A candidate's award score: his rating, lifted by his club's season. */
+  const score = (p: PlayerBio): number =>
+    avgRating(p) * (p.clubId ? multByTeam.get(p.clubId) ?? 1 : 1);
 
   // Candidates for the two save-wide legacy awards (v1.5): TOP-FLIGHT PLAYERS
   // ONLY. Every league still hands out its own honours, but the Legacy Player /
@@ -218,8 +336,11 @@ export function computeSeasonAccolades(state: GameState): SeasonAccolades {
 
     const block: SeasonAccolades["byLeague"][string] = {};
 
-    // Player of the Season — highest average rating (min apps).
-    const poty = best(rated, avgRating);
+    // Player of the Season — best award score (rating × team success), min apps.
+    // The displayed stat stays the raw average rating: that is the number the
+    // player recognises, and the weighting is a tie-breaker on WHO wins, not a
+    // figure to put on a card.
+    const poty = best(rated, score);
     if (poty) {
       award(poty, "playerOfSeason", season, leagueRef);
       block.playerOfSeason = toWinner(state, poty, Math.round(avgRating(poty) * 100) / 100);
@@ -227,7 +348,7 @@ export function computeSeasonAccolades(state: GameState): SeasonAccolades {
 
     // Young Player of the Season — highest-rated U21 (min apps).
     const yPool = rated.filter((p) => p.age <= YOUNG_MAX_AGE);
-    const ypoty = best(yPool, avgRating);
+    const ypoty = best(yPool, score);
     if (ypoty) {
       award(ypoty, "youngPlayerOfSeason", season, leagueRef);
       block.youngPlayerOfSeason = toWinner(state, ypoty, Math.round(avgRating(ypoty) * 100) / 100);
@@ -248,7 +369,7 @@ export function computeSeasonAccolades(state: GameState): SeasonAccolades {
     }
 
     // Golden Glove — highest-rated goalkeeper (min apps).
-    const glove = best(rated.filter((p) => p.positions[0] === "GK"), avgRating);
+    const glove = best(rated.filter((p) => p.positions[0] === "GK"), score);
     if (glove) {
       award(glove, "goldenGlove", season, leagueRef);
       block.goldenGlove = toWinner(state, glove, Math.round(avgRating(glove) * 100) / 100);
@@ -256,14 +377,14 @@ export function computeSeasonAccolades(state: GameState): SeasonAccolades {
 
     // Golden Wall — highest-rated centre-back (min apps). The keeper's award has
     // a defensive counterpart: the season's best CB by average rating.
-    const wall = best(rated.filter((p) => p.positions[0] === "CB"), avgRating);
+    const wall = best(rated.filter((p) => p.positions[0] === "CB"), score);
     if (wall) {
       award(wall, "goldenWall", season, leagueRef);
       block.goldenWall = toWinner(state, wall, Math.round(avgRating(wall) * 100) / 100);
     }
 
     // Team of the Season — the XI, position-capped.
-    const xi = pickTeamOfSeason(pool);
+    const xi = pickTeamOfSeason(pool, score);
     if (xi.length) {
       block.teamOfSeason = xi.map((p) => {
         const slot = posGroup(p.positions[0]);
@@ -278,13 +399,13 @@ export function computeSeasonAccolades(state: GameState): SeasonAccolades {
   // ── Save-wide legacy honours (top divisions only) ─────────────────────────
   const legacyRated = legacyPool.filter((p) => p.stats.apps >= MIN_APPS_FOR_RATING);
 
-  const legacyPoty = best(legacyRated, avgRating);
+  const legacyPoty = best(legacyRated, score);
   if (legacyPoty) {
     award(legacyPoty, "legacyPlayerOfSeason", season);
     result.legacyPlayerOfSeason = toWinner(state, legacyPoty, Math.round(avgRating(legacyPoty) * 100) / 100);
   }
 
-  const legacyXi = pickTeamOfSeason(legacyPool);
+  const legacyXi = pickTeamOfSeason(legacyPool, score);
   if (legacyXi.length) {
     result.legacyTeamOfSeason = legacyXi.map((p) => {
       const slot = posGroup(p.positions[0]);

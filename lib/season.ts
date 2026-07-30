@@ -112,14 +112,77 @@ export function computeForm(
 }
 
 // ── Cup (§4: one simple knockout cup) ────────────────────────────────────
-// 40 entrants: Round 1 trims 16 low-reputation clubs to 8, giving a clean
-// 32-team bracket from Round 2. Draws are random each round.
+// Every club in the playable country's pyramid enters, so the field is however
+// many clubs that pyramid holds: 20 for a single division, 40 for two tiers, 60
+// for three, 80 for the shipped four-tier English pyramid. The bracket is a
+// fixed six rounds, and the schedule can't grow one, so each round is sized to
+// hit the target that leaves the final as a one-match decider: after round N,
+// 2^(5−N) clubs remain (32 → 16 → 8 → 4 → 2 → 1). A round therefore stages
+// exactly as many ties as it needs to reach its target and BYES everyone else,
+// with the byes going to the highest-reputation clubs — a minnow plays its way
+// through, a giant enters later, which is how a real cup is seeded.
+//
+// This replaces a fixed "the 16 lowest-reputation clubs contest round one". That
+// arithmetic was written for a 40-club field (40 − 8 = 32) and silently broke
+// the cup on every other pyramid: a 60-club three-tier save arrived at the final
+// with two clubs still alive and an 80-club four-tier save with three, so
+// `winnerId` was never set and the season review showed no cup winner at all —
+// for every season of the save.
+
+/** How many clubs should still be standing after round `roundIndex` (0-based) of
+ * a six-round cup: 32, 16, 8, 4, 2, then 1. */
+export function cupTargetAfterRound(roundIndex: number, totalRounds: number): number {
+  return Math.pow(2, Math.max(0, totalRounds - 1 - roundIndex));
+}
+
+/**
+ * How many ties round `roundIndex` stages, given how many clubs are still alive.
+ *
+ * One tie eliminates exactly one club, so the count is the excess over this
+ * round's target — clamped to what the field can actually pair off (a round can
+ * never play more than ⌊alive/2⌋ ties). When the field is already at or below
+ * target the round still halves it rather than standing idle, which is what
+ * keeps a small pyramid moving toward a single winner.
+ */
+export function cupTiesForRound(alive: number, roundIndex: number, totalRounds: number): number {
+  const target = cupTargetAfterRound(roundIndex, totalRounds);
+  const maxTies = Math.floor(alive / 2);
+  if (alive <= target) return maxTies; // already lean — just halve
+  return Math.min(alive - target, maxTies);
+}
 
 export const CUP_ROUND_NAMES = ["First Round", "Second Round", "Third Round", "Quarter-Final", "Semi-Final", "Final"];
 
-export function initCup(teamIds: string[]): CupState {
+/** The largest field six knockout rounds can reduce to a single winner: each
+ * round can at best halve the field, so six rounds resolve 2^6 = 64. */
+export const CUP_MAX_ENTRANTS = 2 ** CUP_ROUND_NAMES.length; // 64
+
+/**
+ * The clubs that actually enter the cup, from every club in the playable pyramid.
+ *
+ * Six rounds can play down a field of at most 64 (each round halves at best), so
+ * a pyramid larger than that — the shipped four-tier English ladder is 80 clubs —
+ * enters its 64 highest-reputation clubs and the rest sit the competition out.
+ * That is a legible rule (the bottom of the pyramid doesn't reach the national
+ * cup) and it's what keeps the bracket resolvable: before this cap, an 80-club
+ * save reached the final with three clubs still alive and crowned nobody.
+ *
+ * `reputation` is the entry criterion, read once at season start, so the field is
+ * stable for the whole campaign.
+ */
+export function cupEntrants(teams: Record<string, { id: string; reputation: number }>, teamIds: string[]): string[] {
+  if (teamIds.length <= CUP_MAX_ENTRANTS) return teamIds.slice();
+  return teamIds
+    .slice()
+    .sort((a, b) => (teams[b]?.reputation ?? 0) - (teams[a]?.reputation ?? 0))
+    .slice(0, CUP_MAX_ENTRANTS);
+}
+
+export function initCup(teamIds: string[], teams?: Record<string, { id: string; reputation: number }>): CupState {
   return {
-    aliveTeamIds: teamIds.slice(),
+    // `teams` is optional only so a caller with no world to read (tests, and the
+    // pre-cap call sites) still works; without it the field is taken as given.
+    aliveTeamIds: teams ? cupEntrants(teams, teamIds) : teamIds.slice(),
     currentRound: 0,
     winnerId: null,
     roundNames: CUP_ROUND_NAMES,
@@ -134,17 +197,16 @@ export function drawCupRound(
 ): Fixture[] {
   const rng = mulberry32(deriveSeed(seed, `cupdraw:${state.season}:${roundIndex}`));
   const day = state.schedule.cupRoundDays[roundIndex];
-  let entrants: string[];
 
-  if (roundIndex === 0) {
-    // 16 lowest-reputation clubs contest round one; the rest get a bye
-    const sorted = state.cup.aliveTeamIds
-      .slice()
-      .sort((a, b) => state.teams[a].reputation - state.teams[b].reputation);
-    entrants = shuffle(rng, sorted.slice(0, 16));
-  } else {
-    entrants = shuffle(rng, state.cup.aliveTeamIds);
-  }
+  // Size this round to its bracket target: stage only as many ties as are needed
+  // to get there, and bye the rest. The clubs that play are the weakest ones, so
+  // the byes fall to the strongest — the giants enter the later rounds.
+  const alive = state.cup.aliveTeamIds;
+  const ties = cupTiesForRound(alive.length, roundIndex, state.schedule.cupRoundDays.length);
+  const weakestFirst = alive
+    .slice()
+    .sort((a, b) => (state.teams[a]?.reputation ?? 0) - (state.teams[b]?.reputation ?? 0));
+  const entrants = shuffle(rng, weakestFirst.slice(0, ties * 2));
 
   const fixtures: Fixture[] = [];
   for (let i = 0; i + 1 < entrants.length; i += 2) {
@@ -174,8 +236,17 @@ export function settleCupRound(state: GameState, roundIndex: number) {
   }
   state.cup.aliveTeamIds = state.cup.aliveTeamIds.filter((id) => !losers.has(id));
   state.cup.currentRound = roundIndex + 1;
-  if (roundIndex === state.schedule.cupRoundDays.length - 1 && state.cup.aliveTeamIds.length === 1) {
-    state.cup.winnerId = state.cup.aliveTeamIds[0];
+  // Same crowning rule as maybeSettleCup in lib/gameloop.ts: one club left, or
+  // the last round has been played. The two must never disagree about when the
+  // cup has a winner.
+  const lastRound = roundIndex === state.schedule.cupRoundDays.length - 1;
+  if (state.cup.aliveTeamIds.length === 1 || (lastRound && state.cup.aliveTeamIds.length > 0)) {
+    state.cup.winnerId =
+      state.cup.aliveTeamIds.length === 1
+        ? state.cup.aliveTeamIds[0]
+        : state.cup.aliveTeamIds
+            .slice()
+            .sort((a, b) => (state.teams[b]?.reputation ?? 0) - (state.teams[a]?.reputation ?? 0))[0];
   }
 }
 

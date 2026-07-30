@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useGame } from "@/store/gameStore";
-import type { PlayerBio, Pos } from "@/lib/types";
+import type { PlayerBio, Pos, SeasonSchedule } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
 import { ARCHETYPES, getArchetype } from "@/lib/config/archetypes";
 import { TRAITS } from "@/lib/config/traits";
@@ -20,7 +20,7 @@ import { ArchetypeIcon, Card, ConfirmButton, CountryFlag, Crest, displayFullName
 import ReleaseClauseField from "./ReleaseClauseField";
 import { LoanOfferModal, SellPlayerModal } from "./SquadMoveModals";
 
-type Tab = "search" | "offers" | "listed" | "shortlist" | "free" | "news";
+type Tab = "search" | "offers" | "listed" | "shortlist" | "free" | "news" | "bigmoney";
 
 export default function TransfersScreen() {
   const game = useGame((s) => s.game)!;
@@ -48,6 +48,7 @@ export default function TransfersScreen() {
           { id: "shortlist", label: "Shortlist", badge: shortlistCount },
           { id: "free", label: "Free Agents" },
           { id: "news", label: "Transfer News" },
+          { id: "bigmoney", label: "Big Money" },
         ]}
         active={tab}
         onChange={setTab}
@@ -58,6 +59,7 @@ export default function TransfersScreen() {
       {tab === "shortlist" && <ShortlistTab />}
       {tab === "free" && <FreeAgentsTab />}
       {tab === "news" && <TransferNewsTab />}
+      {tab === "bigmoney" && <BigMoneyTab />}
     </div>
   );
 }
@@ -1765,3 +1767,111 @@ function TransferNewsRow({
 
 /** Helper alias so the row can type its item without importing the array type. */
 type GameStateTransferNews = import("@/lib/types").GameState["transferNews"];
+
+// ── Big Money (v1.67): the window's record signings ─────────────────────────
+// The wire answers "what happened"; this answers "what was it worth". Same feed,
+// ranked by fee instead of recency, scoped to one transfer window.
+
+type WindowScope = "summer" | "winter" | "season" | "all";
+
+/** Which window a deal falls in, from the day it completed. The schedule's own
+ * boundaries are the authority, so this stays correct if the calendar moves.
+ * Deals outside both windows (free agents sign year-round) count as neither. */
+function windowOf(day: number, sched: SeasonSchedule): "summer" | "winter" | null {
+  if (day >= sched.seasonStartDay && day < sched.summerCloseDay) return "summer";
+  if (day >= sched.winterOpenDay && day < sched.winterCloseDay) return "winter";
+  return null;
+}
+
+function BigMoneyTab() {
+  const game = useGame((s) => s.game)!;
+  const viewPlayer = useGame((s) => s.viewPlayer);
+  // Default to whichever window is open right now; out of window, the manager is
+  // most likely looking back at the season just played.
+  const live = transferWindowState(game.currentDay, game.schedule);
+  const [scope, setScope] = useState<WindowScope>(
+    live.open ? (windowOf(game.currentDay, game.schedule) ?? "season") : "season"
+  );
+
+  const feed = game.transferNews ?? [];
+
+  const rows = useMemo(() => {
+    // Only paid deals rank — a free transfer has no fee to compare, and loans
+    // aren't a sale. Everything else is sorted by fee, biggest first.
+    const paid = feed.filter((n) => n.fee > 0 && n.kind !== "loan");
+    const scoped =
+      scope === "all"
+        ? paid
+        : paid.filter((n) => {
+            if (n.season !== game.season) return false;
+            if (scope === "season") return true;
+            return windowOf(n.day, game.schedule) === scope;
+          });
+    return [...scoped].sort((a, b) => b.fee - a.fee).slice(0, 50);
+  }, [feed, scope, game.season, game.schedule]);
+
+  const total = useMemo(() => rows.reduce((sum, n) => sum + n.fee, 0), [rows]);
+
+  const SCOPES: { id: WindowScope; label: string }[] = [
+    { id: "summer", label: "SUMMER" },
+    { id: "winter", label: "WINTER" },
+    { id: "season", label: "THIS SEASON" },
+    { id: "all", label: "ALL TIME" },
+  ];
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="display text-sm font-semibold">Big Money</div>
+          <div className="text-[11px] text-faint">
+            {rows.length === 0
+              ? "No paid deals yet"
+              : `Top ${rows.length} fee${rows.length === 1 ? "" : "s"} · ${formatMoney(total)} spent`}
+            {scope === "all" ? " · all seasons" : ` · ${seasonYearLabel(game.season)} season`}
+          </div>
+        </div>
+        <div className="flex overflow-hidden rounded-md border border-line">
+          {SCOPES.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => setScope(s.id)}
+              className={`display px-3 py-1 text-[11px] font-semibold transition-colors ${
+                scope === s.id ? "gold-grad text-black" : "text-faint hover:text-dim"
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <Card className="p-8 text-center text-sm text-faint">
+          <div className="display mb-2 text-lg text-dim">NO DEALS YET</div>
+          {scope === "all"
+            ? "No club has paid a fee for anyone yet. The biggest signings in the world land here."
+            : "No fees paid in this window yet. When clubs start spending, the record signings rank here."}
+        </Card>
+      ) : (
+        <Card className="divide-y divide-line/50">
+          {rows.map((n, i) => (
+            <div key={n.id} className="flex items-center gap-2">
+              {/* Rank — the top three carry the gold, the rest stay quiet. */}
+              <span
+                className={`display w-9 shrink-0 pl-3 text-right text-xs font-bold tnum ${
+                  i < 3 ? "gold-text" : "text-faint"
+                }`}
+              >
+                {i + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <TransferNewsRow n={n} onView={() => n.playerId && viewPlayer(n.playerId)} />
+              </div>
+            </div>
+          ))}
+        </Card>
+      )}
+    </div>
+  );
+}

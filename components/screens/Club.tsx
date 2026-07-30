@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useGame } from "@/store/gameStore";
 import { TUNING } from "@/lib/config/tuning";
 import {
+  byTier,
   weeklyBreakdown,
   facilityNextCost,
   wageBillItems,
@@ -271,7 +272,11 @@ function FinancesTab() {
     {
       label: "League position bonus",
       amount: b.positionBonus,
-      note: `Merit payment scaled by where you sit in the table, up to ${formatMoney(TUNING.positionBonusMax)}/wk for top spot.`,
+      // Quoted at THIS club's tier (v1.67) — the merit ceiling is per-division, so
+      // a flat figure would promise a third-tier side top-flight money.
+      note: `Merit payment scaled by where you sit in the table, up to ${formatMoney(
+        byTier(TUNING.positionBonusMaxByTier, league?.tier ?? 1)
+      )}/wk for top spot.`,
     },
     {
       label: "Matchday income",
@@ -1077,6 +1082,13 @@ function HistoryTab() {
                 <div className="grid grid-cols-1 gap-1 text-[13px] text-dim sm:grid-cols-2">
                   <div>🏆 {s.championsByLeague[topDivId]?.teamName ?? "—"}</div>
                   <div>🏅 Cup: {s.cupWinner?.teamName ?? "—"}</div>
+                  {/* The top continental champion (v1.67) — the season's biggest
+                      trophy after the league, so it belongs on the summary line. */}
+                  {s.europeanWinners?.[0] && (
+                    <div>
+                      ⭐ {s.europeanWinners[0].cupName}: {s.europeanWinners[0].teamName}
+                    </div>
+                  )}
                   {s.playerOfSeason && <div>Player of the Season: {s.playerOfSeason.name}</div>}
                   {s.topScorers[topDivId] && (
                     <div>

@@ -102,6 +102,19 @@ export function buildSeasonSummary(state: GameState): SeasonSummary {
     cupWinner: state.cup.winnerId
       ? { teamId: state.cup.winnerId, teamName: state.teams[state.cup.winnerId].name }
       : null,
+    // Continental champions (v1.67). Captured here because the rollover rebuilds
+    // `state.european` for the next campaign a few steps later — read it now or
+    // the season's European winners are gone for good, which is why the review
+    // showed nothing for them season after season.
+    europeanWinners: (state.european?.cups ?? [])
+      .filter((c) => c.winnerId && state.teams[c.winnerId])
+      .sort((a, b) => a.tier - b.tier)
+      .map((c) => ({
+        tier: c.tier,
+        cupName: c.name,
+        teamId: c.winnerId!,
+        teamName: state.teams[c.winnerId!].name,
+      })),
     finalTables,
     topScorers,
     playerOfSeason: poty

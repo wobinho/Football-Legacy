@@ -14,6 +14,7 @@ import type {
   ProspectTier,
   Scout,
   ScoutAssignment,
+  ScoutFilter,
   ScoutPosGroup,
   ScoutRegion,
   Team,
@@ -44,8 +45,10 @@ import {
   rollReportSize,
   rollTierQuality,
   scoutById,
+  tierChance,
   tierRank,
   userScouts,
+  TIER_LABEL,
 } from "./scouts";
 
 /** What each position brief may return. Broad groups roll across their whole
@@ -1142,7 +1145,8 @@ export function addScoutAssignment(
   cfg: TuningConfig,
   archetypes: string[] = [],
   scoutId?: string,
-  durationMonths?: number
+  durationMonths?: number,
+  filter?: ScoutFilter
 ): string | null {
   const ac = state.academy;
   if (!hasScout(state)) return "Hire a scout in Academy → Scouting → Personnel before sending one out.";
@@ -1169,8 +1173,55 @@ export function addScoutAssignment(
     nextReportDay: state.currentDay + 7 + Math.round(reportCadence(state, cfg, scout) * 0.4),
     durationMonths: months,
     endsDay: months ? state.currentDay + months * DAYS_PER_MONTH : undefined,
+    filter: normalizeFilter(cfg, filter),
   });
   return null;
+}
+
+/**
+ * Clean a filter into something the generator can actually satisfy (v1.67):
+ * bounds clamped into the ranges the roller draws from, inverted bounds swapped,
+ * tiers migrated and de-duplicated, and a no-op filter reduced to `undefined` so
+ * every downstream `filterIsActive` check reads it the same way.
+ *
+ * The clamp matters: a brief asking for a 20-year-old would otherwise never
+ * match, because scouted prospects are generated at 15–18 by design.
+ */
+export function normalizeFilter(cfg: TuningConfig, f: ScoutFilter | undefined): ScoutFilter | undefined {
+  if (!f) return undefined;
+  const clamp = (n: number | undefined, lo: number, hi: number) =>
+    n === undefined ? undefined : Math.max(lo, Math.min(hi, Math.round(n)));
+
+  let minAge = clamp(f.minAge, cfg.scoutProspectAgeMin, cfg.scoutProspectAgeMax);
+  let maxAge = clamp(f.maxAge, cfg.scoutProspectAgeMin, cfg.scoutProspectAgeMax);
+  if (minAge !== undefined && maxAge !== undefined && minAge > maxAge) [minAge, maxAge] = [maxAge, minAge];
+
+  // Ability is clamped to the widest band any tier can produce, so a brief can't
+  // ask for an overall no scouted 15–18-year-old ever arrives at.
+  const bands = cfg.prospectTierOrder.map((t) => cfg.prospectTierBands[t]?.overall ?? [0, 100]);
+  const ovrFloor = Math.min(...bands.map((b) => b[0]));
+  const ovrCeil = Math.max(...bands.map((b) => b[1]));
+  let minOverall = clamp(f.minOverall, ovrFloor, ovrCeil);
+  let maxOverall = clamp(f.maxOverall, ovrFloor, ovrCeil);
+  if (minOverall !== undefined && maxOverall !== undefined && minOverall > maxOverall) {
+    [minOverall, maxOverall] = [maxOverall, minOverall];
+  }
+
+  const known = new Set(cfg.prospectTierOrder.map((t) => migrateProspectTier(t)));
+  const tiers = Array.from(
+    new Set((f.tiers ?? []).map((t) => migrateProspectTier(t)).filter((t): t is ProspectTier => !!t && known.has(t)))
+  );
+
+  const out: ScoutFilter = {
+    minAge,
+    maxAge,
+    minOverall,
+    maxOverall,
+    // A list covering the whole ladder is no restriction — drop it so the brief
+    // reads as unfiltered rather than filtered-to-everything.
+    tiers: tiers.length && tiers.length < cfg.prospectTierOrder.length ? tiers : undefined,
+  };
+  return filterIsActive(cfg, out) ? out : undefined;
 }
 
 /** Calendar days a scouting "month" stands for (v25). Assignment durations are
@@ -1252,6 +1303,109 @@ function briefTarget(a: ScoutAssignment, rng: RNG): { pos: Pos; archetypeId?: st
   return { pos, archetypeId: arch.id };
 }
 
+// ── The brief's auto-filter (v1.67) ───────────────────────────────────────
+// A brief may name the age band, the ability band and the rarity tiers it will
+// accept. The scout still works at its normal cadence and batch size; finds that
+// miss the brief are simply never filed, so the board holds only prospects the
+// manager asked for. The engine tests clauses off the filter object — it never
+// branches on a tier by name, so adding a rung to the ladder needs no change
+// here.
+
+/** Is this filter actually restricting anything? An empty object (or a tier list
+ * covering the whole ladder) is treated as "no filter", which keeps the
+ * yield-estimate and the UI copy honest. */
+export function filterIsActive(cfg: TuningConfig, f: ScoutFilter | undefined): boolean {
+  if (!f) return false;
+  if (f.minAge !== undefined || f.maxAge !== undefined) return true;
+  if (f.minOverall !== undefined || f.maxOverall !== undefined) return true;
+  return !!f.tiers?.length && f.tiers.length < cfg.prospectTierOrder.length;
+}
+
+/** Does a rolled find satisfy the brief? Unset clauses pass. Tiers compare
+ * post-migration, so a brief saved with the retired `platinum` badge still
+ * matches a diamond find. */
+export function prospectMatchesFilter(
+  f: ScoutFilter | undefined,
+  candidate: { age: number; overall: number; tier?: ProspectTier }
+): boolean {
+  if (!f) return true;
+  if (f.minAge !== undefined && candidate.age < f.minAge) return false;
+  if (f.maxAge !== undefined && candidate.age > f.maxAge) return false;
+  if (f.minOverall !== undefined && candidate.overall < f.minOverall) return false;
+  if (f.maxOverall !== undefined && candidate.overall > f.maxOverall) return false;
+  if (f.tiers?.length) {
+    const want = new Set(f.tiers.map((t) => migrateProspectTier(t)));
+    if (!want.has(migrateProspectTier(candidate.tier))) return false;
+  }
+  return true;
+}
+
+/** One-line prose summary of a brief's filter, for the inbox and the assignment
+ * card. Empty string when nothing is set, so callers can `|| "no filter"`. */
+export function describeFilter(f: ScoutFilter | undefined): string {
+  if (!f) return "";
+  const parts: string[] = [];
+  if (f.minAge !== undefined && f.maxAge !== undefined) parts.push(`age ${f.minAge}–${f.maxAge}`);
+  else if (f.minAge !== undefined) parts.push(`age ${f.minAge}+`);
+  else if (f.maxAge !== undefined) parts.push(`age up to ${f.maxAge}`);
+  if (f.minOverall !== undefined && f.maxOverall !== undefined) parts.push(`${f.minOverall}–${f.maxOverall} ovr`);
+  else if (f.minOverall !== undefined) parts.push(`${f.minOverall}+ ovr`);
+  else if (f.maxOverall !== undefined) parts.push(`up to ${f.maxOverall} ovr`);
+  if (f.tiers?.length) {
+    parts.push(f.tiers.map((t) => TIER_LABEL[t] ?? t).join(" / "));
+  }
+  return parts.length ? `Brief: ${parts.join(", ")}` : "";
+}
+
+/** How many rolls the generator may burn looking for one find that fits the
+ * brief. A hard ceiling, because a filter can be narrow enough that nothing in
+ * the region satisfies it — the batch then comes back short (or empty) rather
+ * than the tick hanging. */
+const FILTER_MAX_ROLLS = 24;
+
+/**
+ * The share of rolls a filter is expected to pass, for the UI's yield estimate.
+ *
+ * Age and overall are read off the tuning bands rather than measured: age is
+ * uniform over [scoutProspectAgeMin, scoutProspectAgeMax], and a tier's overall
+ * is uniform over that tier's band, so the overlap of the brief's window with
+ * each band is that band's pass rate. Weighting those by the scout's own tier
+ * distribution gives the joint probability — which is exactly what the manager
+ * needs to see before committing a scout to a narrow brief.
+ *
+ * An ESTIMATE, deliberately: the generator fits attributes to the band's target
+ * overall and can land a point or two either side, so a brief whose ability floor
+ * sits right on a band edge passes slightly less often than this predicts. Close
+ * enough to size a brief by, which is all it's for.
+ */
+export function filterPassRate(cfg: TuningConfig, judgement: number, f: ScoutFilter | undefined): number {
+  if (!filterIsActive(cfg, f)) return 1;
+  const filter = f!;
+
+  // Age: uniform over the integer range the generator draws from.
+  const ageLo = Math.max(cfg.scoutProspectAgeMin, filter.minAge ?? cfg.scoutProspectAgeMin);
+  const ageHi = Math.min(cfg.scoutProspectAgeMax, filter.maxAge ?? cfg.scoutProspectAgeMax);
+  const ageSpan = cfg.scoutProspectAgeMax - cfg.scoutProspectAgeMin + 1;
+  const agePass = Math.max(0, ageHi - ageLo + 1) / Math.max(1, ageSpan);
+  if (agePass <= 0) return 0;
+
+  const want = filter.tiers?.length ? new Set(filter.tiers.map((t) => migrateProspectTier(t))) : null;
+  let rate = 0;
+  for (const tier of cfg.prospectTierOrder) {
+    if (want && !want.has(migrateProspectTier(tier))) continue;
+    const tierP = tierChance(cfg, judgement, tier);
+    if (tierP <= 0) continue;
+    // Overall overlap within this tier's band, treated as uniform.
+    const band = cfg.prospectTierBands[migrateProspectTier(tier)!] ?? cfg.prospectTierBands.bronze;
+    const [bLo, bHi] = band.overall;
+    const lo = Math.max(bLo, filter.minOverall ?? bLo);
+    const hi = Math.min(bHi, filter.maxOverall ?? bHi);
+    const ovrPass = Math.max(0, hi - lo + 1) / Math.max(1, bHi - bLo + 1);
+    rate += tierP * ovrPass;
+  }
+  return Math.max(0, Math.min(1, rate * agePass));
+}
+
 /** How many prospects a scout brings back in one report (v14). Driven by the
  * scout's EXPERIENCE through the tuning distribution — a 1★ scout files one or
  * two names, a 5★ scout a three-man shortlist about half the time. Sampled per
@@ -1271,17 +1425,39 @@ function generateScoutReport(
   rng: RNG,
   batch: number,
   scout: Scout
-): ProspectReport {
+): ProspectReport | null {
   const { pos, archetypeId } = briefTarget(a, rng);
   const nat = pick(rng, regionNats(a.region));
-  const age = randInt(rng, cfg.scoutProspectAgeMin, cfg.scoutProspectAgeMax);
-  const tier = rollProspectTier(rng, cfg, scout.judgement);
-  const band = rollTierQuality(rng, cfg, tier);
-  // Elite finds are generational, so they take the prodigy path through worldgen
-  // (see isEliteTier).
-  const prodigy = isEliteTier(cfg, tier);
-  const p = freshId(generatePlayer(rng, cfg, { pos, overall: band.overall, nat, age, prodigy, archetypeId }));
-  p.potential = Math.round(Math.min(cfg.potentialAbsoluteCap, Math.max(p.overall + 3, band.potential)));
+
+  // The brief's auto-filter (v1.67). The candidate is rolled, BUILT, and only then
+  // tested — the filter has to see the finished player, because `generatePlayer`
+  // treats the band's overall as a target and the attribute fit can land a point
+  // or two either side of it. Testing the requested band instead let a 52-overall
+  // prospect through a "62+" brief. A find that can't be made to fit within the
+  // roll ceiling is dropped: the scout files nothing on it.
+  let p: PlayerBio | null = null;
+  let tier: ProspectTier = cfg.prospectTierOrder[0];
+  const rolls = filterIsActive(cfg, a.filter) ? FILTER_MAX_ROLLS : 1;
+  for (let attempt = 0; attempt < rolls; attempt++) {
+    const age = randInt(rng, cfg.scoutProspectAgeMin, cfg.scoutProspectAgeMax);
+    const rolledTier = rollProspectTier(rng, cfg, scout.judgement);
+    const band = rollTierQuality(rng, cfg, rolledTier);
+    // Elite finds are generational, so they take the prodigy path through worldgen
+    // (see isEliteTier).
+    const prodigy = isEliteTier(cfg, rolledTier);
+    const candidate = freshId(
+      generatePlayer(rng, cfg, { pos, overall: band.overall, nat, age, prodigy, archetypeId })
+    );
+    candidate.potential = Math.round(
+      Math.min(cfg.potentialAbsoluteCap, Math.max(candidate.overall + 3, band.potential))
+    );
+    if (prospectMatchesFilter(a.filter, { age: candidate.age, overall: candidate.overall, tier: rolledTier })) {
+      p = candidate;
+      tier = rolledTier;
+      break;
+    }
+  }
+  if (!p) return null;
   p.value = playerValue(p, cfg);
   return {
     id: uid("rep"),
@@ -1332,13 +1508,32 @@ export function dailyScoutTick(state: GameState, cfg: TuningConfig) {
     const count = prospectsPerReport(rng, cfg, scout);
     const found: ProspectReport[] = [];
     for (let i = 0; i < count; i++) {
+      // Null = the brief's filter rejected everything this roll turned up. The
+      // slot goes unfilled rather than being filled with something the manager
+      // asked not to see (v1.67).
       const report = generateScoutReport(state, cfg, a, rng, batch, scout);
+      if (!report) continue;
       ac.reports.push(report);
       found.push(report);
     }
     a.nextReportDay = state.currentDay + reportCadence(state, cfg, scout) + randInt(rng, -3, 4);
 
     const regionLabel = a.region;
+    // A filtered brief that turned up nothing this cycle still reports in — a
+    // silent scout reads as a broken pipeline, and the manager needs to know the
+    // brief is too narrow rather than guess at it (v1.67).
+    if (!found.length) {
+      a.emptyReports = (a.emptyReports ?? 0) + 1;
+      pushInbox(
+        state,
+        "scout",
+        `${scout.name}: nothing to report from ${regionLabel}`,
+        `${scout.name} has worked ${regionLabel} for another cycle and found nobody matching the brief. ` +
+          `${describeFilter(a.filter) || "The brief is wide open"} — if that's too tight for this region, recall them and send them out on a looser one.`
+      );
+      continue;
+    }
+    a.emptyReports = 0;
     const tierName = (r: ProspectReport) => (r.tier ? r.tier.toUpperCase() : "");
     const lines = found
       .map(

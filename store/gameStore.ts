@@ -84,7 +84,7 @@ import {
   type OfferVerdict,
 } from "@/lib/contracts";
 import { signGraduate, releaseGraduate } from "@/lib/academy";
-import type { ScoutPosGroup, ScoutRegion } from "@/lib/types";
+import type { ScoutFilter, ScoutPosGroup, ScoutRegion } from "@/lib/types";
 import {
   loadLibrary,
   persistLibrary,
@@ -289,7 +289,7 @@ interface GameStore {
   academyToggleLoan: (playerId: string) => void;
   academySendLoan: (playerId: string, clubId: string) => void;
   academyRecall: (playerId: string) => void;
-  academyAddScout: (region: ScoutRegion, positions: ScoutPosGroup, archetypes?: string[], scoutId?: string, durationMonths?: number) => void;
+  academyAddScout: (region: ScoutRegion, positions: ScoutPosGroup, archetypes?: string[], scoutId?: string, durationMonths?: number, filter?: ScoutFilter) => void;
   academyUpdateScout: (id: string, patch: { region?: ScoutRegion; positions?: ScoutPosGroup; archetypes?: string[] }) => void;
   academyRemoveScout: (id: string) => void;
   academySign: (reportId: string) => void;
@@ -1360,10 +1360,10 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
-  academyAddScout: (region, positions, archetypes = [], scoutId, durationMonths) => {
+  academyAddScout: (region, positions, archetypes = [], scoutId, durationMonths, filter) => {
     const g = get().game;
     if (!g) return;
-    const err = addScoutAssignment(g, region, positions, TUNING, archetypes, scoutId, durationMonths);
+    const err = addScoutAssignment(g, region, positions, TUNING, archetypes, scoutId, durationMonths, filter);
     if (err) get().showToast(err);
     get().bump(true);
   },

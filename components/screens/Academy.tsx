@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
-import type { Pos, PlayerBio, ScoutPosGroup, ScoutRegion, U21Opponent } from "@/lib/types";
+import type { Pos, PlayerBio, ProspectTier, ScoutPosGroup, ScoutRegion, U21Opponent } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
 import { ARCHETYPES, getArchetype } from "@/lib/config/archetypes";
 import {
@@ -20,6 +20,10 @@ import {
   pendingGraduates,
   potentialView,
   reportCadence,
+  describeFilter,
+  filterIsActive,
+  filterPassRate,
+  normalizeFilter,
   scoutCapacity,
   u21Eligible,
   u21OpponentByName,
@@ -2003,6 +2007,13 @@ const POS_OPTIONS: { id: ScoutPosGroup; label: string; group?: string }[] = [
   })),
 ];
 
+/** The ability window a scouted find can actually land in — the union of every
+ * prospect tier's overall band. The auto-filter's slider runs across this, so it
+ * can never be set to a number no 15–18-year-old prospect is ever generated at.
+ * Derived from tuning rather than written down, so a band change carries. */
+const OVR_FLOOR = Math.min(...TUNING.prospectTierOrder.map((t) => TUNING.prospectTierBands[t].overall[0]));
+const OVR_CEIL = Math.max(...TUNING.prospectTierOrder.map((t) => TUNING.prospectTierBands[t].overall[1]));
+
 /** Shared pill-button styling for the scouting selectors (region + duration). */
 const chipClass = (active: boolean) =>
   `rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors ${
@@ -2444,6 +2455,24 @@ function ScoutOperationsPane() {
                           )}
                         </div>
 
+                        {/* The auto-filter this scout is working to (v1.67), plus
+                            a warning when it has been silencing them — a filtered
+                            brief that files nothing looks identical to a broken
+                            pipeline otherwise. */}
+                        {filterIsActive(TUNING, a.filter) && (
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+                            <span className="display rounded-sm border border-line px-1 text-[9px] font-semibold text-dim">
+                              FILTERED
+                            </span>
+                            <span className="text-faint">{describeFilter(a.filter).replace(/^Brief: /, "")}</span>
+                            {(a.emptyReports ?? 0) >= 2 && (
+                              <span className="text-danger" title="This brief keeps coming back empty">
+                                · {a.emptyReports} blank cycles
+                              </span>
+                            )}
+                          </div>
+                        )}
+
                         {/* The trip's timeline. "next report ~15d" as bare text
                             gave no sense of movement; the bar fills as the cycle
                             runs down, so an assignment about to file reads
@@ -2751,6 +2780,14 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
   // Trip length (v25): 0 = open-ended (stay out until recalled), otherwise the
   // scout files reports for this many months then comes home automatically.
   const [durationMonths, setDurationMonths] = useState<number>(3);
+  // Auto-filter (v1.67): the brief's own acceptance criteria. A scout only files
+  // finds that clear these, so the board holds nothing the manager didn't ask
+  // for. All three clauses are optional and off by default.
+  const [filterOn, setFilterOn] = useState(false);
+  const [minAge, setMinAge] = useState(TUNING.scoutProspectAgeMin);
+  const [maxAge, setMaxAge] = useState(TUNING.scoutProspectAgeMax);
+  const [minOverall, setMinOverall] = useState(OVR_FLOOR);
+  const [tiers, setTiers] = useState<ProspectTier[]>([]);
   const DURATION_OPTIONS: { months: number; label: string }[] = [
     { months: 1, label: "1 month" },
     { months: 3, label: "3 months" },
@@ -2768,8 +2805,28 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
   const toggleArch = (id: string) =>
     setArchetypes((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
 
+  // The brief as the engine will store it — normalised here so the yield estimate
+  // below is computed on exactly the filter the scout is sent with, not on the
+  // raw slider values.
+  const filter = filterOn
+    ? normalizeFilter(TUNING, {
+        minAge,
+        maxAge,
+        // The floor is the "no ability filter" position of the slider.
+        minOverall: minOverall > OVR_FLOOR ? minOverall : undefined,
+        tiers: tiers.length ? tiers : undefined,
+      })
+    : undefined;
+
+  const chosenScout = free.find((s) => s.id === scoutId);
+  const passRate = filterPassRate(TUNING, chosenScout?.judgement ?? 1, filter);
+  const perReport = chosenScout ? expectedReportSize(TUNING, chosenScout.experience) * passRate : 0;
+
+  const toggleTier = (t: ProspectTier) =>
+    setTiers((cur) => (cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t]));
+
   const confirm = () => {
-    addScout(region, positions, selected, scoutId || undefined, durationMonths);
+    addScout(region, positions, selected, scoutId || undefined, durationMonths, filter);
     onClose();
   };
 
@@ -2860,6 +2917,156 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
           </p>
         </div>
 
+        {/* Auto-filter (v1.67): acceptance criteria on the brief itself. The scout
+            works its normal cadence either way — a narrow brief buys quality with
+            volume, which is why the expected yield is shown right here. */}
+        <div className="rounded-md border border-line bg-raised/50 p-3">
+          <button
+            onClick={() => setFilterOn((v) => !v)}
+            className="flex w-full items-center justify-between gap-2 text-left"
+          >
+            <span>
+              <span className="text-[10px] uppercase tracking-widest text-faint">Auto-filter</span>
+              <span className="mt-0.5 block text-[11px] leading-snug text-dim">
+                Only accept reports matching an age, ability and rarity brief.
+              </span>
+            </span>
+            <span
+              className={`display shrink-0 rounded-sm border px-2 py-0.5 text-[10px] font-bold ${
+                filterOn ? "border-gold bg-hover text-gold" : "border-line text-faint"
+              }`}
+            >
+              {filterOn ? "ON" : "OFF"}
+            </span>
+          </button>
+
+          {filterOn && (
+            <div className="mt-3 space-y-3 border-t border-line/60 pt-3">
+              {/* Age. Prospects are generated inside the tuning band, so the
+                  inputs are bounded by it — an out-of-band age would silence the
+                  scout for good. */}
+              <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-[10px] uppercase tracking-widest text-faint">Age</span>
+                  <span className="tnum text-[11px] text-dim">
+                    {minAge}–{maxAge}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {Array.from(
+                    { length: TUNING.scoutProspectAgeMax - TUNING.scoutProspectAgeMin + 1 },
+                    (_, i) => TUNING.scoutProspectAgeMin + i
+                  ).map((age) => {
+                    const on = age >= minAge && age <= maxAge;
+                    return (
+                      <button
+                        key={age}
+                        onClick={() => {
+                          // Click inside the band to narrow to it; outside to extend.
+                          if (age < minAge) setMinAge(age);
+                          else if (age > maxAge) setMaxAge(age);
+                          else if (age === minAge && age === maxAge) {
+                            setMinAge(TUNING.scoutProspectAgeMin);
+                            setMaxAge(TUNING.scoutProspectAgeMax);
+                          } else {
+                            setMinAge(age);
+                            setMaxAge(age);
+                          }
+                        }}
+                        className={`tnum ${chipClass(on)}`}
+                      >
+                        {age}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Minimum ability. A ceiling isn't offered: nobody briefs a scout
+                  to bring back only the weaker kid. */}
+              <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-[10px] uppercase tracking-widest text-faint">Minimum overall</span>
+                  <span className="tnum text-[11px] text-dim">
+                    {minOverall > OVR_FLOOR ? `${minOverall}+` : "any"}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={OVR_FLOOR}
+                  max={OVR_CEIL}
+                  value={minOverall}
+                  onChange={(e) => setMinOverall(Number(e.target.value))}
+                  className="w-full accent-[color:var(--color-gold-lo)]"
+                />
+                <p className="mt-1 text-[11px] leading-snug text-faint">
+                  A scouted prospect arrives raw — the whole band is {OVR_FLOOR}–{OVR_CEIL}. Set this high and only the
+                  rarer tiers can clear it.
+                </p>
+              </div>
+
+              {/* Rarity tiers. Table-driven off the tuning ladder, so a new rung
+                  appears here without a code change. */}
+              <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-[10px] uppercase tracking-widest text-faint">Rarity tier</span>
+                  {tiers.length > 0 && (
+                    <button onClick={() => setTiers([])} className="text-[11px] text-faint hover:text-dim">
+                      Any
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {TUNING.prospectTierOrder.map((t) => {
+                    const on = tiers.includes(t);
+                    return (
+                      <button
+                        key={t}
+                        onClick={() => toggleTier(t)}
+                        className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                          on ? "bg-hover" : "border-line bg-raised text-dim hover:border-faint hover:text-ink"
+                        }`}
+                        style={on ? { borderColor: TIER_COLOR[t], color: TIER_COLOR[t] } : undefined}
+                      >
+                        {TIER_LABEL[t]}
+                        <span className="ml-1.5 text-[10px] text-faint">
+                          {tierPct(tierChance(TUNING, chosenScout?.judgement ?? 1, t))}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-1 text-[11px] leading-snug text-faint">
+                  Percentages are this scout&apos;s own chance of turning up each tier. Leave all off to accept any.
+                </p>
+              </div>
+
+              {/* What the brief actually costs, in the only currency that matters
+                  here: how many names come back. */}
+              <div
+                className={`rounded border px-2.5 py-2 text-[11px] leading-snug ${
+                  perReport < 0.35 ? "border-danger/50 text-danger" : "border-line/60 text-dim"
+                }`}
+              >
+                {!filterIsActive(TUNING, filter) ? (
+                  <>Nothing set — the scout will file everything they find.</>
+                ) : perReport < 0.05 ? (
+                  <>
+                    <b>This brief is too narrow.</b> Effectively nothing your scout finds will clear it — loosen the
+                    ability floor or accept more tiers.
+                  </>
+                ) : (
+                  <>
+                    Expected yield <b className="tnum">~{perReport.toFixed(2)}</b> prospect
+                    {perReport === 1 ? "" : "s"} per report ({Math.round(passRate * 100)}% of what they see clears the
+                    brief). Reports still arrive on the same cadence — the ones that miss simply aren&apos;t filed.
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
         <div>
           <div className="mb-1 flex items-center justify-between">
             <span className="text-[10px] uppercase tracking-widest text-faint">Player type (optional)</span>
@@ -2904,8 +3111,11 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="flex items-center justify-between border-t border-line/60 pt-3">
-          <span className="text-[11px] text-faint">
-            {selected.length > 0 ? `${selected.length} archetype${selected.length === 1 ? "" : "s"} briefed` : "No player-type filter"}
+          <span className="min-w-0 flex-1 truncate text-[11px] text-faint">
+            {describeFilter(filter) ||
+              (selected.length > 0
+                ? `${selected.length} archetype${selected.length === 1 ? "" : "s"} briefed`
+                : "No filter — anything goes")}
           </span>
           <span className="flex items-center gap-2">
             <GhostButton onClick={onClose} className="!px-3 !py-1.5 text-xs">

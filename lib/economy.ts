@@ -15,6 +15,10 @@ export interface WeeklyBreakdown {
   gateIncome: number;
   facilityIncome: number; // stadium + commercial + media + hospitality + retail
   sponsorIncome: number; // season-long sponsorship deals (v6, user club only)
+  /** Everything a club pays for that isn't a wage (v1.67) — the ground, the staff
+   * below the first team, travel, insurance. AI clubs only: the user's equivalent
+   * costs are the facility upkeep and staff wages they choose to take on. */
+  operatingCost: number;
   /** Central solidarity payment (v1.64) — the flat weekly top-up every club
    * outside the manager's control receives. Always 0 for the user's own club. */
   solidarityIncome: number;
@@ -76,19 +80,39 @@ export function drawsAiSubsidy(state: GameState, teamId: string): boolean {
   return !team.gcnOwned || !!team.gcnRingFenced;
 }
 
+/**
+ * Read a per-tier tuning array at a club's tier, CLAMPED to the array's range.
+ *
+ * Clamping (rather than a fixed fallback index) is the whole point: a pyramid
+ * deeper than the array must pay its lowest division at the array's lowest rate.
+ * The old code fell back to index 1 — the second tier's figure — so tiers 3 and 4
+ * drew second-tier money while paying a fifth of second-tier wages.
+ */
+export function byTier(table: number[], tier: number): number {
+  if (!table.length) return 0;
+  return table[Math.max(0, Math.min(table.length - 1, Math.round(tier) - 1))];
+}
+
 export function weeklyBreakdown(state: GameState, teamId: string, cfg: TuningConfig): WeeklyBreakdown {
   const team = state.teams[teamId];
   const league = state.leagues[team.leagueId];
   const playable = league?.playable ?? false;
 
-  const tvIncome = cfg.weeklyIncomeByTier[(league?.tier ?? 2) - 1] ?? cfg.weeklyIncomeByTier[1];
+  // Every income line is read at the club's own tier (v1.67). `byTier` clamps to
+  // the last entry rather than falling through to a fixed index, so a pyramid
+  // deeper than the arrays pays its bottom division at the bottom rate — never at
+  // a higher division's, which is the bug that made lower-league clubs rich.
+  const tier = league?.tier ?? 2;
+  const tvIncome = byTier(cfg.weeklyIncomeByTier, tier);
   let positionBonus = 0;
   if (playable) {
     const table = computeTable(state.fixtures, league.id, league.teamIds);
     const pos = table.findIndex((r) => r.teamId === teamId);
-    if (pos >= 0) positionBonus = Math.round(cfg.positionBonusMax * (1 - pos / (table.length - 1)));
+    if (pos >= 0) {
+      positionBonus = Math.round(byTier(cfg.positionBonusMaxByTier, tier) * (1 - pos / Math.max(1, table.length - 1)));
+    }
   }
-  const gateIncome = Math.round(team.reputation * cfg.gateIncomePerReputation);
+  const gateIncome = Math.round(team.reputation * byTier(cfg.gateIncomePerReputationByTier, tier));
   const facilities = facilityIncome(state, teamId, cfg);
   // v19: AI clubs earn commercial money too — sponsorWeeklyIncome resolves to
   // their abstract portfolio figure. Their budgets have to be funded by
@@ -102,6 +126,13 @@ export function weeklyBreakdown(state: GameState, teamId: string, cfg: TuningCon
   // so AI clubs' academy wage bill is zero — their youth costs are abstracted.
   const academyWages = teamId === state.userTeamId ? academyWageBill(state, teamId, cfg) : 0;
   const solidarityIncome = drawsAiSubsidy(state, teamId) ? cfg.aiWeeklySubsidy : 0;
+  // Non-wage running costs (v1.67). Charged to AI clubs only: the user pays their
+  // own version of this explicitly through facility upkeep and the staff they
+  // hire, and charging both would be double-counting.
+  const operatingCost =
+    teamId === state.userTeamId
+      ? 0
+      : Math.round(team.reputation * byTier(cfg.aiOperatingCostPerReputationByTier, tier));
 
   return {
     tvIncome,
@@ -110,13 +141,14 @@ export function weeklyBreakdown(state: GameState, teamId: string, cfg: TuningCon
     facilityIncome: facilities,
     sponsorIncome,
     solidarityIncome,
+    operatingCost,
     wageBill,
     staffWages,
     academyUpkeep,
     academyWages,
     net:
       tvIncome + positionBonus + gateIncome + facilities + sponsorIncome + solidarityIncome
-      - wageBill - staffWages - academyUpkeep - academyWages,
+      - wageBill - staffWages - academyUpkeep - academyWages - operatingCost,
   };
 }
 
@@ -483,11 +515,49 @@ export function weeklyEconomyTick(state: GameState, cfg: TuningConfig) {
         const b = weeklyBreakdown(state, teamId, cfg);
         state.teams[teamId].budget += b.net;
       }
-    } else if (cfg.aiWeeklySubsidy > 0) {
+    } else {
+      // Sim-league clubs keep no full weekly books — their finances are abstracted
+      // — but they do take the solidarity payment and, since v1.67, carry their
+      // running costs, so the world outside the playable pyramid neither starves
+      // nor compounds cash it can't spend.
       for (const teamId of league.teamIds) {
-        if (drawsAiSubsidy(state, teamId)) state.teams[teamId].budget += cfg.aiWeeklySubsidy;
+        if (!drawsAiSubsidy(state, teamId)) continue;
+        const team = state.teams[teamId];
+        const cost = Math.round(team.reputation * byTier(cfg.aiOperatingCostPerReputationByTier, league.tier));
+        team.budget += cfg.aiWeeklySubsidy - cost;
       }
     }
+  }
+}
+
+/**
+ * Write off the surplus an AI club is sitting on as reinvestment in the club
+ * (v1.67). Run once per season at the rollover, for every club the manager
+ * doesn't control.
+ *
+ * Why this exists: an AI club's only outgoings were wages and transfer fees, so
+ * every club banked its whole surplus season after season and budgets compounded
+ * without limit — the third-division side holding £400M+ that nothing in the sim
+ * could ever spend down. Real clubs put money back into the ground, the training
+ * base and the youth setup, and this is that, modelled as a proportional
+ * write-off rather than a hundred individual line items.
+ *
+ * It is deliberately mean-reverting, not punitive: only the excess over a floor
+ * of `aiSurplusFloorWageYears` years of the club's OWN wage bill is touched, and
+ * only a fraction of that. A big club stays rich, a small one stays solvent, and
+ * neither can compound forever. The user's club is never touched — their balance
+ * is the consequence of their own decisions.
+ */
+export function applyAiSurplusReinvestment(state: GameState, cfg: TuningConfig) {
+  if (cfg.aiSurplusReinvestRate <= 0) return;
+  for (const team of Object.values(state.teams)) {
+    if (!drawsAiSubsidy(state, team.id)) continue; // user club + network clubs excluded
+    const players = team.playerIds.map((id) => state.players[id]).filter(Boolean);
+    const annualWages = squadWageBill(players, cfg, leagueWageMult(state, team.leagueId, cfg)) * 52;
+    const floor = annualWages * cfg.aiSurplusFloorWageYears;
+    const excess = team.budget - floor;
+    if (excess <= 0) continue;
+    team.budget -= Math.round(excess * cfg.aiSurplusReinvestRate);
   }
 }
 
@@ -513,7 +583,9 @@ export function applySeasonPrizes(state: GameState, cfg: TuningConfig) {
   for (const league of Object.values(state.leagues)) {
     if (!league.playable) continue;
     const table = computeTable(state.fixtures, league.id, league.teamIds);
-    const top = cfg.seasonPrizeByTier[league.tier - 1] ?? 0;
+    // Clamped, so a division deeper than the table is paid the bottom prize
+    // rather than nothing at all (v1.67).
+    const top = byTier(cfg.seasonPrizeByTier, league.tier);
     const step = 1 - cfg.seasonPrizeDecayPerPosition;
     table.forEach((row, i) => {
       state.teams[row.teamId].budget += Math.round(top * Math.pow(step, i));

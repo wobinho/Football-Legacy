@@ -323,9 +323,15 @@ export interface TuningConfig {
   medicalFacilityAgeDrainReductionPerLevel: number; // softens over-30 drain (0..)
 
   // Economy (§8) — money in £
-  weeklyIncomeByTier: number[]; // index = tier-1
-  positionBonusMax: number; // 1st place weekly bonus, scales linearly to 0
-  gateIncomePerReputation: number;
+  /** Weekly central (TV) income by tier. Index = tier-1; MUST cover every tier
+   * the pyramid can run (MAX_DIVISION_DEPTH), because a short array silently
+   * pays a lower division at the rate of the last entry — which is how the
+   * third and fourth tiers ended up on second-tier money. */
+  weeklyIncomeByTier: number[];
+  /** 1st-place weekly bonus by tier, scaling linearly to 0 for last. */
+  positionBonusMaxByTier: number[];
+  /** Weekly gate money per point of club reputation, by tier. */
+  gateIncomePerReputationByTier: number[];
   wagePerOverallCurve: { base: number; exponent: number }; // weekly wage ≈ base * exp(exponent*overall)
   seasonPrizeByTier: number[]; // end-of-season prize for champion, scales down
   /** Per-position decay of the champion's prize: each place below 1st receives
@@ -334,6 +340,24 @@ export interface TuningConfig {
   seasonPrizeDecayPerPosition: number;
   promotionBonus: number;
   cupWinBonus: number;
+
+  // ── Season awards: team success weighting (v1.67) ──────────────────────────
+  // An individual honour is decided on average match rating LIFTED by what the
+  // player's club achieved (see lib/accolades.ts): a title, a cup run and a
+  // European campaign all strengthen his case, as they do in the real awards.
+  // Each weight is the maximum lift that component can add, so the three sum to
+  // the biggest possible bonus a perfect season can carry.
+  /** Max lift from finishing first in the league (decays linearly to 0 for last). */
+  awardLeagueWeight: number;
+  /** Max lift from winning the domestic cup (scaled by how far the club went). */
+  awardCupWeight: number;
+  /** Max lift from a European campaign (scaled by stage AND competition tier). */
+  awardEuroWeight: number;
+  /** How much of the European lift each exit stage earns, 0–1. */
+  awardEuroStageScore: Record<import("../types").EuroStage, number>;
+  /** Scale on the European lift by cup tier (index 0 = Champions League), so the
+   * third-tier competition is worth a fraction of the first. */
+  awardEuroTierScale: number[];
 
   // ── European Cup payouts (locked spec; consumed once the feature ships) ─────
   // Prize by how far a club goes in each of the three continental cups. Keyed by
@@ -1035,6 +1059,26 @@ export interface TuningConfig {
   /** Extra weekly income every non-GCN club books, on top of its normal lines. */
   aiWeeklySubsidy: number;
 
+  // ── AI running costs (v1.67) ──────────────────────────────────────────────
+  // Wages and transfer fees were an AI club's ONLY outgoings, so every club in
+  // the world banked its whole surplus forever and budgets compounded season on
+  // season with nothing able to spend them down. A real club also pays for the
+  // ground, the staff below the first team, travel, insurance and everything else
+  // that never appears on a squad list. That is what these two lines model, and
+  // they are what stops a third-division side from quietly accumulating £400M.
+  /** Weekly operating cost per point of club reputation, by tier. A bigger club
+   * in a bigger division runs a bigger operation. */
+  aiOperatingCostPerReputationByTier: number[];
+  /** Share of a club's cash pile written off each season as reinvestment the sim
+   * doesn't model explicitly (ground works, infrastructure, youth setup). This is
+   * the backstop that makes the balance sheet mean-reverting rather than
+   * monotonically rising: 0 disables it. */
+  aiSurplusReinvestRate: number;
+  /** Cash a club is never drained below by the reinvestment write-off, as a
+   * multiple of its own annual wage bill — so the pass can never leave a club
+   * unable to pay its players or trade at all. */
+  aiSurplusFloorWageYears: number;
+
   // Calibration targets (for the harness printout)
   targetGoalsPerMatch: number;
   targetHomeWinPct: number;
@@ -1313,16 +1357,30 @@ export const TUNING: TuningConfig = {
   medicalFacilityRecoveryPerLevel: 0.5,
   medicalFacilityAgeDrainReductionPerLevel: 0.12,
 
-  weeklyIncomeByTier: [950_000, 320_000],
-  positionBonusMax: 300_000,
-  gateIncomePerReputation: 6_000,
+  // ── Club income by tier (rebalanced v1.67) ────────────────────────────────
+  // Every income line now has an entry for all four tiers the pyramid can run,
+  // and the whole ladder is scaled to sit alongside the WAGE ladder
+  // (`wageTierMult` below: 1.0 / 0.55 / 0.32 / 0.2).
+  //
+  // What was wrong: this array had only two entries and the lookup falls back to
+  // index 1 for anything past it, so a THIRD- and FOURTH-tier club drew the same
+  // £320k/week as a second-tier one — while paying tier-3 wages, which are a
+  // fifth of tier 2's. Combined with a season prize of £75M for tier 3 decaying
+  // at only 3% a place, a mid-table third-division club banked about £87M a
+  // season it had nothing to spend on. Three seasons in, the division was full of
+  // clubs sitting on £200–400M. Gate money and the position bonus had the same
+  // shape of bug: both were single flat figures applied at every tier.
+  weeklyIncomeByTier: [950_000, 260_000, 70_000, 25_000],
+  positionBonusMaxByTier: [300_000, 90_000, 30_000, 12_000],
+  gateIncomePerReputationByTier: [9_000, 3_000, 1_200, 600],
   wagePerOverallCurve: { base: 160, exponent: 0.082 },
-  // Champion's prize by tier: tier 1 £200M, tier 2 £120M, tier 3 £75M. Each
-  // position below 1st takes 3% less than the one above (compounding), so a
-  // 20-team top flight runs £200M → £112.12M last, tier 2 £120M → £67.27M,
-  // tier 3 £75M → £42.05M.
-  seasonPrizeByTier: [200_000_000, 120_000_000, 75_000_000],
-  seasonPrizeDecayPerPosition: 0.03,
+  // Champion's prize by tier, with a steeper 6%-per-place decay (was 3%). The old
+  // figures were top-flight money handed to every division: £75M to a third-tier
+  // champion is more than that club's entire wage bill for a decade. Now the
+  // prize is scaled to the tier it's paid in — a tier-3 champion banks £12M and
+  // 10th place £6.9M, against a ~£6M wage bill.
+  seasonPrizeByTier: [120_000_000, 40_000_000, 12_000_000, 5_000_000],
+  seasonPrizeDecayPerPosition: 0.06,
   // Continental prize by cup tier (index 0 = Champions League) and finish stage.
   // Tier 3 pays a flat figure below the quarter-finals — the spec draws no line
   // between the R16 and the group stage there, so both sit at £15M.
@@ -1333,6 +1391,24 @@ export const TUNING: TuningConfig = {
   ],
   promotionBonus: 30_000_000,
   cupWinBonus: 10_000_000,
+
+  // Award weighting (v1.67). A perfect season — champions, cup winners, European
+  // champions — carries a 0.06 + 0.03 + 0.05 = 0.14 lift, worth about a full
+  // rating point on a 7.0 average. That is enough to settle a close race in
+  // favour of the player who actually won things, and not enough to hand the
+  // trophy to a squad player at the champions.
+  awardLeagueWeight: 0.06,
+  awardCupWeight: 0.03,
+  awardEuroWeight: 0.05,
+  awardEuroStageScore: {
+    champion: 1,
+    runnerUp: 0.8,
+    semiFinal: 0.6,
+    quarterFinal: 0.45,
+    roundOf16: 0.3,
+    groupStage: 0.15,
+  },
+  awardEuroTierScale: [1, 0.6, 0.35],
 
   facilityMaxLevel: 5,
   // Income-facility upgrade prices carry a +75% premium over their original
@@ -1436,7 +1512,12 @@ export const TUNING: TuningConfig = {
   sponsorMaxLiveOffers: 4,
 
   aiCommercialPerReputation: 3_100,
-  aiCommercialTierMult: [1.6, 1.0],
+  // v1.67: extended to all four tiers. With only two entries, a third- or
+  // fourth-division club took the SECOND tier's 1.0× multiplier — the same bug
+  // shape as weeklyIncomeByTier, and worth ~£97k/week to a tier-3 club, about as
+  // much as its entire wage bill. Commercial appeal falls away sharply below the
+  // top two divisions, so the ladder does too.
+  aiCommercialTierMult: [1.6, 1.0, 0.45, 0.2],
   aiCommercialVariance: 0.18,
   aiInvestmentWindfallWeeks: 26,
   // Most big clubs carry a shirt sponsor and a kit maker; naming rights and
@@ -1520,11 +1601,12 @@ export const TUNING: TuningConfig = {
   academySquadSizeBase: 14, // base 14 + 4 levels × 4 → up to 30 prospects
   academySquadSizePerLevel: 4,
   academySquadMaxLevel: 4,
-  // v1.44: Academy Upgrade costs raised 8× across all three upgrades.
-  academySquadUpgradeCost: [16_000_000, 36_000_000, 64_000_000, 104_000_000],
+  // v1.67: flat 15M steps, starting at 20M.
+  academySquadUpgradeCost: [20_000_000, 35_000_000, 50_000_000, 65_000_000],
 
   focusSlotMaxLevel: 7, // base 3 + 7 levels → up to 10 focus slots
-  focusSlotUpgradeCost: [12_000_000, 24_000_000, 40_000_000, 60_000_000, 84_000_000, 112_000_000, 144_000_000],
+  // v1.67: flat 10M steps, starting at 10M.
+  focusSlotUpgradeCost: [10_000_000, 20_000_000, 30_000_000, 40_000_000, 50_000_000, 60_000_000, 70_000_000],
 
   youthPrMaxLevel: 10, // 10 levels × 3% → +30% prospect value at max
   youthPrValuePerLevel: 0.03,
@@ -1911,8 +1993,27 @@ export const TUNING: TuningConfig = {
   gcnMinHoldSeasons: 5,
   gcnAllowHomeCountryClubs: true,
 
-  aiSeasonSubsidy: 30_000_000,
-  aiWeeklySubsidy: 250_000,
+  // v1.67: both subsidies switched off — they were inflating AI budgets far
+  // beyond anything the market could justify by the third season. Zero disables
+  // the payments entirely (both call sites guard on > 0).
+  aiSeasonSubsidy: 0,
+  aiWeeklySubsidy: 0,
+
+  // Running costs sized so a mid-table club roughly breaks even on its recurring
+  // lines and banks its prize money, rather than banking everything. The
+  // reinvestment write-off then keeps the cash pile from compounding: a club
+  // holding far more than it needs spends 30% of the excess each season on the
+  // operation, floored at two years of wages so nobody is ever left unable to
+  // trade.
+  aiOperatingCostPerReputationByTier: [7_000, 2_600, 1_100, 550],
+  // 55% of the excess a season, floored at 1.5 years of the club's own wages.
+  // At 30% the write-off couldn't keep up with the income refilling the pile —
+  // a club relegated with top-flight cash still sat on £200M+ in the third tier
+  // several seasons later. At this rate a cash pile converges within two or three
+  // seasons of a club's actual level, which is the point: a division's clubs
+  // should be as rich as that division, whatever they used to be.
+  aiSurplusReinvestRate: 0.55,
+  aiSurplusFloorWageYears: 1.5,
 
   targetGoalsPerMatch: 2.7,
   targetHomeWinPct: 45,

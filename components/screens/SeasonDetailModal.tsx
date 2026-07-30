@@ -182,6 +182,23 @@ export default function SeasonDetailModal({ summary, onClose }: { summary: Seaso
         </Card>
       </div>
 
+      {/* Continental champions (v1.67). Only rendered when the season actually had
+          European football — season 1 has none, and neither does a save without
+          the continental layer, so an empty row would read as missing data. */}
+      {summary.europeanWinners?.length ? (
+        <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {summary.europeanWinners.map((w) => (
+            <Card key={w.tier} className="px-3 py-2.5">
+              <div className="truncate text-[10px] uppercase tracking-widest text-faint">{w.cupName}</div>
+              <div className="display mt-0.5 flex items-center gap-1.5 truncate text-sm font-semibold">
+                <TeamCrest game={game} teamId={w.teamId} size={14} />
+                <span className="truncate">{w.teamName}</span>
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : null}
+
       {/* Save-wide honours (v24) — Legacy Player of the Year and the Legacy Team
           of the Year span every league, so they lead the exhibit. Falls back to
           the two legacy Player/Young Player fields on old summaries. Clickable

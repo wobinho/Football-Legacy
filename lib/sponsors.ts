@@ -164,7 +164,17 @@ export function marketabilityMaxLiveOffers(state: GameState, teamId: string, cfg
 function offerAmount(state: GameState, teamId: string, slot: SponsorSlot, tierIndex: number, cfg: TuningConfig, rng: RNG): number {
   const team = state.teams[teamId];
   const league = state.leagues[team.leagueId];
-  const divisionMult = league ? (league.tier === 1 ? 1.6 : 1.0) : 1.0;
+  // Division multiplier, per tier (v1.67). This used to be `tier === 1 ? 1.6 : 1`,
+  // which priced a fourth-division sponsorship exactly like a second-division
+  // one — worth about £97k/week to a third-tier club, roughly its whole wage
+  // bill, and a large part of why lower-league sides were sitting on hundreds of
+  // millions. It reads the same tier ladder the AI's abstract commercial figure
+  // does, so the two agree about what a division is worth commercially.
+  const divisionMult = league
+    ? cfg.aiCommercialTierMult[
+        Math.max(0, Math.min(cfg.aiCommercialTierMult.length - 1, league.tier - 1))
+      ] ?? 1.0
+    : 1.0;
   const share = cfg.sponsorSlotShare[slot] ?? 0.5;
   const base = team.reputation * cfg.sponsorBaseWeeklyByReputation * share * divisionMult;
   const tierMult = cfg.sponsorTierMults[tierIndex] ?? 1.0;

@@ -365,8 +365,14 @@ export function canAfford(
  */
 export function weeklyIncomeEstimate(state: GameState, team: Team, cfg: TuningConfig): number {
   const league = state.leagues[team.leagueId];
-  const tv = cfg.weeklyIncomeByTier[(league?.tier ?? 2) - 1] ?? cfg.weeklyIncomeByTier[cfg.weeklyIncomeByTier.length - 1] ?? 0;
-  const gate = team.reputation * cfg.gateIncomePerReputation;
+  // Both lines are read at the club's own tier, clamped into the tuning arrays
+  // (v1.67). Inlined rather than imported from lib/economy to keep this module
+  // free of that dependency — see the note above.
+  const at = (table: number[], tier: number) =>
+    table.length ? table[Math.max(0, Math.min(table.length - 1, Math.round(tier) - 1))] : 0;
+  const tier = league?.tier ?? 2;
+  const tv = at(cfg.weeklyIncomeByTier, tier);
+  const gate = team.reputation * at(cfg.gateIncomePerReputationByTier, tier);
   const commercial = team.commercialIncome ?? 0;
   const base = tv + gate + commercial;
 

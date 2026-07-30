@@ -6,6 +6,8 @@ import { SCHEMA_VERSION } from "./types";
 import { TUNING, type TuningConfig } from "./config/tuning";
 import { generateScoutMarket } from "./scouts";
 import { buildSeasonSchedule } from "./calendar";
+import { CUP_MAX_ENTRANTS } from "./season";
+import { byTier } from "./economy";
 import { ensureProspectTier, initAcademyState } from "./academy";
 import { ensureContracts, openContractResolution } from "./contracts";
 import { migrateOldRegion } from "./config/scouting";
@@ -530,6 +532,10 @@ export function migrateSave(state: GameState): GameState {
   if (state.schemaVersion < 39) {
     migrateV38toV39(state);
     state.schemaVersion = 39;
+  }
+  if (state.schemaVersion < 40) {
+    migrateV39toV40(state);
+    state.schemaVersion = 40;
   }
   // future migrations chain here
   state.schemaVersion = SCHEMA_VERSION;
@@ -1168,6 +1174,66 @@ function migrateV38toV39(state: GameState): void {
     const p = state.players?.[id];
     if (!p || p.retired) continue;
     ensureProspectTier(p, TUNING);
+  }
+}
+
+/**
+ * v39 → v40: the cup bracket, and the lower-league money mountain (v1.67).
+ *
+ * Two fixes an existing save has to be brought forward through.
+ *
+ * 1. THE CUP FIELD. Every club in the playable pyramid entered, but six knockout
+ *    rounds can only play down a field of 64. A three-tier (60-club) save reached
+ *    the final with two clubs alive and a four-tier (80-club) one with three, so
+ *    `winnerId` was never set and the season review showed no cup winner — every
+ *    season. The field is now capped and the bracket sized per round. A save
+ *    mid-season is re-seeded to the capped field, keeping every club that has
+ *    already won a tie so no completed result is thrown away.
+ *
+ * 2. THE BUDGETS. Because the income arrays stopped at tier 2, third- and
+ *    fourth-tier clubs drew second-tier broadcast money, gate receipts and merit
+ *    payments while paying a fraction of the wages, and took a season prize
+ *    scaled for a division far above them. They banked tens of millions a season
+ *    with nothing to spend it on, which is the £400M third-division club. The
+ *    rates are fixed going forward, but the money already banked has to come off
+ *    the books or the division stays broken for the rest of the save: each AI
+ *    club's budget is capped at what its own tier can plausibly justify, scaled
+ *    off its reputation. The user's own club is never touched — their balance is
+ *    theirs, however they came by it.
+ */
+function migrateV39toV40(state: GameState): void {
+  // ── 1. Re-seed an oversized cup field ────────────────────────────────────
+  const cup = state.cup;
+  if (cup && Array.isArray(cup.aliveTeamIds) && cup.aliveTeamIds.length > CUP_MAX_ENTRANTS) {
+    // Clubs that have already played a cup tie this season stay in regardless of
+    // reputation — they earned their place on the pitch.
+    const hasPlayed = new Set<string>();
+    for (const f of state.fixtures ?? []) {
+      if (f.competition !== "CUP" || !f.played) continue;
+      hasPlayed.add(f.homeId);
+      hasPlayed.add(f.awayId);
+    }
+    const alive = cup.aliveTeamIds.filter((id) => state.teams?.[id]);
+    const kept = alive.filter((id) => hasPlayed.has(id));
+    const rest = alive
+      .filter((id) => !hasPlayed.has(id))
+      .sort((a, b) => (state.teams[b]?.reputation ?? 0) - (state.teams[a]?.reputation ?? 0));
+    cup.aliveTeamIds = [...kept, ...rest].slice(0, Math.max(kept.length, CUP_MAX_ENTRANTS));
+  }
+
+  // ── 2. Deflate the budgets the broken income rates inflated ──────────────
+  // The cap is generous — a club should still be able to trade — but it ends the
+  // situation where a third-division side outbids the top flight. Reputation is
+  // the scale, so the division's stronger clubs stay its richer ones.
+  for (const team of Object.values(state.teams ?? {})) {
+    if (!team || team.id === state.userTeamId) continue;
+    const tier = state.leagues?.[team.leagueId]?.tier ?? 1;
+    const weekly = byTier(TUNING.weeklyIncomeByTier, tier);
+    const prize = byTier(TUNING.seasonPrizeByTier, tier);
+    // Roughly two seasons of the club's own central income plus one season prize:
+    // a real war chest at the top of the pyramid, small change at the bottom.
+    const cap = Math.round(weekly * 52 * 2 + prize) * Math.max(0.4, (team.reputation ?? 50) / 100);
+    if (team.budget > cap) team.budget = Math.round(cap);
   }
 }
 

@@ -28,7 +28,7 @@ import {
   mentorGrowthBonus,
   weeklyProgressTick,
 } from "./development";
-import { weeklyEconomyTick, applySeasonPrizes, applyAiSeasonSubsidy, facilityGrowthMult } from "./economy";
+import { weeklyEconomyTick, applySeasonPrizes, applyAiSeasonSubsidy, applyAiSurplusReinvestment, facilityGrowthMult } from "./economy";
 import { gcnWeeklyTick } from "./gcn";
 import {
   aiWeeklyTransferTick,
@@ -310,7 +310,11 @@ export function maybeSettleCup(state: GameState) {
   const idx = state.cup.currentRound;
   if (idx >= state.schedule.cupRoundDays.length) return;
   const roundFixtures = state.fixtures.filter((f) => f.competition === "CUP" && f.round === idx + 1);
-  if (!roundFixtures.length || !roundFixtures.every((f) => f.played)) return;
+  // A round with no ties at all (a field already down to one club) must still
+  // advance, or `currentRound` never moves and the cup stalls short of a winner.
+  const drawn = state.currentDay >= state.schedule.cupRoundDays[idx];
+  if (!roundFixtures.length && !drawn) return;
+  if (roundFixtures.length && !roundFixtures.every((f) => f.played)) return;
 
   // shootout winners replace "losers" logic: eliminate the non-winner of level ties
   const losers = new Set<string>();
@@ -324,8 +328,21 @@ export function maybeSettleCup(state: GameState) {
   state.cup.aliveTeamIds = state.cup.aliveTeamIds.filter((id) => !losers.has(id));
   state.cup.currentRound = idx + 1;
 
-  if (idx === state.schedule.cupRoundDays.length - 1 && state.cup.aliveTeamIds.length === 1) {
-    state.cup.winnerId = state.cup.aliveTeamIds[0];
+  // Crown the winner as soon as one club is left standing, or when the last
+  // scheduled round has been played. Keying only on "last round AND exactly one
+  // alive" left the cup with no winner whenever the bracket didn't reduce to one
+  // — which is exactly what happened on a pyramid the six rounds couldn't play
+  // down (see cupPrelimTies). The bracket is trimmed properly now, so the first
+  // clause is the normal path; the second is the belt-and-braces one, and it
+  // takes the surviving club with the best run rather than leaving the trophy
+  // unawarded.
+  const alive = state.cup.aliveTeamIds;
+  const lastRound = idx === state.schedule.cupRoundDays.length - 1;
+  if (alive.length === 1 || (lastRound && alive.length > 0)) {
+    state.cup.winnerId =
+      alive.length === 1
+        ? alive[0]
+        : alive.slice().sort((a, b) => (state.teams[b]?.reputation ?? 0) - (state.teams[a]?.reputation ?? 0))[0];
     const winner = state.teams[state.cup.winnerId];
     state.news.unshift(`${winner.name} win the Cup!`);
     if (state.cup.winnerId === state.userTeamId) {
@@ -715,6 +732,11 @@ export function runSeasonRollover(state: GameState) {
   // before the European state is rebuilt for the new season below, since that
   // clears the exit stages this reads.
   const euroPrizes = applyEuropeanPrizes(state, cfg);
+  // With the season's income all banked, write off the surplus every AI club is
+  // sitting on as reinvestment in the club (v1.67). Runs here — after the prizes,
+  // before the new season's grant — so it measures the cash pile a full season
+  // actually left behind, and stops AI budgets compounding without limit.
+  applyAiSurplusReinvestment(state, cfg);
 
   // history first, while stats are intact
   appendCareerRows(state);
@@ -865,7 +887,7 @@ export function runSeasonRollover(state: GameState) {
   state.fixtures = playableDivs.flatMap((id, idx) =>
     generateLeagueFixtures(id, state.leagues[id].teamIds, state.schedule.leagueRoundDays, state.seed + state.season * (17 + idx * 14))
   );
-  state.cup = initCup(playableDivs.flatMap((id) => state.leagues[id].teamIds));
+  state.cup = initCup(playableDivs.flatMap((id) => state.leagues[id].teamIds), state.teams);
   // European cups (v1.51): qualification reads the season just played, which has
   // only now been fully settled (final tables + cup winner) — so this is the
   // earliest point the new continental season can be drawn. In season 1 there is

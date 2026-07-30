@@ -123,9 +123,27 @@ export default function DevelopmentScreen() {
       />
       {tab === "plans" && <TrainingPlansTab />}
       {tab === "growth" && <GrowthTab />}
-      {tab === "facilities" && <FacilitiesTab />}
-      {tab === "staff" && <StaffDevTab />}
+      {/* v1.67: Training Facilities and Development Staff are being reworked.
+          The tabs stay in place so the shape of the screen is unchanged, but
+          both bodies are parked behind a placeholder until the new design
+          lands. FacilitiesTab/StaffDevTab below are kept intact for that. */}
+      {tab === "facilities" && <WorkInProgress title="Training Facilities" />}
+      {tab === "staff" && <WorkInProgress title="Development Staff" />}
     </div>
+  );
+}
+
+/** Placeholder body for a tab whose feature is mid-rework (v1.67). */
+function WorkInProgress({ title }: { title: string }) {
+  return (
+    <Card className="mt-3 p-8 text-center">
+      <div className="text-3xl">🚧</div>
+      <div className="mt-3 font-display text-lg uppercase tracking-wide">{title}</div>
+      <div className="gold-thread mx-auto my-3 w-24" />
+      <p className="mx-auto max-w-sm text-[12px] leading-snug text-faint">
+        Work in progress. This feature is being reworked and is unavailable for now.
+      </p>
+    </Card>
   );
 }
 
@@ -667,6 +685,11 @@ function AttrProjection({ p, delta, plan }: { p: PlayerBio; delta: number; plan:
     </div>
   );
 }
+
+// Parked while the rework is in flight (v1.67) — not rendered, but kept whole so
+// the new design has the working implementation to build from. This reference
+// keeps the unused-symbol check quiet without commenting the code out.
+export const PARKED_FOR_REWORK = { FacilitiesTab, StaffDevTab };
 
 function FacilitiesTab() {
   const game = useGame((s) => s.game)!;
