@@ -1,8 +1,9 @@
 // Save migrations. Each step upgrades a save one schema version. Kept tiny and
 // pure so both the IndexedDB loader and the JSON importer share the same path.
 
-import type { GameState } from "./types";
+import type { GameState, PlayerBio } from "./types";
 import { SCHEMA_VERSION } from "./types";
+import { expandLegacyAttrs, isLegacyAttrs } from "./config/attributes";
 import { TUNING, type TuningConfig } from "./config/tuning";
 import { generateScoutMarket } from "./scouts";
 import { buildSeasonSchedule } from "./calendar";
@@ -13,7 +14,7 @@ import { ensureContracts, openContractResolution } from "./contracts";
 import { migrateOldRegion } from "./config/scouting";
 import { aiCommercialIncome, refreshSponsorOffers, seedAiSponsorBooks } from "./sponsors";
 import { RETIRED_TRAIT_IDS, TRAIT_MAP } from "./config/traits";
-import { overallFromAttrs } from "./config/positions";
+import { fitAttrsToOverall, overallFromAttrs } from "./config/positions";
 import { getArchetype, DEFAULT_HEIGHT_CM } from "./config/archetypes";
 import { assignAllKitNumbers } from "./kitnumbers";
 import { trackBiggestWin } from "./recordbook";
@@ -536,6 +537,10 @@ export function migrateSave(state: GameState): GameState {
   if (state.schemaVersion < 40) {
     migrateV39toV40(state);
     state.schemaVersion = 40;
+  }
+  if (state.schemaVersion < 41) {
+    migrateV40toV41(state);
+    state.schemaVersion = 41;
   }
   // future migrations chain here
   state.schemaVersion = SCHEMA_VERSION;
@@ -1235,6 +1240,53 @@ function migrateV39toV40(state: GameState): void {
     const cap = Math.round(weekly * 52 * 2 + prize) * Math.max(0.4, (team.reputation ?? 50) / 100);
     if (team.budget > cap) team.budget = Math.round(cap);
   }
+}
+
+/**
+ * v40 → v41: the 35-attribute model.
+ *
+ * Through v40 a player carried six aggregate attributes (pac/sho/pas/dri/def/phy);
+ * he now carries 35 individual ones. Every player in an old save — senior,
+ * academy, retired, scouted prospect — has to be expanded, and the expansion has
+ * to preserve the two things the save's world is built around: the player's
+ * OVERALL (his contracts, value, transfer interest and league tables all assume
+ * it) and his relative profile (a fast player stays fast).
+ *
+ * The expansion runs in two steps per player:
+ *
+ *   1. Fan each old aggregate out to the attributes that roll up into it
+ *      (ATTR_FAMILIES) — an old `pac` of 88 seeds acceleration and sprint speed
+ *      at 88 — then blend that toward the player's archetype profile so the
+ *      within-family detail the six could never express is at least plausible
+ *      (a Target Man's heading leads his finishing).
+ *   2. Fit the result to his STORED overall, so the headline number he had
+ *      before the upgrade is the headline number he has after it.
+ *
+ * A keeper's six slots carried keeper skills under the old model (def=diving,
+ * phy=handling, …), so they map onto the goalkeeping attributes rather than the
+ * outfield families — GK_ATTR_FAMILIES is that same mapping.
+ *
+ * A player whose attrs are missing or already migrated is left alone, so the
+ * pass is idempotent and a partially-written save can't be corrupted by it.
+ */
+function migrateV40toV41(state: GameState): void {
+  const expand = (p: PlayerBio): void => {
+    const legacy = p.attrs as unknown;
+    // Already on the new model (or unreadable) — nothing to do.
+    if (!isLegacyAttrs(legacy)) return;
+    if (!p.positions?.length) return;
+    const pos = p.positions[0];
+    const next = expandLegacyAttrs(legacy, pos === "GK", getArchetype(p.archetypeId).attrProfile);
+    // Land him back on the overall the rest of the save already believes.
+    p.attrs = fitAttrsToOverall(next, pos, p.overall);
+  };
+
+  for (const p of Object.values(state.players ?? {})) if (p) expand(p);
+
+  // Scouted prospects live outside state.players until signed — their embedded
+  // player objects need the same treatment or a pending report would render a
+  // player with no attributes at all.
+  for (const r of state.academy?.reports ?? []) if (r?.player) expand(r.player);
 }
 
 /** True if the save is a version this build knows how to bring up to date. */

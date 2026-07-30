@@ -4,8 +4,20 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatMoney, groupDigits, parseMoney } from "@/lib/value";
-import type { GameState, PlayerBio, Pos } from "@/lib/types";
-import { posColors, resolvePos } from "@/lib/config/positions";
+import type { Attributes, GameState, PlayerBio, Pos } from "@/lib/types";
+import { keyAttrsFor, overallFromAttrs, posColors, resolvePos } from "@/lib/config/positions";
+import { shapeAttrsToRole } from "@/lib/config/archetypes";
+import {
+  aggregateAttrs,
+  attrGroupsFor,
+  ATTR_FAMILY_LABELS,
+  ATTR_FAMILY_ORDER,
+  ATTR_GROUP_LABELS,
+  ATTR_META,
+  ATTRS_BY_GROUP,
+  GK_FAMILY_LABELS,
+  uniformAttrs,
+} from "@/lib/config/attributes";
 import { flagForNat, flagForCountry, nameForNat } from "@/lib/config/flags";
 import { potentialView } from "@/lib/academy";
 import { TRAIT_MAP } from "@/lib/config/traits";
@@ -788,36 +800,191 @@ export function Tabs<T extends string>({
   );
 }
 
-/** Six-attribute readout; GK slots get keeper-flavored labels. */
+/** Colour ramp shared by every attribute readout. */
+function attrTone(v: number): string {
+  return v >= 80 ? "gold-text" : v >= 70 ? "text-ink" : v >= 55 ? "text-dim" : "text-faint";
+}
+
+/** The six card faces, derived from the 35 attributes (GKs get keeper labels).
+ * The at-a-glance summary — `AttrSheet` is the full breakdown. */
 export function AttrGrid({ p }: { p: PlayerBio }) {
   const isGk = p.positions[0] === "GK";
-  const labels: [string, number][] = isGk
-    ? [
-        ["DIV", p.attrs.def],
-        ["HAN", p.attrs.phy],
-        ["KIC", p.attrs.pas],
-        ["REF", p.attrs.sho],
-        ["SPD", p.attrs.pac],
-        ["POS", p.attrs.dri],
-      ]
-    : [
-        ["PAC", p.attrs.pac],
-        ["SHO", p.attrs.sho],
-        ["PAS", p.attrs.pas],
-        ["DRI", p.attrs.dri],
-        ["DEF", p.attrs.def],
-        ["PHY", p.attrs.phy],
-      ];
+  const agg = aggregateAttrs(p.attrs, isGk);
+  const labelsFor = isGk ? GK_FAMILY_LABELS : ATTR_FAMILY_LABELS;
   return (
     <div className="grid grid-cols-3 gap-2">
-      {labels.map(([label, v]) => (
-        <div key={label} className="rounded-md border border-line bg-raised p-2 text-center">
-          <div className="display text-[10px] font-semibold tracking-widest text-faint">{label}</div>
-          <div className={`display tnum text-xl font-bold ${v >= 80 ? "gold-text" : v >= 70 ? "text-ink" : "text-dim"}`}>
-            {v}
+      {ATTR_FAMILY_ORDER.map((f) => (
+        <div key={f} className="rounded-md border border-line bg-raised p-2 text-center">
+          <div className="display text-[10px] font-semibold tracking-widest text-faint">
+            {labelsFor[f].slice(0, 3).toUpperCase()}
+          </div>
+          <div className={`display tnum text-xl font-bold ${attrTone(agg[f])}`}>{agg[f]}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The full 35-attribute breakdown, grouped as players expect to read it
+ * (Attacking / Skill / Movement / Power / Mentality / Defending, plus
+ * Goalkeeping for a keeper).
+ *
+ * Attributes the player's PRIMARY position actually rates are marked with a gold
+ * thread, so a manager can see at a glance which numbers are carrying his rating
+ * and which are incidental — a centre-back's finishing is real, but it isn't
+ * what makes him good.
+ */
+export function AttrSheet({ p }: { p: PlayerBio }) {
+  const pos = p.positions[0];
+  const isGk = pos === "GK";
+  const key = new Set(keyAttrsFor(pos, 8));
+  return (
+    <div className="space-y-3">
+      {attrGroupsFor(isGk).map((g) => (
+        <div key={g}>
+          <div className="display mb-1 text-[10px] font-semibold tracking-widest text-faint">
+            {ATTR_GROUP_LABELS[g].toUpperCase()}
+          </div>
+          <div className="grid grid-cols-1 gap-x-4 gap-y-0.5 sm:grid-cols-2">
+            {ATTRS_BY_GROUP[g].map((k) => {
+              const v = p.attrs[k];
+              const isKey = key.has(k);
+              return (
+                <div
+                  key={k}
+                  className="flex items-baseline justify-between border-b border-line/40 py-0.5"
+                  title={isKey ? `${ATTR_META[k].name} — a key attribute at ${pos}` : ATTR_META[k].name}
+                >
+                  <span className={`truncate text-[11px] ${isKey ? "text-dim" : "text-faint"}`}>
+                    {isKey && <span className="mr-1 text-gold">◆</span>}
+                    {ATTR_META[k].name}
+                  </span>
+                  <span className={`display tnum ml-2 text-sm font-bold ${attrTone(v)}`}>{v}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * The 35-attribute editor, shared by the two authoring flows (create-a-player at
+ * new-game setup, and the reusable library editor). Renders the derived six-face
+ * summary, two shaping shortcuts, and a grouped slider per attribute.
+ *
+ * Editing 35 numbers by hand is a lot of work to reach something plausible, so
+ * "SHAPE TO ROLE" rewrites the sheet into a realistic profile for the chosen
+ * position and archetype while holding the current overall — the same spread
+ * worldgen would produce. From there the author hand-tunes whatever they like.
+ */
+export function AttrEditor({
+  attrs,
+  setAttrs,
+  primary,
+  archetypeId,
+}: {
+  attrs: Attributes;
+  setAttrs: (a: Attributes) => void;
+  primary: Pos;
+  archetypeId?: string;
+}) {
+  const isGk = primary === "GK";
+  const overall = overallFromAttrs(attrs, primary);
+  const agg = useMemo(() => aggregateAttrs(attrs, isGk), [attrs, isGk]);
+  const keyAttrs = useMemo(() => new Set(keyAttrsFor(primary, 8)), [primary]);
+  const famLabels = isGk ? GK_FAMILY_LABELS : ATTR_FAMILY_LABELS;
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="display text-xs font-semibold tracking-widest text-faint">ATTRIBUTES</span>
+        <span className="text-[11px] text-faint">
+          Overall derives from these — <Ovr value={overall} size="sm" />
+        </span>
+      </div>
+
+      {/* The six card faces, derived live from the 35 below. */}
+      <div className="mt-1 grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+        {ATTR_FAMILY_ORDER.map((f) => (
+          <div key={f} className="rounded-md border border-line bg-raised px-1 py-1 text-center">
+            <div className="display text-[9px] font-semibold tracking-widest text-faint">
+              {famLabels[f].slice(0, 3).toUpperCase()}
+            </div>
+            <div className={`display tnum text-base font-bold ${agg[f] >= 80 ? "gold-text" : "text-ink"}`}>
+              {agg[f]}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => setAttrs(shapeAttrsToRole(primary, archetypeId, overall))}
+          className="display rounded-md border border-line px-2 py-1 text-[11px] font-semibold text-dim hover:text-ink"
+          title="Rewrite the sheet to fit this position and archetype, keeping the current overall"
+        >
+          SHAPE TO ROLE
+        </button>
+        <label className="flex items-center gap-1.5 text-[11px] text-faint">
+          SET ALL
+          <input
+            type="number"
+            min={1}
+            max={99}
+            defaultValue={68}
+            onChange={(e) => setAttrs(uniformAttrs(Math.max(1, Math.min(99, Math.round(Number(e.target.value) || 1)))))}
+            className="tnum w-14 rounded border border-line bg-raised px-1.5 py-0.5 text-ink focus:border-gold focus:outline-none"
+          />
+        </label>
+      </div>
+
+      {/* The full sheet, grouped. An outfielder gets no goalkeeping sliders —
+          those attributes contribute nothing at his position, so offering them
+          would only mislead. */}
+      <div className="mt-2 space-y-2">
+        {attrGroupsFor(isGk).map((g) => (
+          <div key={g}>
+            <div className="display mb-0.5 text-[10px] font-semibold tracking-widest text-faint">
+              {ATTR_GROUP_LABELS[g].toUpperCase()}
+            </div>
+            <div className="grid grid-cols-1 gap-x-4 gap-y-0.5 sm:grid-cols-2">
+              {ATTRS_BY_GROUP[g].map((k) => {
+                const isKey = keyAttrs.has(k);
+                return (
+                  <label key={k} className="flex items-center gap-2">
+                    <span
+                      className={`w-[104px] shrink-0 truncate text-[11px] ${isKey ? "text-dim" : "text-faint"}`}
+                      title={isKey ? `Key attribute at ${primary}` : ATTR_META[k].name}
+                    >
+                      {isKey && <span className="mr-0.5 text-gold">◆</span>}
+                      {ATTR_META[k].name}
+                    </span>
+                    <input
+                      type="range"
+                      min={1}
+                      max={99}
+                      value={attrs[k]}
+                      onChange={(e) => setAttrs({ ...attrs, [k]: Number(e.target.value) })}
+                      className="flex-1 accent-[var(--color-gold-hi)]"
+                    />
+                    <span
+                      className={`display tnum w-7 text-right text-sm font-bold ${
+                        attrs[k] >= 80 ? "gold-text" : "text-ink"
+                      }`}
+                    >
+                      {attrs[k]}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

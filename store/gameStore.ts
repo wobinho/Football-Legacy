@@ -1062,6 +1062,8 @@ export const useGame = create<GameStore>((set, get) => ({
         academySquad: "Academy Squad Size increased — room for more prospects.",
         focusSlot: "Focus Slots increased — flag more prospects for focus.",
         youthPr: "Youth PR upgraded — your prospects are worth more on the market.",
+        scoutSpeed: "Scout Speed upgraded — reports come in sooner.",
+        scoutFilter: "Scout Network unlocked — set an auto-filter on every scouting brief.",
         gkCentre: "Goalkeeping Centre upgraded — keepers develop faster.",
         defenceCentre: "Defensive Unit upgraded — defenders develop faster.",
         midfieldCentre: "Midfield Hub upgraded — midfielders develop faster.",

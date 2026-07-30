@@ -1132,7 +1132,26 @@ export function releaseGraduate(state: GameState, playerId: string): string | nu
  * re-derive the cadence itself. */
 export function reportCadence(state: GameState, cfg: TuningConfig, scout?: Scout): number {
   const experience = scout?.experience ?? userScouts(state).reduce((b, s) => Math.max(b, s.experience), 0);
-  return Math.max(10, cfg.scoutReportDaysBase - experience * cfg.scoutReportDaysPerStar);
+  const base = Math.max(10, cfg.scoutReportDaysBase - experience * cfg.scoutReportDaysPerStar);
+  // Scout Speed (v1.68) shortens the wait AFTER the experience floor, so the
+  // upgrade is what buys a cycle quicker than ten days — a scout's own rating
+  // can't get there alone. One day is the hard floor.
+  return Math.max(1, Math.round(base * scoutSpeedMult(state, cfg)));
+}
+
+/** The fraction of the normal report wait a fully-upgraded Scout Speed leaves —
+ * 1 at level 0, down to 0.5 at max (each level takes scoutSpeedPerLevel off).
+ * Exported so the UI states the effect off the same number the engine uses. */
+export function scoutSpeedMult(state: GameState, cfg: TuningConfig): number {
+  const level = state.teams[state.userTeamId]?.scoutSpeedLevel ?? 0;
+  return Math.max(0.1, 1 - Math.min(level, cfg.scoutSpeedMaxLevel) * cfg.scoutSpeedPerLevel);
+}
+
+/** Whether the club has bought the Scout Network (v1.68) — the one-time upgrade
+ * that unlocks the brief auto-filter. Until it is owned, no assignment may carry
+ * a filter and the controls are locked in the send-scout flow. */
+export function scoutFilterUnlocked(state: GameState): boolean {
+  return (state.teams[state.userTeamId]?.scoutFilterLevel ?? 0) > 0;
 }
 
 /** Add a new scout assignment if there's spare capacity. The full brief (region,
@@ -1173,7 +1192,9 @@ export function addScoutAssignment(
     nextReportDay: state.currentDay + 7 + Math.round(reportCadence(state, cfg, scout) * 0.4),
     durationMonths: months,
     endsDay: months ? state.currentDay + months * DAYS_PER_MONTH : undefined,
-    filter: normalizeFilter(cfg, filter),
+    // The auto-filter is the Scout Network's to give (v1.68): a club that hasn't
+    // bought it sends unfiltered briefs, whatever the caller passes.
+    filter: scoutFilterUnlocked(state) ? normalizeFilter(cfg, filter) : undefined,
   });
   return null;
 }

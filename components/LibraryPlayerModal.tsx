@@ -12,16 +12,10 @@ import type { LibraryPlayer } from "@/lib/customdb";
 import { archetypesForPosition } from "@/lib/config/archetypes";
 import { traitsForPosition } from "@/lib/config/traits";
 import { overallFromAttrs } from "@/lib/config/positions";
-import { Flag, GhostButton, GoldButton, Modal, NationalityPicker, Ovr, PosBadge } from "./ui";
+import { uniformAttrs } from "@/lib/config/attributes";
+import { AttrEditor, Flag, GhostButton, GoldButton, Modal, NationalityPicker, Ovr, PosBadge } from "./ui";
 
-const ALL_POS: Pos[] = ["GK", "CB", "LB", "RB", "DM", "CM", "AM", "LW", "RW", "ST"];
-const ATTR_KEYS = ["pac", "sho", "pas", "dri", "def", "phy"] as const;
-const ATTR_LABELS: Record<(typeof ATTR_KEYS)[number], string> = {
-  pac: "PAC", sho: "SHO", pas: "PAS", dri: "DRI", def: "DEF", phy: "PHY",
-};
-const GK_ATTR_LABELS: Record<(typeof ATTR_KEYS)[number], string> = {
-  pac: "SPD", sho: "REF", pas: "KIC", dri: "POS", def: "DIV", phy: "HAN",
-};
+const ALL_POS: Pos[] = ["GK", "CB", "LB", "RB", "DM", "CM", "LM", "RM", "AM", "LW", "RW", "ST"];
 
 const selectCls =
   "mt-1 w-full rounded-md border border-line bg-raised px-2 py-2 text-sm text-ink focus:border-gold focus:outline-none";
@@ -46,17 +40,13 @@ export default function LibraryPlayerModal({
   const [nationality, setNationality] = useState(initial?.nationality ?? natOptions[0] ?? "ENG");
   const [primary, setPrimary] = useState<Pos>(initial?.positions[0] ?? "ST");
   const [secondaries, setSecondaries] = useState<Pos[]>(initial?.positions.slice(1) ?? []);
-  const [attrs, setAttrs] = useState<Attributes>(
-    initial?.attrs ?? { pac: 68, sho: 68, pas: 68, dri: 68, def: 68, phy: 68 }
-  );
+  const [attrs, setAttrs] = useState<Attributes>(initial?.attrs ?? uniformAttrs(68));
   const [potential, setPotential] = useState(initial?.potential ?? 80);
   const [archetypeId, setArchetypeId] = useState<string | undefined>(initial?.archetypeId);
   const [traits, setTraits] = useState<string[]>(initial?.traits ?? []);
 
   const overall = overallFromAttrs(attrs, primary);
   const effectivePotential = Math.max(overall, potential);
-  const isGk = primary === "GK";
-  const attrLabels = isGk ? GK_ATTR_LABELS : ATTR_LABELS;
   const archetypes = useMemo(() => archetypesForPosition(primary), [primary]);
   const eligibleTraits = useMemo(() => traitsForPosition(primary), [primary]);
 
@@ -182,32 +172,7 @@ export default function LibraryPlayerModal({
           </div>
         </div>
 
-        <div>
-          <div className="flex items-baseline justify-between">
-            <span className={labelCls}>ATTRIBUTES</span>
-            <span className="text-[11px] text-faint">
-              Overall derives from these{isGk ? " (keeper skills)" : ""} — <Ovr value={overall} size="sm" />
-            </span>
-          </div>
-          <div className="mt-1 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
-            {ATTR_KEYS.map((k) => (
-              <label key={k} className="flex items-center gap-2">
-                <span className="display w-9 text-[11px] font-semibold tracking-widest text-faint">{attrLabels[k]}</span>
-                <input
-                  type="range"
-                  min={30}
-                  max={99}
-                  value={attrs[k]}
-                  onChange={(e) => setAttrs({ ...attrs, [k]: Number(e.target.value) })}
-                  className="flex-1 accent-[var(--color-gold-hi)]"
-                />
-                <span className={`display tnum w-7 text-right text-sm font-bold ${attrs[k] >= 80 ? "gold-text" : "text-ink"}`}>
-                  {attrs[k]}
-                </span>
-              </label>
-            ))}
-          </div>
-        </div>
+        <AttrEditor attrs={attrs} setAttrs={setAttrs} primary={primary} archetypeId={archetypeId} />
 
         <label className="block">
           <span className="flex items-baseline justify-between">

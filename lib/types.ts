@@ -2,7 +2,7 @@
 // Single source of truth for all game data shapes. Schema-versioned so the
 // save/export format doubles as the modding format (GAME_DESIGN.md §2, §13).
 
-export const SCHEMA_VERSION = 40;
+export const SCHEMA_VERSION = 41;
 
 export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "LM" | "RM" | "AM" | "LW" | "RW" | "ST";
 
@@ -71,14 +71,65 @@ export interface SavedTactic {
   day: number;
 }
 
-// Six visible attributes (GKs reuse the slots with GK-flavored labels in UI).
+/**
+ * The 35 player attributes (v41).
+ *
+ * Replaces the six aggregate attributes (pac/sho/pas/dri/def/phy) the schema
+ * carried through v40. Every value is 1–99. Overall is derived from these by
+ * position — see `overallFromAttrs` in config/positions.ts — so the attributes
+ * are the source of truth and the headline rating is a view onto them.
+ *
+ * The last six are the goalkeeping attributes. They only carry meaning for a
+ * keeper: an outfielder holds low values in them and they contribute almost
+ * nothing at his position's weighting. Conversely a keeper's outfield stats are
+ * real (he can pass, he has stamina) but barely move his rating.
+ *
+ * Keys, display names and UI grouping live in config/attributes.ts; anything
+ * iterating attributes should use its ATTR_KEYS rather than an inline list.
+ */
 export interface Attributes {
-  pac: number;
-  sho: number;
-  pas: number;
-  dri: number;
-  def: number;
-  phy: number;
+  // Attacking
+  crossing: number;
+  finishing: number;
+  headingAccuracy: number;
+  shortPassing: number;
+  volleys: number;
+  // Skill
+  dribbling: number;
+  curve: number;
+  fkAccuracy: number;
+  longPassing: number;
+  ballControl: number;
+  // Movement
+  acceleration: number;
+  sprintSpeed: number;
+  agility: number;
+  reactions: number;
+  balance: number;
+  // Power
+  shotPower: number;
+  jumping: number;
+  stamina: number;
+  strength: number;
+  longShots: number;
+  // Mentality
+  aggression: number;
+  interceptions: number;
+  positioning: number;
+  vision: number;
+  penalties: number;
+  composure: number;
+  // Defending
+  markingAwareness: number;
+  standingTackle: number;
+  slidingTackle: number;
+  // Goalkeeping — only meaningful for a GK.
+  diving: number;
+  handling: number;
+  kicking: number;
+  gkPositioning: number;
+  reflexes: number;
+  gkSpeed: number;
 }
 
 // Hot data — always loaded, touched constantly by engine + UI (§5).
@@ -421,6 +472,14 @@ export interface Team {
    * focus at once (max = u21FocusBase + level, capped at u21FocusMax). One-time
    * upgrades in the Academy Upgrades tab. Optional for old saves (default 0). */
   focusSlotLevel?: number;
+  /** Scout Speed facility (v1.68): shortens the gap between a scout's reports
+   * (cadence × (1 − level*scoutSpeedPerLevel)). Bought from the Academy Upgrades
+   * tab. Optional for old saves (default 0). */
+  scoutSpeedLevel?: number;
+  /** Scout Network facility (v1.68): a one-time purchase that unlocks the scout
+   * brief's auto-filter — while this is 0 a scout files whatever they find and the
+   * filter controls are locked. Optional for old saves (default 0). */
+  scoutFilterLevel?: number;
   /** Youth PR facility (v1.65): commercial and media work around the academy
    * that lifts the market value of every prospect on the academy roster
    * (+youthPrValuePerLevel per level). Bought from the Academy Upgrades tab.

@@ -17,6 +17,8 @@
 
 import type { Attributes, Pos } from "./types";
 import type { ClubSeed, PlayerSeed } from "./database";
+import { normalizeAttrs, uniformAttrs } from "./config/attributes";
+import { overallFromAttrs } from "./config/positions";
 import { cloudOwner } from "./cloud";
 
 export const LIBRARY_SCHEMA = "fl-library@1";
@@ -116,16 +118,24 @@ export function libraryId(prefix: "club" | "player"): string {
 // them) and stamping a fresh library id. The import is a COPY — editing it
 // never touches the shipped asset on disk.
 
-/** Default attributes for a seed authored the legacy way (overall, no attrs).
- * Flat across all six slots so the derived overall lands on the authored number. */
+/** Default attributes for a seed authored the legacy way (overall, no attrs),
+ * or for the attributes a partial seed left out.
+ *
+ * Flat across every attribute so the derived overall lands on the authored
+ * number: each position's weight row sums to ~1.0, so a uniform line of `v`
+ * rates ~v wherever the player is played. The editor is then free to shape it. */
 function attrsFromOverall(overall: number): Attributes {
-  const v = Math.max(1, Math.min(99, Math.round(overall)));
-  return { pac: v, sho: v, pas: v, dri: v, def: v, phy: v };
+  return uniformAttrs(Math.max(1, Math.min(99, Math.round(overall))));
 }
 
-/** Convert a database PlayerSeed into an editable library player. */
+/** Convert a database PlayerSeed into an editable library player. A seed may
+ * author only some of the 35 attributes (or none at all); the library entry is
+ * always complete, so the editor has every slider to work with. */
 export function seedToLibraryPlayer(seed: PlayerSeed, fallbackNat: string): LibraryPlayer {
-  const attrs = seed.attrs ? { ...seed.attrs } : attrsFromOverall(seed.overall ?? 60);
+  const base = attrsFromOverall(
+    seed.overall ?? (seed.attrs ? overallFromAttrs(normalizeAttrs(seed.attrs), seed.positions[0]) : 60)
+  );
+  const attrs = { ...base, ...(seed.attrs ?? {}) } as Attributes;
   const age = seed.age ?? 24;
   return {
     id: libraryId("player"),
@@ -136,7 +146,7 @@ export function seedToLibraryPlayer(seed: PlayerSeed, fallbackNat: string): Libr
     age,
     nationality: seed.nationality ?? fallbackNat,
     // A seed may omit potential; give a still-growing player a little headroom.
-    potential: seed.potential ?? Math.min(96, Math.round(Math.max(...Object.values(attrs)))),
+    potential: seed.potential ?? Math.min(96, Math.round(overallFromAttrs(attrs, seed.positions[0]) + 4)),
     ...(seed.archetypeId ? { archetypeId: seed.archetypeId } : {}),
     traits: seed.traits ? [...seed.traits] : [],
     updatedAt: Date.now(),

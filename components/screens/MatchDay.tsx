@@ -9,19 +9,32 @@ import type { Fixture, MatchEvent, MatchResult, Mentality, PlayerBio, Style } fr
 import { TUNING } from "@/lib/config/tuning";
 import {
   createMatch,
+  playSegments,
   playFirstHalf,
   playSecondHalf,
   applyHalftimeTactic,
   finalizeResult,
+  manualSub,
+  swapPositions,
+  onPitchFor,
+  benchFor,
+  subsUsedFor,
+  liveFitness,
   type MatchState,
+  type OnPitch,
 } from "@/lib/engine/match";
 import { MENTALITY_OPTIONS, STYLE_OPTIONS, styleLabel } from "@/lib/config/formations";
 import { buildSideInput, headCoachMult } from "@/lib/selection";
 import { rotationContextFor, rotationMultiplier } from "@/lib/rotation";
 import { ensureUserLineup, matchSeed } from "@/lib/gameloop";
-import { Card, Crest, GhostButton, GoldButton, Section } from "../ui";
+import { Card, Crest, GhostButton, GoldButton, Modal, Ovr, PosBadge, Section } from "../ui";
 
 type Phase = "pre" | "first" | "half" | "second" | "done";
+
+/** Real milliseconds one match minute takes at 1×. Slowed 50% from the original
+ * 140ms (v1.68) — the default watch is now a read-along rather than a blur, and
+ * the 2×/4× buttons are what get you back to the old pace and quicker. */
+const MINUTE_MS = 210;
 
 export default function MatchDayScreen() {
   const game = useGame((s) => s.game)!;
@@ -42,14 +55,34 @@ export default function MatchDayScreen() {
   const [speed, setSpeed] = useState(1);
   const [result, setResult] = useState<MatchResult | null>(null);
   const [halfTactic, setHalfTactic] = useState<{ mentality: Mentality; style: Style } | null>(null);
+  /** Paused mid-half by the manager (v1.68) — the clock stops and the touchline
+   * panel opens. Distinct from half-time, which is a phase of its own. */
+  const [paused, setPaused] = useState(false);
+  /** Open panel while paused: the substitutions board, or nothing. */
+  const [subsOpen, setSubsOpen] = useState(false);
+  /** Bumped whenever a sub or a shape change is applied, so the touchline panel
+   * re-reads the engine state it renders straight out of `matchRef`. */
+  const [touchlineRev, setTouchlineRev] = useState(0);
   const matchRef = useRef<MatchState | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const speedRef = useRef(1);
   speedRef.current = speed;
+  /** Set while the clock is stopped by the pause button. The tick loop reads it
+   * through the ref (it is bound once per half) and simply stops rescheduling
+   * itself; `resumeClock` starts it again from the minute it stopped on. */
+  const pausedRef = useRef(false);
+  pausedRef.current = paused;
+  /** Restarts a paused clock. Held by the streamer for the same reason `skipRef`
+   * is — the tick loop owns the local minute counter. */
+  const resumeRef = useRef<(() => void) | null>(null);
+  /** The half currently streaming, so "Simulate to the end" can finish it from
+   * wherever the clock is: the first half hands over to the team talk, the second
+   * jumps straight to full time. Null when nothing is streaming. */
+  const skipRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, []);
 
@@ -57,10 +90,17 @@ export default function MatchDayScreen() {
   const liveId = liveFixture?.id ?? null;
   useEffect(() => {
     if (liveId) {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = null;
+      skipRef.current = null;
+      resumeRef.current = null;
       setPhase("pre");
       setResult(null);
       setVisibleEvents([]);
+      setSpeed(1);
       setDoneFixture(null);
+      setPaused(false);
+      setSubsOpen(false);
     }
   }, [liveId]);
 
@@ -103,37 +143,111 @@ export default function MatchDayScreen() {
     return { h, a };
   };
 
-  /** Reveal `events` progressively on a minute clock, then call done. */
-  const streamEvents = (events: MatchEvent[], fromMinute: number, toMinute: number, done: () => void) => {
+  /**
+   * Run the clock from `fromMinute` to `toMinute`, simulating each 15-minute
+   * segment only as the clock reaches it, then call `done`.
+   *
+   * This is the change that makes watching a match interactive (v1.68). It used
+   * to take a fully-simulated half and merely reveal its events, so a manager
+   * could watch but never intervene — the goals had already been scored before
+   * the first minute was drawn. Now the engine holds at each segment boundary
+   * (`playSegments(state, n)`), which is why a substitution or a shift in
+   * mentality made while paused genuinely changes what happens next.
+   *
+   * Each minute schedules the next rather than running off a fixed-period
+   * interval, so `speedRef` and `pausedRef` are re-read on every tick: pressing
+   * 2× or Pause takes effect on the very next minute rather than the next half.
+   * `skipRef` finishes the half from wherever the clock is; `resumeRef` restarts
+   * a paused one on the minute it stopped.
+   */
+  const streamHalf = (state: MatchState, fromMinute: number, toMinute: number, done: () => void) => {
     let minute = fromMinute;
     setClock(minute);
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+
+    const stop = () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = null;
+      skipRef.current = null;
+      resumeRef.current = null;
+    };
+
+    /** Make sure the engine has played far enough to cover `m`. The last segment
+     * runs to 90 but the clock ticks to 91 for stoppage time, so the minute is
+     * clamped before it is turned into a segment index. */
+    const ensureSimulated = (m: number) => {
+      const seg = Math.min(
+        TUNING.segmentsPerMatch,
+        Math.floor(Math.min(m, 89) / TUNING.minutesPerSegment) + 1
+      );
+      if (state.segment < seg) playSegments(state, seg);
+    };
+
+    /** Reveal everything the engine has produced up to `m`. Read fresh off the
+     * live state each tick, because that state grows as segments are played. */
+    const revealTo = (m: number) => {
+      const upTo = state.events.filter((e) => e.minute <= m);
+      setVisibleEvents((prev) => (upTo.length !== prev.length ? upTo : prev));
+    };
+
+    // Jumping to the end plays out whatever is left of the half at once and hands
+    // over exactly where the clock would have — the result is identical, only the
+    // waiting is skipped.
+    skipRef.current = () => {
+      stop();
+      ensureSimulated(toMinute);
+      setClock(toMinute);
+      setVisibleEvents(state.events.slice());
+      done();
+    };
+
+    const schedule = () => {
+      timerRef.current = setTimeout(tick, MINUTE_MS / speedRef.current);
+    };
+
+    const tick = () => {
+      // Checked BEFORE the minute advances: pausing has to stop the clock on the
+      // minute the manager pressed it, not one after. Anything already scheduled
+      // when he pressed pause lands here and must simply stand down — otherwise
+      // the game moves on under a panel that claims it is stopped.
+      if (pausedRef.current) {
+        timerRef.current = null; // resumeRef picks the clock back up
+        return;
+      }
       minute += 1;
       if (minute > toMinute) {
-        if (timerRef.current) clearInterval(timerRef.current);
+        stop();
         done();
         return;
       }
+      // Play the block this minute falls in BEFORE drawing it, so a change the
+      // manager made while paused is already in force for these fifteen minutes.
+      ensureSimulated(minute);
       setClock(minute);
-      setVisibleEvents((prev) => {
-        const upTo = events.filter((e) => e.minute <= minute);
-        return upTo.length !== prev.length ? upTo : prev;
-      });
-    }, 140 / speedRef.current);
+      revealTo(minute);
+      schedule();
+    };
+
+    resumeRef.current = () => {
+      if (timerRef.current) return; // already running
+      schedule();
+    };
+
+    schedule();
   };
 
   const kickOff = () => {
     const { homeSide, awaySide } = buildSides();
     const state = createMatch(homeSide, awaySide, TUNING, matchSeed(game, fixture));
     matchRef.current = state;
-    playFirstHalf(state);
-    const firstHalfEvents = state.events.slice();
     setPhase("first");
     setVisibleEvents([]);
-    streamEvents(firstHalfEvents, 0, 45, () => {
-      setVisibleEvents(firstHalfEvents);
+    setPaused(false);
+    streamHalf(state, 0, 45, () => {
+      setVisibleEvents(state.events.slice());
       setHalfTactic({ mentality: userTeam.tactic.mentality, style: userTeam.tactic.style });
+      setPaused(false);
+      setSubsOpen(false);
       setPhase("half");
     });
   };
@@ -144,14 +258,15 @@ export default function MatchDayScreen() {
       applyHalftimeTactic(state, isHome ? "home" : "away", halfTactic);
       userTeam.tactic = { ...userTeam.tactic, ...halfTactic };
     }
-    playSecondHalf(state);
-    const all = state.events.slice();
     setPhase("second");
-    streamEvents(all, 45, 91, () => finish(state, all));
+    setPaused(false);
+    streamHalf(state, 45, 91, () => finish(state, state.events.slice()));
   };
 
   const finish = (state: MatchState, allEvents: MatchEvent[]) => {
     setVisibleEvents(allEvents);
+    setPaused(false);
+    setSubsOpen(false);
     const res = finalizeResult(state);
     setResult(res);
     setDoneFixture(fixture);
@@ -166,6 +281,95 @@ export default function MatchDayScreen() {
     playSecondHalf(state);
     finish(state, state.events.slice());
   };
+
+  /** Abandon the watch mid-match and take the result (v1.68).
+   *
+   * The remaining segments are played out immediately under whatever tactics and
+   * personnel are in force at the moment you press it, then revealed at once.
+   * From the first half it stops at the team talk, because halftime is a decision
+   * the manager is owed; from the second it runs through to full time. */
+  const simulateToEnd = () => {
+    const jump = skipRef.current;
+    if (jump) {
+      // Skipping from a paused clock is still a skip — drop the pause so the
+      // touchline panel closes rather than hanging over a finished half.
+      setPaused(false);
+      setSubsOpen(false);
+      jump();
+      return;
+    }
+    // At half-time nothing is streaming: play the second half out and finish it.
+    const state = matchRef.current;
+    if (phase === "half" && state) {
+      if (halfTactic) {
+        applyHalftimeTactic(state, isHome ? "home" : "away", halfTactic);
+        userTeam.tactic = { ...userTeam.tactic, ...halfTactic };
+      }
+      playSecondHalf(state);
+      finish(state, state.events.slice());
+    }
+  };
+
+  // ── Touchline controls (v1.68) ────────────────────────────────────────────
+  // Stopping the clock is what turns the watch into management: while paused the
+  // manager can make his changes, and because the engine has genuinely not played
+  // the next block yet, they matter.
+
+  /** Stop the clock. The ref is set alongside the state because the tick loop is
+   * bound outside React's render and reads the ref, not the state — waiting for
+   * the flush would let one more minute through. The minute already in flight is
+   * cancelled rather than left to stand itself down, which keeps `timerRef` null
+   * while stopped: exactly what `resumeRef` tests before restarting. */
+  const pauseClock = () => {
+    setPaused(true);
+    pausedRef.current = true;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = null;
+  };
+
+  const togglePause = () => {
+    if (paused) {
+      setPaused(false);
+      setSubsOpen(false);
+      pausedRef.current = false;
+      resumeRef.current?.();
+    } else {
+      pauseClock();
+    }
+  };
+
+  /** The side the user manages, as the engine names it. */
+  const userSide = isHome ? ("home" as const) : ("away" as const);
+
+  const doSub = (offId: string, onId: string) => {
+    const state = matchRef.current;
+    if (!state) return;
+    if (manualSub(state, userSide, offId, onId, Math.max(1, clock))) {
+      // A substitution is an event like any other, so it belongs in the feed the
+      // moment it happens rather than at the next tick.
+      setVisibleEvents(state.events.filter((e) => e.minute <= Math.max(1, clock)));
+      setTouchlineRev((r) => r + 1);
+    }
+  };
+
+  const doSwap = (aId: string, bId: string) => {
+    const state = matchRef.current;
+    if (!state) return;
+    if (swapPositions(state, userSide, aId, bId)) setTouchlineRev((r) => r + 1);
+  };
+
+  /** Mentality/style changed from the touchline. Mirrored onto the team's saved
+   * tactic exactly as the half-time talk does, so the change persists past the
+   * final whistle rather than silently reverting. */
+  const doTactic = (patch: { mentality?: Mentality; style?: Style }) => {
+    const state = matchRef.current;
+    if (!state) return;
+    applyHalftimeTactic(state, userSide, patch);
+    userTeam.tactic = { ...userTeam.tactic, ...patch };
+    setTouchlineRev((r) => r + 1);
+  };
+
+  const live = phase === "first" || phase === "second";
 
   const { h, a } = result ? { h: result.homeGoals, a: result.awayGoals } : scoreFromEvents(visibleEvents);
   const compLabel =
@@ -185,23 +389,83 @@ export default function MatchDayScreen() {
               {h}<span className="mx-2 text-line">–</span>{a}
             </div>
             <div className="display mt-1 text-sm tnum text-gold">
-              {phase === "pre" ? "KICK-OFF" : phase === "half" ? "HALF-TIME" : phase === "done" ? shootoutLabel(fixture, game.userTeamId) ?? "FULL-TIME" : `${clock}'`}
+              {phase === "pre"
+                ? "KICK-OFF"
+                : phase === "half"
+                  ? "HALF-TIME"
+                  : phase === "done"
+                    ? shootoutLabel(fixture, game.userTeamId) ?? "FULL-TIME"
+                    : paused
+                      ? `${clock}' · PAUSED`
+                      : `${clock}'`}
             </div>
           </div>
           <TeamSide crest={away} mine={away.id === game.userTeamId} align="right" />
         </div>
-        {(phase === "first" || phase === "second") && (
-          <div className="mt-3 flex justify-center gap-1.5">
-            {[1, 2, 4].map((s) => (
-              <button
-                key={s}
-                onClick={() => setSpeed(s)}
-                className={`rounded px-2 py-0.5 text-xs ${speed === s ? "gold-grad font-bold text-black" : "border border-line text-faint"}`}
-              >
-                {s}×
-              </button>
-            ))}
+        {(phase === "first" || phase === "second" || phase === "half") && (
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
+            {live && (
+              <>
+                {/* Stop the clock to work (v1.68). The engine holds at the next
+                    segment boundary, so anything changed here is in force for
+                    the football that follows. */}
+                <button
+                  onClick={togglePause}
+                  title={paused ? "Resume the match" : "Stop the clock to make changes"}
+                  className={`display rounded px-2.5 py-0.5 text-xs font-semibold ${
+                    paused ? "gold-grad text-black" : "border border-line text-dim hover:text-ink"
+                  }`}
+                >
+                  {paused ? "▶ RESUME" : "❚❚ PAUSE"}
+                </button>
+                <button
+                  onClick={() => {
+                    // Opening the board always stops the clock — reading your
+                    // bench while the game runs on is how you miss the moment.
+                    if (!paused) pauseClock();
+                    setSubsOpen(true);
+                  }}
+                  title="Substitutions, shape and mentality"
+                  className="display rounded border border-line px-2.5 py-0.5 text-xs font-semibold text-dim hover:text-ink"
+                >
+                  TOUCHLINE
+                </button>
+              </>
+            )}
+            {live &&
+              [1, 2, 4].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setSpeed(s)}
+                  title={`Play at ${s}× speed`}
+                  className={`display rounded px-2 py-0.5 text-xs ${
+                    speed === s ? "gold-grad font-bold text-black" : "border border-line text-faint hover:text-dim"
+                  }`}
+                >
+                  {s}×
+                </button>
+              ))}
+            {/* Bail out of the watch at any point — the rest is played out under
+                the tactics currently in force and shown at once (v1.68). */}
+            <button
+              onClick={simulateToEnd}
+              title={phase === "first" ? "Skip to half-time" : "Skip to full-time"}
+              className="rounded border border-line px-2 py-0.5 text-xs text-faint hover:border-faint hover:text-dim"
+            >
+              {phase === "first" ? "Skip to half-time ▸▸" : "Simulate to the end ▸▸"}
+            </button>
           </div>
+        )}
+        {/* A stopped clock with the board closed would otherwise sit there saying
+            only "PAUSED" — say what the pause is FOR, and give the way back in. */}
+        {live && paused && !subsOpen && (
+          <p className="mt-2 text-center text-[11px] text-faint">
+            Clock stopped —{" "}
+            <button onClick={() => setSubsOpen(true)} className="text-gold underline-offset-2 hover:underline">
+              open the touchline
+            </button>{" "}
+            to make changes, or resume play.
+          </p>
         )}
       </div>
 
@@ -262,9 +526,209 @@ export default function MatchDayScreen() {
       {phase === "done" && result && (
         <PostMatch result={result} fixture={fixture} onDone={() => setScreen("home")} />
       )}
+
+      {/* The touchline board (v1.68). Only reachable while the clock is stopped,
+          which is the whole point — the engine has not played the next block yet,
+          so a change made here still decides something. */}
+      {subsOpen && matchRef.current && live && (
+        <TouchlinePanel
+          state={matchRef.current}
+          side={userSide}
+          minute={clock}
+          rev={touchlineRev}
+          tactic={userTeam.tactic}
+          onSub={doSub}
+          onSwap={doSwap}
+          onTactic={doTactic}
+          onClose={() => setSubsOpen(false)}
+        />
+      )}
     </div>
   );
 }
+
+/**
+ * Substitutions, shape and mentality from the touchline, in one modal.
+ *
+ * Everything is read straight out of the live `MatchState` rather than mirrored
+ * into React state — the engine is the truth about who is on the pitch, and the
+ * `rev` prop is what tells this to look again after a change lands. Selection is
+ * a two-tap flow shared by both jobs: pick a man on the pitch, then either a
+ * bench player to replace him or another starter to swap positions with.
+ */
+function TouchlinePanel({
+  state,
+  side,
+  minute,
+  rev,
+  tactic,
+  onSub,
+  onSwap,
+  onTactic,
+  onClose,
+}: {
+  state: MatchState;
+  side: "home" | "away";
+  minute: number;
+  rev: number;
+  tactic: { mentality: Mentality; style: Style };
+  onSub: (offId: string, onId: string) => void;
+  onSwap: (aId: string, bId: string) => void;
+  onTactic: (patch: { mentality?: Mentality; style?: Style }) => void;
+  onClose: () => void;
+}) {
+  const [picked, setPicked] = useState<string | null>(null);
+  // `rev` is a render key, not something to read: it changes whenever the engine
+  // state behind these lists has moved.
+  void rev;
+
+  const onPitch: OnPitch[] = onPitchFor(state, side);
+  const bench = benchFor(state, side);
+  const { used, max } = subsUsedFor(state, side);
+  const subsLeft = max - used;
+  const pickedOp = onPitch.find((o) => o.entry.player.id === picked) ?? null;
+
+  const chooseStarter = (id: string) => {
+    // Tapping a second starter is a position swap; tapping the same one clears.
+    if (picked && picked !== id) {
+      onSwap(picked, id);
+      setPicked(null);
+      return;
+    }
+    setPicked(picked === id ? null : id);
+  };
+
+  const chooseBench = (id: string) => {
+    if (!picked || subsLeft <= 0) return;
+    onSub(picked, id);
+    setPicked(null);
+  };
+
+  return (
+    <Modal title={`Touchline · ${minute}'`} onClose={onClose}>
+      <div className="space-y-4">
+        <p className="text-[12px] leading-snug text-dim">
+          {pickedOp ? (
+            <>
+              <b className="text-ink">{pickedOp.entry.player.name}</b> selected — tap a bench player to bring him on, or
+              another starter to switch their positions.
+            </>
+          ) : (
+            <>Tap a player on the pitch to start a substitution or a position switch.</>
+          )}
+        </p>
+
+        {/* On the pitch. Fitness is the number that decides a substitution, so it
+            is the number shown — live, off the same call the engine rates him by. */}
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-widest text-faint">On the pitch</span>
+            <span className="tnum text-[11px] text-dim">
+              {subsLeft} of {max} subs left
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+            {onPitch.map((op) => {
+              const p = op.entry.player;
+              const on = picked === p.id;
+              const fit = Math.round(liveFitness(state, side, op, Math.max(1, minute)));
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => chooseStarter(p.id)}
+                  className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-left ${
+                    on ? "border-gold-lo/70 bg-hover" : "border-line bg-raised hover:border-faint"
+                  }`}
+                >
+                  <PosBadge pos={op.entry.slotPos} />
+                  <span className={`min-w-0 flex-1 truncate text-sm ${on ? "text-gold" : "text-ink"}`}>{p.name}</span>
+                  <span
+                    className={`tnum shrink-0 text-[11px] ${fit < 60 ? "text-loss" : fit < 80 ? "text-dim" : "text-faint"}`}
+                    title="Live condition"
+                  >
+                    {fit}%
+                  </span>
+                  <Ovr value={p.overall} size="sm" />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* The bench. Disabled wholesale once the allocation is gone — a manager
+            should see why he can't act, not find the taps silently dead. */}
+        <div>
+          <div className="mb-1.5 text-[10px] uppercase tracking-widest text-faint">Bench</div>
+          {bench.length === 0 ? (
+            <p className="text-[11px] text-faint">Nobody left on the bench.</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+              {bench.map((p) => {
+                const usable = !!picked && subsLeft > 0;
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => chooseBench(p.id)}
+                    disabled={!usable}
+                    title={
+                      subsLeft <= 0
+                        ? "No substitutions left"
+                        : picked
+                          ? `Bring ${p.name} on`
+                          : "Pick the player coming off first"
+                    }
+                    className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-left ${
+                      usable ? "border-line bg-raised hover:border-gold-lo/70 hover:bg-hover" : "border-line/50 bg-surface opacity-50"
+                    }`}
+                  >
+                    <PosBadge pos={p.positions[0]} />
+                    <span className="min-w-0 flex-1 truncate text-sm text-ink">{p.name}</span>
+                    <Ovr value={p.overall} size="sm" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Mentality and style, the same two dials the half-time talk offers —
+            available here because a game can turn long before the break. */}
+        <div className="border-t border-line/60 pt-3">
+          <div className="flex flex-wrap gap-4">
+            {(
+              [
+                ["Mentality", MENTALITY_OPTIONS, tactic.mentality, (v: string) => onTactic({ mentality: v as Mentality })],
+                ["Style", STYLE_OPTIONS, tactic.style, (v: string) => onTactic({ style: v as Style })],
+              ] as const
+            ).map(([label, opts, cur, apply]) => (
+              <div key={label}>
+                <div className="mb-1 text-[10px] uppercase tracking-widest text-faint">{label}</div>
+                <div className="flex flex-wrap gap-1">
+                  {opts.map((o) => (
+                    <button
+                      key={o}
+                      onClick={() => apply(o)}
+                      className={`display rounded px-2.5 py-1 text-xs font-semibold ${
+                        cur === o ? "gold-grad text-black" : "border border-line text-dim hover:text-ink"
+                      }`}
+                    >
+                      {label === "Style" ? styleLabel(o) : o}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <GoldButton onClick={onClose}>BACK TO THE MATCH ▸</GoldButton>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 
 function shootoutLabel(fixture: Fixture, userTeamId: string): string | null {
   if (!fixture.shootoutWinnerId) return null;

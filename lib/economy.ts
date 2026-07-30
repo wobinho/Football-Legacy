@@ -344,6 +344,8 @@ export type TrainingFacility =
   | "academySquad"
   | "focusSlot"
   | "youthPr"
+  | "scoutSpeed"
+  | "scoutFilter"
   // specialist facilities (v15)
   | "gkCentre"
   | "defenceCentre"
@@ -369,6 +371,8 @@ const TRAINING_FACILITY_SPEC: Record<
   academySquad: { levelKey: "academySquadLevel", costKey: "academySquadUpgradeCost", maxKey: "academySquadMaxLevel" },
   focusSlot: { levelKey: "focusSlotLevel", costKey: "focusSlotUpgradeCost", maxKey: "focusSlotMaxLevel" },
   youthPr: { levelKey: "youthPrLevel", costKey: "youthPrUpgradeCost", maxKey: "youthPrMaxLevel" },
+  scoutSpeed: { levelKey: "scoutSpeedLevel", costKey: "scoutSpeedUpgradeCost", maxKey: "scoutSpeedMaxLevel" },
+  scoutFilter: { levelKey: "scoutFilterLevel", costKey: "scoutFilterUpgradeCost", maxKey: "scoutFilterMaxLevel" },
   gkCentre: { levelKey: "gkCentreLevel", costKey: "gkCentreUpgradeCost", maxKey: "positionFacilityMaxLevel" },
   defenceCentre: { levelKey: "defenceCentreLevel", costKey: "defenceCentreUpgradeCost", maxKey: "positionFacilityMaxLevel" },
   midfieldCentre: { levelKey: "midfieldCentreLevel", costKey: "midfieldCentreUpgradeCost", maxKey: "positionFacilityMaxLevel" },

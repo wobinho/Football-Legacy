@@ -13,6 +13,26 @@
 // right tactic is worth up to +20%; the wrong one costs up to -10%.
 
 import type { Pos, Style, Attributes } from "../types";
+import {
+  ATTR_FAMILIES,
+  ATTR_FAMILY_ORDER,
+  ATTR_KEYS,
+  GK_ATTR_KEYS,
+  type AttrFamily,
+  type AttrKey,
+} from "./attributes";
+import { fitAttrsToOverall, keyAttrsFor } from "./positions";
+
+/** An archetype's shape, authored as the six readable card faces (v41).
+ *
+ * The player schema carries 35 attributes, but authoring 38 archetypes × 35
+ * numbers by hand would be unreadable and unmaintainable — and the extra
+ * precision would be invented, not observed. So an archetype still declares its
+ * emphasis across the six families and `expandProfile` fans that out to all 35,
+ * with a per-attribute tilt table (below) supplying the within-family detail
+ * that actually distinguishes archetypes: a Poacher's finishing vs. a Target
+ * Man's heading, both of which live in the "shooting" family. */
+export type AttrShape = Record<AttrFamily, number>;
 
 export interface Archetype {
   id: string;
@@ -27,7 +47,11 @@ export interface Archetype {
   assistWeight: number;
   /** 0..1 — pace-reliant archetypes decline earlier/harder (§5 aging). */
   paceReliance: number;
-  /** Attribute profile: relative emphasis used to derive the six attrs from overall. */
+  /** Authored six-family emphasis (0..1), the readable shape. */
+  shape: AttrShape;
+  /** The same emphasis fanned out across all 35 attributes (0..1). Derived at
+   * module load from `shape` + ARCHETYPE_TILT — generation and development read
+   * this, never the six. */
   attrProfile: Attributes;
   /** Flavor templates for goals: {p}=player, {a}=assister, {t}=team. */
   goalFlavor: string[];
@@ -62,8 +86,15 @@ const A = (
   id: string, name: string, positions: Pos[], desc: string,
   row: StyleRow,
   scorerWeight: number, assistWeight: number, paceReliance: number,
-  attrProfile: Attributes, goalFlavor: string[]
-): Archetype => ({ id, name, positions, desc, styleSynergy: synergy(row), scorerWeight, assistWeight, paceReliance, attrProfile, goalFlavor });
+  shape: AttrShape, goalFlavor: string[]
+): Archetype => ({
+  id, name, positions, desc, styleSynergy: synergy(row),
+  scorerWeight, assistWeight, paceReliance,
+  shape,
+  // Filled in by the expansion pass at the bottom of the file.
+  attrProfile: {} as Attributes,
+  goalFlavor,
+});
 
 export const ARCHETYPES: Archetype[] = [
   // ── Goalkeepers ──────────────────────────────────────────────────────────
@@ -351,6 +382,159 @@ for (const a of ARCHETYPES) {
   a.heightCm = HEIGHT_BANDS[a.id] ?? DEFAULT_HEIGHT_CM;
 }
 
+// ── Six-family shape → 35-attribute profile (v41) ──────────────────────────
+//
+// Two things combine to give an archetype its 35-attribute emphasis:
+//
+//   1. The authored `shape` sets the LEVEL of each family — a Poacher's
+//      shooting is 1.0, his defending 0.15.
+//   2. ARCHETYPE_TILT sets the emphasis WITHIN a family for archetypes whose
+//      identity depends on it. A Poacher and a Target Man both have ~1.0
+//      shooting, but the Poacher's lives in finishing/positioning and the
+//      Target Man's in heading/shot power. Without this the two would generate
+//      identical attribute lines, which is exactly the detail the 35-attribute
+//      model exists to capture.
+//
+// A tilt entry is a MULTIPLIER on the family level for that attribute (1.0 =
+// no tilt). Only the attributes worth distinguishing are listed; everything
+// else inherits its family level unchanged. This is pure data.
+
+const ARCHETYPE_TILT: Record<string, Partial<Record<AttrKey, number>>> = {
+  // ── Goalkeepers: the six GK attrs are set from `shape` via GK_SHAPE_MAP
+  // below, so a keeper's tilt only needs to say which hand-skill he leads on.
+  shot_stopper: { reflexes: 1.05, diving: 1.04, handling: 0.98, gkPositioning: 0.9, kicking: 0.78, gkSpeed: 0.85 },
+  sweeper_keeper: { gkSpeed: 1.35, kicking: 1.15, gkPositioning: 1.0, reflexes: 0.93, diving: 0.93 },
+  ball_playing_keeper: { kicking: 1.25, shortPassing: 1.35, longPassing: 1.3, composure: 1.15, reflexes: 0.93, gkSpeed: 1.05 },
+  commanding_keeper: { gkPositioning: 1.04, handling: 1.05, jumping: 1.2, strength: 1.15, aggression: 1.1, gkSpeed: 0.9 },
+  distributor: { kicking: 1.3, longPassing: 1.35, vision: 1.3, shortPassing: 1.2, gkSpeed: 0.95 },
+
+  // ── Centre backs ────────────────────────────────────────────────────────
+  stopper: { headingAccuracy: 1.15, standingTackle: 1.1, strength: 1.12, aggression: 1.15, jumping: 1.15, composure: 0.9 },
+  ball_playing_def: { shortPassing: 1.2, longPassing: 1.25, vision: 1.15, composure: 1.2, ballControl: 1.15, aggression: 0.85 },
+  libero: { vision: 1.25, longPassing: 1.2, ballControl: 1.2, dribbling: 1.15, composure: 1.2, slidingTackle: 0.9 },
+  no_nonsense_def: { headingAccuracy: 1.18, slidingTackle: 1.15, standingTackle: 1.12, strength: 1.15, aggression: 1.2, vision: 0.75, curve: 0.7 },
+
+  // ── Full backs ──────────────────────────────────────────────────────────
+  wing_back: { crossing: 1.3, stamina: 1.25, acceleration: 1.1, sprintSpeed: 1.1, slidingTackle: 0.95 },
+  def_fullback: { standingTackle: 1.15, markingAwareness: 1.15, interceptions: 1.12, crossing: 0.85 },
+  inverted_fullback: { shortPassing: 1.25, longPassing: 1.2, vision: 1.2, composure: 1.15, crossing: 0.7 },
+  complete_wingback: { crossing: 1.2, stamina: 1.25, standingTackle: 1.05, interceptions: 1.05 },
+
+  // ── Defensive / central midfield ────────────────────────────────────────
+  anchor: { interceptions: 1.2, standingTackle: 1.18, markingAwareness: 1.15, strength: 1.12, aggression: 1.1, dribbling: 0.85 },
+  deep_playmaker: { longPassing: 1.3, vision: 1.28, shortPassing: 1.2, composure: 1.2, ballControl: 1.12, slidingTackle: 0.85 },
+  ball_winner: { standingTackle: 1.2, slidingTackle: 1.2, interceptions: 1.15, aggression: 1.25, stamina: 1.15, vision: 0.85 },
+  box_crasher: { longShots: 1.25, shotPower: 1.2, positioning: 1.25, stamina: 1.2, finishing: 1.1 },
+  box_to_box: { stamina: 1.3, strength: 1.1, interceptions: 1.05, longShots: 1.1 },
+  playmaker: { vision: 1.3, shortPassing: 1.25, longPassing: 1.2, composure: 1.2, curve: 1.15, ballControl: 1.15 },
+  mezzala: { dribbling: 1.15, positioning: 1.15, longShots: 1.15, stamina: 1.15, agility: 1.1 },
+  regista: { longPassing: 1.35, vision: 1.32, shortPassing: 1.22, composure: 1.25, fkAccuracy: 1.15, curve: 1.15 },
+  carrilero: { stamina: 1.25, shortPassing: 1.15, interceptions: 1.1, standingTackle: 1.1 },
+
+  // ── Attacking midfield ──────────────────────────────────────────────────
+  shadow_striker: { finishing: 1.3, positioning: 1.3, longShots: 1.1, volleys: 1.15, crossing: 0.75 },
+  classic_ten: { vision: 1.3, shortPassing: 1.22, curve: 1.2, fkAccuracy: 1.2, ballControl: 1.2, composure: 1.15, stamina: 0.8 },
+  adv_playmaker: { vision: 1.3, shortPassing: 1.22, ballControl: 1.18, composure: 1.15, curve: 1.12 },
+  trequartista: { vision: 1.3, ballControl: 1.25, dribbling: 1.2, agility: 1.15, curve: 1.15, stamina: 0.75, aggression: 0.7 },
+  half_winger: { dribbling: 1.2, crossing: 1.15, acceleration: 1.15, agility: 1.15 },
+  enganche: { vision: 1.35, shortPassing: 1.25, composure: 1.2, fkAccuracy: 1.15, stamina: 0.7, acceleration: 0.8, sprintSpeed: 0.8 },
+
+  // ── Wingers ─────────────────────────────────────────────────────────────
+  speed_winger: { acceleration: 1.25, sprintSpeed: 1.25, agility: 1.15, crossing: 1.15, strength: 0.8 },
+  inverted_winger: { finishing: 1.25, curve: 1.25, longShots: 1.2, dribbling: 1.15, agility: 1.12, crossing: 0.85 },
+  raumdeuter: { positioning: 1.35, finishing: 1.25, reactions: 1.2, dribbling: 0.85, crossing: 0.8 },
+  classic_winger: { crossing: 1.35, curve: 1.2, sprintSpeed: 1.15, acceleration: 1.12, finishing: 0.85 },
+  wide_playmaker: { vision: 1.3, shortPassing: 1.2, longPassing: 1.15, curve: 1.15, ballControl: 1.15 },
+
+  // ── Strikers ────────────────────────────────────────────────────────────
+  poacher: { finishing: 1.3, positioning: 1.35, reactions: 1.2, volleys: 1.15, longShots: 0.8, longPassing: 0.75, crossing: 0.7 },
+  target_man: { headingAccuracy: 1.4, shotPower: 1.2, strength: 1.3, jumping: 1.3, finishing: 1.05, agility: 0.75, acceleration: 0.8 },
+  complete_forward: { finishing: 1.15, headingAccuracy: 1.1, shotPower: 1.1, ballControl: 1.1 },
+  pressing_forward: { stamina: 1.35, aggression: 1.3, interceptions: 1.2, strength: 1.1 },
+  false_nine: { vision: 1.3, shortPassing: 1.25, ballControl: 1.2, composure: 1.15, headingAccuracy: 0.75, jumping: 0.8 },
+  advanced_forward: { finishing: 1.25, positioning: 1.2, acceleration: 1.2, sprintSpeed: 1.2, headingAccuracy: 0.9 },
+};
+
+/**
+ * Baseline level for each GOALKEEPING attribute, before an archetype's tilt.
+ *
+ * These are NOT read from the authored six-family `shape`. That shape was written
+ * against the old FUT card layout, where a keeper's six slots were relabelled
+ * (def=diving, phy=positioning, …) — a mapping the 35-attribute model no longer
+ * uses, and which put a keeper's largest authored value on whichever slot the old
+ * card happened to place it. The result was a single keeper attribute carrying
+ * both the highest profile level AND the highest weight in the rating, so every
+ * generated keeper pinned that one stat at 99.
+ *
+ * Instead each keeper skill gets a level reflecting how central it genuinely is
+ * to keeping goal, and ARCHETYPE_TILT differentiates the keepers from there. The
+ * four core skills sit level with each other deliberately: the GK weight row
+ * treats handling, diving, reflexes and positioning as near-equal, so a good
+ * keeper should be good at all four rather than spiked in one.
+ */
+const GK_BASE_LEVEL: Partial<Record<AttrKey, number>> = {
+  handling: 0.95,
+  diving: 0.95,
+  reflexes: 0.95,
+  gkPositioning: 0.95,
+  kicking: 0.7,
+  gkSpeed: 0.55,
+};
+
+/** An outfielder's goalkeeping attributes (and vice versa) are real but low —
+ * an outfield player has *some* diving, it just never matters. Kept well below
+ * the rest of the profile so generation produces sane-looking sheets. */
+const OFF_ROLE_LEVEL = 0.14;
+
+function expandProfile(a: Archetype): Attributes {
+  const isGk = a.positions[0] === "GK";
+  const tilt = ARCHETYPE_TILT[a.id] ?? {};
+  const out = {} as Attributes;
+
+  for (const k of ATTR_KEYS) {
+    const gkAttr = GK_ATTR_KEYS.includes(k);
+    let level: number;
+    if (isGk) {
+      // For a keeper the goalkeeping skills carry the profile; his outfield
+      // attributes are secondary (he can pass a bit, he has stamina).
+      if (gkAttr) {
+        level = GK_BASE_LEVEL[k] ?? 0.5;
+      } else {
+        // Passing-family outfield attributes stay usable — a keeper's
+        // distribution is a real skill — everything else sits low.
+        const fam = ATTR_FAMILY_ORDER.find((f) => ATTR_FAMILIES[f].includes(k));
+        level = fam === "pas" ? a.shape.pas * 0.6 : OFF_ROLE_LEVEL + a.shape.phy * 0.12;
+      }
+    } else {
+      if (gkAttr) {
+        level = OFF_ROLE_LEVEL;
+      } else {
+        const fam = ATTR_FAMILY_ORDER.find((f) => ATTR_FAMILIES[f].includes(k));
+        level = fam ? a.shape[fam] : 0.5;
+      }
+    }
+    out[k] = Math.max(0.05, Math.min(1, level * (tilt[k] ?? 1)));
+  }
+  return out;
+}
+
+for (const a of ARCHETYPES) {
+  a.attrProfile = expandProfile(a);
+}
+
+if (process.env.NODE_ENV !== "production") {
+  const ids = new Set(ARCHETYPES.map((a) => a.id));
+  for (const id of Object.keys(ARCHETYPE_TILT)) {
+    if (!ids.has(id)) throw new Error(`ARCHETYPE_TILT names unknown archetype "${id}"`);
+  }
+  const valid = new Set<string>(ATTR_KEYS);
+  for (const [id, t] of Object.entries(ARCHETYPE_TILT)) {
+    for (const k of Object.keys(t)) {
+      if (!valid.has(k)) throw new Error(`ARCHETYPE_TILT.${id} names unknown attribute "${k}"`);
+    }
+  }
+}
+
 export const ARCHETYPE_MAP: Record<string, Archetype> = Object.fromEntries(
   ARCHETYPES.map((a) => [a.id, a])
 );
@@ -361,4 +545,33 @@ export function archetypesForPosition(pos: Pos): Archetype[] {
 
 export function getArchetype(id: string): Archetype {
   return ARCHETYPE_MAP[id] ?? ARCHETYPES[0];
+}
+
+/**
+ * Build a realistic 35-attribute line for a position/archetype at a given
+ * ability (v41). The same spread `worldgen.deriveAttrs` produces, minus the
+ * randomness — so it is pure and repeatable.
+ *
+ * This is what the authoring UI's "shape to role" uses: hand-authoring 35
+ * numbers into something plausible is a lot of work, and the archetype table
+ * already encodes what each role looks like. Lives here rather than in the
+ * component because it is game logic (React never implements rules).
+ */
+export function shapeAttrsToRole(pos: Pos, archetypeId: string | undefined, targetOverall: number): Attributes {
+  // With no archetype chosen, use the first that fits the position — the same
+  // fallback worldgen's "auto" path lands on.
+  const arch =
+    (archetypeId ? ARCHETYPE_MAP[archetypeId] : undefined) ?? archetypesForPosition(pos)[0] ?? ARCHETYPES[0];
+  const profile = arch.attrProfile;
+  const maxW = Math.max(...ATTR_KEYS.map((k) => profile[k])) || 1;
+  const shaped = {} as Attributes;
+  for (const k of ATTR_KEYS) {
+    const rel = profile[k] / maxW; // 1.0 = signature attribute
+    shaped[k] = Math.max(1, Math.min(99, Math.round(targetOverall * (0.55 + 0.48 * rel))));
+  }
+  // Leave the top-weighted attributes room to absorb the fit without pinning at
+  // 99 — same pre-compensation worldgen's deriveAttrs applies, so an authored
+  // player and a generated one of the same rating read alike.
+  for (const k of keyAttrsFor(pos, 4)) shaped[k] = Math.max(1, Math.round(shaped[k] - targetOverall * 0.06));
+  return fitAttrsToOverall(shaped, pos, targetOverall);
 }

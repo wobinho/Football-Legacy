@@ -10,7 +10,8 @@ import { useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { PlayerBio } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
-import { devPhase, seasonGrowth, seasonGrowthEstimate, seasonAttrFocus } from "@/lib/development";
+import { devPhase, seasonGrowth, seasonGrowthEstimate, seasonFamilyFocus } from "@/lib/development";
+import { ATTR_FAMILY_LABELS, ATTR_FAMILY_ORDER, GK_FAMILY_LABELS } from "@/lib/config/attributes";
 import { trainingNextCost, type TrainingFacility } from "@/lib/economy";
 import { academyGrowthSummary, prospectGrowth, type ProspectGrowth } from "@/lib/academy";
 import { formatMoney } from "@/lib/value";
@@ -81,9 +82,6 @@ function SortHeader({
   );
 }
 
-const ATTR_LABELS: [keyof PlayerBio["attrs"], string][] = [
-  ["pac", "PAC"], ["sho", "SHO"], ["pas", "PAS"], ["dri", "DRI"], ["def", "DEF"], ["phy", "PHY"],
-];
 
 // Shared grid template for the Training Plans header + rows. The last track is a
 // fixed width so the training-focus dropdown is the same size across every
@@ -652,18 +650,20 @@ function Row({ k, v, good }: { k: string; v: string; good?: boolean }) {
 }
 
 function AttrProjection({ p, delta, plan }: { p: PlayerBio; delta: number; plan: TrainingPlanDef }) {
-  // Where the coming season's growth (delta overall) is expected to flow across
-  // the six attributes — this season only, never a lifetime ceiling.
-  const gains = seasonAttrFocus(p, delta, plan);
+  // Where the coming season's growth (delta overall) is expected to flow, rolled
+  // up to the six card faces — this season only, never a lifetime ceiling. The
+  // full 35-attribute breakdown lives on the player's profile.
+  const proj = seasonFamilyFocus(p, delta, plan);
+  const isGk = p.positions[0] === "GK";
+  const labels = isGk ? GK_FAMILY_LABELS : ATTR_FAMILY_LABELS;
   return (
     <div className="space-y-1.5">
-      {ATTR_LABELS.map(([k, label]) => {
-        const now = p.attrs[k];
-        const gain = gains[k];
+      {ATTR_FAMILY_ORDER.map((f) => {
+        const { now, gain } = proj[f];
         const next = Math.min(99, now + gain);
         return (
-          <div key={k} className="flex items-center gap-2 text-xs">
-            <span className="display w-8 text-faint">{label}</span>
+          <div key={f} className="flex items-center gap-2 text-xs">
+            <span className="display w-8 text-faint">{labels[f].slice(0, 3).toUpperCase()}</span>
             <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-line">
               <div className="absolute inset-y-0 left-0 bg-dim/60" style={{ width: `${now}%` }} />
               {gain > 0 && (

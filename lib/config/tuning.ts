@@ -610,6 +610,21 @@ export interface TuningConfig {
   focusSlotMaxLevel: number; // levels available; each level is +1 focus slot
   focusSlotUpgradeCost: number[]; // one-time cost to reach each level
 
+  // Scout Speed facility (v1.68): logistics, retainers and a travel budget that
+  // shorten the gap between a scout's reports. Bought from the Academy Upgrades
+  // tab. The cadence is scaled by (1 − level*scoutSpeedPerLevel), so each level
+  // takes 5% off the wait and a fully-built department reports in half the time —
+  // a 14-day cycle becomes 7.
+  scoutSpeedMaxLevel: number;
+  scoutSpeedPerLevel: number; // fraction of the wait removed per level (0.05 = 5% faster)
+  scoutSpeedUpgradeCost: number[];
+
+  // Scout Network facility (v1.68): a ONE-TIME purchase that unlocks the brief
+  // auto-filter — until it is bought, a scout files whatever they find and the
+  // filter controls are locked. Level is 0 or 1; there is nothing to scale.
+  scoutFilterMaxLevel: number;
+  scoutFilterUpgradeCost: number[];
+
   // Youth PR facility (v1.65): media and commercial work around the academy that
   // raises what the market thinks your prospects are worth. Bought from the
   // Academy Upgrades tab. Value multiplier = 1 + level*youthPrValuePerLevel,
@@ -1089,7 +1104,12 @@ export const TUNING: TuningConfig = {
 
   segmentsPerMatch: 6,
   minutesPerSegment: 15,
-  baseChancesPerSegment: 1.87,
+  // Re-calibrated for the 35-attribute model (v41). Importing real per-attribute
+  // data raised measured squad strength a little (the old six were a rounded
+  // aggregate of it), which pushed scoring to ~2.94 goals/match at the previous
+  // 1.87. Trimming the chance rate restores the ~2.7 target without touching the
+  // engine. Re-check with `npm run calibrate` after any attribute-model change.
+  baseChancesPerSegment: 1.74,
   goalProbFloor: 0.08,
   goalProbCeil: 0.4,
   chanceQualitySlope: 11.0,
@@ -1593,20 +1613,43 @@ export const TUNING: TuningConfig = {
   releaseClauseMaxWageDiscount: 0.12,
   releaseClauseSuggestedMult: 2.5,
 
-  scoutNetworkMaxLevel: 5, // base 2 + 5 levels → up to 7 scouts on assignment
-  scoutNetworkBase: 2,
+  // v1.68: base 3 + 7 levels → up to 10 scouts employed.
+  scoutNetworkMaxLevel: 7,
+  scoutNetworkBase: 3,
   // v1.44: Academy Upgrade costs raised 8× across all three upgrades.
-  scoutNetworkUpgradeCost: [28_000_000, 56_000_000, 96_000_000, 144_000_000, 200_000_000],
+  scoutNetworkUpgradeCost: [
+    28_000_000, 56_000_000, 96_000_000, 144_000_000, 200_000_000, 260_000_000, 330_000_000,
+  ],
 
-  academySquadSizeBase: 14, // base 14 + 4 levels × 4 → up to 30 prospects
-  academySquadSizePerLevel: 4,
-  academySquadMaxLevel: 4,
-  // v1.67: flat 15M steps, starting at 20M.
-  academySquadUpgradeCost: [20_000_000, 35_000_000, 50_000_000, 65_000_000],
+  // v1.68: base 15 + 10 levels × 3 → up to 45 prospects.
+  academySquadSizeBase: 15,
+  academySquadSizePerLevel: 3,
+  academySquadMaxLevel: 10,
+  // flat 15M steps, starting at 20M.
+  academySquadUpgradeCost: [
+    20_000_000, 35_000_000, 50_000_000, 65_000_000, 80_000_000,
+    95_000_000, 110_000_000, 125_000_000, 140_000_000, 155_000_000,
+  ],
 
-  focusSlotMaxLevel: 7, // base 3 + 7 levels → up to 10 focus slots
-  // v1.67: flat 10M steps, starting at 10M.
-  focusSlotUpgradeCost: [10_000_000, 20_000_000, 30_000_000, 40_000_000, 50_000_000, 60_000_000, 70_000_000],
+  // v1.68: base 5 + 10 levels → up to 15 focus slots.
+  focusSlotMaxLevel: 10,
+  // flat 10M steps, starting at 10M.
+  focusSlotUpgradeCost: [
+    10_000_000, 20_000_000, 30_000_000, 40_000_000, 50_000_000,
+    60_000_000, 70_000_000, 80_000_000, 90_000_000, 100_000_000,
+  ],
+
+  // v1.68: 10 levels × 5% → reports arrive 50% sooner at max.
+  scoutSpeedMaxLevel: 10,
+  scoutSpeedPerLevel: 0.05,
+  scoutSpeedUpgradeCost: [
+    12_000_000, 24_000_000, 36_000_000, 48_000_000, 60_000_000,
+    72_000_000, 84_000_000, 96_000_000, 108_000_000, 120_000_000,
+  ],
+
+  // v1.68: one £100M purchase unlocks the brief auto-filter for good.
+  scoutFilterMaxLevel: 1,
+  scoutFilterUpgradeCost: [100_000_000],
 
   youthPrMaxLevel: 10, // 10 levels × 3% → +30% prospect value at max
   youthPrValuePerLevel: 0.03,
@@ -1814,8 +1857,8 @@ export const TUNING: TuningConfig = {
   starScalePerHalf: 5,
 
   u21MinutesWeight: 0.6,
-  u21FocusBase: 3,
-  u21FocusMax: 10,
+  u21FocusBase: 5, // v1.68: 5 slots before any upgrade
+  u21FocusMax: 15, // v1.68: base 5 + 10 upgrade levels
   u21FocusGrowthBonus: 0.1,
   u21SquadGrowthBonus: 0.06,
   u21GoalsPerMatch: 3.2,
@@ -1832,13 +1875,17 @@ export const TUNING: TuningConfig = {
 
   // Most clubs will deal for the right money; a third want a premium; a quarter
   // simply aren't selling. Elite prospects then multiply on top of that, which
-  // is what makes an obsidian or legacy kid genuinely hard to prise away. The
-  // premium climbs steeply up the top of the ladder — a legacy prospect costs
-  // five times what his valuation says, which is the point.
+  // is what makes an obsidian or legacy kid harder to prise away.
+  //
+  // v1.68 — the two multipliers COMPOUND, which nobody had priced: a legacy kid at
+  // a premium club asked 2.6 × 5.0 = 13× his valuation, and even a willing seller
+  // wanted 6.75×. A rival's prospect is worth a premium, not a fantasy, so the
+  // stance is now a modest markup and the tier ladder tops out at 1.6× — the worst
+  // case a manager can be quoted is ~2.9× value instead of 13×.
   u21SellStanceWeights: { willing: 42, premium: 33, unwilling: 25 },
-  u21SellPricePremiumMult: 2.6,
-  u21SellPriceWillingMult: 1.35,
-  u21SellTierMult: { diamond: 1.8, obsidian: 3.0, legacy: 5.0, platinum: 1.8 },
+  u21SellPricePremiumMult: 1.8,
+  u21SellPriceWillingMult: 1.15,
+  u21SellTierMult: { diamond: 1.2, obsidian: 1.4, legacy: 1.6, platinum: 1.2 },
   u21SellRefusalChance: 0.12,
 
   scoutReportDaysBase: 40,
@@ -1915,7 +1962,7 @@ export const TUNING: TuningConfig = {
   scoutWageBase: 3_000,
   scoutWagePerStar: 1_600,
   scoutFeePerStar: 55_000,
-  scoutMaxHireable: 7, // scoutNetworkBase 2 + 5 upgrade levels
+  scoutMaxHireable: 10, // v1.68: scoutNetworkBase 3 + 7 upgrade levels
 
   loanMaxAge: 21,
   loanWeeklyChance: 0.35,

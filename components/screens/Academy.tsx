@@ -25,6 +25,7 @@ import {
   filterPassRate,
   normalizeFilter,
   scoutCapacity,
+  scoutFilterUnlocked,
   u21Eligible,
   u21OpponentByName,
   u21OpponentProspects,
@@ -40,7 +41,8 @@ import {
 import { POS_GROUP_COLORS, POS_LABELS, POS_ORDER, posGroup } from "@/lib/config/positions";
 import { academySquadCap, trainingNextCost } from "@/lib/economy";
 import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan, type TrainingPlanDef } from "@/lib/config/training";
-import { devPhase, seasonAttrFocus, seasonGrowth, seasonGrowthEstimate } from "@/lib/development";
+import { devPhase, seasonFamilyFocus, seasonGrowth, seasonGrowthEstimate } from "@/lib/development";
+import { ATTR_FAMILY_LABELS, ATTR_FAMILY_ORDER, GK_FAMILY_LABELS } from "@/lib/config/attributes";
 import { SCOUT_WORLD, locateTarget, scoutRegion } from "@/lib/config/scouting";
 import {
   expectedReportSize,
@@ -1004,9 +1006,6 @@ function TextBtn({
 // dropdown track narrows on phones so a row still fits a small screen.
 const ACADEMY_PLAN_GRID = "grid-cols-[2rem_1fr_2rem_2.5rem_8rem] sm:grid-cols-[2.25rem_1fr_2.5rem_3rem_11rem]";
 
-const ACADEMY_ATTR_LABELS: [keyof PlayerBio["attrs"], string][] = [
-  ["pac", "PAC"], ["sho", "SHO"], ["pas", "PAS"], ["dri", "DRI"], ["def", "DEF"], ["phy", "PHY"],
-];
 
 function academyDevPhaseChip(phase: "growth" | "prime" | "decline") {
   const map = {
@@ -1019,16 +1018,18 @@ function academyDevPhaseChip(phase: "growth" | "prime" | "decline") {
 }
 
 function AcademyAttrProjection({ p, delta, plan }: { p: PlayerBio; delta: number; plan: TrainingPlanDef }) {
-  const gains = seasonAttrFocus(p, delta, plan);
+  // Rolled up to the six card faces, as on the Development screen — the full
+  // 35-attribute sheet is on the prospect's profile.
+  const proj = seasonFamilyFocus(p, delta, plan);
+  const labels = p.positions[0] === "GK" ? GK_FAMILY_LABELS : ATTR_FAMILY_LABELS;
   return (
     <div className="space-y-1.5">
-      {ACADEMY_ATTR_LABELS.map(([k, label]) => {
-        const now = p.attrs[k];
-        const gain = gains[k];
+      {ATTR_FAMILY_ORDER.map((f) => {
+        const { now, gain } = proj[f];
         const next = Math.min(99, now + gain);
         return (
-          <div key={k} className="flex items-center gap-2 text-xs">
-            <span className="display w-8 text-faint">{label}</span>
+          <div key={f} className="flex items-center gap-2 text-xs">
+            <span className="display w-8 text-faint">{labels[f].slice(0, 3).toUpperCase()}</span>
             <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-line">
               <div className="absolute inset-y-0 left-0 bg-dim/60" style={{ width: `${now}%` }} />
               {gain > 0 && (
@@ -2161,91 +2162,6 @@ function OvrPill({ value }: { value: number }) {
 }
 
 /**
- * A summary of the whole scouting operation, filling the space under the
- * assignment list (a full department is only three scouts, so the bottom of that
- * column is otherwise permanently empty).
- *
- * Everything here is read off state that already exists — there is no
- * per-department spend ledger in the save, so the money figure is the standing
- * weekly wage bill of the scouts on the books rather than an invented
- * cumulative total.
- */
-function ScoutingNetworkSummary() {
-  const game = useGame((s) => s.game)!;
-  useGame((s) => s.rev);
-  const roster = game.teams[game.userTeamId].scouts ?? [];
-  const assignments = game.academy.assignments;
-  const reports = game.academy.reports.filter((r) => r.expiresDay > game.currentDay);
-
-  const wageBill = roster.reduce((sum, s) => sum + s.wage, 0);
-  // Regions currently covered, with how many scouts sit in each.
-  const byRegion = new Map<string, number>();
-  for (const a of assignments) {
-    const label = scoutRegion(a.region).label;
-    byRegion.set(label, (byRegion.get(label) ?? 0) + 1);
-  }
-  const regions = [...byRegion.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  // Where the live prospects came from — the network's actual output.
-  const byTier = new Map<string, number>();
-  for (const r of reports) if (r.tier) byTier.set(r.tier, (byTier.get(r.tier) ?? 0) + 1);
-  const tiers = TUNING.prospectTierOrder.filter((t) => byTier.has(t)).reverse();
-
-  if (roster.length === 0) return null;
-
-  return (
-    <Section title="Scouting Network">
-      <Card className="space-y-4 p-4">
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: "Wage bill", value: `${formatMoney(wageBill)}/wk`, hint: "Combined weekly wages of every scout on the books" },
-            { label: "Regions covered", value: `${regions.length}`, hint: "Distinct regions your scouts are currently working" },
-            { label: "Live prospects", value: `${reports.length}`, hint: "Reports still on the board — they expire as trails go cold" },
-          ].map((s) => (
-            <div key={s.label} title={s.hint}>
-              <div className="text-[9px] uppercase tracking-widest text-mute">{s.label}</div>
-              <div className="display tnum text-sm font-semibold text-ink">{s.value}</div>
-            </div>
-          ))}
-        </div>
-
-        <div>
-          <div className="mb-1.5 text-[10px] uppercase tracking-widest text-faint">Active regions</div>
-          {regions.length === 0 ? (
-            <p className="text-[11px] text-faint">Nobody is out. Send a scout and the regions they cover show up here.</p>
-          ) : (
-            <div className="flex flex-wrap gap-1.5">
-              {regions.map(([label, n]) => (
-                <MetaTag key={label} icon="📍" className="!text-ink">
-                  {label}
-                  {n > 1 && <span className="tnum text-faint">×{n}</span>}
-                </MetaTag>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {tiers.length > 0 && (
-          <div>
-            <div className="mb-1.5 text-[10px] uppercase tracking-widest text-faint">Prospects on the board</div>
-            <div className="flex flex-wrap gap-1.5">
-              {tiers.map((t) => (
-                <span
-                  key={t}
-                  className="display rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold"
-                  style={{ borderColor: `${TIER_COLOR[t]}55`, color: TIER_COLOR[t] }}
-                >
-                  <span className="tnum">{byTier.get(t)}</span> {TIER_LABEL[t].toLowerCase()}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-      </Card>
-    </Section>
-  );
-}
-
-/**
  * Scouting (v1.65): the whole academy talent operation on one page.
  *
  * It used to be two tabs — Scouting held the assignments and the reports, Staff
@@ -2534,9 +2450,6 @@ function ScoutOperationsPane() {
           )}
         </Section>
 
-        {/* A department caps out at a handful of scouts, so the foot of this
-            column would otherwise always be dead space. */}
-        <ScoutingNetworkSummary />
       </div>
 
       <Section
@@ -2782,11 +2695,14 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
   const [durationMonths, setDurationMonths] = useState<number>(3);
   // Auto-filter (v1.67): the brief's own acceptance criteria. A scout only files
   // finds that clear these, so the board holds nothing the manager didn't ask
-  // for. All three clauses are optional and off by default.
+  // for. Every clause is optional and off by default. From v1.68 the whole panel
+  // is what the Scout Network upgrade buys — locked until the club owns it.
+  const filterUnlocked = scoutFilterUnlocked(game);
   const [filterOn, setFilterOn] = useState(false);
   const [minAge, setMinAge] = useState(TUNING.scoutProspectAgeMin);
   const [maxAge, setMaxAge] = useState(TUNING.scoutProspectAgeMax);
   const [minOverall, setMinOverall] = useState(OVR_FLOOR);
+  const [maxOverall, setMaxOverall] = useState(OVR_CEIL);
   const [tiers, setTiers] = useState<ProspectTier[]>([]);
   const DURATION_OPTIONS: { months: number; label: string }[] = [
     { months: 1, label: "1 month" },
@@ -2808,15 +2724,17 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
   // The brief as the engine will store it — normalised here so the yield estimate
   // below is computed on exactly the filter the scout is sent with, not on the
   // raw slider values.
-  const filter = filterOn
-    ? normalizeFilter(TUNING, {
-        minAge,
-        maxAge,
-        // The floor is the "no ability filter" position of the slider.
-        minOverall: minOverall > OVR_FLOOR ? minOverall : undefined,
-        tiers: tiers.length ? tiers : undefined,
-      })
-    : undefined;
+  const filter =
+    filterOn && filterUnlocked
+      ? normalizeFilter(TUNING, {
+          minAge,
+          maxAge,
+          // The ends of the slider are the "no ability filter" positions.
+          minOverall: minOverall > OVR_FLOOR ? minOverall : undefined,
+          maxOverall: maxOverall < OVR_CEIL ? maxOverall : undefined,
+          tiers: tiers.length ? tiers : undefined,
+        })
+      : undefined;
 
   const chosenScout = free.find((s) => s.id === scoutId);
   const passRate = filterPassRate(TUNING, chosenScout?.judgement ?? 1, filter);
@@ -2922,25 +2840,32 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
             volume, which is why the expected yield is shown right here. */}
         <div className="rounded-md border border-line bg-raised/50 p-3">
           <button
-            onClick={() => setFilterOn((v) => !v)}
-            className="flex w-full items-center justify-between gap-2 text-left"
+            onClick={() => filterUnlocked && setFilterOn((v) => !v)}
+            disabled={!filterUnlocked}
+            className={`flex w-full items-center justify-between gap-2 text-left ${filterUnlocked ? "" : "cursor-default"}`}
           >
             <span>
-              <span className="text-[10px] uppercase tracking-widest text-faint">Auto-filter</span>
+              <span className="text-[10px] uppercase tracking-widest text-faint">Scouting network</span>
               <span className="mt-0.5 block text-[11px] leading-snug text-dim">
-                Only accept reports matching an age, ability and rarity brief.
+                {filterUnlocked
+                  ? "Only accept reports matching an age, ability and rarity brief."
+                  : "Buy the Scout Network upgrade (Academy → Upgrades) to filter who reaches your board. Until then your scouts file everything they find."}
               </span>
             </span>
             <span
               className={`display shrink-0 rounded-sm border px-2 py-0.5 text-[10px] font-bold ${
-                filterOn ? "border-gold bg-hover text-gold" : "border-line text-faint"
+                !filterUnlocked
+                  ? "border-line text-mute"
+                  : filterOn
+                    ? "border-gold bg-hover text-gold"
+                    : "border-line text-faint"
               }`}
             >
-              {filterOn ? "ON" : "OFF"}
+              {!filterUnlocked ? "🔒 LOCKED" : filterOn ? "ON" : "OFF"}
             </span>
           </button>
 
-          {filterOn && (
+          {filterOn && filterUnlocked && (
             <div className="mt-3 space-y-3 border-t border-line/60 pt-3">
               {/* Age. Prospects are generated inside the tuning band, so the
                   inputs are bounded by it — an out-of-band age would silence the
@@ -2982,26 +2907,42 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
 
-              {/* Minimum ability. A ceiling isn't offered: nobody briefs a scout
-                  to bring back only the weaker kid. */}
+              {/* Ability band (v1.68). Both ends are settable, so a brief can ask
+                  for "60–65" and not just "60+" — a manager filling a specific hole
+                  in the U21 side doesn't always want the best kid available. Each
+                  slider pushes the other rather than crossing it, so the band can
+                  never invert. */}
               <div>
                 <div className="mb-1 flex items-center justify-between">
-                  <span className="text-[10px] uppercase tracking-widest text-faint">Minimum overall</span>
+                  <span className="text-[10px] uppercase tracking-widest text-faint">Overall</span>
                   <span className="tnum text-[11px] text-dim">
-                    {minOverall > OVR_FLOOR ? `${minOverall}+` : "any"}
+                    {minOverall > OVR_FLOOR || maxOverall < OVR_CEIL ? `${minOverall}–${maxOverall}` : "any"}
                   </span>
                 </div>
-                <input
-                  type="range"
-                  min={OVR_FLOOR}
-                  max={OVR_CEIL}
-                  value={minOverall}
-                  onChange={(e) => setMinOverall(Number(e.target.value))}
-                  className="w-full accent-[color:var(--color-gold-lo)]"
-                />
+                <div className="space-y-1.5">
+                  {(
+                    [
+                      ["Min", minOverall, (n: number) => { setMinOverall(n); if (n > maxOverall) setMaxOverall(n); }],
+                      ["Max", maxOverall, (n: number) => { setMaxOverall(n); if (n < minOverall) setMinOverall(n); }],
+                    ] as const
+                  ).map(([label, value, set]) => (
+                    <label key={label} className="flex items-center gap-2">
+                      <span className="w-7 shrink-0 text-[10px] uppercase tracking-widest text-mute">{label}</span>
+                      <input
+                        type="range"
+                        min={OVR_FLOOR}
+                        max={OVR_CEIL}
+                        value={value}
+                        onChange={(e) => set(Number(e.target.value))}
+                        className="w-full accent-[color:var(--color-gold-lo)]"
+                      />
+                      <span className="tnum w-6 shrink-0 text-right text-[11px] text-dim">{value}</span>
+                    </label>
+                  ))}
+                </div>
                 <p className="mt-1 text-[11px] leading-snug text-faint">
-                  A scouted prospect arrives raw — the whole band is {OVR_FLOOR}–{OVR_CEIL}. Set this high and only the
-                  rarer tiers can clear it.
+                  A scouted prospect arrives raw — the whole band is {OVR_FLOOR}–{OVR_CEIL}. Narrow it and only the tiers
+                  whose own range overlaps can clear the brief.
                 </p>
               </div>
 
@@ -3151,9 +3092,18 @@ function UpgradesTab() {
   const squadLevel = team.academySquadLevel ?? 0;
   const focusLevel = team.focusSlotLevel ?? 0;
   const prLevel = team.youthPrLevel ?? 0;
+  const speedLevel = team.scoutSpeedLevel ?? 0;
+  const filterLevel = team.scoutFilterLevel ?? 0;
+
+  // What Scout Speed is actually buying, in days — read off the club's sharpest
+  // scout, because that is the cadence the manager sees on the assignment cards.
+  const bestExp = (team.scouts ?? []).reduce((b, s) => Math.max(b, s.experience), 0);
+  const rawCadence = Math.max(10, TUNING.scoutReportDaysBase - bestExp * TUNING.scoutReportDaysPerStar);
+  const cadenceAt = (level: number) =>
+    Math.max(1, Math.round(rawCadence * Math.max(0.1, 1 - Math.min(level, TUNING.scoutSpeedMaxLevel) * TUNING.scoutSpeedPerLevel)));
 
   const upgrades: {
-    key: "scoutNetwork" | "academySquad" | "focusSlot" | "youthPr";
+    key: "scoutNetwork" | "academySquad" | "focusSlot" | "youthPr" | "scoutSpeed" | "scoutFilter";
     title: string;
     icon: string;
     accent: string; // hex accent for the coloured border + tint
@@ -3208,6 +3158,31 @@ function UpgradesTab() {
         "Media days, showcase friendlies and a club that talks its kids up. Raises what the market thinks every prospect in your academy is worth — it doesn't make them better players, it makes them cost more to buy.",
       now: `+${Math.round(prLevel * TUNING.youthPrValuePerLevel * 100)}%`,
       next: `+${Math.round((prLevel + 1) * TUNING.youthPrValuePerLevel * 100)}% prospect value`,
+    },
+    {
+      key: "scoutSpeed",
+      title: "Scout Speed",
+      icon: "✈️",
+      accent: "#4ac6d9", // cyan
+      level: speedLevel,
+      maxLevel: TUNING.scoutSpeedMaxLevel,
+      influence: `Travel budgets, local fixers and retainers that keep your scouts moving. Each level takes ${Math.round(
+        TUNING.scoutSpeedPerLevel * 100
+      )}% off the wait between reports — fully built, they file twice as often.`,
+      now: `+${Math.round(speedLevel * TUNING.scoutSpeedPerLevel * 100)}% (${cadenceAt(speedLevel)}d)`,
+      next: `+${Math.round((speedLevel + 1) * TUNING.scoutSpeedPerLevel * 100)}% faster (${cadenceAt(speedLevel + 1)}d per report)`,
+    },
+    {
+      key: "scoutFilter",
+      title: "Scout Network",
+      icon: "🗂️",
+      accent: "#d9c04a", // brass
+      level: filterLevel,
+      maxLevel: TUNING.scoutFilterMaxLevel,
+      influence:
+        "A network of contacts who screen a region before your scout files. Unlocks the brief auto-filter: set the age, the ability band and the rarity tiers you'll accept, and nothing outside them ever reaches your board. One purchase, kept forever.",
+      now: filterLevel > 0 ? "Unlocked" : "Locked",
+      next: "Auto-filter on every brief",
     },
   ];
 

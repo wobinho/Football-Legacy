@@ -17,7 +17,7 @@ import { MAX_KIT_NUMBER, MIN_KIT_NUMBER, squadNumbersFor } from "@/lib/kitnumber
 import { ACCOLADE_META } from "@/lib/accolades";
 import { TIER_COLOR, TIER_LABEL, migrateProspectTier } from "@/lib/scouts";
 import type { Accolade, AccoladeType, GameState, PlayerBio } from "@/lib/types";
-import { ArchetypeIcon, AttrGrid, Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, FitnessBar, FormChip, GhostButton, GoldButton, GrowthBadge, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip, useEscapeKey } from "../ui";
+import { ArchetypeIcon, AttrGrid, AttrSheet, Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, FitnessBar, FormChip, GhostButton, GoldButton, GrowthBadge, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip, useEscapeKey } from "../ui";
 import ContractModal from "./ContractModal";
 import { LoanOfferModal, SellPlayerModal } from "./SquadMoveModals";
 import { transferWindowState } from "@/lib/calendar";
@@ -264,7 +264,12 @@ export default function PlayerProfileModal() {
 
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <Section title="Attributes">
-              <AttrGrid p={p} />
+              <div className="space-y-3">
+                <AttrGrid p={p} />
+                <Card>
+                  <AttrSheet p={p} />
+                </Card>
+              </div>
             </Section>
             <Section title="This Season">
               <Card className="divide-y divide-line/50 text-sm">

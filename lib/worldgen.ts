@@ -2,12 +2,13 @@
 // playable divisions plus selected sim-only leagues — into the game schema.
 // Deterministic given a seed. A future CSV importer writes the same shapes.
 
-import type { GameState, League, PlayerBio, Pos, Team, Tactic } from "./types";
+import type { Attributes, GameState, League, PlayerBio, Pos, Team, Tactic } from "./types";
 import { SCHEMA_VERSION } from "./types";
 import { TUNING, type TuningConfig } from "./config/tuning";
 import { archetypesForPosition, getArchetype, DEFAULT_HEIGHT_CM } from "./config/archetypes";
 import { traitsForPosition } from "./config/traits";
-import { overallFromAttrs } from "./config/positions";
+import { fitAttrsToOverall, keyAttrsFor, overallFromAttrs } from "./config/positions";
+import { ATTR_KEYS, normalizeAttrs } from "./config/attributes";
 import { poolFor, NAME_POOLS } from "./config/names";
 import { defaultCountryDB, type ClubSeed, type CountryDatabase, type PlayerSeed } from "./database";
 import { FORMATIONS } from "./config/formations";
@@ -136,17 +137,51 @@ function rollHeight(rng: RNG, archetypeId: string, age: number, cfg: TuningConfi
   return Math.round(Math.max(160, Math.min(210, adult * Math.max(0.9, grown))));
 }
 
-function deriveAttrs(rng: RNG, overall: number, archetypeId: string) {
+/**
+ * Roll a full 35-attribute line for a player of the given ability (v41).
+ *
+ * The archetype's expanded profile says WHERE this player's quality should sit
+ * (a Poacher's finishing is his signature; his tackling is not). The profile is
+ * a 0..1 emphasis, so it is read as a spread around the requested ability:
+ * signature attributes land above it, off-profile attributes below, with a
+ * small per-attribute jitter so no two players of the same archetype are twins.
+ *
+ * The result is then FITTED to the requested overall (fitAttrsToOverall), which
+ * is what keeps the two consistent: the attributes are the source of truth and
+ * the headline number is derived from them, so the spread can be as expressive
+ * as it likes without the rating drifting.
+ */
+function deriveAttrs(rng: RNG, overall: number, archetypeId: string, pos: Pos): Attributes {
   const profile = getArchetype(archetypeId).attrProfile;
-  const keys = ["pac", "sho", "pas", "dri", "def", "phy"] as const;
-  const maxW = Math.max(...keys.map((k) => profile[k]));
-  const attrs = {} as Record<(typeof keys)[number], number>;
-  for (const k of keys) {
+  const maxW = Math.max(...ATTR_KEYS.map((k) => profile[k])) || 1;
+  const attrs = {} as Attributes;
+  for (const k of ATTR_KEYS) {
     const rel = profile[k] / maxW; // 1.0 for the signature attribute
     const v = overall * (0.55 + 0.48 * rel) + randNormal(rng) * 3;
-    attrs[k] = Math.round(Math.max(20, Math.min(99, v)));
+    attrs[k] = Math.round(Math.max(10, Math.min(99, v)));
   }
-  return attrs;
+  // Settle the line onto the ability it was rolled for. The fit is
+  // weight-proportional, so a position with one dominant attribute (a keeper's
+  // handling/diving/reflexes/positioning quartet) would otherwise see that
+  // attribute absorb almost the whole correction and pin at 99. Pre-compensating
+  // the top-weighted attributes downward leaves the fit room to work, so a good
+  // keeper reads as good across his skills rather than maxed in one.
+  const top = keyAttrsFor(pos, 4);
+  for (const k of top) attrs[k] = Math.round(Math.max(10, attrs[k] - overall * 0.06));
+  return fitAttrsToOverall(attrs, pos, overall);
+}
+
+/** Overlay a (possibly partial) authored attribute set onto a generated one.
+ * Authored values win; anything the author omitted keeps the procedurally
+ * rolled value, so a seed that specifies three attributes still yields a
+ * coherent 35-attribute player rather than a flat one. */
+function normalizeAttrsOnto(base: Attributes, authored: Partial<Attributes>): Attributes {
+  const out = { ...base };
+  for (const k of ATTR_KEYS) {
+    const v = Number(authored[k]);
+    if (Number.isFinite(v)) out[k] = Math.max(1, Math.min(99, v));
+  }
+  return out;
 }
 
 export function generatePlayer(
@@ -234,7 +269,7 @@ export function generatePlayer(
   // all the youth-cap / prodigy / potential logic above, generate an attribute
   // spread from it, then recompute overall from those attrs so the stored number
   // matches what the engine and UI read off the six attributes.
-  const attrs = deriveAttrs(rng, overall, archetype.id);
+  const attrs = deriveAttrs(rng, overall, archetype.id, opts.pos);
   overall = Math.max(cfg.minOverall, overallFromAttrs(attrs, opts.pos));
   potential = Math.max(potential, overall);
 
@@ -326,7 +361,8 @@ export function materializePlayer(
   const primary = seed.positions[0];
   // A seed rating just to route the generator through age/potential logic; the
   // real overall is settled below from whichever mode the seed uses.
-  const seedOverall = seed.overall ?? (seed.attrs ? overallFromAttrs(seed.attrs, primary) : 60);
+  const seedOverall =
+    seed.overall ?? (seed.attrs ? overallFromAttrs(normalizeAttrs(seed.attrs), primary) : 60);
   const p = generatePlayer(rng, cfg, {
     pos: primary,
     overall: seedOverall,
@@ -341,10 +377,18 @@ export function materializePlayer(
   // honor explicit multi-position lists (else keep the generated primary+rolled)
   if (seed.positions.length > 1) p.positions = [...seed.positions];
   if (seed.archetypeId && getArchetype(seed.archetypeId).id === seed.archetypeId) p.archetypeId = seed.archetypeId;
+  // Authored height (v41) beats the archetype roll — the real-world databases
+  // carry the player's actual height, which is simply better data.
+  if (typeof seed.heightCm === "number" && Number.isFinite(seed.heightCm)) {
+    p.heightCm = Math.round(Math.max(150, Math.min(215, seed.heightCm)));
+  }
 
   if (seed.attrs) {
     // Attribute-driven: authored attrs are the source of truth; overall derives.
-    p.attrs = { ...seed.attrs };
+    // A hand-authored seed may specify only some of the 35 attributes, so the
+    // generated line stands in for whatever it left out rather than defaulting
+    // the rest to a flat number that would flatten the player's profile.
+    p.attrs = normalizeAttrsOnto(p.attrs, seed.attrs);
     p.overall = overallFromAttrs(p.attrs, primary);
   } else if (typeof seed.overall === "number") {
     // Overall-driven (v1): honor the authored overall verbatim, past the youth cap.

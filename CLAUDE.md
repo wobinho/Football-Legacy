@@ -41,9 +41,18 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
 - The engine must never special-case an archetype/trait by name — table lookups only.
 - Determinism: anything random takes a seed derived via `deriveSeed(state.seed, label)`.
 - Balance changes go through `lib/config/tuning.ts` + `npm run calibrate`, never engine edits.
-- Overall is the FC 26 model (`overallFromAttrs` in `config/positions.ts`): a position-weighted
-  mean of the six attrs plus a positional constant. Weight rows sum to 1.0 — that is what makes
-  `fitAttrsToOverall` a single shift. Don't round attrs before weighting. See OVERALL_FORMULA.md.
+- Players carry **35 attributes** (v41), not six. `lib/config/attributes.ts` is the single
+  source of truth for the keys/labels/groups — iterate its `ATTR_KEYS`, never an inline list.
+  The six card faces (PAC/SHO/…) still exist but are a *derived view* (`aggregateAttrs`),
+  never stored. Beware two distinct pairs: `positioning` vs `gkPositioning`, and
+  `sprintSpeed` vs `gkSpeed`.
+- Overall is a position-weighted sum of the 35 attrs plus a positional constant
+  (`overallFromAttrs` in `config/positions.ts`). Rows are sparse and every row sums to ≈1.0;
+  `fitAttrsToOverall` shifts weight-proportionally, not uniformly. Don't round attrs before
+  weighting. See OVERALL_FORMULA.md, and `npm run verify:overall` after any change.
+- Archetypes and training plans author a readable **six-family `shape`**, expanded to 35 at
+  module load via a tilt table. Add per-attribute detail in the tilt table, not by
+  hand-writing 35 numbers per archetype.
 - **The default database is generated, not hand-edited.** `/public/database_presets/*.json`
   are build artifacts of `npm run build:db` — edit `fl26-*.csv` and rebuild, never the JSON.
   A country the CSVs don't cover keeps its previously-shipped JSON (the build preserves it),

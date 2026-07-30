@@ -18,13 +18,25 @@ the rest.
   generated squad; a player with only `name` + `positions` + `attrs` gets a derived
   overall, plus procedural age, potential, archetype, traits, and value.
 
-> **What changed in @2 — attributes drive the game.** A player is now authored by the
-> **six attributes** (Pace, Shooting, Passing, Dribbling, Defending, Physical). The
-> player's **overall is derived from those attributes, weighted by position** — and the
+> **What changed in @2 — attributes drive the game.** A player is authored by his
+> **attributes**, and his **overall is derived from them, weighted by position** — the
 > derived overall is what the match engine, transfer value, and wages all run on. So your
-> real data (e.g. *Haaland: 96 pace, 99 shooting*) genuinely determines how the player
-> performs, and the same attribute line rates differently by position (a striker's weak
-> defending barely counts; a centre-back's doesn't get away with it).
+> real data genuinely determines how the player performs, and the same attribute line
+> rates differently by position (a striker's weak defending barely counts; a centre-back's
+> doesn't get away with it).
+>
+> **What changed in v41 — 35 attributes instead of six.** Where a player used to carry
+> six aggregates (Pace, Shooting, Passing, Dribbling, Defending, Physical), he now carries
+> **35 individual attributes** — the same vocabulary a modern football database uses:
+> Finishing, Short Passing, Vision, Standing Tackle, Acceleration, Composure, and so on,
+> plus six goalkeeping attributes. The six still exist in the UI as a derived *summary*
+> of the 35, but the 35 are the truth.
+>
+> You do **not** have to author all 35. `attrs` is a **partial** object: name the
+> attributes you care about and every one you omit is generated from the player's
+> archetype, so a four-line `attrs` still produces a coherent player. Databases written
+> against the old six-attribute format **still load** — they are expanded automatically on
+> import, with the player's rating preserved.
 
 ---
 
@@ -116,84 +128,93 @@ Authored players count toward their primary position's quota.
 
 ## 4. Players — the attribute-driven format
 
-**Required:** `name`, `positions`, and `attrs` (the six attributes).
-Everything else is optional and generated when omitted. **Overall is not authored — it
-is computed from `attrs` by position.**
+**Required:** `name`, `positions`, and either `attrs` (one or more of the 35 attributes)
+or `overall`. Everything else is optional and generated when omitted. **Overall is
+normally not authored — it is computed from `attrs` by position.**
 
 ```jsonc
 {
   "name":      "Alex Star",          // REQUIRED
   "positions": ["ST", "AM"],         // REQUIRED — first entry = primary; rest = secondaries
 
-  "attrs": {                         // REQUIRED — the six attributes, each 1..99
-    "pac": 96,                       //   Pace
-    "sho": 99,                       //   Shooting
-    "pas": 60,                       //   Passing
-    "dri": 88,                       //   Dribbling
-    "def": 30,                       //   Defending
-    "phy": 88                        //   Physical
+  "attrs": {                         // REQUIRED (unless using `overall`) — each 1..99.
+    "finishing":   94,               //   PARTIAL IS FINE: anything you omit is generated
+    "positioning": 92,               //   from the archetype, so you can author only what
+    "shotPower":   91,               //   actually matters to you.
+    "ballControl": 88,
+    "acceleration": 94,
+    "sprintSpeed": 93,
+    "strength":    84,
+    "standingTackle": 28
   },
 
   "age":         25,                 // optional — 15..40. Default: random 17..35
   "nationality": "NOR",              // optional — 3-letter. Default: the country's `nat`
+  "heightCm":    186,                // optional — 150..215. Default: rolled from the archetype
   "potential":   93,                 // optional — hidden ceiling. Default: derived from overall + age
   "archetypeId": "poacher",          // optional — must be valid for the primary position (§6). Default: rolled
   "traits":      ["clinical"]        // optional — 0–2 trait ids, eligibility-gated (§7). Default: rolled
 }
 ```
 
-### The six attributes (`attrs`)
+### The 35 attributes (`attrs`)
 
-Standard FIFA order and meaning. Each is `1`–`99`.
+Each is `1`–`99`. Grouped as the UI shows them:
 
-| Key | Attribute |
+| Group | Keys |
 |---|---|
-| `pac` | Pace |
-| `sho` | Shooting |
-| `pas` | Passing |
-| `dri` | Dribbling |
-| `def` | Defending |
-| `phy` | Physical |
+| **Attacking** | `crossing` `finishing` `headingAccuracy` `shortPassing` `volleys` |
+| **Skill** | `dribbling` `curve` `fkAccuracy` `longPassing` `ballControl` |
+| **Movement** | `acceleration` `sprintSpeed` `agility` `reactions` `balance` |
+| **Power** | `shotPower` `jumping` `stamina` `strength` `longShots` |
+| **Mentality** | `aggression` `interceptions` `positioning` `vision` `penalties` `composure` |
+| **Defending** | `markingAwareness` `standingTackle` `slidingTackle` |
+| **Goalkeeping** | `diving` `handling` `kicking` `gkPositioning` `reflexes` `gkSpeed` |
 
-**Goalkeepers use the same six keys**, carrying keeper skills:
+Two pairs are easy to confuse, and they are **different attributes**:
 
-| Key | GK meaning |
-|---|---|
-| `def` | Reflexes / handling *(dominant — this is shot-stopping)* |
-| `phy` | Aerial / diving reach *(dominant)* |
-| `pas` | Distribution |
-| `pac` | Rushing out speed |
-| `dri` / `sho` | Minor (composure / rare long-range) — near-zero weight |
+- `positioning` is *attacking* movement (finding space in the box). `gkPositioning` is a
+  keeper's placement and angles — one of the four attributes that decide a keeper's rating.
+- `sprintSpeed` / `acceleration` are outfield pace. `gkSpeed` is a keeper's rushing-out
+  speed, and carries a small **negative** weight for a keeper.
 
-So a keeper like **Verbruggen — `pac 55, sho 44, pas 62, dri 55, def 86, phy 91`** derives
-an overall in the mid-80s: the weighting keys on his `def`/`phy` (handling + reach) and
-all but ignores his `sho`.
+**Goalkeepers** are rated almost entirely on `handling`, `diving`, `reflexes` and
+`gkPositioning` (roughly equal weight, ~0.21 each), then `reactions` and `kicking`. His
+outfield attributes are real but barely move his rating — so author a keeper by his hands
+and his placement, and let the rest be generated.
+
+**Outfielders**: the six goalkeeping attributes contribute nothing at any outfield
+position. You can safely omit them entirely.
 
 ### How overall is derived (so you can predict it)
 
-`overall = position-weighted mean of the six attrs, plus a specialist bonus.`
+`overall = position-weighted sum of the attributes + a small positional constant.`
 
-1. **Position weighting.** Each position weights the six attributes differently (a
-   striker weights `sho`/`pac`/`dri` heavily and `def` almost nothing; a centre-back
-   weights `def`/`phy`). So *the same attrs rate differently by position.*
-2. **Specialist bonus.** A lopsided elite gets lifted above the flat mean — a striker
-   with **96 pace / 99 shooting / 30 defending still lands in the low 90s**, because his
-   weak defending barely counts and his signature attributes are rewarded.
+1. **Position weighting.** Each position weights the 35 attributes differently — a
+   striker leans on `finishing` (0.19), `positioning`, `ballControl`, `headingAccuracy`
+   and `shotPower`; a centre-back on `standingTackle` (0.18), `markingAwareness` and
+   `interceptions`. So *the same attributes rate differently by position*, and an
+   attribute a position doesn't reward barely moves the number.
+2. **Specialists rate high.** Because the weighting is concentrated, a lopsided elite
+   still lands high — a striker who can't tackle is unaffected by it.
 
-You don't need to compute this yourself — just author realistic attrs and the overall
-falls out sensibly. Roughly: elite specialists ~88–93, strong starters ~78–85, squad
-players ~68–77, fringe ~58–66.
+You don't need to compute this yourself. Roughly: elite ~86–90, strong starters ~78–85,
+squad players ~68–77, fringe ~55–66.
 
 | Field | Required | Rules |
 |---|---|---|
 | `name` | ✅ | Non-empty. |
 | `positions` | ✅ | Non-empty array of valid positions (see §6). **First = primary** — the position the overall is weighted for. |
-| `attrs` | ✅ | Object with all six keys (`pac sho pas dri def phy`), each `1`–`99`. |
+| `attrs` | ✅¹ | Object of attribute keys to numbers `1`–`99`. **Partial is allowed** — omitted attributes are generated. An unrecognised key is an error (it's almost always a typo). |
+| `overall` | ✅¹ | `40`–`99`. Legacy alternative to `attrs`; attributes are generated from it. Ignored when `attrs` is present. |
 | `age` | — | `15`–`40`. Default random `17`–`35`. |
 | `nationality` | — | 3-letter code. Default = country `nat`. |
+| `heightCm` | — | `150`–`215`. Default rolled from the archetype's height band. |
 | `potential` | — | Clamped to `overall … 96`. Default derived from overall + age. |
-| `archetypeId` | — | Must be valid for the primary position (§6), else a valid one is rolled. Affects goal/assist flavor and tactical synergy, **not** the derived overall (attrs already carry the profile). |
+| `archetypeId` | — | Must be valid for the primary position (§6), else a valid one is rolled. Shapes **which attributes get generated** for anything you omit, plus goal/assist flavour and tactical synergy. |
 | `traits` | — | 0–2 ids from §7, gated by the player's position group; ineligible ones are ignored. |
+
+¹ Provide either `attrs` or `overall`.
 
 > **What you still don't set:** `fitness`, `form`, market `value`, contract, and hidden
 > longevity are computed. `value` and wages follow from the derived overall, so an elite

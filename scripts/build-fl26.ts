@@ -16,6 +16,7 @@ import {
   buildCountryDatabases,
   natFor,
   parsePositions,
+  readAttrs,
   readClubs,
   readLeagues,
   type Fl26Club,
@@ -24,7 +25,6 @@ import { overallFromAttrs } from "../lib/config/positions";
 import { generateDivisionClubs } from "../lib/config/divisions";
 import { validateCountryDB } from "../lib/database";
 import type { CountryDatabase, PlayerSeed } from "../lib/database";
-import type { Attributes } from "../lib/types";
 
 const ROOT = process.cwd();
 const OUT_DIR = join(ROOT, "public", "database_presets");
@@ -41,17 +41,17 @@ function read(file: string) {
 
 const leagueRows = read("fl26-leagues.csv");
 const clubRows = read("fl26-clubs.csv");
-const playerRows = read("fl26-players.csv");
+const playerRows = read("fl26_players_new.csv");
 
 const leagues = readLeagues(leagueRows);
 const clubs = readClubs(clubRows);
 const clubById = new Map<string, Fl26Club>(clubs.map((c) => [c.clubId, c]));
 
 // ── Players → seeds ────────────────────────────────────────────────────────
-// The six CSV columns are already the derived stats the overall formula wants,
-// stored to 2dp. They are kept fractional here: the formula is more accurate on
-// unrounded inputs (OVERALL_FORMULA.md, "Implementation notes"), and the engine
-// treats attrs as plain numbers throughout.
+// The source's 35 attribute columns ARE the engine's attributes (v41) — no
+// aggregation step, no derived six. Overall is computed from them by position
+// through the same `overallFromAttrs` the game uses at runtime, so an imported
+// player rates identically either side of the build.
 
 const rostersByClub = new Map<string, PlayerSeed[]>();
 const overallsByClub = new Map<string, number[]>();
@@ -73,15 +73,8 @@ for (const row of playerRows) {
   }
 
   const positions = parsePositions(row.position, row.secondary_positions ?? "");
-  const attrs: Attributes = {
-    pac: Number(row.pace),
-    sho: Number(row.shooting),
-    pas: Number(row.passing),
-    dri: Number(row.dribbling),
-    def: Number(row.defending),
-    phy: Number(row.physicality),
-  };
-  if (Object.values(attrs).some((v) => !Number.isFinite(v))) {
+  const attrs = readAttrs(row);
+  if (!attrs) {
     skipped++;
     continue;
   }
@@ -97,6 +90,12 @@ for (const row of playerRows) {
   const shortName = (row.name || row.full_name || "Unknown Player").trim();
   const fullName = (row.full_name || "").trim();
 
+  // Real height (v41): the source now carries it in centimetres, which is what
+  // the schema stores. Previously heights were rolled from the archetype band —
+  // the authored number is simply better, so it's imported when present and the
+  // roll stays as the fallback.
+  const heightCm = Number(row.height_cm);
+
   const seed: PlayerSeed = {
     name: shortName,
     fullName: fullName && fullName !== shortName ? fullName : undefined,
@@ -106,11 +105,13 @@ for (const row of playerRows) {
     nationality: natFor(row.nationality, natFor(club.country, "XXX")),
     // The engine caps potential at 96 and never lets it sit below overall.
     potential: Number.isFinite(potential) ? Math.max(overall, Math.min(96, Math.round(potential))) : undefined,
+    heightCm: Number.isFinite(heightCm) ? Math.max(150, Math.min(215, Math.round(heightCm))) : undefined,
   };
   // Drop undefined keys so the emitted JSON stays clean.
   if (seed.fullName === undefined) delete seed.fullName;
   if (seed.age === undefined) delete seed.age;
   if (seed.potential === undefined) delete seed.potential;
+  if (seed.heightCm === undefined) delete seed.heightCm;
 
   if (!rostersByClub.has(clubId)) rostersByClub.set(clubId, []);
   rostersByClub.get(clubId)!.push(seed);

@@ -5,6 +5,15 @@
 import type { DevLogEntry, GameState, PlayerBio } from "./types";
 import type { TuningConfig } from "./config/tuning";
 import { getArchetype } from "./config/archetypes";
+import {
+  ATTR_FAMILIES,
+  ATTR_FAMILY_ORDER,
+  ATTR_KEYS,
+  GK_ATTR_FAMILIES,
+  type AttrFamily,
+  type AttrKey,
+} from "./config/attributes";
+import { ATTR_WEIGHTS, fitAttrsToOverall } from "./config/positions";
 import { TRAIT_MAP } from "./config/traits";
 import { resolveTrainingPlan, type TrainingPlanDef } from "./config/training";
 import { randRange, type RNG } from "./rng";
@@ -12,7 +21,46 @@ import { valueWithYouthPr } from "./economy";
 import { activePlayers } from "./archive";
 
 const FULL_SEASON_MINUTES = 3000; // ~33 full matches
-const ATTR_KEYS = ["pac", "sho", "pas", "dri", "def", "phy"] as const;
+
+/** How much harder decline bites each attribute (v41). Athleticism goes first
+ * and technique lasts: a 35-year-old loses a yard of pace long before he loses
+ * his first touch, and his reading of the game may still be improving. A
+ * multiplier on the decline share — >1 bleeds faster, <1 is more durable.
+ * Attributes not listed decline at the base rate. Pure data. */
+const DECLINE_BIAS: Partial<Record<AttrKey, number>> = {
+  // Athletic — the first to go.
+  acceleration: 1.5,
+  sprintSpeed: 1.5,
+  agility: 1.35,
+  stamina: 1.3,
+  jumping: 1.25,
+  balance: 1.15,
+  // Physical strength holds up far better than speed.
+  strength: 0.8,
+  // Technique barely erodes.
+  shortPassing: 0.55,
+  longPassing: 0.55,
+  ballControl: 0.6,
+  curve: 0.5,
+  fkAccuracy: 0.5,
+  penalties: 0.5,
+  crossing: 0.7,
+  finishing: 0.7,
+  // Reading of the game: experience genuinely offsets physical decline.
+  vision: 0.4,
+  composure: 0.35,
+  positioning: 0.45,
+  markingAwareness: 0.5,
+  interceptions: 0.5,
+  reactions: 0.9,
+  // Goalkeepers age far more gently than outfielders.
+  handling: 0.5,
+  diving: 0.7,
+  reflexes: 0.7,
+  gkPositioning: 0.4,
+  kicking: 0.55,
+  gkSpeed: 1.2,
+};
 
 /** Squad-wide youth-growth bonus from Mentor-trait players (v6). Summed over the
  * club's senior + academy players, capped so a dressing room of mentors can't
@@ -292,32 +340,52 @@ export function developPlayer(
 }
 
 /**
- * Distribute an overall change across the six attributes, weighted by the
+ * Distribute an overall change across the 35 attributes, weighted by the
  * archetype's profile so signature attributes rise fastest and — on decline —
- * pace bleeds first. Keeps attrs coherent with the headline number without a
- * per-attribute schema (design: overall potential + per-attr weighting).
+ * athleticism bleeds before technique (DECLINE_BIAS).
+ *
+ * The shares are shaped for realism, not arithmetic: they say where a season's
+ * movement *goes*, and the totals need not add up to the overall delta on their
+ * own. `fitAttrsToOverall` then settles the line onto the intended rating, so
+ * the attributes stay the source of truth and the headline number stays exactly
+ * what the development curve decided.
  */
-function distributeAttrs(p: PlayerBio, attrDelta: number, plan?: TrainingPlanDef) {
+function distributeAttrs(p: PlayerBio, attrDelta: number, targetOverall: number, plan?: TrainingPlanDef) {
   if (attrDelta === 0) return;
   const profile = getArchetype(p.archetypeId).attrProfile;
+  const pos = p.positions[0];
+  const target = Math.max(1, Math.min(99, Math.round(targetOverall)));
   const maxW = Math.max(...ATTR_KEYS.map((k) => profile[k])) || 1;
+
+  // How much each attribute matters at this position, 0..1 relative to the
+  // position's most important one. Growth follows the role as well as the
+  // archetype: a midfielder who improves gets better at midfield things, not at
+  // whichever stat happens to be his archetype's signature in the abstract.
+  const posW = ATTR_WEIGHTS[pos] ?? ATTR_WEIGHTS.CM;
+  const maxPosW = Math.max(...ATTR_KEYS.map((k) => posW[k] ?? 0)) || 1;
+
   for (const k of ATTR_KEYS) {
     const rel = profile[k] / maxW; // 0..1, 1 = signature attribute
     let share: number;
     if (attrDelta > 0) {
-      // growth flows to signature attributes, then is nudged toward the training
-      // plan's emphasis (a plan weight of 1 pulls growth here; ~0.2 pushes it
-      // elsewhere). Balanced plans are flat, so they leave the archetype spread
+      // Growth flows to attributes that are BOTH the archetype's signature and
+      // relevant at the position, then is nudged toward the training plan's
+      // emphasis (a plan weight of 1 pulls growth here; ~0.2 pushes it
+      // elsewhere). Balanced plans are flat, so they leave the natural spread
       // untouched. Decline is never re-steered by a plan.
       const planW = plan ? plan.weights[k] : 1;
-      share = attrDelta * (0.5 + 0.9 * rel) * (0.55 + 0.9 * planW);
+      const relevance = 0.25 + 0.75 * Math.max(0, posW[k] ?? 0) / maxPosW;
+      share = attrDelta * (0.5 + 0.9 * rel) * (0.55 + 0.9 * planW) * relevance;
     } else {
-      // decline hits pace hardest, then non-signature attributes
-      const paceBias = k === "pac" ? 1.4 : 1.0;
-      share = attrDelta * (0.7 + 0.6 * (1 - rel)) * paceBias;
+      // Decline: athleticism first, technique and game-reading last, and
+      // non-signature attributes ahead of signature ones.
+      share = attrDelta * (0.7 + 0.6 * (1 - rel)) * (DECLINE_BIAS[k] ?? 1);
     }
-    p.attrs[k] = Math.max(20, Math.min(99, Math.round(p.attrs[k] + share)));
+    p.attrs[k] = Math.max(10, Math.min(99, Math.round(p.attrs[k] + share)));
   }
+
+  // Settle onto the rating the curve intended.
+  p.attrs = fitAttrsToOverall(p.attrs, pos, target);
 }
 
 /** Applied at season rollover to every player in the world (bulk, §4). */
@@ -340,7 +408,7 @@ export function applySeasonDevelopment(
   p.potential = fromPotential + out.potentialDelta;
   p.age += 1;
   const newOverall = Math.round(Math.max(35, Math.min(p.age <= cfg.growthEndAge ? p.potential : 99, p.overall + out.delta)));
-  distributeAttrs(p, newOverall - p.overall, plan);
+  distributeAttrs(p, newOverall - p.overall, newOverall, plan);
   p.overall = newOverall;
   // A prime player who grows past his declared ceiling drags it up with him
   // (v1.51) — potential is a floor-of-expectation here, and leaving it below the
@@ -524,9 +592,10 @@ export function weeklyProgressTick(
       isUser ? facilityMultFor(p) : 1
     );
     if (!delta) continue;
-    p.overall = Math.max(35, Math.min(p.age <= cfg.growthEndAge ? p.potential : 99, p.overall + delta));
+    const next = Math.max(35, Math.min(p.age <= cfg.growthEndAge ? p.potential : 99, p.overall + delta));
     // Keep the attribute spread coherent with the headline number.
-    distributeAttrs(p, delta);
+    distributeAttrs(p, delta, next);
+    p.overall = next;
     p.value = valueWithYouthPr(state, p, cfg);
   }
 }
@@ -593,7 +662,7 @@ export function seasonGrowthEstimate(
 }
 
 /**
- * Distribute one season's expected overall growth across the six attributes,
+ * Distribute one season's expected overall growth across the 35 attributes,
  * mirroring the rollover's distributeAttrs logic (archetype signature attributes
  * first, nudged by the training plan). This-season only — never a lifetime
  * ceiling. Returns the per-attribute gain to add to the current value.
@@ -602,17 +671,55 @@ export function seasonAttrFocus(
   p: PlayerBio,
   overallDelta: number,
   plan?: TrainingPlanDef
-): Record<keyof PlayerBio["attrs"], number> {
-  const out = {} as Record<keyof PlayerBio["attrs"], number>;
+): Record<AttrKey, number> {
+  const out = {} as Record<AttrKey, number>;
   for (const k of ATTR_KEYS) out[k] = 0;
   if (overallDelta <= 0) return out;
   const profile = getArchetype(p.archetypeId).attrProfile;
   const maxW = Math.max(...ATTR_KEYS.map((k) => profile[k])) || 1;
+  // Same position-relevance factor distributeAttrs applies, so the projection
+  // the UI shows matches the growth the rollover will actually deliver.
+  const posW = ATTR_WEIGHTS[p.positions[0]] ?? ATTR_WEIGHTS.CM;
+  const maxPosW = Math.max(...ATTR_KEYS.map((k) => posW[k] ?? 0)) || 1;
   for (const k of ATTR_KEYS) {
     const rel = profile[k] / maxW;
     const planW = plan ? plan.weights[k] : 1;
-    const share = overallDelta * (0.5 + 0.9 * rel) * (0.55 + 0.9 * planW);
+    const relevance = 0.25 + 0.75 * Math.max(0, posW[k] ?? 0) / maxPosW;
+    const share = overallDelta * (0.5 + 0.9 * rel) * (0.55 + 0.9 * planW) * relevance;
     out[k] = Math.max(0, Math.round(share));
+  }
+  return out;
+}
+
+/**
+ * The same projection rolled up to the six card faces (v41), for the Development
+ * and Academy summary views.
+ *
+ * Thirty-five progress bars is not a readable projection — those screens are
+ * asking "where is this player's season going?", which the six faces answer at
+ * the right altitude. The full per-attribute detail is on the player's profile.
+ *
+ * Both the current value and the gain are aggregated the same way (mean over the
+ * family), so `now + gain` stays consistent with the face the UI shows.
+ */
+export function seasonFamilyFocus(
+  p: PlayerBio,
+  overallDelta: number,
+  plan?: TrainingPlanDef
+): Record<AttrFamily, { now: number; gain: number }> {
+  const isGk = p.positions[0] === "GK";
+  const gains = seasonAttrFocus(p, overallDelta, plan);
+  const table = isGk ? GK_ATTR_FAMILIES : ATTR_FAMILIES;
+  const out = {} as Record<AttrFamily, { now: number; gain: number }>;
+  for (const f of ATTR_FAMILY_ORDER) {
+    const keys = table[f];
+    if (!keys.length) {
+      out[f] = { now: 0, gain: 0 };
+      continue;
+    }
+    const now = keys.reduce((s, k) => s + p.attrs[k], 0) / keys.length;
+    const gain = keys.reduce((s, k) => s + gains[k], 0) / keys.length;
+    out[f] = { now: Math.round(now), gain: Math.round(gain) };
   }
   return out;
 }

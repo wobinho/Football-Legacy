@@ -9,11 +9,12 @@
 // potential). It never raises the ceiling or rescues a declining veteran; it
 // steers where the room that already exists gets spent, and slightly how fast.
 
-import type { Attributes, PlayerBio, Pos } from "../types";
+import type { PlayerBio, Pos } from "../types";
 import { getArchetype } from "./archetypes";
 import { ATTR_WEIGHTS } from "./positions";
+import { ATTR_FAMILIES, ATTR_KEYS, GK_ATTR_KEYS, type AttrFamily, type AttrKey } from "./attributes";
 
-export type AttrKey = keyof Attributes; // pac | sho | pas | dri | def | phy
+export type { AttrKey };
 
 export type TrainingPlanId =
   | "balanced"
@@ -29,8 +30,10 @@ export interface TrainingPlanDef {
   id: TrainingPlanId;
   name: string;
   blurb: string;
-  /** Per-attribute emphasis (0..1). Growth is redistributed toward the higher
-   * weights. `balanced` is flat, so it matches the archetype's natural spread. */
+  /** Authored emphasis across the six card faces (0..1), the readable form. */
+  shape: Record<AttrFamily, number>;
+  /** The same emphasis fanned out over all 35 attributes (0..1). Derived at
+   * module load; the development pass reads this. */
   weights: Record<AttrKey, number>;
   /** Growth-rate multiplier. Focused plans train a little faster than balanced
    * (which sits at 1.0); the spread is deliberately small so a plan is an edge,
@@ -40,15 +43,37 @@ export interface TrainingPlanDef {
   posGroups: ("gk" | "def" | "mid" | "att" | "any")[];
 }
 
-// Keys in a stable order for iteration.
-export const ATTR_KEYS: AttrKey[] = ["pac", "sho", "pas", "dri", "def", "phy"];
+export { ATTR_KEYS };
 
-export const TRAINING_PLANS: TrainingPlanDef[] = [
+/** Per-attribute emphasis inside a plan, where the family level alone is too
+ * blunt. A multiplier on the family weight (1.0 = none), same idea as the
+ * archetype tilt table. Only the attributes a plan genuinely targets are named.
+ * Pure data. */
+const PLAN_TILT: Partial<Record<TrainingPlanId, Partial<Record<AttrKey, number>>>> = {
+  pace: { acceleration: 1.3, sprintSpeed: 1.3, agility: 1.15, balance: 1.1, stamina: 1.15 },
+  finishing: { finishing: 1.35, shotPower: 1.2, positioning: 1.2, volleys: 1.15, longShots: 1.15, penalties: 1.1 },
+  playmaking: { shortPassing: 1.25, longPassing: 1.3, vision: 1.35, crossing: 1.1, curve: 1.15, composure: 1.15 },
+  dribbling: { dribbling: 1.35, ballControl: 1.3, agility: 1.2, balance: 1.15 },
+  defending: {
+    standingTackle: 1.3, slidingTackle: 1.25, markingAwareness: 1.3,
+    interceptions: 1.3, headingAccuracy: 1.1, aggression: 1.1,
+  },
+  physical: { strength: 1.35, stamina: 1.3, jumping: 1.2, aggression: 1.1 },
+  goalkeeping: {
+    diving: 1.3, handling: 1.3, reflexes: 1.3, gkPositioning: 1.25,
+    kicking: 1.2, gkSpeed: 1.1,
+  },
+};
+
+/** Author a plan with six-family emphasis; `expandPlanWeights` fills in the 35. */
+interface PlanSeed extends Omit<TrainingPlanDef, "weights"> {}
+
+const PLAN_SEEDS: PlanSeed[] = [
   {
     id: "balanced",
     name: "Balanced",
     blurb: "No special focus — growth follows the player's natural profile.",
-    weights: { pac: 1, sho: 1, pas: 1, dri: 1, def: 1, phy: 1 },
+    shape: { pac: 1, sho: 1, pas: 1, dri: 1, def: 1, phy: 1 },
     growthMult: 1.0,
     posGroups: ["any"],
   },
@@ -56,7 +81,7 @@ export const TRAINING_PLANS: TrainingPlanDef[] = [
     id: "pace",
     name: "Pace & Movement",
     blurb: "Sprint work and off-the-ball movement — sharpens acceleration and speed.",
-    weights: { pac: 1, sho: 0.2, pas: 0.2, dri: 0.5, def: 0.2, phy: 0.4 },
+    shape: { pac: 1, sho: 0.2, pas: 0.2, dri: 0.5, def: 0.2, phy: 0.4 },
     growthMult: 1.06,
     posGroups: ["def", "mid", "att"],
   },
@@ -64,7 +89,7 @@ export const TRAINING_PLANS: TrainingPlanDef[] = [
     id: "finishing",
     name: "Finishing",
     blurb: "Shooting drills in and around the box — builds a cleaner, colder finisher.",
-    weights: { pac: 0.2, sho: 1, pas: 0.2, dri: 0.5, def: 0.1, phy: 0.3 },
+    shape: { pac: 0.2, sho: 1, pas: 0.2, dri: 0.5, def: 0.1, phy: 0.3 },
     growthMult: 1.06,
     posGroups: ["mid", "att"],
   },
@@ -72,7 +97,7 @@ export const TRAINING_PLANS: TrainingPlanDef[] = [
     id: "playmaking",
     name: "Playmaking",
     blurb: "Range of passing, vision and tempo — the creator's plan.",
-    weights: { pac: 0.2, sho: 0.3, pas: 1, dri: 0.6, def: 0.2, phy: 0.2 },
+    shape: { pac: 0.2, sho: 0.3, pas: 1, dri: 0.6, def: 0.2, phy: 0.2 },
     growthMult: 1.06,
     posGroups: ["def", "mid", "att"],
   },
@@ -80,7 +105,7 @@ export const TRAINING_PLANS: TrainingPlanDef[] = [
     id: "dribbling",
     name: "Ball Control",
     blurb: "Close control and one-v-one work — a tighter, trickier dribbler.",
-    weights: { pac: 0.4, sho: 0.3, pas: 0.4, dri: 1, def: 0.1, phy: 0.2 },
+    shape: { pac: 0.4, sho: 0.3, pas: 0.4, dri: 1, def: 0.1, phy: 0.2 },
     growthMult: 1.06,
     posGroups: ["mid", "att"],
   },
@@ -88,7 +113,7 @@ export const TRAINING_PLANS: TrainingPlanDef[] = [
     id: "defending",
     name: "Defending",
     blurb: "Positioning, tackling and reading the game — the defender's plan.",
-    weights: { pac: 0.3, sho: 0.1, pas: 0.3, dri: 0.2, def: 1, phy: 0.6 },
+    shape: { pac: 0.3, sho: 0.1, pas: 0.3, dri: 0.2, def: 1, phy: 0.6 },
     growthMult: 1.06,
     posGroups: ["def", "mid"],
   },
@@ -96,7 +121,7 @@ export const TRAINING_PLANS: TrainingPlanDef[] = [
     id: "physical",
     name: "Strength & Stamina",
     blurb: "Gym and conditioning work — a stronger, more durable athlete.",
-    weights: { pac: 0.5, sho: 0.2, pas: 0.2, dri: 0.2, def: 0.4, phy: 1 },
+    shape: { pac: 0.5, sho: 0.2, pas: 0.2, dri: 0.2, def: 0.4, phy: 1 },
     growthMult: 1.05,
     posGroups: ["def", "mid", "att"],
   },
@@ -104,13 +129,38 @@ export const TRAINING_PLANS: TrainingPlanDef[] = [
     id: "goalkeeping",
     name: "Goalkeeping",
     blurb: "Shot-stopping, handling and distribution — the keeper's all-round plan.",
-    // GKs read the six slots with keeper labels (DEF=diving, PHY=handling, etc.),
-    // so a keeper plan spreads across their whole profile rather than a spike.
-    weights: { pac: 0.5, sho: 0.8, pas: 0.7, dri: 0.6, def: 0.9, phy: 0.9 },
+    // A keeper plan spreads across the whole keeper profile rather than spiking
+    // one skill; the goalkeeping attributes are lifted by PLAN_TILT below.
+    shape: { pac: 0.5, sho: 0.8, pas: 0.7, dri: 0.6, def: 0.9, phy: 0.9 },
     growthMult: 1.05,
     posGroups: ["gk"],
   },
 ];
+
+/** Fan a plan's six-family shape out across all 35 attributes. */
+function expandPlanWeights(seed: PlanSeed): Record<AttrKey, number> {
+  const tilt = PLAN_TILT[seed.id] ?? {};
+  const isGkPlan = seed.posGroups.includes("gk");
+  const out = {} as Record<AttrKey, number>;
+  for (const k of ATTR_KEYS) {
+    let level: number;
+    if (GK_ATTR_KEYS.includes(k)) {
+      // Goalkeeping attributes are only a training target on a keeper plan;
+      // outfield plans leave them alone rather than wasting growth there.
+      level = isGkPlan ? Math.max(...Object.values(seed.shape)) : 0.1;
+    } else {
+      const fam = (Object.keys(ATTR_FAMILIES) as AttrFamily[]).find((f) => ATTR_FAMILIES[f].includes(k));
+      level = fam ? seed.shape[fam] : 0.5;
+    }
+    out[k] = Math.max(0.05, Math.min(1, level * (tilt[k] ?? 1)));
+  }
+  return out;
+}
+
+export const TRAINING_PLANS: TrainingPlanDef[] = PLAN_SEEDS.map((s) => ({
+  ...s,
+  weights: expandPlanWeights(s),
+}));
 
 export const TRAINING_PLAN_MAP: Record<string, TrainingPlanDef> = Object.fromEntries(
   TRAINING_PLANS.map((p) => [p.id, p])
@@ -202,7 +252,10 @@ export function planScore(p: PlayerBio, plan: TrainingPlanDef): number {
     const headroom = Math.max(0, 99 - p.attrs[k]);
     // ~1.0 while there's real room, falling off only as the attribute nears 99.
     const usable = Math.min(1, headroom / 12);
-    value += (shares[i] / totalShare) * posW[k] * usable;
+    // Only positively-weighted attributes are worth training toward: growth into
+    // a negatively-weighted one would lower the rating.
+    const w = Math.max(0, posW[k] ?? 0);
+    value += (shares[i] / totalShare) * w * usable;
   });
 
   // A focused plan also trains slightly faster than balanced.

@@ -938,13 +938,15 @@ function MatchdayBoard({
   return (
     <>
       {/* Two panes: the pitch you arrange, and the roster you arrange it from.
-          They sit side by side from `lg` up — below that there isn't the width
-          for a readable list beside a pitch, so they stack. */}
-      <div className="grid grid-cols-1 items-start gap-x-6 lg:grid-cols-[minmax(0,1fr)_26rem] xl:grid-cols-[minmax(0,1fr)_30rem]">
+          They are the first two columns of the Tactics page's own grid (v1.68) —
+          hence the fragment rather than a wrapper, so the pitch, the roster and
+          the setup column are siblings that share one 30/30/40 track list. Below
+          `xl` that grid collapses to a single column and these simply stack. */}
+      <>
         {/* ── Left: the pitch, where the side is ARRANGED ───────────────
             Sticky, so however far the roster scrolls the drop targets stay
             under the pointer — the whole point of the split. */}
-        <div className="lg:sticky lg:top-4">
+        <div className="xl:sticky xl:top-4">
           <Section
             title="Lineup"
             right={
@@ -964,8 +966,12 @@ function MatchdayBoard({
               </div>
             }
           >
+            {/* No max-width from `xl` up: the pitch is a 30% column of the page
+                grid now, and capping it there would leave the tokens crowded into
+                the middle of a half-empty panel. Below that breakpoint the page
+                is one column and the cap still stops a full-width pitch. */}
             <div
-              className="relative mx-auto aspect-[3/4] w-full max-w-md select-none overflow-hidden rounded-md border border-line"
+              className="relative mx-auto aspect-[3/4] w-full max-w-md select-none overflow-hidden rounded-md border border-line xl:max-w-none"
               style={{ background: "linear-gradient(180deg, #0e1512 0%, #0c110e 100%)" }}
             >
               {/* pitch markings */}
@@ -1150,7 +1156,7 @@ function MatchdayBoard({
             </p>
             <div
               ref={registerZone({ kind: "squad" })}
-              className={`h-[26rem] space-y-1 overflow-y-auto rounded-md p-1 transition-colors xl:h-[32rem] ${
+              className={`h-[26rem] space-y-1 overflow-y-auto rounded-md p-1 transition-colors xl:h-[34rem] ${
                 poolArmed
                   ? drag?.target?.kind === "squad"
                     ? "bg-hover ring-1 ring-gold/60"
@@ -1269,7 +1275,7 @@ function MatchdayBoard({
             </div>
           </Section>
         </div>
-      </div>
+      </>
 
       {drag && dragged && <DragGhost p={dragged} x={drag.x} y={drag.y} />}
     </>
@@ -1452,30 +1458,23 @@ function SavedTactics() {
   );
 }
 
-/** The two halves of the Tactics screen (v1.65). Picking the side and setting
- * the side up are two different jobs done at different moments — the squad board
- * is the one you land on, the setup panel is where formation, saved tactics and
- * on-pitch roles live. Splitting them means neither has to share a column with
- * the other, so both get the full width on every screen size. */
-type TacticsSection = "squad" | "setup";
-
-export default function TacticsScreen() {
+/**
+ * Formation, mentality, style and the advanced instructions (v1.68).
+ *
+ * Lifted out of the old Setup tab into a component of its own so it can sit as
+ * the third column of the one-page Tactics layout — and, on a phone, stack under
+ * the lineup instead. It owns the formation-switch confirm because that dialogue
+ * belongs to the control that triggers it, not to the screen.
+ */
+function SetupPanel() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const setTactic = useGame((s) => s.setTactic);
-  const setLineupSlot = useGame((s) => s.setLineupSlot);
-  const viewPlayer = useGame((s) => s.viewPlayer);
-  const [section, setSection] = useState<TacticsSection>("squad");
-  const [pickSlot, setPickSlot] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  // Phones get the tap-driven lineup instead of the drag-and-drop board.
-  const isMobile = useIsMobile();
-  /** Formation the user has clicked but not yet confirmed — see the switch
-   * confirm below. Null when no switch is pending. */
+  /** Formation the user has clicked but not yet confirmed. Null when none. */
   const [formationSwitch, setFormationSwitch] = useState<string | null>(null);
 
-  const team = game.teams[game.userTeamId];
-  const tactic = team.tactic;
+  const tactic = game.teams[game.userTeamId].tactic;
   // Resolved instruction values (v2 saves may omit the expanded fields).
   const tempo = tactic.tempo ?? "Standard";
   const width = tactic.width ?? "Standard";
@@ -1483,11 +1482,6 @@ export default function TacticsScreen() {
   const line = tactic.line ?? "Standard";
   const focus = tactic.focus ?? "Mixed";
   const formation = getFormation(tactic.formationId);
-  // players away on loan (§18) can't be fielded
-  const squad = team.playerIds.map((id) => game.players[id]).filter((p) => p && !p.retired && !p.loan);
-  const inLineup = new Set(Object.values(game.lineup));
-
-  const slotFor = (slotId: string) => formation.slots.find((s) => s.id === slotId)!;
   const picked = Object.values(game.lineup).filter((id) => game.players[id]).length;
 
   // Average archetype synergy of the picked XI in the chosen style, as a
@@ -1500,102 +1494,71 @@ export default function TacticsScreen() {
     : undefined;
 
   return (
-    <div>
-      {/* Squad first and selected by default (v1.65): picking the side is what
-          this screen is for, so it's what you land on. Setup — saved tactics,
-          formation, instructions and on-pitch roles — is the second section,
-          visited when you want to change how the side plays rather than who is
-          in it. Mobile drops the drag-and-drop surfaces — see MatchdayBoard. */}
-      <Tabs<TacticsSection>
-        tabs={[
-          { id: "squad", label: "Squad" },
-          { id: "setup", label: "Setup" },
-        ]}
-        active={section}
-        onChange={setSection}
-      />
-
-      <div className={section === "squad" ? "" : "hidden"}>
-        {isMobile ? (
-          <MobileLineup onPickSlot={setPickSlot} onOpenPlayer={viewPlayer} />
-        ) : (
-          <MatchdayBoard onPickSlot={setPickSlot} onOpenPlayer={viewPlayer} />
-        )}
-      </div>
-
-      {/* Setup keeps its subtree mounted (hidden rather than unmounted) so the
-          Advanced-instructions disclosure and any half-typed state survive a
-          trip to the Squad section and back. */}
-      <div className={`grid grid-cols-1 gap-x-6 lg:grid-cols-2 ${section === "setup" ? "" : "hidden"}`}>
-        <div>
-          <SavedTactics />
-          <Assignments />
-        </div>
-        <Section title="Setup">
-          <div className="space-y-4">
-            <div>
-              <div className="mb-1.5 text-[11px] uppercase tracking-widest text-faint">Formation</div>
-              <div className="flex flex-wrap gap-1.5">
-                {FORMATIONS.map((f) => (
-                  <button
-                    key={f.id}
-                    onClick={() => {
-                      // Switching formation wipes the XI (the slots themselves
-                      // change), so a picked side gets a confirm rather than
-                      // vanishing on a stray click. An empty XI has nothing to
-                      // lose and switches straight away.
-                      if (f.id === tactic.formationId) return;
-                      if (picked > 0) setFormationSwitch(f.id);
-                      else setTactic({ formationId: f.id });
-                    }}
-                    className={`display rounded px-3 py-1.5 text-sm font-semibold ${
-                      tactic.formationId === f.id ? "gold-grad text-black" : "border border-line text-dim hover:text-ink"
-                    }`}
-                  >
-                    {f.name}
-                  </button>
-                ))}
-              </div>
-              <p className="mt-1.5 text-[11px] leading-snug text-faint">{formation.desc}</p>
+    <>
+      <Section title="Setup">
+        <div className="space-y-4">
+          <div>
+            <div className="mb-1.5 text-[11px] uppercase tracking-widest text-faint">Formation</div>
+            <div className="flex flex-wrap gap-1.5">
+              {FORMATIONS.map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => {
+                    // Switching formation wipes the XI (the slots themselves
+                    // change), so a picked side gets a confirm rather than
+                    // vanishing on a stray click. An empty XI has nothing to
+                    // lose and switches straight away.
+                    if (f.id === tactic.formationId) return;
+                    if (picked > 0) setFormationSwitch(f.id);
+                    else setTactic({ formationId: f.id });
+                  }}
+                  className={`display rounded px-3 py-1.5 text-sm font-semibold ${
+                    tactic.formationId === f.id ? "gold-grad text-black" : "border border-line text-dim hover:text-ink"
+                  }`}
+                >
+                  {f.name}
+                </button>
+              ))}
             </div>
-            <Instruction label="Mentality" options={MENTALITIES} current={tactic.mentality} onPick={(v) => setTactic({ mentality: v })} />
-            <Instruction label="Style" options={STYLES} current={tactic.style} onPick={(v) => setTactic({ style: v })} styleFit={styleFit} />
-
-            {/* Advanced instructions collapse into a dropdown so the setup doesn't
-                fill the screen — the core three (formation/mentality/style) stay
-                open, the fine-tuning tucks away with a live summary. */}
-            <div className="rounded-md border border-line">
-              <button
-                onClick={() => setAdvancedOpen((o) => !o)}
-                className="flex w-full items-center justify-between px-3 py-2 text-left"
-                aria-expanded={advancedOpen}
-              >
-                <span className="text-[11px] uppercase tracking-widest text-faint">Advanced instructions</span>
-                <span className="flex items-center gap-2">
-                  {!advancedOpen && (
-                    <span className="hidden text-[10px] text-faint sm:inline">
-                      {tempo} · {width} · {press} press · {line} line · {focus}
-                    </span>
-                  )}
-                  <span className={`text-xs text-dim transition-transform ${advancedOpen ? "rotate-180" : ""}`}>▾</span>
-                </span>
-              </button>
-              {advancedOpen && (
-                <div className="space-y-4 border-t border-line px-3 py-3">
-                  <Instruction label="Tempo" options={TEMPOS} current={tempo} onPick={(v) => setTactic({ tempo: v })} />
-                  <Instruction label="Width" options={WIDTHS} current={width} onPick={(v) => setTactic({ width: v })} />
-                  <Instruction label="Press" options={PRESSES} current={press} onPick={(v) => setTactic({ press: v })} />
-                  <Instruction label="Defensive Line" options={LINES} current={line} onPick={(v) => setTactic({ line: v })} />
-                  <Instruction label="Focus" options={FOCI} current={focus} onPick={(v) => setTactic({ focus: v })} />
-                </div>
-              )}
-            </div>
-            <p className="text-[11px] leading-relaxed text-faint">
-              ▲▼ marks show each player&apos;s fit with <b className="text-dim">{styleLabel(tactic.style)}</b>.
-            </p>
+            <p className="mt-1.5 text-[11px] leading-snug text-faint">{formation.desc}</p>
           </div>
-        </Section>
-      </div>
+          <Instruction label="Mentality" options={MENTALITIES} current={tactic.mentality} onPick={(v) => setTactic({ mentality: v })} />
+          <Instruction label="Style" options={STYLES} current={tactic.style} onPick={(v) => setTactic({ style: v })} styleFit={styleFit} />
+
+          {/* Advanced instructions collapse into a dropdown so the setup doesn't
+              fill the screen — the core three (formation/mentality/style) stay
+              open, the fine-tuning tucks away with a live summary. */}
+          <div className="rounded-md border border-line">
+            <button
+              onClick={() => setAdvancedOpen((o) => !o)}
+              className="flex w-full items-center justify-between px-3 py-2 text-left"
+              aria-expanded={advancedOpen}
+            >
+              <span className="text-[11px] uppercase tracking-widest text-faint">Advanced instructions</span>
+              <span className="flex items-center gap-2">
+                {!advancedOpen && (
+                  <span className="hidden text-[10px] text-faint sm:inline">
+                    {tempo} · {width} · {press} press · {line} line · {focus}
+                  </span>
+                )}
+                <span className={`text-xs text-dim transition-transform ${advancedOpen ? "rotate-180" : ""}`}>▾</span>
+              </span>
+            </button>
+            {advancedOpen && (
+              <div className="space-y-4 border-t border-line px-3 py-3">
+                <Instruction label="Tempo" options={TEMPOS} current={tempo} onPick={(v) => setTactic({ tempo: v })} />
+                <Instruction label="Width" options={WIDTHS} current={width} onPick={(v) => setTactic({ width: v })} />
+                <Instruction label="Press" options={PRESSES} current={press} onPick={(v) => setTactic({ press: v })} />
+                <Instruction label="Defensive Line" options={LINES} current={line} onPick={(v) => setTactic({ line: v })} />
+                <Instruction label="Focus" options={FOCI} current={focus} onPick={(v) => setTactic({ focus: v })} />
+              </div>
+            )}
+          </div>
+          <p className="text-[11px] leading-relaxed text-faint">
+            ▲▼ marks show each player&apos;s fit with <b className="text-dim">{styleLabel(tactic.style)}</b>.
+          </p>
+        </div>
+      </Section>
 
       {formationSwitch && (
         <Modal title="Change formation?" onClose={() => setFormationSwitch(null)}>
@@ -1622,6 +1585,57 @@ export default function TacticsScreen() {
             </div>
           </div>
         </Modal>
+      )}
+    </>
+  );
+}
+
+export default function TacticsScreen() {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const setLineupSlot = useGame((s) => s.setLineupSlot);
+  const viewPlayer = useGame((s) => s.viewPlayer);
+  const [pickSlot, setPickSlot] = useState<string | null>(null);
+  // Phones get the tap-driven lineup instead of the drag-and-drop board.
+  const isMobile = useIsMobile();
+
+  const team = game.teams[game.userTeamId];
+  const tactic = team.tactic;
+  const formation = getFormation(tactic.formationId);
+  // players away on loan (§18) can't be fielded
+  const squad = team.playerIds.map((id) => game.players[id]).filter((p) => p && !p.retired && !p.loan);
+  const inLineup = new Set(Object.values(game.lineup));
+
+  const slotFor = (slotId: string) => formation.slots.find((s) => s.id === slotId)!;
+
+  return (
+    <div>
+      {/* One page, three columns (v1.68).
+          Picking the side and setting it up were split across a Squad/Setup tab
+          pair, which meant the two halves of one decision could never be seen at
+          once — you chose a style on one tab and read its ▲▼ synergy marks on the
+          other. They are now columns of a single layout: the pitch (30%), the
+          roster you fill it from (30%), and the setup you play it with (40%).
+
+          Mobile keeps the stacked, tap-driven flow — see MobileLineup — because
+          three columns of anything is not a phone layout; the grid simply
+          collapses to one column below `xl`. */}
+      {isMobile ? (
+        <>
+          <MobileLineup onPickSlot={setPickSlot} onOpenPlayer={viewPlayer} />
+          <SetupPanel />
+          <SavedTactics />
+          <Assignments />
+        </>
+      ) : (
+        <div className="grid grid-cols-1 items-start gap-x-6 xl:grid-cols-[30fr_30fr_40fr]">
+          <MatchdayBoard onPickSlot={setPickSlot} onOpenPlayer={viewPlayer} />
+          <div>
+            <SetupPanel />
+            <SavedTactics />
+            <Assignments />
+          </div>
+        </div>
       )}
 
       {pickSlot && (

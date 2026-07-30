@@ -14,10 +14,85 @@
 //     codes. Unmapped nations fall back to the club's country so a player never
 //     ends up with a code the flag/name layer can't resolve.
 
-import type { Pos } from "../types";
+import type { Attributes, Pos } from "../types";
 import type { ClubSeed, CountryDatabase, DivisionSeed, PlayerSeed } from "../database";
 import { COUNTRY_DB_SCHEMA } from "../database";
+import { ATTR_KEYS, type AttrKey } from "../config/attributes";
 import type { CsvRow } from "./csv";
+
+// ── Attribute column mapping (v41) ─────────────────────────────────────────
+
+/** Source CSV column → the engine's attribute key. The source groups its 35
+ * columns by family with a `group_name` convention; the engine uses flat
+ * camelCase keys. Two pairs need care: the source's
+ * `goalkeeping_positioning` and `mentality_positioning` are DIFFERENT stats
+ * (a keeper's placement vs. an outfielder's attacking movement), as are
+ * `goalkeeping_speed` and `movement_sprint_speed`. */
+export const ATTR_COLUMNS: Record<AttrKey, string> = {
+  crossing: "attacking_crossing",
+  finishing: "attacking_finishing",
+  headingAccuracy: "attacking_heading_accuracy",
+  shortPassing: "attacking_short_passing",
+  volleys: "attacking_volleys",
+  dribbling: "skill_dribbling",
+  curve: "skill_curve",
+  fkAccuracy: "skill_fk_accuracy",
+  longPassing: "skill_long_passing",
+  ballControl: "skill_ball_control",
+  acceleration: "movement_acceleration",
+  sprintSpeed: "movement_sprint_speed",
+  agility: "movement_agility",
+  reactions: "movement_reactions",
+  balance: "movement_balance",
+  shotPower: "power_shot_power",
+  jumping: "power_jumping",
+  stamina: "power_stamina",
+  strength: "power_strength",
+  longShots: "power_long_shots",
+  aggression: "mentality_aggression",
+  interceptions: "mentality_interceptions",
+  positioning: "mentality_positioning",
+  vision: "mentality_vision",
+  penalties: "mentality_penalties",
+  composure: "mentality_composure",
+  markingAwareness: "defending_marking_awareness",
+  standingTackle: "defending_standing_tackle",
+  slidingTackle: "defending_sliding_tackle",
+  diving: "goalkeeping_diving",
+  handling: "goalkeeping_handling",
+  kicking: "goalkeeping_kicking",
+  gkPositioning: "goalkeeping_positioning",
+  reflexes: "goalkeeping_reflexes",
+  gkSpeed: "goalkeeping_speed",
+};
+
+/** Outfielders have no `goalkeeping_speed` in the source (the column is blank),
+ * because the stat is only tracked for keepers. It carries a weight of -0.0209
+ * for a GK and zero for everyone else, so a blank is filled with a nominal
+ * value rather than left undefined — it can never affect an outfielder's
+ * rating, and it keeps every player's attribute set complete. */
+const GK_SPEED_DEFAULT = 40;
+
+/** Read one player row's 35 attributes. Returns null if a required column is
+ * missing or unparseable, so the caller can skip the row rather than ship a
+ * player with silently-zeroed stats. */
+export function readAttrs(row: CsvRow): Attributes | null {
+  const out = {} as Attributes;
+  for (const k of ATTR_KEYS) {
+    const raw = (row[ATTR_COLUMNS[k]] ?? "").trim();
+    if (raw === "") {
+      if (k === "gkSpeed") {
+        out[k] = GK_SPEED_DEFAULT;
+        continue;
+      }
+      return null;
+    }
+    const v = Number(raw);
+    if (!Number.isFinite(v)) return null;
+    out[k] = Math.max(1, Math.min(99, v));
+  }
+  return out;
+}
 
 // ── Position mapping ───────────────────────────────────────────────────────
 
@@ -42,7 +117,9 @@ export const FORMULA_POS_TO_POS: Record<string, Pos> = {
   ST: "ST",
 };
 
-/** Parse "LW, LM" into engine positions, dropping unknown tokens and dupes. */
+/** Parse a primary plus a secondary list into engine positions, dropping unknown
+ * tokens and duplicates. The secondary list is accepted either comma- or
+ * pipe-separated ("LW|LM"), since the source has used both conventions. */
 export function parsePositions(primary: string, secondary: string): Pos[] {
   const out: Pos[] = [];
   const push = (token: string) => {
@@ -50,7 +127,7 @@ export function parsePositions(primary: string, secondary: string): Pos[] {
     if (pos && !out.includes(pos)) out.push(pos);
   };
   push(primary);
-  for (const token of secondary.split(",")) if (token.trim()) push(token);
+  for (const token of secondary.split(/[,|]/)) if (token.trim()) push(token);
   return out.length ? out : ["CM"];
 }
 

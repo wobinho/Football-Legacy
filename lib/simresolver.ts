@@ -9,10 +9,18 @@
 // browsable while the season it belongs to is still on screen. That final pass
 // also writes realistic minutes so sim players age like their playable peers.
 
-import type { GameState, SimLeagueResult, SimTopAssister, TableRow } from "./types";
+import type { Attributes, GameState, SimLeagueResult, SimTopAssister, TableRow } from "./types";
 import type { TuningConfig } from "./config/tuning";
 import { teamStrength } from "./selection";
 import { mulberry32, deriveSeed, randNormal, pickWeighted } from "./rng";
+
+/** How likely a player is to be the one who MAKES a goal (v41). The 35-attribute
+ * model can say this properly: chance creation is vision and passing range, not
+ * a single blended "passing" number. Weighted toward vision because seeing the
+ * pass is what separates a creator from a merely tidy passer. */
+function creativity(a: Attributes): number {
+  return a.vision * 0.4 + a.shortPassing * 0.25 + a.longPassing * 0.2 + a.crossing * 0.15;
+}
 
 export function resolveSimLeagues(state: GameState, half: 0 | 1 | 2, cfg: TuningConfig) {
   for (const league of Object.values(state.leagues)) {
@@ -79,7 +87,7 @@ export function resolveSimLeagues(state: GameState, half: 0 | 1 | 2, cfg: Tuning
       if (rng() < 0.72 && attackers.length > 1) {
         let a = p;
         for (let tries = 0; tries < 4 && a === p; tries++) {
-          a = pickWeighted(rng, attackers, (x) => Math.pow(Math.max(1, x.attrs.pas - 55), 2.0));
+          a = pickWeighted(rng, attackers, (x) => Math.pow(Math.max(1, creativity(x.attrs) - 55), 2.0));
         }
         if (a !== p) assisters.set(a.id, (assisters.get(a.id) ?? 0) + 1);
       }

@@ -658,30 +658,136 @@ export function createMatch(home: SideInput, away: SideInput, cfg: TuningConfig,
 
 /** Play segments 1-3. Returns state paused at halftime for the tactic tweak. */
 export function playFirstHalf(state: MatchState): MatchState {
-  while (state.segment < 3) playSegment(state);
+  return playSegments(state, 3);
+}
+
+function pushHalftime(state: MatchState) {
   state.events.push({
     minute: 45,
     type: "halftime",
     text: `Half-time: ${state.home.input.name} ${state.home.goals}-${state.away.goals} ${state.away.input.name}.`,
   });
+}
+
+/**
+ * Advance the match to (but not into) segment `upTo`, one 15-minute block at a
+ * time (v1.68).
+ *
+ * The live view used to simulate a whole half in one call and then merely reveal
+ * the events on a clock, which meant nothing the manager did while watching could
+ * possibly matter — the goals had already happened. Playing segment by segment is
+ * what makes a mid-match substitution or a shift in mentality real: the engine has
+ * genuinely not resolved the next fifteen minutes yet.
+ *
+ * Segment boundaries are the only pause points, and deliberately so. A change
+ * takes effect from the next block rather than the next minute, which is also the
+ * granularity at which `phaseStrengths` is sampled — pausing anywhere finer would
+ * offer a decision the simulation cannot act on.
+ *
+ * Determinism is unaffected: the RNG stream is consumed in exactly the same order
+ * whether the six segments are played in one call or six, so an untouched match
+ * watched live produces the identical result to the same match simulated instantly.
+ */
+export function playSegments(state: MatchState, upTo: number): MatchState {
+  const target = Math.min(upTo, state.cfg.segmentsPerMatch);
+  while (state.segment < target) {
+    playSegment(state);
+    // The half-time and full-time milestones belong to the clock, not to a
+    // segment, so they're emitted as the boundary is crossed however the caller
+    // chose to slice the match up.
+    if (state.segment === 3) pushHalftime(state);
+    if (state.segment === state.cfg.segmentsPerMatch) pushFulltime(state);
+  }
   return state;
 }
 
-/** The one in-match interaction point (§6): change mentality/style at the break. */
+/** The in-match interaction point (§6): change mentality/style. Called at the
+ * break, and — since v1.68 — at any segment boundary while watching live. */
 export function applyHalftimeTactic(state: MatchState, side: "home" | "away", tactic: Partial<Tactic>) {
   const s = side === "home" ? state.home : state.away;
   s.tactic = { ...s.tactic, ...tactic };
   refreshCounters(state); // the matchup shifts with the change
 }
 
-export function playSecondHalf(state: MatchState): MatchState {
-  while (state.segment < state.cfg.segmentsPerMatch) playSegment(state);
+/** A player currently on the pitch for a side, with the slot he occupies. */
+export function onPitchFor(state: MatchState, side: "home" | "away"): OnPitch[] {
+  return activePlayers(side === "home" ? state.home : state.away);
+}
+
+/** The players still available on a side's bench. */
+export function benchFor(state: MatchState, side: "home" | "away"): EnginePlayer[] {
+  return (side === "home" ? state.home : state.away).bench.slice();
+}
+
+/** Subs made / allowed for a side — what the UI needs to grey out the control. */
+export function subsUsedFor(state: MatchState, side: "home" | "away"): { used: number; max: number } {
+  const s = side === "home" ? state.home : state.away;
+  return { used: s.subsUsed, max: state.cfg.maxSubs };
+}
+
+/**
+ * The manager's own substitution (v1.68) — `offId` comes off, `onId` comes on in
+ * his slot, at `minute`.
+ *
+ * Shares `makeSub` with the AI pass, so a manual change is bookkept identically:
+ * minutes played, the event line, and the subs-used count that limits both alike.
+ * Returns false and does nothing if the change isn't legal (either player isn't
+ * where he's claimed to be, or the side has used its allocation), so the caller
+ * can surface a refusal rather than silently half-applying one.
+ */
+export function manualSub(
+  state: MatchState,
+  side: "home" | "away",
+  offId: string,
+  onId: string,
+  minute: number
+): boolean {
+  const s = side === "home" ? state.home : state.away;
+  if (s.subsUsed >= state.cfg.maxSubs) return false;
+  const op = activePlayers(s).find((o) => o.entry.player.id === offId);
+  const incoming = s.bench.find((b) => b.id === onId);
+  if (!op || !incoming) return false;
+  makeSub(state, s, op, incoming, minute, "");
+  return true;
+}
+
+/**
+ * Swap two players' positions without using a substitution (v1.68) — the other
+ * half of in-match shape management. Pushing a full-back forward costs a manager
+ * nothing but a shout, and the engine already reads `slotPos` per segment, so the
+ * change is felt from the next block through `positionFit` and the phase weights.
+ */
+export function swapPositions(state: MatchState, side: "home" | "away", aId: string, bId: string): boolean {
+  const s = side === "home" ? state.home : state.away;
+  const a = activePlayers(s).find((o) => o.entry.player.id === aId);
+  const b = activePlayers(s).find((o) => o.entry.player.id === bId);
+  if (!a || !b || a === b) return false;
+  const tmp = a.entry.slotPos;
+  a.entry = { ...a.entry, slotPos: b.entry.slotPos };
+  b.entry = { ...b.entry, slotPos: tmp };
+  return true;
+}
+
+/** Live in-match condition for an on-pitch player, for the watching UI — the
+ * same figure `effectiveRating` prices his legs at. */
+export function liveFitness(state: MatchState, side: "home" | "away", op: OnPitch, minute: number): number {
+  return currentFitnessOf(op, side === "home" ? state.home : state.away, minute, state.cfg);
+}
+
+export type { OnPitch };
+
+function pushFulltime(state: MatchState) {
   state.events.push({
     minute: 90,
     type: "fulltime",
     text: `Full-time: ${state.home.input.name} ${state.home.goals}-${state.away.goals} ${state.away.input.name}.`,
   });
-  return state;
+}
+
+export function playSecondHalf(state: MatchState): MatchState {
+  // `playSegments` emits full-time as it crosses the boundary; if the caller has
+  // already advanced this far there is nothing left to play.
+  return playSegments(state, state.cfg.segmentsPerMatch);
 }
 
 export function finalizeResult(state: MatchState): MatchResult {

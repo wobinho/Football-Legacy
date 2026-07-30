@@ -1,11 +1,26 @@
-// Verifies the FC 26 overall model (lib/config/positions.ts) against the worked
-// examples in OVERALL_FORMULA.md, and — when fl26-players.csv is present — against
-// the full published roster. Run: npx tsx scripts/verify-overall.ts
+// Verifies the 35-attribute overall model (lib/config/positions.ts) against the
+// shipped source roster. Run: npx tsx scripts/verify-overall.ts
+//
+// The model is a per-position weighted sum of the 35 attributes plus an additive
+// constant. There is no independent "expected overall" to compare against — the
+// source CSV has no overall column, the rating is fully derived — so the checks
+// here are about the model's INTERNAL consistency and its output distribution:
+//
+//   1. Every weight row names only real attributes (a typo would silently drop
+//      a term from the model, which nothing else would catch).
+//   2. Every row sums to ~1.0, so a row behaves as a weighted mean and a uniform
+//      shift of +δ moves the rating by ~δ. This is what makes the model
+//      invertible, and it is why keepers sit on the same scale as outfielders.
+//   3. fitAttrsToOverall lands on the target it is asked for.
+//   4. The full roster rates in a sane band, per position — the check that would
+//      have caught a whole position group reading 15 points light.
+
 import { readFileSync, existsSync } from "node:fs";
-import { overallFromAttrs, fitAttrsToOverall, ATTR_WEIGHTS } from "../lib/config/positions";
+import { overallFromAttrs, fitAttrsToOverall, ATTR_WEIGHTS, ATTR_WEIGHT_SUM } from "../lib/config/positions";
+import { ATTR_KEYS, uniformAttrs } from "../lib/config/attributes";
 import type { Pos, Attributes } from "../lib/types";
 import { parseCsv } from "../lib/fl26/csv";
-import { FORMULA_POS_TO_POS } from "../lib/fl26/convert";
+import { FORMULA_POS_TO_POS, readAttrs } from "../lib/fl26/convert";
 
 let failures = 0;
 const check = (label: string, ok: boolean, detail = "") => {
@@ -13,74 +28,84 @@ const check = (label: string, ok: boolean, detail = "") => {
   console.log(`${ok ? "OK  " : "FAIL"}  ${label}${detail ? "  " + detail : ""}`);
 };
 
-// 1. The three worked examples printed in OVERALL_FORMULA.md.
-const cases: [string, Attributes, Pos, number][] = [
-  ["Haaland ST", { pac: 87.13, sho: 94.51, pas: 78.06, dri: 85.92, def: 83.83, phy: 94.05 }, "ST", 90],
-  ["Alisson GK", { pac: 86.71, sho: 85.71, pas: 86.71, dri: 89.03, def: 55.0, phy: 90.71 }, "GK", 89],
-  ["van Dijk CB", { pac: 78.56, sho: 48.01, pas: 81.37, dri: 85.54, def: 91.3, phy: 90.86 }, "CB", 90],
-];
-for (const [name, attrs, pos, expected] of cases) {
-  const got = overallFromAttrs(attrs, pos);
-  check(name, got === expected, `got ${got}, expected ${expected}`);
-}
-
-// 2. Every weight row sums to 1.0 — that is what makes the model invertible.
-// The published table is quoted at 4dp, so a row can be off by up to 5e-5 from
-// exactly 1; OVERALL_FORMULA.md states that precision is sufficient.
+// 1. Every weight row names only real attributes.
+const validKeys = new Set<string>(ATTR_KEYS);
 for (const [pos, w] of Object.entries(ATTR_WEIGHTS)) {
-  const sum = (Object.values(w) as number[]).reduce((a, b) => a + b, 0);
-  check(`weights sum ${pos}`, Math.abs(sum - 1) < 5e-4, sum.toFixed(4));
+  const unknown = Object.keys(w).filter((k) => !validKeys.has(k));
+  check(`weight keys ${pos}`, unknown.length === 0, unknown.length ? `unknown: ${unknown.join(", ")}` : "");
 }
 
-// 3. fitAttrsToOverall must land on the requested target. The shift is computed
-// from an already-rounded overall and re-rounded per attribute, so landing
-// within a point is the honest contract — not exactness.
-//
-// The target must also be REACHABLE: the shift is applied uniformly and clamped
-// to 1–99, so asking a 52-rated line to become an 84 saturates its top
-// attributes and lands short. That is the documented clamp, not model error, so
-// each position is fitted from a base already in the right neighbourhood.
-const base: Attributes = { pac: 70, sho: 60, pas: 65, dri: 72, def: 70, phy: 75 };
-for (const pos of ["ST", "CB", "GK", "LB", "AM", "DM", "RW"] as Pos[]) {
+// 2. Every row sums to ~1.0. The published coefficients are quoted to 4dp and
+// fitted independently per position, so they don't land on exactly 1 — but a row
+// that drifts far from it would be a missing or duplicated term.
+for (const pos of Object.keys(ATTR_WEIGHTS) as Pos[]) {
+  const sum = ATTR_WEIGHT_SUM[pos];
+  check(`weights sum ${pos}`, Math.abs(sum - 1) < 0.05, sum.toFixed(4));
+}
+
+// 3. A uniform attribute line rates approximately its own value (the direct
+// consequence of the rows summing to 1), and fitAttrsToOverall hits its target.
+for (const pos of Object.keys(ATTR_WEIGHTS) as Pos[]) {
+  const flat = overallFromAttrs(uniformAttrs(70), pos);
+  check(`uniform 70 → ~70 at ${pos}`, Math.abs(flat - 70) <= 3, `got ${flat}`);
+}
+
+const base: Attributes = uniformAttrs(68);
+for (const pos of Object.keys(ATTR_WEIGHTS) as Pos[]) {
   const from = overallFromAttrs(base, pos);
-  for (const target of [from - 10, from, from + 10]) {
+  for (const target of [from - 12, from, from + 12]) {
     const got = overallFromAttrs(fitAttrsToOverall(base, pos, target), pos);
     check(`fit ${pos} ${from}→${target}`, Math.abs(got - target) <= 1, `got ${got}`);
   }
 }
 
-// 4. The whole published roster, if the source CSV is still in the tree.
-const CSV = "fl26-players.csv";
+// 4. The whole source roster: distribution sanity, overall and per position.
+const CSV = "fl26_players_new.csv";
 if (existsSync(CSV)) {
   const rows = parseCsv(readFileSync(CSV, "utf8"));
-  let exact = 0;
-  let within1 = 0;
-  let worst = 0;
-  let n = 0;
+  const byPos = new Map<Pos, number[]>();
+  const all: number[] = [];
+  let skipped = 0;
+
   for (const r of rows) {
-    const pos = FORMULA_POS_TO_POS[r.position];
+    const pos = FORMULA_POS_TO_POS[r.position?.trim().toUpperCase()];
     if (!pos) continue;
-    const attrs: Attributes = {
-      pac: Number(r.pace),
-      sho: Number(r.shooting),
-      pas: Number(r.passing),
-      dri: Number(r.dribbling),
-      def: Number(r.defending),
-      phy: Number(r.physicality),
-    };
-    // The CSV has no `overall` column — it is fully derived. Confirm instead that
-    // the model is self-consistent under a round-trip: refitting to its own
-    // output must return the same rating. fitAttrsToOverall rounds each attribute
-    // to an integer while the source stats are 2dp, so ±1 is the expected floor.
+    const attrs = readAttrs(r);
+    if (!attrs) {
+      skipped++;
+      continue;
+    }
     const ovr = overallFromAttrs(attrs, pos);
-    const refit = overallFromAttrs(fitAttrsToOverall(attrs, pos, ovr), pos);
-    const err = Math.abs(refit - ovr);
-    if (err === 0) exact++;
-    if (err <= 1) within1++;
-    worst = Math.max(worst, err);
-    n++;
+    all.push(ovr);
+    if (!byPos.has(pos)) byPos.set(pos, []);
+    byPos.get(pos)!.push(ovr);
   }
-  check("roster refit within ±1", within1 === n && worst <= 1, `${exact}/${n} exact, ${within1}/${n} within ±1`);
+
+  const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  check("roster parsed", skipped === 0, skipped ? `${skipped} rows had unreadable attributes` : `${all.length} players`);
+
+  const overallMean = mean(all);
+  check("roster mean in 58–72", overallMean >= 58 && overallMean <= 72, overallMean.toFixed(2));
+  check("roster max in 85–99", Math.max(...all) >= 85 && Math.max(...all) <= 99, String(Math.max(...all)));
+
+  console.log("\n  position   n     mean   max");
+  for (const pos of [...byPos.keys()].sort()) {
+    const xs = byPos.get(pos)!;
+    console.log(`  ${pos.padEnd(9)} ${String(xs.length).padStart(5)}  ${mean(xs).toFixed(1).padStart(5)}  ${String(Math.max(...xs)).padStart(4)}`);
+  }
+  console.log();
+
+  // No position group may sit far off the rest — this is the check that catches
+  // a mis-transcribed weight row (a missing large term reads as a whole position
+  // rating light, which is invisible in the global mean).
+  for (const [pos, xs] of byPos) {
+    const m = mean(xs);
+    check(`${pos} mean within 8 of roster mean`, Math.abs(m - overallMean) <= 8, `${m.toFixed(1)} vs ${overallMean.toFixed(1)}`);
+    const top = Math.max(...xs);
+    check(`${pos} has a credible best player`, top >= 80, `best ${top}`);
+  }
+} else {
+  console.log(`(skipped roster checks — ${CSV} not in the tree)`);
 }
 
 console.log(failures === 0 ? "\nAll overall-model checks passed." : `\n${failures} check(s) FAILED.`);

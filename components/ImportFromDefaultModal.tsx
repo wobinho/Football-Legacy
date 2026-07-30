@@ -17,6 +17,7 @@ import type { LibraryClub, LibraryPlayer } from "@/lib/customdb";
 import { seedToLibraryClub, seedToLibraryPlayer } from "@/lib/customdb";
 import { PRESETS, loadPreset } from "@/lib/config/presets";
 import { overallFromAttrs } from "@/lib/config/positions";
+import { normalizeAttrs } from "@/lib/config/attributes";
 import { matchesPlayerName, matchesText } from "@/lib/search";
 import { CountryFlag, Crest, Flag, Modal, Ovr, PosBadge } from "./ui";
 
@@ -97,7 +98,7 @@ export default function ImportFromDefaultModal({
           rows.push({
             seed,
             clubName: club.name,
-            overall: attrs ? overallFromAttrs(attrs, seed.positions[0]) : (seed.overall ?? 60),
+            overall: attrs ? overallFromAttrs(normalizeAttrs(attrs), seed.positions[0]) : (seed.overall ?? 60),
           });
         }
       }

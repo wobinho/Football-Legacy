@@ -2,6 +2,7 @@
 // position adjacency for out-of-position penalties. Pure data.
 
 import type { Pos, Attributes } from "../types";
+import { ATTR_KEYS, type AttrKey } from "./attributes";
 
 export interface PhaseWeights {
   attack: number;
@@ -9,89 +10,290 @@ export interface PhaseWeights {
   defense: number;
 }
 
-// ── Attribute → overall weighting (v3: the FC 26 model) ────────────────────
-// Overall is DERIVED from the six attributes, weighted by position, so the same
-// attribute line yields a different overall at different positions (a 30-defending
-// striker is still elite; that same line at CB is not). Standard FIFA attribute
-// order: pac, sho, pas, dri, def, phy. For goalkeepers the six slots carry keeper
-// skills — pac=diving, sho=handling, pas=kicking, dri=reflexes, def=speed,
-// phy=positioning — matching the FUT card layout the model was fitted against.
+// ── Attribute → overall weighting (v41: the 35-attribute model) ────────────
+// Overall is DERIVED from the 35 attributes, weighted by position, so the same
+// attribute line yields a different overall at different positions (a striker
+// who can't tackle is still elite; that same line at CB is not).
 //
-// These are the published FC 26 weights (see OVERALL_FORMULA.md), verified
-// against 18,405 real players at 93.9% exact / 100% within ±1. Each row sums to
-// 1.0, which makes the formula a true weighted average plus a small positional
-// constant — and therefore trivially invertible (see fitAttrsToOverall).
+// Each row is a per-position regression: a weighted sum of the attributes plus
+// an additive constant. Only the attributes a row actually names contribute —
+// an omitted attribute has weight zero, which is REAL and not a placeholder. A
+// centre-back's finishing and an outfielder's diving genuinely do not move the
+// rating.
 //
-// Zero weights are REAL, not placeholders: a centre-back's shooting and a
-// keeper's speed genuinely do not move the rating.
+// Small NEGATIVE weights are real too and are reproduced verbatim. They are how
+// the fit expresses "this attribute is evidence of the wrong kind of player at
+// this position" — a centre-back whose composure is doing work his tackling
+// isn't, say. Individually they are worth hundredths of a point.
+//
+// Row sums: every row, GK included, sums to ~0.99–1.02, so each behaves as a
+// weighted mean and a uniform +δ across the row moves the rating by ~δ.
+//
+// Note that the GK row weights BOTH positioning attributes, and they are not
+// interchangeable: `gkPositioning` (the keeper's placement and angles) is one of
+// its five big terms at 0.2082, while the outfield `positioning` (attacking
+// movement) is a rounding error at 0.0037.
 //
 // This is pure data — never tune it in engine code.
-export const ATTR_WEIGHTS: Record<Pos, Attributes> = {
-  GK: { pac: 0.2128, sho: 0.2125, pas: 0.0484, dri: 0.3176, def: 0.0000, phy: 0.2088 },
-  CB: { pac: 0.0198, sho: 0.0000, pas: 0.0503, dri: 0.0950, def: 0.6430, phy: 0.1919 },
-  LB: { pac: 0.1157, sho: 0.0000, pas: 0.1603, dri: 0.1590, def: 0.4890, phy: 0.0760 },
-  RB: { pac: 0.1147, sho: 0.0000, pas: 0.1645, dri: 0.1582, def: 0.4855, phy: 0.0771 },
-  DM: { pac: 0.0027, sho: 0.0000, pas: 0.2834, dri: 0.1797, def: 0.3948, phy: 0.1394 },
-  CM: { pac: 0.0023, sho: 0.1191, pas: 0.4196, dri: 0.3001, def: 0.1026, phy: 0.0563 },
-  LM: { pac: 0.1248, sho: 0.1467, pas: 0.3187, dri: 0.3594, def: 0.0027, phy: 0.0478 },
-  RM: { pac: 0.1260, sho: 0.1445, pas: 0.3264, dri: 0.3524, def: 0.0026, phy: 0.0482 },
-  AM: { pac: 0.0697, sho: 0.2097, pas: 0.3364, dri: 0.3807, def: 0.0000, phy: 0.0035 },
-  LW: { pac: 0.1245, sho: 0.2306, pas: 0.2506, dri: 0.3911, def: 0.0000, phy: 0.0031 },
-  RW: { pac: 0.1268, sho: 0.2335, pas: 0.2453, dri: 0.3910, def: 0.0007, phy: 0.0028 },
-  ST: { pac: 0.0874, sho: 0.4636, pas: 0.0498, dri: 0.2541, def: 0.0987, phy: 0.0465 },
+
+/** A position's weight row: the attributes it names, and their coefficients.
+ * Partial by construction — an unnamed attribute contributes nothing. */
+export type AttrWeightRow = Partial<Record<AttrKey, number>>;
+
+export const ATTR_WEIGHTS: Record<Pos, AttrWeightRow> = {
+  GK: {
+    handling: 0.2129, diving: 0.2123, reflexes: 0.2088, gkPositioning: 0.2082,
+    reactions: 0.1089, kicking: 0.0615, gkSpeed: -0.0209, shotPower: -0.0172,
+    jumping: 0.0115, acceleration: 0.0097, sprintSpeed: 0.0076, slidingTackle: -0.0076,
+    finishing: -0.0059, standingTackle: 0.0052, strength: -0.0051, longShots: -0.0041,
+    positioning: 0.0037, dribbling: 0.0034, aggression: 0.0025, headingAccuracy: -0.0023,
+    ballControl: -0.0022, volleys: -0.0021, crossing: 0.0017, interceptions: 0.0016,
+    markingAwareness: -0.0012, agility: -0.001, fkAccuracy: 0.001, composure: -0.0009,
+    curve: -0.0009, vision: 0.0007, longPassing: -0.0007, shortPassing: -0.0001,
+    balance: 0.0001, stamina: 0.0001,
+  },
+  CB: {
+    standingTackle: 0.1766, markingAwareness: 0.1444, interceptions: 0.1264,
+    headingAccuracy: 0.101, slidingTackle: 0.0989, strength: 0.096, aggression: 0.0668,
+    reactions: 0.0541, shortPassing: 0.0523, ballControl: 0.0428, jumping: 0.0272,
+    sprintSpeed: 0.0187, kicking: -0.0036, handling: -0.0032, composure: -0.003,
+    acceleration: 0.0024, penalties: -0.002, agility: -0.0017, volleys: -0.0016,
+    longPassing: -0.0014, stamina: 0.0013, reflexes: -0.0013, diving: 0.0013, curve: 0.0008,
+    positioning: 0.0005, vision: 0.0004, longShots: 0.0003, balance: 0.0003,
+    shotPower: -0.0003, fkAccuracy: 0.0001, crossing: 0.0001,
+  },
+  LB: {
+    slidingTackle: 0.1411, interceptions: 0.1183, standingTackle: 0.1077, crossing: 0.0926,
+    reactions: 0.0885, markingAwareness: 0.0813, stamina: 0.0762, ballControl: 0.0739,
+    shortPassing: 0.0716, sprintSpeed: 0.066, acceleration: 0.0526, headingAccuracy: 0.0428,
+    shotPower: -0.0031, kicking: -0.0031, longPassing: -0.0023, penalties: -0.0019,
+    longShots: 0.0019, fkAccuracy: 0.0017, dribbling: -0.0016, balance: -0.0016,
+    handling: -0.0015, agility: -0.0013, finishing: 0.0011, composure: -0.0011,
+    jumping: -0.001, diving: -0.0009, curve: -0.0007, vision: -0.0006, positioning: -0.0004,
+    strength: 0.0003, volleys: 0.0002, reflexes: -0.0001, aggression: 0.0001,
+  },
+  RB: {
+    slidingTackle: 0.1366, interceptions: 0.1177, standingTackle: 0.1177, crossing: 0.0939,
+    reactions: 0.0891, stamina: 0.0781, markingAwareness: 0.0778, shortPassing: 0.0719,
+    ballControl: 0.0707, sprintSpeed: 0.069, acceleration: 0.0495, headingAccuracy: 0.0431,
+    jumping: -0.0053, diving: 0.0046, reflexes: 0.0044, aggression: -0.0028,
+    handling: -0.0021, agility: -0.0021, finishing: 0.0014, balance: 0.0012, strength: 0.0011,
+    shotPower: -0.0011, positioning: -0.001, longPassing: -0.0009, volleys: -0.0009,
+    dribbling: -0.0009, vision: 0.0007, fkAccuracy: -0.0002, curve: 0.0002, kicking: 0.0002,
+    composure: 0.0002, penalties: -0.0001,
+  },
+  DM: {
+    shortPassing: 0.149, interceptions: 0.1404, standingTackle: 0.1223, ballControl: 0.1049,
+    longPassing: 0.1014, markingAwareness: 0.0888, reactions: 0.0802, stamina: 0.0571,
+    aggression: 0.0465, slidingTackle: 0.0448, vision: 0.0388, strength: 0.0376,
+    composure: -0.0064, diving: -0.0062, reflexes: 0.0044, kicking: -0.0033,
+    dribbling: -0.0032, jumping: -0.003, shotPower: 0.0026, penalties: -0.0019,
+    headingAccuracy: 0.0016, acceleration: 0.0015, sprintSpeed: 0.0014, volleys: 0.0014,
+    balance: -0.0011, agility: 0.001, fkAccuracy: -0.0008, curve: -0.0008, longShots: -0.0006,
+    handling: -0.0006, crossing: -0.0004, positioning: -0.0003, finishing: -0.0001,
+  },
+  CM: {
+    shortPassing: 0.165, ballControl: 0.1468, longPassing: 0.1326, vision: 0.131,
+    reactions: 0.0903, dribbling: 0.0682, positioning: 0.0582, stamina: 0.0573,
+    standingTackle: 0.0524, interceptions: 0.05, longShots: 0.0408, finishing: 0.0236,
+    jumping: -0.0062, headingAccuracy: 0.0042, sprintSpeed: 0.0035, shotPower: -0.003,
+    acceleration: 0.0029, reflexes: -0.0028, agility: -0.0022, diving: -0.0017,
+    fkAccuracy: -0.0016, penalties: -0.0015, markingAwareness: -0.0015, composure: -0.0014,
+    volleys: -0.0013, strength: 0.0011, handling: 0.001, slidingTackle: -0.0007,
+    kicking: 0.0006, balance: -0.0006, curve: -0.0003, crossing: 0.0002, aggression: 0.0001,
+  },
+  AM: {
+    shortPassing: 0.159, ballControl: 0.1476, vision: 0.1376, dribbling: 0.1306,
+    positioning: 0.0918, reactions: 0.0805, finishing: 0.0723, longShots: 0.0506,
+    longPassing: 0.0462, acceleration: 0.0439, sprintSpeed: 0.0303, agility: 0.0281,
+    jumping: -0.0159, strength: 0.0104, headingAccuracy: 0.0075, handling: 0.0049,
+    reflexes: -0.0026, fkAccuracy: -0.0025, composure: -0.0025, volleys: -0.0024,
+    interceptions: -0.0023, shotPower: -0.0023, aggression: 0.0017, slidingTackle: -0.0016,
+    diving: -0.0014, curve: -0.0012, stamina: 0.0012, penalties: -0.0012,
+    markingAwareness: 0.0007, standingTackle: 0.0007, crossing: -0.0006, balance: 0.0006,
+    kicking: -0.0002,
+  },
+  LM: {
+    dribbling: 0.1538, ballControl: 0.1333, shortPassing: 0.1123, crossing: 0.1009,
+    positioning: 0.086, reactions: 0.0749, acceleration: 0.0712, vision: 0.0661,
+    finishing: 0.061, sprintSpeed: 0.0582, longPassing: 0.0467, stamina: 0.046,
+    jumping: -0.0097, headingAccuracy: 0.0062, reflexes: -0.0061, strength: 0.0059,
+    composure: -0.0045, handling: -0.0029, curve: -0.0028, diving: -0.0021,
+    longShots: -0.002, aggression: 0.0019, volleys: 0.0018, shotPower: 0.0016,
+    kicking: 0.0014, fkAccuracy: -0.0014, slidingTackle: 0.0012, penalties: -0.0009,
+    interceptions: 0.0009, markingAwareness: -0.0007, standingTackle: -0.0003, agility: 0.0001,
+  },
+  RM: {
+    dribbling: 0.1483, ballControl: 0.1319, shortPassing: 0.1156, crossing: 0.1005,
+    positioning: 0.083, reactions: 0.0745, acceleration: 0.0704, vision: 0.0674,
+    finishing: 0.0642, sprintSpeed: 0.056, stamina: 0.0481, longPassing: 0.0461,
+    agility: -0.0038, penalties: -0.0031, jumping: 0.0031, kicking: -0.0027,
+    balance: -0.0024, strength: -0.0023, composure: 0.0022, curve: -0.0019,
+    slidingTackle: 0.0018, volleys: -0.0015, diving: -0.0014, aggression: -0.0012,
+    longShots: -0.0011, markingAwareness: -0.0006, headingAccuracy: -0.0006,
+    reflexes: -0.0005, fkAccuracy: -0.0005, shotPower: -0.0003, interceptions: -0.0002,
+    handling: 0.0001, standingTackle: -0.0001,
+  },
+  LW: {
+    dribbling: 0.1572, ballControl: 0.1381, finishing: 0.1048, crossing: 0.0998,
+    positioning: 0.0955, shortPassing: 0.0901, reactions: 0.0732, vision: 0.0678,
+    acceleration: 0.0659, sprintSpeed: 0.058, longShots: 0.0407, agility: 0.0277,
+    diving: 0.0126, shotPower: -0.0097, kicking: -0.0073, handling: 0.0059,
+    composure: -0.005, reflexes: -0.0045, volleys: -0.0037, fkAccuracy: -0.0031,
+    jumping: 0.0026, markingAwareness: -0.0024, stamina: 0.0022, longPassing: -0.002,
+    penalties: -0.0016, interceptions: 0.0015, standingTackle: -0.0014, strength: 0.0014,
+    headingAccuracy: -0.0013, curve: 0.001, balance: -0.0009, slidingTackle: 0.0008,
+    aggression: 0.0006,
+  },
+  RW: {
+    dribbling: 0.1495, ballControl: 0.1453, finishing: 0.1059, crossing: 0.098,
+    positioning: 0.0952, shortPassing: 0.0862, acceleration: 0.0792, reactions: 0.0731,
+    vision: 0.0643, sprintSpeed: 0.0553, longShots: 0.0364, agility: 0.0264,
+    jumping: -0.013, strength: 0.0111, standingTackle: -0.0062, headingAccuracy: 0.0058,
+    composure: -0.0041, balance: 0.0031, slidingTackle: 0.0029, penalties: 0.0028,
+    handling: 0.0026, interceptions: 0.0023, shotPower: -0.0021, stamina: -0.0018,
+    longPassing: 0.0017, kicking: 0.0017, markingAwareness: 0.0013, reflexes: -0.0013,
+    aggression: 0.0012, fkAccuracy: -0.001, volleys: -0.0007, curve: -0.0006, diving: 0.0003,
+  },
+  ST: {
+    finishing: 0.19, positioning: 0.1342, ballControl: 0.1044, headingAccuracy: 0.1022,
+    shotPower: 0.0951, reactions: 0.0863, dribbling: 0.0663, shortPassing: 0.0509,
+    strength: 0.0493, sprintSpeed: 0.0471, acceleration: 0.0446, longShots: 0.0318,
+    volleys: 0.0215, jumping: -0.0073, penalties: -0.0037, diving: -0.0032,
+    standingTackle: 0.0028, markingAwareness: -0.0027, fkAccuracy: -0.0023,
+    composure: -0.0019, curve: -0.0016, balance: -0.0014, reflexes: -0.0013,
+    kicking: -0.0012, stamina: -0.0009, interceptions: 0.0009, agility: -0.0008,
+    handling: -0.0007, aggression: 0.0004, crossing: 0.0003, vision: 0.0003,
+    slidingTackle: -0.0003,
+  },
 };
 
-/** Per-position additive constant (FC 26 model). Small everywhere except the
- * full-backs, where EA genuinely runs ~2 points hot: an LB with all six stats
- * at 70 rates 72. Reproduced verbatim rather than normalised away. */
+/** Per-position additive constant. Reproduced verbatim from the fitted model
+ * rather than normalised away — the full-backs genuinely run ~2 points hot. */
 export const OVERALL_CONSTANT: Record<Pos, number> = {
-  GK: 0.97,
-  CB: 0.08,
-  LB: 2.09,
-  RB: 2.05,
-  DM: 0.96,
-  CM: 0.16,
-  LM: 1.04,
-  RM: 1.07,
-  AM: 0.12,
-  LW: 0.22,
-  RW: 0.20,
-  ST: 0.09,
+  GK: 0.9132,
+  CB: -0.0234,
+  LB: 2.032,
+  RB: 1.7321,
+  DM: 0.7931,
+  CM: -0.3578,
+  AM: -0.5345,
+  LM: 0.6664,
+  RM: 1.4406,
+  LW: 0.2026,
+  RW: -0.7321,
+  ST: -0.2116,
 };
 
-const ATTR_KEYS = ["pac", "sho", "pas", "dri", "def", "phy"] as const;
+/** Sum of a position's weights. Precomputed once: `fitAttrsToOverall` divides by
+ * it to convert a desired overall delta into a per-attribute shift, and it is
+ * what makes that a single pass rather than a search. */
+export const ATTR_WEIGHT_SUM: Record<Pos, number> = Object.fromEntries(
+  (Object.keys(ATTR_WEIGHTS) as Pos[]).map((pos) => [
+    pos,
+    Object.values(ATTR_WEIGHTS[pos]).reduce((s, w) => s + (w ?? 0), 0),
+  ])
+) as Record<Pos, number>;
 
 /**
- * Derive a player's overall (1–99) from their six attributes and PRIMARY
- * position, using the FC 26 model: a position-weighted mean of the six
- * attributes plus a small positional constant, rounded and clamped.
+ * Derive a player's overall (1–99) from their 35 attributes and PRIMARY
+ * position: the position's weighted sum plus its additive constant, rounded and
+ * clamped.
  *
  * Attributes are deliberately NOT rounded before multiplying — callers holding
- * fractional attributes (the imported real-world database stores them to 2dp)
- * get the more accurate rating.
+ * fractional attributes get the more accurate rating.
  */
 export function overallFromAttrs(attrs: Attributes, primaryPos: Pos): number {
   const w = ATTR_WEIGHTS[primaryPos] ?? ATTR_WEIGHTS.CM;
   let total = OVERALL_CONSTANT[primaryPos] ?? OVERALL_CONSTANT.CM;
-  for (const k of ATTR_KEYS) total += attrs[k] * w[k];
+  for (const k in w) {
+    const weight = w[k as AttrKey];
+    if (weight) total += (attrs[k as AttrKey] ?? 0) * weight;
+  }
   return Math.max(1, Math.min(99, Math.round(total)));
 }
 
 /**
- * Shift a set of attributes so they rate exactly `target` at `primaryPos`.
- * Because each weight row sums to 1.0, adding δ to every weight-bearing
- * attribute moves the overall by exactly δ — so this is a single pass, no
- * search. Zero-weight slots are left alone, so a centre-back's shooting is
- * never inflated by a number that does nothing for his rating.
+ * Shift a set of attributes so they rate (as close as possible to) `target` at
+ * `primaryPos`.
+ *
+ * The shift is WEIGHT-PROPORTIONAL, not uniform. A uniform shift would move a
+ * 0.0001-weight attribute exactly as far as a 0.2-weight one, which is both
+ * unrealistic (a striker made better mostly gains free-kick accuracy) and
+ * inefficient — almost all of the movement lands where it barely affects the
+ * rating, so the attributes that DO matter have to be dragged much further to
+ * compensate. The result was inflated junk stats on every player.
+ *
+ * Distributing in proportion to each attribute's weight instead means the shift
+ * concentrates where the position actually rewards it: raising a centre-back
+ * raises his tackling and marking, not his curve. The scaling factor is the sum
+ * of SQUARED weights (rather than the plain sum) because each attribute is moved
+ * by `delta × weight` and contributes `weight ×` that to the rating.
+ *
+ * Attributes the row doesn't name, or names negatively, are left alone —
+ * lowering a real skill to game the rating would corrupt the player's profile.
+ *
+ * Clamping at 1/99 means an extreme target may not be reachable exactly, so a
+ * few corrective passes run over whatever still has room.
  */
 export function fitAttrsToOverall(attrs: Attributes, primaryPos: Pos, target: number): Attributes {
   const w = ATTR_WEIGHTS[primaryPos] ?? ATTR_WEIGHTS.CM;
-  const d = target - overallFromAttrs(attrs, primaryPos);
   const out = { ...attrs };
-  for (const k of ATTR_KEYS) {
-    if (w[k] > 1e-6) out[k] = Math.max(1, Math.min(99, Math.round(attrs[k] + d)));
+
+  // Σ(weight²) over the positively-weighted attributes: the rating change
+  // produced by a proportional shift of one unit.
+  let sumSq = 0;
+  for (const k in w) {
+    const weight = w[k as AttrKey] ?? 0;
+    if (weight > 1e-6) sumSq += weight * weight;
+  }
+  if (sumSq <= 0) return out;
+
+  // Normalise so the LARGEST weight moves by roughly the full overall gap; this
+  // keeps the shift on a sane scale regardless of how a row is distributed.
+  let maxW = 0;
+  for (const k in w) maxW = Math.max(maxW, w[k as AttrKey] ?? 0);
+  if (maxW <= 0) return out;
+
+  for (let pass = 0; pass < 4; pass++) {
+    const gap = target - overallFromAttrs(out, primaryPos);
+    if (gap === 0) break;
+    const scale = gap / sumSq;
+    let moved = false;
+    for (const k in w) {
+      const key = k as AttrKey;
+      const weight = w[key];
+      if (!weight || weight <= 1e-6) continue;
+      const next = Math.max(1, Math.min(99, Math.round(out[key] + scale * weight)));
+      if (next !== out[key]) moved = true;
+      out[key] = next;
+    }
+    if (!moved) break;
   }
   return out;
+}
+
+/** Every attribute a position's rating actually rewards, strongest first. Used
+ * by the UI to highlight the stats that matter for a player, and by generation
+ * to decide where a position's quality should be concentrated. */
+export function keyAttrsFor(primaryPos: Pos, limit = 6): AttrKey[] {
+  const w = ATTR_WEIGHTS[primaryPos] ?? ATTR_WEIGHTS.CM;
+  return (Object.keys(w) as AttrKey[])
+    .filter((k) => (w[k] ?? 0) > 0)
+    .sort((a, b) => (w[b] ?? 0) - (w[a] ?? 0))
+    .slice(0, limit);
+}
+
+/** Guard: every attribute key must be spelled correctly in every weight row, or
+ * a silent typo would simply drop that term from the model. Runs once at module
+ * load in development. */
+if (process.env.NODE_ENV !== "production") {
+  const valid = new Set<string>(ATTR_KEYS);
+  for (const pos of Object.keys(ATTR_WEIGHTS) as Pos[]) {
+    for (const k of Object.keys(ATTR_WEIGHTS[pos])) {
+      if (!valid.has(k)) throw new Error(`ATTR_WEIGHTS.${pos} names unknown attribute "${k}"`);
+    }
+  }
 }
 
 export const PHASE_WEIGHTS: Record<Pos, PhaseWeights> = {
