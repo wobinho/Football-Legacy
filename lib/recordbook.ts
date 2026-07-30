@@ -126,6 +126,7 @@ export function buildSeasonSummary(state: GameState): SeasonSummary {
     accolades,
     userTeamId: state.userTeamId,
     userFinish: pos > 0 ? `${pos}${suffix} in ${state.leagues[userLeagueId].name}` : "—",
+    userPosition: pos,
     notableTransfers: notable.slice(0, 5),
     promoted: [],
     relegated: [],
@@ -186,11 +187,21 @@ export interface ClubSpell {
   /** Minutes-weighted mean of the seasons in this spell, 0 when he never played. */
   avgRating: number;
   retired: boolean;
+  /** He came through THIS club's academy (v1.71). Permanent — it stays true
+   * after he's promoted, sold, or retired, because `academyClubId` is never
+   * rewritten by a transfer. This is what the club's "Academy" filter reads. */
+  academy: boolean;
+  /** Still on the club's books as an academy prospect right now. A graduate who
+   * has since been promoted is `academy` but not this. */
+  inAcademy: boolean;
 }
 
 export function clubPlayerHistory(state: GameState, teamId: string): ClubSpell[] {
   const teamName = state.teams[teamId].name;
   const currentSquad = new Set(state.teams[teamId].playerIds);
+  // Prospects on the books today. Kept separate from the senior squad because a
+  // prospect isn't "in the squad", but he is very much on the club's books.
+  const academySquad = new Set(state.teams[teamId].academyPlayerIds ?? []);
   const out: ClubSpell[] = [];
 
   const seen = new Set<string>();
@@ -222,14 +233,21 @@ export function clubPlayerHistory(state: GameState, teamId: string): ClubSpell[]
       const apps = s.rows.reduce((n, r) => n + r.apps, 0);
       const ratingSum = s.rows.reduce((n, r) => n + r.avgRating * r.apps, 0);
       // The last spell is the live one only if he is on the books today.
-      const isCurrent = s === spells[spells.length - 1] && currentSquad.has(c.playerId);
+      const isLast = s === spells[spells.length - 1];
+      const isCurrent = isLast && currentSquad.has(c.playerId);
+      // A prospect who has played U21 football has career rows naming the club,
+      // so he arrives here — but he is not in the SENIOR squad, which is what
+      // `current` means. He hasn't left either, so his spell stays open (v1.71):
+      // without this he read as a departure the season he was still in the
+      // academy.
+      const isHere = isCurrent || (isLast && academySquad.has(c.playerId));
       out.push({
         playerId: c.playerId,
         name: p?.name ?? "?",
         nationality: p?.nationality,
         pos: p?.positions[0],
         joinedSeason: s.from,
-        leftSeason: isCurrent ? null : s.to,
+        leftSeason: isHere ? null : s.to,
         current: isCurrent,
         apps: apps + (isCurrent ? p?.stats.apps ?? 0 : 0),
         goals: s.rows.reduce((n, r) => n + r.goals, 0) + (isCurrent ? p?.stats.goals ?? 0 : 0),
@@ -238,31 +256,61 @@ export function clubPlayerHistory(state: GameState, teamId: string): ClubSpell[]
           s.rows.reduce((n, r) => n + (r.cleanSheets ?? 0), 0) + (isCurrent ? p?.stats.cleanSheets ?? 0 : 0),
         avgRating: apps ? Math.round((ratingSum / apps) * 100) / 100 : 0,
         retired: !!p?.retired,
+        academy: p?.academyClubId === teamId,
+        inAcademy: academySquad.has(c.playerId),
       });
     }
   }
 
   // Anyone signed this season has no career row yet — his first one is written
-  // at the rollover — so the current squad is added from live stats.
-  for (const pid of state.teams[teamId].playerIds) {
+  // at the rollover — so the current squad is added from live stats. Academy
+  // prospects (v1.71) join them: they're on the club's books and the ledger's
+  // "Academy" filter has to find them, but they've played no senior football, so
+  // they carry live stats and no spell history either.
+  const live = (p: PlayerBio, current: boolean, joinedSeason: number, leftSeason: number | null): ClubSpell => ({
+    playerId: p.id,
+    name: p.name,
+    nationality: p.nationality,
+    pos: p.positions[0],
+    joinedSeason,
+    leftSeason,
+    current,
+    apps: p.stats.apps,
+    goals: p.stats.goals,
+    assists: p.stats.assists,
+    cleanSheets: p.stats.cleanSheets ?? 0,
+    avgRating: p.stats.apps ? Math.round((p.stats.ratingSum / p.stats.apps) * 100) / 100 : 0,
+    retired: !!p.retired,
+    academy: p.academyClubId === teamId,
+    inAcademy: academySquad.has(p.id),
+  });
+
+  for (const pid of [...state.teams[teamId].playerIds, ...academySquad]) {
     if (seen.has(pid)) continue;
+    seen.add(pid);
     const p = state.players[pid];
     if (!p) continue;
-    out.push({
-      playerId: p.id,
-      name: p.name,
-      nationality: p.nationality,
-      pos: p.positions[0],
-      joinedSeason: state.season,
-      leftSeason: null,
-      current: true,
-      apps: p.stats.apps,
-      goals: p.stats.goals,
-      assists: p.stats.assists,
-      cleanSheets: p.stats.cleanSheets ?? 0,
-      avgRating: p.stats.apps ? Math.round((p.stats.ratingSum / p.stats.apps) * 100) / 100 : 0,
-      retired: !!p.retired,
-    });
+    // `current` means the SENIOR squad — it is what the ledger counts as "in the
+    // squad today". A prospect is on the books but not in it, so his spell is
+    // open (leftSeason null) without being current.
+    out.push(live(p, !academySquad.has(pid), state.season, null));
+  }
+
+  // Graduates who have LEFT (v1.71): sold, released, or moved on years ago and
+  // never logged a senior season here. `academyClubId` survives every transfer,
+  // so the club's own production line stays visible in its ledger even when a
+  // prospect was sold before he ever played a first-team game. Iterating every
+  // player is the same full-world pass `academyGraduates` already makes, and it
+  // must include retirees — a graduate's record doesn't end when he stops.
+  for (const p of Object.values(state.players)) {
+    if (!p || seen.has(p.id) || p.academyClubId !== teamId) continue;
+    seen.add(p.id);
+    // He's gone, so the spell is closed. Without a career row naming the club
+    // there is no honest departure season to quote — the current one is the
+    // best the save actually knows. His live stats belong to whoever he plays
+    // for NOW, so they're zeroed rather than credited to this club: he genuinely
+    // never played a senior game here.
+    out.push({ ...live(p, false, state.season, state.season), apps: 0, goals: 0, assists: 0, cleanSheets: 0, avgRating: 0 });
   }
 
   // Current players first, then the most recent departures.

@@ -11,6 +11,7 @@ design session before changing, `[FUTURE]` must not be built but must not be blo
 - `npm run build:db` — rebuild the default database from `fl26-*.csv` into `/public/database_presets` (+ `manifest.json`)
 - `npm run build:names` — rebuild `lib/config/namepool.generated.ts` (generated-player name pool) from `fl_namepool.csv`
 - `npm run verify:overall` — check the FC 26 overall model against OVERALL_FORMULA.md's worked examples
+- `npm run verify:formations` — structural check on `config/formations.ts` (11 slots, one GK, label==pos, picker coverage) + the AI formation mix
 - `npx tsx scripts/verify-db.ts` — validate every shipped country DB and build a real world from it
 - `node scripts/ui-test-db.mjs` — end-to-end drive of the default-database + editor-import flow (dev server must be running)
 - `npm run calibrate [n]` — match-engine calibration harness (targets: ~2.7 goals/match, ~45% home wins)
@@ -59,6 +60,14 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   so rebuilding never makes a country unselectable.
 - Tiers a country's database doesn't author are generated (`config/divisions.ts`) — that is the
   "Generated" choice and the lower-division fallback both. Divisions need ≥4 clubs, even count.
+- Formations (`config/formations.ts`): every slot's `label` MUST equal its `pos`, and a shape
+  needs exactly 11 slots with one GK — `npm run verify:formations` enforces both. In shapes with
+  only three at the back the wide slots are **LM/RM**, not LB/RB: with no fourth defender the
+  flank belongs to a midfielder. Variants of one shape (the 4-3-3's midfield options) share a
+  `family` and are folded behind one picker button; `aiWeight` (default 1, `0` = never) governs
+  only which shapes worldgen randomly seeds AI clubs into — every formation stays available to
+  the manager. Adding attacking shapes at weight 1 pushes goals/match off target, so re-run
+  `npm run calibrate` after touching the table.
 - Interim implementations pending owner design sessions (marked in-file): transfer market
   AI (§10), archetype roster, trait pool. `emergencyIntake()` in gameloop is a stopgap
   until the Youth Academy ships.

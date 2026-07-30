@@ -9,7 +9,7 @@
 // This lets a modder hand-author a few marquee teams while leaving the rest of
 // the world generated.
 
-import type { Pos, Attributes } from "./types";
+import type { Pos, Attributes, Foot } from "./types";
 import type { ClubDef } from "./config/names";
 import type { CountryDef } from "./config/countries";
 import { getCountry } from "./config/countries";
@@ -49,6 +49,9 @@ export interface PlayerSeed {
   /** Height in centimetres (150..215). Optional — omitted, it is rolled from the
    * archetype's height band as before. */
   heightCm?: number;
+  /** Preferred foot, "Left" or "Right" (v42). Optional — omitted, it is rolled
+   * from the position's real-world left/right split, as before. */
+  foot?: Foot;
   archetypeId?: string; // default: random archetype valid for the primary pos
   traits?: string[]; // default: rolled by position eligibility
   /** Weekly wage for the initial contract, honored verbatim when the player is
@@ -306,6 +309,8 @@ function validatePlayerSeed(p: unknown, where: string, push: (m: string) => void
     push(`${where}.age must be a number 15–40.`);
   if (seed.heightCm !== undefined && (typeof seed.heightCm !== "number" || seed.heightCm < 150 || seed.heightCm > 215))
     push(`${where}.heightCm must be a number 150–215 (centimetres).`);
+  if (seed.foot !== undefined && seed.foot !== "Left" && seed.foot !== "Right")
+    push(`${where}.foot must be "Left" or "Right".`);
   if (seed.wage !== undefined && (typeof seed.wage !== "number" || seed.wage < 0))
     push(`${where}.wage must be a non-negative number (weekly wage).`);
   if (
@@ -348,6 +353,7 @@ export function countryDBTemplate(code = "XXX"): string {
                 age: 25,
                 potential: 91,
                 heightCm: 186,
+                foot: "Right",
                 attrs: {
                   finishing: 94, positioning: 92, ballControl: 88, headingAccuracy: 85,
                   shotPower: 91, reactions: 90, dribbling: 87, shortPassing: 78,

@@ -2,9 +2,13 @@
 // Single source of truth for all game data shapes. Schema-versioned so the
 // save/export format doubles as the modding format (GAME_DESIGN.md §2, §13).
 
-export const SCHEMA_VERSION = 41;
+export const SCHEMA_VERSION = 44;
 
 export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "LM" | "RM" | "AM" | "LW" | "RW" | "ST";
+
+/** Preferred foot (v42). Descriptive colour, in the same class as height: it is
+ * never read by the match engine, only shown. */
+export type Foot = "Left" | "Right";
 
 export type Mentality = "Defensive" | "Balanced" | "Attacking";
 
@@ -150,6 +154,11 @@ export interface PlayerBio {
    * Rolled from the archetype's height profile, so a Target Man towers over a
    * Poacher. Purely descriptive: the engine never reads it. */
   heightCm?: number;
+  /** Preferred foot (v42). Descriptive only — the engine never reads it, exactly
+   * like `heightCm`. Authored by the real-world databases; rolled from the
+   * position's real-world left/right split for a generated player. Optional so
+   * pre-v42 saves (and seeds that omit it) simply show nothing. */
+  foot?: Foot;
   /** Shirt number (v15), 1–99, unique within the club's senior squad. Academy
    * players carry their own numbering. Assigned automatically on joining a club
    * and re-assignable by the user (swapping with the incumbent). */
@@ -425,10 +434,23 @@ export interface Team {
    * staff slot. Only the user's club fills this. Optional for old saves. */
   scouts?: Scout[];
   stadium: string;
-  /** Revenue facilities (§ club income). Level 0 = base; each level is a one-time
-   * purchase giving a permanent weekly income boost. Optional for old saves. */
-  stadiumLevel?: number;
-  commercialLevel?: number;
+  /** Revenue upgrades (§ club income), v43. Level 0 = base; each level is a
+   * one-time purchase. See `INCOME_UPGRADE_SPEC` in lib/economy.ts for the
+   * per-level payouts — these fields only ever hold the level.
+   *   lowTierIncomeLevel / midTierIncomeLevel / highTierIncomeLevel
+   *                        → flat weekly income, three price/yield brackets
+   *   playerBonusLevel     → weekly income per squad player at/above a rating
+   *   contractAccountingLevel → percentage discount on the weekly wage bill
+   *   stadiumBonusLevel    → lump sum banked on every home fixture
+   *   performanceBonusLevel → lump sum banked per win/draw/loss
+   * All optional (default 0) for old saves. */
+  lowTierIncomeLevel?: number;
+  midTierIncomeLevel?: number;
+  highTierIncomeLevel?: number;
+  playerBonusLevel?: number;
+  contractAccountingLevel?: number;
+  stadiumBonusLevel?: number;
+  performanceBonusLevel?: number;
   /** Training facilities (Player Development, §5). Level 0 = base; each level is
    * a one-time purchase that speeds/deepens development. Optional for old saves.
    * trainingLevel  → growth speed toward potential
@@ -489,27 +511,6 @@ export interface Team {
    * `playerIds` stays senior-only so cap/selection/wage logic is untouched.
    * Only the user's club carries a populated academy roster. */
   academyPlayerIds?: string[];
-  /** Extra revenue facilities (v6) — same one-time-upgrade / weekly-income
-   * pattern as stadium/commercial. Optional for old saves (default 0).
-   *   trainingGroundLevel → community & academy tours (small steady income)
-   *   mediaLevel          → club media / streaming revenue
-   *   hospitalityLevel    → matchday corporate boxes & premium seating
-   *   retailLevel         → megastore + online merchandising */
-  mediaLevel?: number;
-  hospitalityLevel?: number;
-  retailLevel?: number;
-  /** Three further revenue streams (v21), same pattern again:
-   *   membershipLevel     → supporters' club & season-ticket scheme
-   *   eventsLevel         → concerts & conferences hosted at the ground
-   *   academyPartnerLevel → feeder-club & community partnerships */
-  membershipLevel?: number;
-  eventsLevel?: number;
-  academyPartnerLevel?: number;
-  /** Two further revenue streams (v1.67), same pattern again:
-   *   ticketingLevel      → ticketing platform, matchday fan zone & concessions
-   *   digitalLevel        → app, e-commerce, esports & digital fan products */
-  ticketingLevel?: number;
-  digitalLevel?: number;
   /** On-pitch responsibilities (v6, captain + set-piece takers). */
   assignments?: TeamAssignments;
   /** Active season-long sponsorship deals (v6). Filled for every club since
@@ -606,6 +607,27 @@ export interface SponsorDeal {
   signedSeason: number;
   /** Length in seasons, for display. */
   seasons: number;
+  /** Set when the deal was signed on the performance-bonus terms (v44): the
+   * club took less up front in exchange for a bonus if it finishes at or above
+   * `bonusFinishPosition`. Absent on a guaranteed deal and on every deal signed
+   * before v44. */
+  bonus?: SponsorBonusTerms;
+}
+
+/** The performance-bonus half of a contract (v44). Held on both the offer (as
+ * the alternative on the table) and on the signed deal (as the outstanding
+ * obligation the rollover settles). */
+export interface SponsorBonusTerms {
+  /** Reduced lump sum paid on signing under this option. */
+  upfront: number;
+  /** Paid at the season rollover if the target is met. */
+  bonusAmount: number;
+  /** League position the club must finish at or above. */
+  finishPosition: number;
+  /** Seasons the bonus can still be earned in — set when signed, decremented as
+   * each season is settled, so a 3-year deal has three chances at it. Absent on
+   * an offer (it is `seasons` until signed). */
+  seasonsRemaining?: number;
 }
 
 /** A pending offer for an empty sponsor slot. */
@@ -621,6 +643,11 @@ export interface SponsorOffer {
   tier: string;
   day: number;
   expiresDay: number;
+  /** The performance-bonus alternative, when the sponsor is offering one (v44).
+   * Majors only, and only some of the time — see `sponsorBonusOfferChance`. The
+   * guaranteed terms above are always available alongside it, so this widens the
+   * decision rather than replacing it. */
+  bonus?: SponsorBonusTerms;
 }
 
 export interface League {
@@ -887,6 +914,11 @@ export interface SeasonSummary {
   accolades?: SeasonAccolades;
   userTeamId: string;
   userFinish: string; // e.g. "3rd in Premier Division"
+  /** The same finish as a bare league position, 1-based; 0 when the user's club
+   * has no final table (a sim league, or a season with no fixtures). Added in
+   * v44 so the sponsor performance bonuses can be settled against the finish
+   * without re-deriving the table. Absent on pre-v44 saves. */
+  userPosition?: number;
   notableTransfers: {
     playerName: string;
     from: string;
@@ -1389,6 +1421,28 @@ export interface UserAccolades {
   gcnPeakTreasury: number;
   /** Feeder loans sent to network-owned clubs across the save. */
   gcnFeederLoans: number;
+  /** WHO the record signing / sale was (v1.7). The fees above are the numbers;
+   * these carry the player behind them so the cabinet can put a name and a face
+   * to the record instead of a bare figure. Snapshotted at the moment of the
+   * deal — the player may later be sold on, re-rated or pruned from a long save,
+   * and the record must survive all three, so nothing here is re-derived from
+   * live state. Absent until the club's first paid deal of that direction. */
+  recordSigning?: TransferRecord;
+  recordSale?: TransferRecord;
+}
+
+/** A snapshot of the player behind a record transfer (v1.7). `playerId` is a
+ * convenience for deep-linking to a profile and may dangle once a long save
+ * prunes him — every field needed to RENDER the record is copied here. */
+export interface TransferRecord {
+  playerId: string;
+  name: string;
+  overall: number;
+  pos: Pos;
+  nationality: string;
+  fee: number;
+  /** The season the deal was done, for the "S4" stamp on the card. */
+  season: number;
 }
 
 /** An earned achievement (v1.45): the id of an ACHIEVEMENT_DEFS entry, plus the

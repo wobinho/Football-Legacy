@@ -100,7 +100,7 @@ export default function PlayerProfileModal() {
       role="dialog"
       aria-modal="true"
     >
-      <div className="relative my-auto w-full max-w-3xl rounded-lg border border-line bg-surface p-5 shadow-2xl">
+      <div className="relative my-auto w-full max-w-5xl rounded-lg border border-line bg-surface p-5 shadow-2xl">
         {/* header card */}
         <div className="mb-5 flex flex-wrap items-center gap-5 rounded-lg border border-line bg-raised p-5">
           <div
@@ -132,6 +132,12 @@ export default function PlayerProfileModal() {
               <span>{p.age}y</span>
               <span className="text-faint">·</span>
               <span title={p.heightCm ? `${p.heightCm} cm` : undefined}>{formatHeight(p.heightCm)}</span>
+              {p.foot && (
+                <>
+                  <span className="text-faint">·</span>
+                  <span title={`${p.foot}-footed`}>{p.foot === "Left" ? "Left foot" : "Right foot"}</span>
+                </>
+              )}
               <span className="text-faint">·</span>
               <span>{p.nationality}</span>
               {typeof p.kitNumber === "number" && (
@@ -262,49 +268,53 @@ export default function PlayerProfileModal() {
               retirement. Absent on a player who's never won anything. */}
           {(p.accolades?.length ?? 0) > 0 && <HonoursSection accolades={p.accolades!} />}
 
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <Section title="Attributes">
-              <div className="space-y-3">
-                <AttrGrid p={p} />
-                <Card>
-                  <AttrSheet p={p} />
-                </Card>
-              </div>
-            </Section>
-            <Section title="This Season">
-              <Card className="divide-y divide-line/50 text-sm">
-                {[
-                  ["Condition", <FitnessBar key="f" value={p.fitness} showValue />],
-                  ["Form", <FormChip key="fo" form={p.form} />],
-                  ["Appearances", <span key="a" className="tnum">{p.stats.apps}</span>],
-                  ["Goals", <span key="g" className="tnum">{p.stats.goals}</span>],
-                  ["Assists", <span key="as" className="tnum">{p.stats.assists}</span>],
-                  ["Avg rating", <span key="r" className="display tnum">{avgRating}</span>],
-                  ...(p.youthStats && p.youthStats.apps > 0
-                    ? [[
-                        p.loan ? "On loan" : "U21 league",
-                        <span key="y" className="tnum text-dim">
-                          {p.youthStats.apps} apps · {p.youthStats.goals}g · {(p.youthStats.ratingSum / p.youthStats.apps).toFixed(2)}
-                        </span>,
-                      ] as [string, React.ReactNode]]
-                    : []),
-                ].map(([k, v], i) => (
-                  <div key={i} className="flex items-center justify-between px-4 py-2">
-                    <span className="text-faint">{k as string}</span>
-                    {v}
-                  </div>
-                ))}
+          {/* This season reads as a horizontal strip (v1.71): six small numbers
+              never needed half the modal, and giving that half back is what lets
+              the 35-attribute sheet run the full width below. */}
+          <Section title="This Season">
+            <Card className="grid grid-cols-2 divide-line/50 sm:grid-cols-3 sm:divide-x lg:grid-cols-6">
+              {[
+                ["Condition", <FitnessBar key="f" value={p.fitness} showValue />],
+                ["Form", <FormChip key="fo" form={p.form} />],
+                ["Appearances", <span key="a" className="display tnum text-lg font-semibold">{p.stats.apps}</span>],
+                ["Goals", <span key="g" className="display tnum text-lg font-semibold">{p.stats.goals}</span>],
+                ["Assists", <span key="as" className="display tnum text-lg font-semibold">{p.stats.assists}</span>],
+                ["Avg rating", <span key="r" className="display tnum text-lg font-semibold">{avgRating}</span>],
+                ...(p.youthStats && p.youthStats.apps > 0
+                  ? [[
+                      p.loan ? "On loan" : "U21 league",
+                      <span key="y" className="tnum text-sm text-dim">
+                        {p.youthStats.apps} apps · {p.youthStats.goals}g · {(p.youthStats.ratingSum / p.youthStats.apps).toFixed(2)}
+                      </span>,
+                    ] as [string, React.ReactNode]]
+                  : []),
+              ].map(([k, v], i) => (
+                <div key={i} className="border-b border-line/50 px-4 py-2.5 sm:border-b-0">
+                  <div className="text-[10px] uppercase tracking-widest text-faint">{k as string}</div>
+                  <div className="mt-1 flex h-6 items-center">{v}</div>
+                </div>
+              ))}
+            </Card>
+          </Section>
+
+          {/* Attributes — the full width, all 35 (§the sheet is the profile). */}
+          <Section title="Attributes">
+            <div className="space-y-3">
+              <AttrGrid p={p} />
+              <Card className="p-3">
+                <AttrSheet p={p} />
               </Card>
-              <p className="mt-3 text-[12px] leading-relaxed text-faint">
-                {arch.name}: shines in{" "}
+              <p className="text-[12px] leading-relaxed text-faint">
+                <span className="text-gold">◆</span> marks an attribute the {POS_LABELS[p.positions[0]]} role
+                actually rates — those are the numbers carrying his overall. {arch.name}: shines in{" "}
                 {Object.entries(arch.styleSynergy)
                   .filter(([, v]) => v > 1.02)
                   .map(([k]) => k)
                   .join(", ") || "any style"}
                 .
               </p>
-            </Section>
-          </div>
+            </div>
+          </Section>
 
           {/* Scouting shortlist (v21) — track another club's player (or a free
               agent) as a recruitment target. Purely a personal watchlist; it

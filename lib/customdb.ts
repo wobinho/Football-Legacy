@@ -15,7 +15,7 @@
 // spliced in exactly like a freshly-authored one — no engine code knows the
 // content came from the library.
 
-import type { Attributes, Pos } from "./types";
+import type { Attributes, Foot, Pos } from "./types";
 import type { ClubSeed, PlayerSeed } from "./database";
 import { normalizeAttrs, uniformAttrs } from "./config/attributes";
 import { overallFromAttrs } from "./config/positions";
@@ -60,6 +60,9 @@ export interface LibraryPlayer {
   age: number;
   nationality: string;
   potential: number;
+  /** Preferred foot (v42). Optional — omitted, worldgen rolls one from the
+   * primary position's split when the player is materialized. */
+  foot?: Foot;
   archetypeId?: string;
   traits: string[];
   updatedAt: number;
@@ -101,6 +104,7 @@ export function libraryPlayerToSeed(p: LibraryPlayer): PlayerSeed {
     age: p.age,
     nationality: p.nationality,
     potential: p.potential,
+    ...(p.foot ? { foot: p.foot } : {}),
     ...(p.archetypeId ? { archetypeId: p.archetypeId } : {}),
     ...(p.traits.length ? { traits: [...p.traits] } : {}),
   };
@@ -147,6 +151,7 @@ export function seedToLibraryPlayer(seed: PlayerSeed, fallbackNat: string): Libr
     nationality: seed.nationality ?? fallbackNat,
     // A seed may omit potential; give a still-growing player a little headroom.
     potential: seed.potential ?? Math.min(96, Math.round(overallFromAttrs(attrs, seed.positions[0]) + 4)),
+    ...(seed.foot ? { foot: seed.foot } : {}),
     ...(seed.archetypeId ? { archetypeId: seed.archetypeId } : {}),
     traits: seed.traits ? [...seed.traits] : [],
     updatedAt: Date.now(),

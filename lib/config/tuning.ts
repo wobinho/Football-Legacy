@@ -373,37 +373,39 @@ export interface TuningConfig {
     number
   >[];
 
-  // Club income facilities (§ club income) — one-time upgrade cost per level,
-  // permanent weekly income boost. Index = level being purchased (0 → level 1).
-  facilityMaxLevel: number;
-  stadiumUpgradeCost: number[]; // cost to reach each level
-  stadiumIncomePerLevel: number; // extra weekly gate income per level
-  commercialUpgradeCost: number[];
-  commercialIncomePerLevel: number; // extra weekly commercial income per level
-  // Extra revenue facilities (v6) — same pattern, more ways to grow income.
-  mediaUpgradeCost: number[];
-  mediaIncomePerLevel: number; // club media / streaming
-  hospitalityUpgradeCost: number[];
-  hospitalityIncomePerLevel: number; // corporate boxes & premium seating
-  retailUpgradeCost: number[];
-  retailIncomePerLevel: number; // megastore + online merchandising
-  // Three further revenue streams (v21). Same one-time-cost-per-level pattern —
-  // deliberately cheaper and lower-yielding than the landmark facilities so they
-  // read as the early-game ladder a smaller club can actually climb.
-  membershipUpgradeCost: number[];
-  membershipIncomePerLevel: number; // supporters' club & season-ticket scheme
-  eventsUpgradeCost: number[];
-  eventsIncomePerLevel: number; // concerts & conferences at the ground
-  academyPartnerUpgradeCost: number[];
-  academyPartnerIncomePerLevel: number; // feeder-club & community partnerships
-
-  // Two further revenue streams (v1.67). Ticketing sits at the cheap end of the
-  // ladder alongside membership; digital is a mid-priced modern stream between
-  // events and media.
-  ticketingUpgradeCost: number[];
-  ticketingIncomePerLevel: number; // ticketing platform, fan zone & concessions
-  digitalUpgradeCost: number[];
-  digitalIncomePerLevel: number; // app, e-commerce, esports & digital products
+  // Club income upgrades (§ club income, v43) — one-time cost per level, each
+  // level replacing (not adding to) the previous level's payout. `cost[i]` is
+  // the price of level i+1; `payout[i]` is what level i+1 pays. The two arrays
+  // of a track are always the same length, and that length is its max level, so
+  // there is no separate cap constant to keep in sync.
+  //
+  // Three flat weekly-income tracks, priced as brackets rather than as distinct
+  // businesses: a small club climbs the low tier long before the high tier is
+  // affordable, and a big one can hold all three.
+  lowTierIncomeUpgradeCost: number[];
+  lowTierIncomePayout: number[]; // weekly £ at each level
+  midTierIncomeUpgradeCost: number[];
+  midTierIncomePayout: number[];
+  highTierIncomeUpgradeCost: number[];
+  highTierIncomePayout: number[];
+  // Squad-driven weekly income: pays `playerBonusPayout` per senior player whose
+  // overall is at or above `playerBonusThreshold`, at the same level index. The
+  // threshold rises with the payout, so a level is only worth buying once the
+  // squad has grown into it.
+  playerBonusUpgradeCost: number[];
+  playerBonusPayout: number[]; // weekly £ per qualifying player
+  playerBonusThreshold: number[]; // minimum overall to qualify, per level
+  // Wage discount: the fraction of the weekly squad wage bill written off.
+  contractAccountingUpgradeCost: number[];
+  contractAccountingDiscount: number[]; // 0.02 = 2% off the wage bill
+  // Match-driven lump sums, banked when the fixture is played rather than on the
+  // weekly tick — see `applyMatchIncome` in lib/economy.ts.
+  stadiumBonusUpgradeCost: number[];
+  stadiumBonusPayout: number[]; // £ per home fixture
+  performanceBonusUpgradeCost: number[];
+  performanceBonusWin: number[]; // £ banked per result, by level
+  performanceBonusDraw: number[];
+  performanceBonusLoss: number[];
 
   // Staff market (v6) — dismiss-to-refresh cadence.
   staffRefreshDays: number; // days until a dismissed slot's new crop arrives
@@ -412,33 +414,74 @@ export interface TuningConfig {
   marketRefreshDays: number;
 
   // Sponsors / investments (v6, Club → Income). Weekly income from season-long
-  // deals; quality scales with club reputation, division, and squad
-  // marketability (the Marketable trait).
+  // deals; quality scales with club reputation, division, and Club
+  // Marketability — a 0–100 score built from what the club has actually done.
   sponsorBaseWeeklyByReputation: number; // weekly £ per reputation point, shirt-scaled
   sponsorSlotShare: Record<string, number>; // per-slot fraction of the shirt baseline
   sponsorTierMults: number[]; // offer tier multipliers (Regional/National/Global)
-  sponsorMarketabilityFactor: number; // how strongly squad marketability lifts offers
-  /** ── Sponsor Marketability, the 1–5 star rating (v20) ──
+
+  /** ── Club Marketability, the 0–100 score (v44) ──
    *
-   * The raw marketability sum (weighted `marketabilityBonus` across the senior
-   * squad) is cut into stars here. `sponsorMarketabilityStarThresholds[i]` is
-   * the raw value at which the club reaches (i+2) stars — so a club below
-   * thresholds[0] is 1★ and one above the last is 5★. Everything the rating
-   * drives reads off these cuts, which keeps the star the user sees and the
-   * money the club banks the same quantity. Currently only players holding a
-   * trait with a `marketabilityBonus` (Marketable and friends) feed it. */
-  sponsorMarketabilityStarThresholds: number[];
-  /** Extra offer money per star above the first (0.25 = +25% per star). */
-  sponsorMarketabilityPerStar: number;
-  /** Extra tier pull per star above the first — how much more often a marketable
-   * club is shown National/Global brands rather than Regional ones. */
-  sponsorMarketabilityTierPull: number;
-  /** Extra concurrent live offers per star above the first: the "how many
-   * sponsors come calling" half of the feature. Rounded. */
-  sponsorMarketabilityOffersPerStar: number;
+   * Replaces the v20 model, which read a handful of `marketabilityBonus` traits
+   * off the squad. That made the whole commercial game hinge on whether the RNG
+   * had handed you a player with one specific trait — a club could win the
+   * league and see no change at all. Marketability is now built from four things
+   * the manager actually controls, each capped at its own weight and summing to
+   * 100. Every number below is a band table read by `lib/marketability.ts`; the
+   * engine holds no thresholds of its own.
+   */
+
+  /** A. League & Division Status (35 pts max). Points by league tier, index 0 =
+   * tier 1. A club in a tier past the end of the table takes the last entry. */
+  marketabilityTierPoints: number[];
+  /** Added on top of the tier points when the club is in a continental cup —
+   * the qualification bonus. Still capped by `marketabilityWeightLeague`. */
+  marketabilityEuropeanBonus: number;
+  /** The cap (and stated weight) of factor A. */
+  marketabilityWeightLeague: number;
+
+  /** B. Squad Star Power (25 pts max). Bands on the mean overall of the club's
+   * top `marketabilityStarPowerTopN` senior players: `[minAverage, points]`,
+   * read low to high — the last band whose `minAverage` is met wins. */
+  marketabilityStarPowerBands: [number, number][];
+  /** How many of the highest-rated senior players the average is taken over. */
+  marketabilityStarPowerTopN: number;
+  /** The cap (and stated weight) of factor B. */
+  marketabilityWeightStarPower: number;
+
+  /** C. Recent Team Form (25 pts max). Points are earned over the club's last
+   * `marketabilityFormMatches` completed matches — a win is worth `…FormWin`, a
+   * draw `…FormDraw`, a defeat nothing — then scaled from that raw maximum onto
+   * the weight. An unbeaten run of `…FormUnbeatenGames` or more adds a flat
+   * bonus on top, before the cap. */
+  marketabilityFormMatches: number;
+  marketabilityFormWin: number;
+  marketabilityFormDraw: number;
+  marketabilityFormUnbeatenGames: number;
+  marketabilityFormUnbeatenBonus: number;
+  /** The cap (and stated weight) of factor C. */
+  marketabilityWeightForm: number;
+
+  /** D. Club Facilities & Infrastructure (15 pts max). Bands on the club's mean
+   * income-upgrade level across `FACILITY_KEYS`: `[minAverageLevel, points]`,
+   * read low to high. */
+  marketabilityFacilityBands: [number, number][];
+  /** The cap (and stated weight) of factor D. */
+  marketabilityWeightFacilities: number;
+
+  /** ── What the score buys ──
+   *
+   * One row per star band, low to high. `maxPoints` is the top of the band on
+   * the 0–100 scale; `offers` is how many offers may sit on the table at once;
+   * `valueMult` multiplies every offer's money; `flavour` names the calibre of
+   * brand that comes calling. Five rows = five stars. */
+  marketabilityTiers: { maxPoints: number; offers: number; valueMult: number; flavour: string }[];
+  /** How much more often a high-marketability club is shown National/Global
+   * brands rather than Regional ones, per star above the first. */
+  marketabilityTierPull: number;
   /** Fraction a slot's post-lapse cooldown shortens per star above the first, so
    * suitors return quicker to a club brands actually want. Clamped at 80%. */
-  sponsorMarketabilityCooldownPerStar: number;
+  marketabilityCooldownPerStar: number;
   sponsorLengthMin: number; // shortest deal offered (seasons)
   sponsorLengthMax: number; // longest deal offered
   sponsorOfferExpiryDays: number; // an unsigned offer expires after this many days
@@ -470,10 +513,36 @@ export interface TuningConfig {
    * kit manufacturer, but can carry several regional partners at once. Keyed by
    * SponsorSlot; a slot absent here defaults to 1. */
   sponsorSlotCapacity: Record<string, number>;
-  /** How many sponsor offers may sit on the table at once across all slots, so a
-   * club with a dozen open slots isn't buried in decisions each week. This is the
-   * BASE figure — Sponsor Marketability raises it (see below). */
-  sponsorMaxLiveOffers: number;
+
+  /** ── Performance-bonus offers (v44) ──
+   *
+   * A sponsor may present its offer two ways: the whole sum guaranteed now, or
+   * less now plus a bonus if the club hits a target. The bonus variant is the
+   * gamble, so it is only ever *offered* — the guaranteed figure is always
+   * available alongside it.
+   */
+  /** Chance a given offer carries a performance-bonus alternative at all. */
+  sponsorBonusOfferChance: number;
+  /** Fraction of the guaranteed money paid up front on the bonus variant. */
+  sponsorBonusUpfrontShare: number;
+  /** The bonus itself, as a multiple of the money given up by taking option B.
+   * Above 1.0 the gamble pays out more than it costs, which is what makes it a
+   * decision rather than a tax on optimism. */
+  sponsorBonusPayoutMult: number;
+  /** League position the club must finish at or above to trigger the bonus. */
+  sponsorBonusFinishPosition: number;
+
+  /** ── Early buyout (v44) ──
+   *
+   * A multi-season major signed in the third division is a millstone once you
+   * are promoted. It can be bought out early for a penalty, freeing the slot for
+   * a deal worth several times as much.
+   */
+  /** Penalty as a fraction of the deal's remaining value. */
+  sponsorBuyoutPenaltyRate: number;
+  /** Seasons a deal must have run before it can be bought out at all, so a deal
+   * cannot be signed and immediately flipped. */
+  sponsorBuyoutMinSeasonsHeld: number;
 
   // AI club commercial income (v19). AI clubs don't run the offer machinery;
   // each carries one derived weekly figure standing in for its whole portfolio.
@@ -1430,38 +1499,69 @@ export const TUNING: TuningConfig = {
   },
   awardEuroTierScale: [1, 0.6, 0.35],
 
-  facilityMaxLevel: 5,
-  // Income-facility upgrade prices carry a +75% premium over their original
-  // pay-back-tuned values, lengthening the payback so a full income stack is a
-  // long-term investment rather than an early-game land grab.
-  stadiumUpgradeCost: [15_750_000, 36_750_000, 73_500_000, 129_500_000, 218_750_000],
-  stadiumIncomePerLevel: 90_000,
-  commercialUpgradeCost: [12_250_000, 28_000_000, 56_000_000, 101_500_000, 175_000_000],
-  commercialIncomePerLevel: 70_000,
-  mediaUpgradeCost: [8_750_000, 21_000_000, 43_750_000, 78_750_000, 133_000_000],
-  mediaIncomePerLevel: 55_000,
-  hospitalityUpgradeCost: [14_000_000, 31_500_000, 61_250_000, 108_500_000, 183_750_000],
-  hospitalityIncomePerLevel: 75_000,
-  retailUpgradeCost: [10_500_000, 24_500_000, 49_000_000, 87_500_000, 148_750_000],
-  retailIncomePerLevel: 60_000,
-  membershipUpgradeCost: [4_375_000, 10_500_000, 22_750_000, 42_000_000, 73_500_000],
-  membershipIncomePerLevel: 35_000,
-  eventsUpgradeCost: [6_125_000, 14_875_000, 31_500_000, 57_750_000, 99_750_000],
-  eventsIncomePerLevel: 45_000,
-  academyPartnerUpgradeCost: [5_250_000, 12_250_000, 26_250_000, 49_000_000, 84_000_000],
-  academyPartnerIncomePerLevel: 40_000,
-  // Same payback shape as the v21 streams (~125 weeks at level 1, lengthening
-  // with each level), so the ladder stays consistent rather than these two
-  // being a shortcut past the existing facilities.
-  ticketingUpgradeCost: [3_937_500, 9_625_000, 21_000_000, 38_500_000, 68_250_000],
-  ticketingIncomePerLevel: 32_000,
-  digitalUpgradeCost: [7_000_000, 16_625_000, 35_000_000, 63_875_000, 110_250_000],
-  digitalIncomePerLevel: 50_000,
+  // ── Club income upgrades (v43) ──
+  // Payouts are absolute at each level, not increments: buying low-tier level 2
+  // takes the club from +£30k/wk to +£60k/wk, it does not stack to £90k.
+  lowTierIncomeUpgradeCost: [
+    1_500_000, 2_500_000, 5_000_000, 9_000_000, 15_000_000,
+    25_000_000, 40_000_000, 65_000_000, 90_000_000, 120_000_000,
+  ],
+  lowTierIncomePayout: [
+    30_000, 60_000, 90_000, 120_000, 150_000, 180_000, 210_000, 240_000, 270_000, 300_000,
+  ],
+  midTierIncomeUpgradeCost: [
+    3_500_000, 8_000_000, 15_500_000, 27_500_000, 50_000_000,
+    72_500_000, 95_500_000, 110_000_000, 135_000_000, 150_000_000,
+  ],
+  midTierIncomePayout: [
+    50_000, 100_000, 150_000, 200_000, 250_000, 300_000, 350_000, 400_000, 450_000, 500_000,
+  ],
+  highTierIncomeUpgradeCost: [
+    10_000_000, 30_000_000, 65_000_000, 100_000_000, 150_000_000,
+    225_000_000, 300_000_000, 380_000_000, 500_000_000, 800_000_000,
+  ],
+  highTierIncomePayout: [
+    100_000, 200_000, 300_000, 400_000, 500_000, 600_000, 700_000, 800_000, 900_000, 1_000_000,
+  ],
+  playerBonusUpgradeCost: [3_000_000, 10_000_000, 25_000_000, 50_000_000, 120_000_000],
+  playerBonusPayout: [5_000, 10_000, 20_000, 40_000, 100_000],
+  playerBonusThreshold: [70, 75, 80, 85, 90],
+  contractAccountingUpgradeCost: [
+    10_000_000, 20_000_000, 30_000_000, 40_000_000, 50_000_000,
+    60_000_000, 70_000_000, 80_000_000, 90_000_000, 100_000_000,
+  ],
+  contractAccountingDiscount: [0.02, 0.04, 0.06, 0.08, 0.1, 0.12, 0.14, 0.16, 0.18, 0.2],
+  stadiumBonusUpgradeCost: [
+    10_000_000, 20_000_000, 30_000_000, 40_000_000, 50_000_000,
+    60_000_000, 70_000_000, 80_000_000, 90_000_000, 100_000_000,
+  ],
+  stadiumBonusPayout: [
+    100_000, 200_000, 300_000, 400_000, 500_000, 600_000, 700_000, 800_000, 900_000, 1_000_000,
+  ],
+  performanceBonusUpgradeCost: [
+    5_000_000, 10_000_000, 15_000_000, 20_000_000, 25_000_000,
+    30_000_000, 35_000_000, 40_000_000, 45_000_000, 50_000_000,
+  ],
+  performanceBonusWin: [
+    50_000, 100_000, 150_000, 200_000, 250_000, 300_000, 350_000, 400_000, 450_000, 500_000,
+  ],
+  performanceBonusDraw: [
+    30_000, 60_000, 90_000, 120_000, 150_000, 180_000, 210_000, 240_000, 270_000, 300_000,
+  ],
+  performanceBonusLoss: [
+    10_000, 20_000, 30_000, 40_000, 50_000, 60_000, 70_000, 80_000, 90_000, 100_000,
+  ],
 
   staffRefreshDays: 2,
   marketRefreshDays: 10,
 
-  sponsorBaseWeeklyByReputation: 5_200,
+  // v44: rebased from 5,200. The old star model topped out at a ~1.88× money
+  // multiplier; the new tier ladder tops out at 6.0×. Left alone, every elite
+  // sponsorship would have tripled overnight — a rep-85 top-flight shirt deal
+  // went from ~£200M to ~£647M in testing. 5,200 × 1.88 / 6.0 ≈ 1,630 puts the
+  // TOP of the new ladder exactly where the top of the old one sat, so the
+  // ladder became the spec's without the commercial economy moving.
+  sponsorBaseWeeklyByReputation: 1_630,
   // Per-slot share of the front-of-shirt baseline. The majors sit at the top;
   // the minor partnerships are deliberately small individually — their appeal is
   // that you can hold several at once (v19).
@@ -1479,17 +1579,53 @@ export const TUNING: TuningConfig = {
     automotive: 0.28,
   },
   sponsorTierMults: [0.7, 1.0, 1.4], // Regional / National / Global
-  sponsorMarketabilityFactor: 1.0,
-  // Star cuts. One marketable player contributes ~0.19 (Marketable, 0.14 × the
-  // ~1.35 overall weight); a Global Icon ~0.30; a Fan Favourite ~0.12. So the
-  // cuts read roughly as: one marketable name → 2★, two or three → 3★, a handful
-  // including a genuine icon → 4★, a squad of household names → 5★. A club with
-  // nobody marketable sits at 1★ and is still sponsorable, just locally.
-  sponsorMarketabilityStarThresholds: [0.18, 0.45, 0.85, 1.4],
-  sponsorMarketabilityPerStar: 0.22,
-  sponsorMarketabilityTierPull: 0.13,
-  sponsorMarketabilityOffersPerStar: 0.75,
-  sponsorMarketabilityCooldownPerStar: 0.12,
+
+  // ── Club Marketability (v44) ──
+  // A. League & Division Status — 35 pts. Tier 1 → 50 raw, but the factor is
+  // capped at 35, so a top-flight club is maxed on this factor and continental
+  // qualification is what a tier-2 club climbs with.
+  marketabilityTierPoints: [50, 35, 20, 10],
+  marketabilityEuropeanBonus: 10,
+  marketabilityWeightLeague: 35,
+  // B. Squad Star Power — 25 pts, on the mean of the three best senior players.
+  marketabilityStarPowerBands: [
+    [0, 5],
+    [70, 10],
+    [75, 15],
+    [80, 20],
+    [85, 25],
+  ],
+  marketabilityStarPowerTopN: 3,
+  marketabilityWeightStarPower: 25,
+  // C. Recent Team Form — 25 pts. Ten matches at 3 for a win is 30 raw, scaled
+  // onto 25; five unbeaten adds 5 before the cap, so a good run can max the
+  // factor without needing ten straight wins.
+  marketabilityFormMatches: 10,
+  marketabilityFormWin: 3,
+  marketabilityFormDraw: 1,
+  marketabilityFormUnbeatenGames: 5,
+  marketabilityFormUnbeatenBonus: 5,
+  marketabilityWeightForm: 25,
+  // D. Club Facilities & Infrastructure — 15 pts, on the mean income-upgrade
+  // level across the seven tracks (each capped at level 10).
+  marketabilityFacilityBands: [
+    [0, 0],
+    [1, 5],
+    [4, 10],
+    [8, 15],
+  ],
+  marketabilityWeightFacilities: 15,
+  // What the score buys. Five bands over 0–100; `valueMult` is the headline
+  // "offer multiplier" the Investments page shows as a percentage.
+  marketabilityTiers: [
+    { maxPoints: 20, offers: 2, valueMult: 1.0, flavour: "Local Businesses" },
+    { maxPoints: 40, offers: 3, valueMult: 1.5, flavour: "Regional Brands" },
+    { maxPoints: 60, offers: 4, valueMult: 2.5, flavour: "National Corporations" },
+    { maxPoints: 80, offers: 5, valueMult: 4.0, flavour: "Global Brands" },
+    { maxPoints: 100, offers: 6, valueMult: 6.0, flavour: "Elite Mega Sponsors" },
+  ],
+  marketabilityTierPull: 0.13,
+  marketabilityCooldownPerStar: 0.12,
   sponsorLengthMin: 1,
   sponsorLengthMax: 4,
   sponsorOfferExpiryDays: 21,
@@ -1529,7 +1665,17 @@ export const TUNING: TuningConfig = {
     beverage: 2,
     automotive: 2,
   },
-  sponsorMaxLiveOffers: 4,
+  // Performance-bonus offers (v44). Take 70% now and you need a top-4 finish to
+  // collect; the bonus pays 1.4× the 30% given up, so the gamble is worth about
+  // +12% on the whole deal if it lands and −30% if it doesn't.
+  sponsorBonusOfferChance: 0.4,
+  sponsorBonusUpfrontShare: 0.7,
+  sponsorBonusPayoutMult: 1.4,
+  sponsorBonusFinishPosition: 4,
+  // Early buyout (v44). A quarter of what's left, and only after a full season,
+  // so promotion genuinely opens the door but signing-and-flipping doesn't.
+  sponsorBuyoutPenaltyRate: 0.25,
+  sponsorBuyoutMinSeasonsHeld: 1,
 
   aiCommercialPerReputation: 3_100,
   // v1.67: extended to all four tiers. With only two entries, a third- or

@@ -14,6 +14,12 @@ import {
   academyWageItems,
   facilityIncomeItems,
   sponsorIncomeItems,
+  describeIncomeLevel,
+  incomeUpgradeCost,
+  incomeUpgradeInfo,
+  incomeUpgradeLevel,
+  incomeUpgradeMaxLevel,
+  FACILITY_KEYS,
   type BreakdownItem,
   type Facility,
 } from "@/lib/economy";
@@ -22,16 +28,16 @@ import { academyGraduates } from "@/lib/academy";
 import {
   SPONSOR_SLOTS,
   activeMajorCount,
+  buyoutBlockedReason,
+  buyoutCost,
   dealsInSlot,
-  marketabilityContributors,
+  marketabilityBreakdown,
   marketabilityLabel,
-  marketabilityMaxLiveOffers,
-  marketabilityStarRating,
-  marketabilityStars,
   slotBlockedReason,
   slotCapacity,
   sponsorCooldownUntil,
 } from "@/lib/sponsors";
+import type { SponsorPayoutChoice } from "@/lib/sponsors";
 import type { SponsorDeal, SponsorOffer } from "@/lib/types";
 import { formatMoney } from "@/lib/value";
 import { gcnFundsOf, gcnOverview } from "@/lib/gcn";
@@ -284,12 +290,30 @@ function FinancesTab() {
       note: `Gate receipts from a reputation of ${team.reputation}.`,
     },
     ...(b.facilityIncome > 0
-      ? [{ label: "Facilities", amount: b.facilityIncome, items: facilityItems }]
+      ? [
+          {
+            label: "Income upgrades",
+            amount: b.facilityIncome,
+            items: facilityItems,
+            note: "Weekly payouts from Club → Income. The Stadium and Performance bonuses pay per match instead, so they aren't on this line.",
+          },
+        ]
       : []),
     ...(b.sponsorIncome > 0
       ? [{ label: "Sponsorships", amount: b.sponsorIncome, items: sponsorItems, note: "Weekly income from minor deals; major deals pay a lump sum instead." }]
       : []),
-    { label: "Squad wage bill", amount: -b.wageBill, items: wageItems },
+    {
+      label: "Squad wage bill",
+      amount: -b.wageBill,
+      // The per-player rows are what the contracts say; the discount is a
+      // separate credit so the line items still sum to the figure shown.
+      items: b.wageDiscount > 0
+        ? [...wageItems, { label: "Contract Accounting discount", amount: b.wageDiscount, detail: describeIncomeLevel("contractAccounting", incomeUpgradeLevel(game, game.userTeamId, "contractAccounting"), TUNING) }]
+        : wageItems,
+      ...(b.wageDiscount > 0
+        ? { note: `Contract Accounting saves ${formatMoney(b.wageDiscount)}/wk off a gross bill of ${formatMoney(b.wageBill + b.wageDiscount)}.` }
+        : {}),
+    },
     { label: "Staff wages", amount: -b.staffWages, items: staffItems },
     ...(b.academyWages > 0
       ? [
@@ -387,159 +411,76 @@ function FinancesTab() {
   );
 }
 
+/** Per-track icon and accent colour. Presentation only — everything else about a
+ * track (title, copy, level maths) comes from lib/economy's spec. */
+const INCOME_UPGRADE_STYLE: Record<Facility, { icon: string; accent: string }> = {
+  lowTier: { icon: "🪙", accent: "#8ec5d6" }, // pale blue
+  midTier: { icon: "💼", accent: "#7ea6e0" }, // blue
+  highTier: { icon: "🌍", accent: "#d9a441" }, // gold
+  playerBonus: { icon: "⭐", accent: "#c07de0" }, // violet
+  contractAccounting: { icon: "📋", accent: "#5fbf8a" }, // green
+  stadiumBonus: { icon: "🏟️", accent: "#e08a5f" }, // amber
+  performanceBonus: { icon: "🏆", accent: "#d67ba0" }, // rose
+};
+
 function IncomeTab() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const upgrade = useGame((s) => s.upgrade);
   const team = game.teams[game.userTeamId];
+  const b = weeklyBreakdown(game, game.userTeamId, TUNING);
 
-  const facilities: {
-    key: Facility;
-    title: string;
-    blurb: string;
-    level: number;
-    perLevel: number;
-    icon: string;
-    accent: string; // per-upgrade accent colour for a clear visual boundary
-  }[] = [
-    {
-      key: "stadium",
-      title: "Stadium",
-      blurb: "Expand the ground to seat more fans — every level lifts your weekly matchday income.",
-      level: team.stadiumLevel ?? 0,
-      perLevel: TUNING.stadiumIncomePerLevel,
-      icon: "🏟️",
-      accent: "#d9a441", // gold
-    },
-    {
-      key: "commercial",
-      title: "Commercial",
-      blurb: "Grow the club's commercial arm — partnerships and licensing add steady weekly income.",
-      level: team.commercialLevel ?? 0,
-      perLevel: TUNING.commercialIncomePerLevel,
-      icon: "💼",
-      accent: "#7ea6e0", // blue
-    },
-    {
-      key: "hospitality",
-      title: "Hospitality",
-      blurb: "Corporate boxes and premium seating — high-margin income on every matchday.",
-      level: team.hospitalityLevel ?? 0,
-      perLevel: TUNING.hospitalityIncomePerLevel,
-      icon: "🥂",
-      accent: "#c07de0", // violet
-    },
-    {
-      key: "retail",
-      title: "Retail",
-      blurb: "Megastore and online merchandising — shirt and kit sales all year round.",
-      level: team.retailLevel ?? 0,
-      perLevel: TUNING.retailIncomePerLevel,
-      icon: "👕",
-      accent: "#5fbf8a", // green
-    },
-    {
-      key: "media",
-      title: "Media & Streaming",
-      blurb: "Club channel, streaming and content — a modern revenue stream that grows with the brand.",
-      level: team.mediaLevel ?? 0,
-      perLevel: TUNING.mediaIncomePerLevel,
-      icon: "📺",
-      accent: "#e08a5f", // amber
-    },
-    // v21: three cheaper streams, so a smaller club has a ladder it can start
-    // climbing long before a stadium expansion is affordable.
-    {
-      key: "membership",
-      title: "Membership Scheme",
-      blurb: "Supporters' club and season-ticket memberships — modest money, but it arrives every week without fail.",
-      level: team.membershipLevel ?? 0,
-      perLevel: TUNING.membershipIncomePerLevel,
-      icon: "🎟️",
-      accent: "#8ec5d6", // pale blue
-    },
-    {
-      key: "events",
-      title: "Events & Conferences",
-      blurb: "Put the ground to work on non-matchdays — concerts, conferences and functions between fixtures.",
-      level: team.eventsLevel ?? 0,
-      perLevel: TUNING.eventsIncomePerLevel,
-      icon: "🎪",
-      accent: "#d67ba0", // rose
-    },
-    {
-      key: "academyPartner",
-      title: "Academy Partnerships",
-      blurb: "Feeder clubs and community schemes — partner fees and development payments from across the game.",
-      level: team.academyPartnerLevel ?? 0,
-      perLevel: TUNING.academyPartnerIncomePerLevel,
-      icon: "🤝",
-      accent: "#9d8ee0", // periwinkle
-    },
-    // v1.67: two more streams — one at the cheap end of the ladder, one modern
-    // mid-priced stream, so the buy order has more shape between the extremes.
-    {
-      key: "ticketing",
-      title: "Ticketing & Fan Experience",
-      blurb: "Own the ticketing platform and work the fan zone — booking fees, concessions and matchday extras on every gate.",
-      level: team.ticketingLevel ?? 0,
-      perLevel: TUNING.ticketingIncomePerLevel,
-      icon: "🎫",
-      accent: "#d6b25f", // brass
-    },
-    {
-      key: "digital",
-      title: "Digital & Gaming",
-      blurb: "The club app, online store, esports side and digital collectibles — a young audience that pays all year round.",
-      level: team.digitalLevel ?? 0,
-      perLevel: TUNING.digitalIncomePerLevel,
-      icon: "🎮",
-      accent: "#6fd0c0", // teal
-    },
-  ];
-
-  // Running totals across every income stream — the headline this page was
-  // missing: what the facilities pay now, and how many are fully built out.
-  const totalNow = facilities.reduce((s, f) => s + f.level * f.perLevel, 0);
-  const maxedCount = facilities.filter((f) => facilityNextCost(game, game.userTeamId, f.key, TUNING) === null).length;
-  const totalLevels = facilities.reduce((s, f) => s + f.level, 0);
-  const capLevels = facilities.length * TUNING.facilityMaxLevel;
-
-  const rows = facilities.map((f) => {
-    const nextCost = facilityNextCost(game, game.userTeamId, f.key, TUNING);
+  const rows = FACILITY_KEYS.map((key) => {
+    const level = incomeUpgradeLevel(game, game.userTeamId, key);
+    const nextCost = facilityNextCost(game, game.userTeamId, key, TUNING);
     return {
-      ...f,
+      key,
+      ...incomeUpgradeInfo(key),
+      ...INCOME_UPGRADE_STYLE[key],
+      level,
+      maxLevel: incomeUpgradeMaxLevel(key, TUNING),
       nextCost,
       maxed: nextCost === null,
-      current: f.level * f.perLevel,
-      afterUpgrade: (f.level + 1) * f.perLevel,
+      // What the track pays now, and what the next level would pay instead —
+      // levels replace each other rather than stacking, so these are absolutes.
+      current: describeIncomeLevel(key, level, TUNING),
+      next: describeIncomeLevel(key, level + 1, TUNING),
       canAfford: nextCost !== null && team.budget >= nextCost,
     };
   });
 
-  // Affordable upgrades first, then the rest, maxed streams last (v1.65). The
-  // page's whole job is "what should I buy next", and the answer used to be
-  // buried somewhere in eight identical full-size cards read top to bottom.
-  const ordered = rows.slice().sort((a, b) => {
-    const rank = (r: (typeof rows)[number]) => (r.maxed ? 2 : r.canAfford ? 0 : 1);
-    return rank(a) - rank(b) || (a.nextCost ?? Infinity) - (b.nextCost ?? Infinity);
-  });
+  const totalLevels = rows.reduce((s, r) => s + r.level, 0);
+  const capLevels = rows.reduce((s, r) => s + r.maxLevel, 0);
+  const maxedCount = rows.filter((r) => r.maxed).length;
   const affordable = rows.filter((r) => r.canAfford).length;
+
+  // Affordable upgrades first, then the rest, maxed tracks last — the page's job
+  // is "what should I buy next", so the answer sorts to the top.
+  const ordered = rows.slice().sort((a, b2) => {
+    const rank = (r: (typeof rows)[number]) => (r.maxed ? 2 : r.canAfford ? 0 : 1);
+    return rank(a) - rank(b2) || (a.nextCost ?? Infinity) - (b2.nextCost ?? Infinity);
+  });
 
   return (
     <div className="space-y-5">
-      {/* One summary strip instead of three separate cards — the same three facts
-          on a single line, so the page opens with a sentence rather than a wall. */}
+      {/* The headline: what the upgrades pay every week, how far the board has
+          been built out, and whether anything is affordable right now. */}
       <Card className="flex flex-wrap items-center gap-x-8 gap-y-3 border-gold bg-gradient-to-br from-gold-lo/[0.08] to-transparent px-4 py-3">
         <div>
-          <div className="text-[10px] uppercase tracking-widest text-faint">Facilities income</div>
-          <div className="display gold-text text-2xl font-bold tnum">+{formatMoney(totalNow)}/wk</div>
+          <div className="text-[10px] uppercase tracking-widest text-faint">Upgrade income</div>
+          <div className="display gold-text text-2xl font-bold tnum">+{formatMoney(b.facilityIncome)}/wk</div>
         </div>
+        {b.wageDiscount > 0 && (
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-faint">Wages saved</div>
+            <div className="display text-2xl font-bold tnum text-win">+{formatMoney(b.wageDiscount)}/wk</div>
+          </div>
+        )}
         <div className="text-sm text-dim">
           <span className="display tnum font-semibold text-ink">{totalLevels}</span>
-          <span className="text-faint">/{capLevels}</span> levels built ·{" "}
+          <span className="text-faint">/{capLevels}</span> levels bought ·{" "}
           <span className="display tnum font-semibold text-ink">{maxedCount}</span>
-          <span className="text-faint">/{facilities.length}</span> maxed
+          <span className="text-faint">/{rows.length}</span> maxed
         </div>
         <div className="ml-auto text-sm">
           {affordable > 0 ? (
@@ -554,8 +495,8 @@ function IncomeTab() {
       </Card>
 
       <Section
-        title="Income Streams"
-        right={<span className="text-xs text-faint">Best value first · tap a stream for detail</span>}
+        title="Income Upgrades"
+        right={<span className="text-xs text-faint">Best value first · tap an upgrade for detail</span>}
       >
         <Card className="divide-y divide-line/50">
           {ordered.map((f) => (
@@ -563,20 +504,26 @@ function IncomeTab() {
           ))}
         </Card>
       </Section>
+
+      <p className="text-[11px] leading-relaxed text-faint">
+        Each level <em>replaces</em> the one below it rather than adding to it — Low Tier level 2 pays{" "}
+        {describeIncomeLevel("lowTier", 2, TUNING)}, not level 1 plus level 2. The Stadium and Performance bonuses are
+        paid into the budget as each match is played; everything else lands on the weekly finances.
+      </p>
     </div>
   );
 }
 
 /**
- * One income stream as a single scannable line (v1.65).
+ * One income upgrade as a single scannable line (v1.65, retabled v43).
  *
- * The page used to render eight `UpgradeCard`s — each an h2, a blurb, a pip bar
- * and a three-column stat grid — so comparing two streams meant scrolling
- * between two screen-height blocks, and the one number that decides the choice
- * (cost vs. what it adds) was never next to its neighbour's. Collapsed, a row is
- * icon, name, level bar, what it pays, what the next level costs, and the
- * button. The blurb and the payback maths are still here, one tap away, for when
- * you actually want them.
+ * Collapsed, a row is icon, name, level bar, what the track pays now, what the
+ * next level costs, and the button. The blurb and the full level ladder are one
+ * tap away, for when you actually want them.
+ *
+ * The "pays" column is a *string* from lib/economy, not a number this component
+ * formats: the seven tracks pay in four different shapes (weekly, per home game,
+ * per result, a percentage off wages), and only the spec knows which is which.
  */
 function FacilityRow({
   f,
@@ -585,21 +532,21 @@ function FacilityRow({
   f: {
     key: Facility;
     title: string;
+    tagline: string;
     blurb: string;
     icon: string;
     accent: string;
     level: number;
-    perLevel: number;
+    maxLevel: number;
     nextCost: number | null;
     maxed: boolean;
-    current: number;
-    afterUpgrade: number;
+    current: string;
+    next: string;
     canAfford: boolean;
   };
   onUpgrade: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const maxLevel = TUNING.facilityMaxLevel;
 
   return (
     <div>
@@ -621,14 +568,13 @@ function FacilityRow({
                 {f.title}
               </span>
               <span className="shrink-0 tnum text-[11px] text-faint">
-                {f.level}/{maxLevel}
+                {f.level}/{f.maxLevel}
               </span>
               <span className={`shrink-0 text-[10px] text-faint transition-transform ${open ? "rotate-90" : ""}`}>▶</span>
             </span>
-            {/* Level bar: the same information the old pip row carried, at a
-                fraction of the height. */}
+            <span className="mt-0.5 block truncate text-[11px] text-faint">{f.tagline}</span>
             <span className="mt-1 flex gap-0.5">
-              {Array.from({ length: maxLevel }).map((_, i) => (
+              {Array.from({ length: f.maxLevel }).map((_, i) => (
                 <span
                   key={i}
                   className="h-1 flex-1 rounded-full"
@@ -640,9 +586,11 @@ function FacilityRow({
         </button>
 
         <div className="flex shrink-0 items-center gap-4 text-right text-sm">
-          <div className="w-24">
+          <div className="w-40">
             <div className="text-[10px] uppercase tracking-widest text-faint">Pays</div>
-            <div className="display tnum font-semibold text-win">+{formatMoney(f.current)}/wk</div>
+            <div className="display text-[13px] font-semibold tnum text-win">
+              {f.level > 0 ? f.current : <span className="text-faint">Not bought</span>}
+            </div>
           </div>
           <div className="w-24">
             <div className="text-[10px] uppercase tracking-widest text-faint">{f.maxed ? "Status" : "Next level"}</div>
@@ -656,7 +604,7 @@ function FacilityRow({
             </span>
           ) : (
             <GoldButton onClick={onUpgrade} disabled={!f.canAfford} className="w-24 !py-1.5 text-xs">
-              UPGRADE
+              {f.level === 0 ? "BUY" : "UPGRADE"}
             </GoldButton>
           )}
         </div>
@@ -667,104 +615,118 @@ function FacilityRow({
           <p>{f.blurb}</p>
           <p className="mt-1.5 text-[11px] text-faint">
             {f.maxed
-              ? "Fully upgraded — this stream is paying everything it can."
-              : `Level ${f.level + 1} would pay +${formatMoney(f.afterUpgrade)}/wk, ${formatMoney(
-                  f.perLevel
-                )}/wk more than now — about ${Math.ceil(f.nextCost! / f.perLevel)} weeks to pay for itself.` +
+              ? "Fully upgraded — this track is paying everything it can."
+              : `Level ${f.level + 1} would pay ${f.next} for ${formatMoney(f.nextCost!)}.` +
                 (f.canAfford ? "" : " Not enough budget yet — sell players or climb the table.")}
           </p>
+          {/* The whole ladder, so the buy order can be planned rather than
+              discovered one level at a time. */}
+          <ol className="mt-2 grid gap-x-4 gap-y-0.5 text-[11px] sm:grid-cols-2">
+            {Array.from({ length: f.maxLevel }).map((_, i) => {
+              const lvl = i + 1;
+              const bought = lvl <= f.level;
+              const isNext = lvl === f.level + 1;
+              return (
+                <li
+                  key={lvl}
+                  className={`flex items-baseline justify-between gap-3 tnum ${
+                    bought ? "text-dim" : isNext ? "text-ink" : "text-faint"
+                  }`}
+                >
+                  <span className="truncate">
+                    <span className="text-faint">L{lvl}</span> {describeIncomeLevel(f.key, lvl, TUNING)}
+                  </span>
+                  <span className="shrink-0">
+                    {bought ? "✓" : formatMoney(incomeUpgradeCost(f.key, lvl, TUNING))}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
         </div>
       )}
     </div>
   );
 }
 
-// ── Sponsor Marketability (v20) ────────────────────────────────────────────
-// The headline of the Investments page: a 1–5 star reading of how attractive
-// this club looks to a brand. It's the one number behind how many suitors call,
-// how good they are, and what they pay — so it leads the page, and it shows its
-// working (which players are drawing them in) rather than being a mystery score.
+// ── Club Marketability (v44) ───────────────────────────────────────────────
+// The headline of the Investments page: a 0–100 score for how attractive this
+// club looks to a brand, and the one number behind how many suitors call, how
+// good they are and what they pay.
+//
+// The v20 panel led with a star rating and explained it with a list of players
+// holding a commercial trait — which meant the honest answer to "how do I
+// improve this?" was "hope the RNG gives you a Marketable striker". The score is
+// now four things the manager controls, and the panel shows all four with their
+// points, so the page answers that question by construction: the smallest bar is
+// the thing to go and fix.
 function MarketabilityPanel({ weekly, upfrontThisSeason }: { weekly: number; upfrontThisSeason: number }) {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
-  const stars = marketabilityStars(game, game.userTeamId, TUNING);
-  const whole = marketabilityStarRating(game, game.userTeamId, TUNING);
-  const contributors = marketabilityContributors(game, game.userTeamId);
-  const liveOffers = marketabilityMaxLiveOffers(game, game.userTeamId, TUNING);
-  const moneyBonus = Math.round((stars - 1) * TUNING.sponsorMarketabilityPerStar * 100);
-  // The explanation and the "who's drawing them in" list are reference material,
-  // not something you read every visit — they fold away (v1.65) so the header is
-  // four numbers on one line instead of half a screen of prose.
-  const [open, setOpen] = useState(false);
+  const m = marketabilityBreakdown(game, game.userTeamId, TUNING);
+  const moneyBonus = Math.round((m.valueMult - 1) * 100);
 
   return (
     <Card className="border-gold bg-gradient-to-br from-gold-lo/[0.08] to-transparent px-4 py-3">
+      {/* The score and what it buys, on one line. */}
       <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
         <div>
+          <div className="text-[10px] uppercase tracking-widest text-faint">Marketability</div>
+          <div className="display flex items-baseline gap-2 leading-tight">
+            <span className="gold-text text-3xl font-bold tnum">{m.total}</span>
+            <span className="text-sm text-dim tnum">/ 100</span>
+          </div>
+          <div className="mt-0.5 flex items-center gap-2">
+            <Stars n={m.stars} />
+            <span className="display text-[11px] font-bold uppercase tracking-wide text-gold">
+              {marketabilityLabel(m.stars)}
+            </span>
+          </div>
+        </div>
+        <div>
           <div className="text-[10px] uppercase tracking-widest text-faint">Weekly from sponsors</div>
-          <div className="display gold-text text-2xl font-bold tnum">+{formatMoney(weekly)}/wk</div>
+          <div className="display text-2xl font-bold tnum text-win">+{formatMoney(weekly)}/wk</div>
           {upfrontThisSeason > 0 && (
             <div className="text-[11px] text-win">{formatMoney(upfrontThisSeason)} in lump sums this season</div>
           )}
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-widest text-faint">Marketability</div>
-          <div className="display flex items-baseline gap-2 text-lg leading-tight">
-            <Stars n={whole} />
-            <span className="gold-text text-sm font-bold">{marketabilityLabel(stars)}</span>
+          <div className="text-[10px] uppercase tracking-widest text-faint">Offer multiplier</div>
+          <div className="display text-lg font-bold tnum text-win">
+            {moneyBonus > 0 ? `+${moneyBonus}%` : "Base"}
           </div>
-        </div>
-        <div>
-          <div className="text-[10px] uppercase tracking-widest text-faint">Offer value</div>
-          <div className="display text-lg font-bold tnum text-win">{moneyBonus > 0 ? `+${moneyBonus}%` : "Base"}</div>
+          <div className="text-[11px] text-faint">{m.valueMult.toFixed(1)}× base value</div>
         </div>
         <div>
           <div className="text-[10px] uppercase tracking-widest text-faint">Suitors at once</div>
-          <div className="display text-lg font-bold tnum">{liveOffers}</div>
+          <div className="display text-lg font-bold tnum">{m.maxOffers}</div>
+          <div className="text-[11px] text-faint">{m.flavour}</div>
         </div>
-        <button
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          className="ml-auto text-xs text-gold hover:underline"
-        >
-          {open ? "Hide detail" : "What drives this?"}
-        </button>
       </div>
 
-      {open && (
-        <div className="mt-3 border-t border-line/60 pt-3">
-          <p className="text-[13px] leading-relaxed text-dim">
-            How appealing the club looks to sponsors. A higher rating means more brands come calling,
-            better-known names among them, and larger offers on the table. Marketable players in your senior
-            squad are what drives it — sign or develop commercial draws to climb the scale.
-          </p>
-          {contributors.length > 0 ? (
-            <div className="mt-3">
-              <div className="mb-2 text-[10px] uppercase tracking-widest text-faint">Who&apos;s drawing them in</div>
-              <div className="space-y-1.5">
-                {contributors.slice(0, 6).map((c) => (
-                  <div key={c.playerId} className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
-                    <span className="min-w-0">
-                      <span className="display font-semibold">{c.name}</span>
-                      <span className="ml-2 text-[11px] tnum text-faint">{c.overall}</span>
-                    </span>
-                    <span className="text-[11px] text-gold">{c.traits.join(" · ")}</span>
-                  </div>
-                ))}
-                {contributors.length > 6 && (
-                  <div className="text-[11px] text-faint">+{contributors.length - 6} more</div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="mt-3 text-[13px] text-faint">
-              Nobody in the senior squad is a commercial draw yet — offers are built on reputation alone. A
-              player with the <span className="text-gold">Marketable</span> trait would lift every deal
-              you&apos;re shown.
-            </div>
-          )}
-        </div>
-      )}
+      {/* The breakdown. Always visible — this is the part that tells you what to
+          go and do, so hiding it behind a toggle (as v1.65 did with the old
+          trait list) would hide the only actionable thing on the page. */}
+      <div className="mt-3 grid grid-cols-1 gap-x-8 gap-y-1.5 border-t border-line/60 pt-3 sm:grid-cols-2">
+        {m.factors.map((f) => (
+          <div key={f.key} className="flex items-center gap-3 text-[13px]">
+            <span className="w-32 shrink-0 text-dim">{f.label}</span>
+            <span className="display w-14 shrink-0 tnum font-bold text-ink">
+              {f.points}
+              <span className="text-[11px] font-normal text-faint">/{f.max}</span>
+            </span>
+            {/* A bar makes "which of these is short" readable at a glance in a
+                way four numbers in a column are not. */}
+            <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-line/60">
+              <span
+                className="block h-full rounded-full bg-gradient-to-r from-gold-lo to-gold-hi"
+                style={{ width: `${f.max > 0 ? (f.points / f.max) * 100 : 0}%` }}
+              />
+            </span>
+            <span className="min-w-0 truncate text-[11px] text-faint">{f.detail}</span>
+          </div>
+        ))}
+      </div>
     </Card>
   );
 }
@@ -775,6 +737,7 @@ function InvestmentsTab() {
   useGame((s) => s.rev);
   const sign = useGame((s) => s.signSponsor);
   const pass = useGame((s) => s.passSponsor);
+  const buyout = useGame((s) => s.buyoutSponsorDeal);
   const team = game.teams[game.userTeamId];
   const deals = team.sponsors ?? [];
   const offers = (team.sponsorOffers ?? []).filter((o) => o.expiresDay > game.currentDay);
@@ -858,8 +821,9 @@ function InvestmentsTab() {
               status={s.status}
               offer={s.offer}
               daysLeft={s.offer ? s.offer.expiresDay - game.currentDay : 0}
-              onSign={() => s.offer && sign(s.offer.id)}
+              onSign={(payout) => s.offer && sign(s.offer.id, payout)}
               onPass={() => s.offer && pass(s.offer.id)}
+              onBuyout={buyout}
             />
           ))}
         </Card>
@@ -915,6 +879,7 @@ function SlotRow({
   daysLeft,
   onSign,
   onPass,
+  onBuyout,
 }: {
   def: (typeof SPONSOR_SLOTS)[number];
   deals: SponsorDeal[];
@@ -922,8 +887,9 @@ function SlotRow({
   status: string;
   offer: SponsorOffer | null;
   daysLeft: number;
-  onSign: () => void;
+  onSign: (payout: SponsorPayoutChoice) => void;
   onPass: () => void;
+  onBuyout: (dealId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const isMajor = def.kind === "major";
@@ -1013,10 +979,53 @@ function SlotRow({
               >
                 Pass
               </button>
-              <GoldButton onClick={onSign} className="!px-7 !py-2.5 text-sm">
-                ACCEPT
-              </GoldButton>
+              {/* With no performance alternative there is one thing to say yes
+                  to, so it stays a single button. */}
+              {!offer.bonus && (
+                <GoldButton onClick={() => onSign("guaranteed")} className="!px-7 !py-2.5 text-sm">
+                  ACCEPT
+                </GoldButton>
+              )}
             </div>
+
+            {/* Two ways to be paid (v44). Shown as two priced options side by
+                side rather than a toggle, because the choice IS the decision —
+                the user should be comparing the guaranteed number against the
+                gamble, not flipping a switch and then reading one number. */}
+            {offer.bonus && (
+              <div className="mt-1 flex w-full flex-wrap gap-2 border-t border-line/40 pt-2.5">
+                <button
+                  onClick={() => onSign("guaranteed")}
+                  className="min-w-[13rem] flex-1 rounded-md border border-gold-lo/40 bg-gold-lo/[0.06] px-3 py-2 text-left transition-colors hover:border-gold-lo hover:bg-gold-lo/[0.12]"
+                >
+                  <div className="display text-[10px] font-bold uppercase tracking-widest text-faint">
+                    Option A · Guaranteed
+                  </div>
+                  <div className="display tnum text-lg font-bold leading-tight text-win">
+                    {formatMoney(offer.upfront)}
+                  </div>
+                  <div className="text-[11px] text-dim">All of it, paid on signing.</div>
+                </button>
+                <button
+                  onClick={() => onSign("bonus")}
+                  className="min-w-[13rem] flex-1 rounded-md border border-[#4a7bd0]/40 bg-[#4a7bd0]/[0.06] px-3 py-2 text-left transition-colors hover:border-[#4a7bd0] hover:bg-[#4a7bd0]/[0.12]"
+                >
+                  <div className="display text-[10px] font-bold uppercase tracking-widest text-faint">
+                    Option B · Performance
+                  </div>
+                  <div className="display tnum text-lg font-bold leading-tight text-[#8fb4ee]">
+                    {formatMoney(offer.bonus.upfront)}
+                    <span className="text-[11px] font-normal text-dim">
+                      {" "}
+                      + {formatMoney(offer.bonus.bonusAmount)}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-dim">
+                    Bonus paid each season you finish top {offer.bonus.finishPosition}.
+                  </div>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1025,19 +1034,82 @@ function SlotRow({
         <div className="border-t border-line/40 bg-base/40 px-3 py-2.5">
           <p className="text-[12px] leading-relaxed text-dim">{def.blurb}</p>
           {deals.map((d) => (
-            <div key={d.id} className="mt-1.5 flex flex-wrap items-baseline justify-between gap-2 text-[12px]">
-              <span>
-                <span className="display font-semibold">{d.brand}</span>
-                <span className="ml-2 text-[11px] text-faint">runs through S{d.expirySeason}</span>
-              </span>
-              <span className="display tnum font-semibold text-win">
-                {d.kind === "major" ? `${formatMoney(d.upfront)} paid` : `+${formatMoney(d.weeklyAmount)}/wk`}
-              </span>
-            </div>
+            <SignedDealRow key={d.id} deal={d} onBuyout={() => onBuyout(d.id)} />
           ))}
           {deals.length > 0 && <p className="mt-1.5 text-[11px] text-dim">{status}</p>}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * One signed deal inside an expanded slot, with its early-buyout control (v44).
+ *
+ * A multi-season major signed two divisions ago is the reason this exists: the
+ * slot is locked at lower-league money while far better suitors are queuing, and
+ * before v44 the only option was to wait it out. Buying out costs a percentage
+ * of what's left, so it's a real trade rather than a free reset — the fee is
+ * shown on the button itself, and the confirm step exists because it is money
+ * leaving the budget for nothing tangible.
+ */
+function SignedDealRow({ deal, onBuyout }: { deal: SponsorDeal; onBuyout: () => void }) {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const [confirming, setConfirming] = useState(false);
+  const cost = buyoutCost(game, deal, TUNING);
+  const blocked = buyoutBlockedReason(game, deal, TUNING);
+
+  return (
+    <div className="mt-1.5 border-t border-line/30 pt-1.5 first:border-0 first:pt-0">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 text-[12px]">
+        <span>
+          <span className="display font-semibold">{deal.brand}</span>
+          <span className="ml-2 text-[11px] text-faint">runs through S{deal.expirySeason}</span>
+          {deal.bonus && (
+            <span className="ml-2 text-[10px] text-[#8fb4ee]">
+              performance terms · {formatMoney(deal.bonus.bonusAmount)} if top {deal.bonus.finishPosition}
+            </span>
+          )}
+        </span>
+        <span className="display tnum font-semibold text-win">
+          {deal.kind === "major" ? `${formatMoney(deal.upfront)} paid` : `+${formatMoney(deal.weeklyAmount)}/wk`}
+        </span>
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        {confirming ? (
+          <>
+            <span className="text-[11px] text-loss">
+              Pay {formatMoney(cost)} to end this deal now?
+            </span>
+            <button
+              onClick={() => {
+                onBuyout();
+                setConfirming(false);
+              }}
+              className="rounded-md border border-loss/50 bg-loss/15 px-3 py-1 text-[11px] font-semibold text-loss transition-colors hover:bg-loss/25"
+            >
+              Confirm buyout
+            </button>
+            <button
+              onClick={() => setConfirming(false)}
+              className="text-[11px] text-faint hover:text-ink"
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={() => setConfirming(true)}
+            disabled={blocked !== null}
+            title={blocked ?? undefined}
+            className="rounded-md border border-line px-2.5 py-1 text-[11px] text-dim transition-colors hover:border-faint hover:text-ink disabled:cursor-not-allowed disabled:border-line/50 disabled:text-faint disabled:hover:text-faint"
+          >
+            Buy out — {formatMoney(cost)}
+          </button>
+        )}
+        {blocked && !confirming && <span className="text-[11px] text-faint">{blocked}</span>}
+      </div>
     </div>
   );
 }
@@ -1229,7 +1301,10 @@ function ClubPlayersTab() {
   useGame((s) => s.rev);
   const viewPlayer = useGame((s) => s.viewPlayer);
   const [sort, setSort] = useState<"recent" | "apps" | "goals" | "assists" | "spell">("recent");
-  const [filter, setFilter] = useState<"all" | "current" | "past">("all");
+  // "Academy" (v1.71) is a different axis to the other three — it asks where a
+  // player came FROM rather than whether he's here now, so it deliberately spans
+  // both current players and the ones who've been sold on.
+  const [filter, setFilter] = useState<"all" | "current" | "past" | "academy">("all");
   const [q, setQ] = useState("");
 
   const all = clubPlayerHistory(game, game.userTeamId);
@@ -1238,7 +1313,17 @@ function ClubPlayersTab() {
     (s.leftSeason ?? game.season) - s.joinedSeason + 1;
 
   const rows = all
-    .filter((s) => (filter === "all" ? true : filter === "current" ? s.current : !s.current))
+    .filter((s) =>
+      filter === "all"
+        ? true
+        : filter === "current"
+          ? s.current
+          : filter === "academy"
+            ? s.academy
+            : // "Former" means gone — an academy prospect is neither in the senior
+              // squad nor a departure, so he belongs in neither of those two.
+              !s.current && !s.inAcademy
+    )
     .filter((s) => (q ? s.name.toLowerCase().includes(q.toLowerCase()) : true))
     .slice()
     .sort((a, b) => {
@@ -1257,6 +1342,15 @@ function ClubPlayersTab() {
     });
 
   const currentCount = all.filter((s) => s.current).length;
+  // A prospect is on the books without being in the senior squad, so he counts
+  // as neither current nor former — the three tallies have to be spelled out
+  // rather than derived as "everyone else".
+  const inAcademyCount = all.filter((s) => s.inAcademy).length;
+  const formerCount = all.length - currentCount - inAcademyCount;
+  // One row per SPELL, so a graduate who left and came back would be counted
+  // twice — the academy tally is by player, which is what "he came through here"
+  // actually means.
+  const academyCount = new Set(all.filter((s) => s.academy).map((s) => s.playerId)).size;
 
   return (
     <div className="space-y-4">
@@ -1267,21 +1361,28 @@ function ClubPlayersTab() {
         </div>
         <div className="text-sm text-dim">
           <span className="display tnum font-semibold text-ink">{currentCount}</span> in the squad today ·{" "}
-          <span className="display tnum font-semibold text-ink">{all.length - currentCount}</span> former
+          <span className="display tnum font-semibold text-ink">{inAcademyCount}</span> in the academy ·{" "}
+          <span className="display tnum font-semibold text-ink">{formerCount}</span> former ·{" "}
+          <span className="display tnum font-semibold text-gold">{academyCount}</span> academy-raised
         </div>
         <div className="ml-auto text-xs text-faint">Click a name for the full profile</div>
       </Card>
 
       <div className="flex flex-wrap items-center gap-2">
-        {(["all", "current", "past"] as const).map((f) => (
+        {(["all", "current", "past", "academy"] as const).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
+            title={
+              f === "academy"
+                ? "Everyone who came through your academy — still here, promoted, or sold on"
+                : undefined
+            }
             className={`display rounded px-3 py-1 text-xs font-semibold ${
               filter === f ? "gold-grad text-black" : "border border-line text-dim hover:text-ink"
             }`}
           >
-            {f === "all" ? "All" : f === "current" ? "Current" : "Former"}
+            {f === "all" ? "All" : f === "current" ? "Current" : f === "past" ? "Former" : "Academy"}
           </button>
         ))}
         <input
@@ -1328,6 +1429,19 @@ function ClubPlayersTab() {
                           IN SQUAD
                         </span>
                       )}
+                      {s.inAcademy && (
+                        <span className="display shrink-0 rounded-sm bg-gold-lo/20 px-1 text-[9px] font-semibold text-gold">
+                          IN ACADEMY
+                        </span>
+                      )}
+                      {s.academy && !s.inAcademy && (
+                        <span
+                          className="display shrink-0 rounded-sm border border-gold-lo/40 px-1 text-[9px] font-semibold text-gold"
+                          title="Came through your academy"
+                        >
+                          ACADEMY
+                        </span>
+                      )}
                       {s.retired && !s.current && (
                         <span className="shrink-0 rounded-sm border border-line px-1 text-[9px] text-faint">
                           RETIRED
@@ -1360,7 +1474,9 @@ function ClubPlayersTab() {
           <div className="px-4 py-6 text-center text-sm text-faint">
             {all.length === 0
               ? "Nobody has played for the club yet — the ledger fills as seasons are played."
-              : "No player matches that filter."}
+              : filter === "academy" && !q
+                ? "No academy players yet — the first intake class arrives in March, and every prospect you raise stays on this list for good."
+                : "No player matches that filter."}
           </div>
         )}
       </Card>

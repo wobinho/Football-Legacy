@@ -18,6 +18,7 @@ import {
   parsePositions,
   readAttrs,
   readClubs,
+  readFoot,
   readLeagues,
   type Fl26Club,
 } from "../lib/fl26/convert";
@@ -41,7 +42,7 @@ function read(file: string) {
 
 const leagueRows = read("fl26-leagues.csv");
 const clubRows = read("fl26-clubs.csv");
-const playerRows = read("fl26_players_new.csv");
+const playerRows = read("fl26-players-new.csv");
 
 const leagues = readLeagues(leagueRows);
 const clubs = readClubs(clubRows);
@@ -106,12 +107,16 @@ for (const row of playerRows) {
     // The engine caps potential at 96 and never lets it sit below overall.
     potential: Number.isFinite(potential) ? Math.max(overall, Math.min(96, Math.round(potential))) : undefined,
     heightCm: Number.isFinite(heightCm) ? Math.max(150, Math.min(215, Math.round(heightCm))) : undefined,
+    // Preferred foot (v42) — authored by the source, so no roll is needed. A row
+    // that doesn't spell it out leaves the key off and worldgen rolls one.
+    foot: readFoot(row.preferred_foot),
   };
   // Drop undefined keys so the emitted JSON stays clean.
   if (seed.fullName === undefined) delete seed.fullName;
   if (seed.age === undefined) delete seed.age;
   if (seed.potential === undefined) delete seed.potential;
   if (seed.heightCm === undefined) delete seed.heightCm;
+  if (seed.foot === undefined) delete seed.foot;
 
   if (!rostersByClub.has(clubId)) rostersByClub.set(clubId, []);
   rostersByClub.get(clubId)!.push(seed);

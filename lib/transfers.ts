@@ -213,10 +213,10 @@ export function completeTransfer(
   // transfer-market milestones (biggest signing/sale, career spend/receive). A
   // buy and a sell are tracked from the user's own side; AI↔AI deals are ignored.
   if (toClubId === state.userTeamId) {
-    trackUserTransfer(state, "buy", fee);
+    trackUserTransfer(state, "buy", fee, p);
     syncProgress(state);
   } else if (fromClubId === state.userTeamId) {
-    trackUserTransfer(state, "sell", fee);
+    trackUserTransfer(state, "sell", fee, p);
     syncProgress(state);
   }
   // clean up any other pending offers for this player
@@ -1181,6 +1181,13 @@ export function sellToClub(
   if (!p || p.clubId !== state.userTeamId) return "Not your player.";
   if (signedThisSeason(state, p)) return "Signed this season — he can't be sold until next season.";
   if (p.loan) return "Recall him from his loan spell first.";
+  // An academy prospect can be sold like anyone else (v1.71), with one exception:
+  // a prospect registered for the U21 competition is locked to that squad for its
+  // duration, exactly as he is for promotion and loans. Same rule, same reason —
+  // he can no longer be replaced in a submitted squad.
+  if ((state.academy?.u21?.registered ?? []).includes(playerId)) {
+    return "Registered for the U21 competition — he can't be sold until the next registration window.";
+  }
   if (!windowOpen(state)) return "The transfer window is closed.";
   const buyer = state.teams[clubId];
   if (!buyer) return "That club no longer exists.";

@@ -48,8 +48,10 @@ export interface Trait {
     longevityBonus?: number;
     /** Form swings dampened (consistent) — 0..1, higher = steadier. */
     formStability?: number;
-    /** Sponsor offer quality/value multiplier for the club (see lib/sponsors.ts).
-     * Summed across the squad's on-books players, so a marketable star lifts deals. */
+    /** Commercial appeal (see lib/marketability.ts). Since v44 this is NOT a
+     * multiplier on offers: it lifts the player's effective rating inside the
+     * Squad Star Power factor of Club Marketability, so a household name is
+     * worth more to a sponsor than his overall alone suggests. */
     marketabilityBonus?: number;
     /** Extra season-development growth multiplier for the club's youngsters
      * (a mentor in the dressing room). Read by the rollover, not the engine. */
@@ -152,7 +154,7 @@ export const TRAITS: Trait[] = [
   {
     id: "marketable", name: "Marketable", group: "off-pitch", eligible: "any",
     desc: "A commercial draw — attracts stronger sponsorship offers to the club.",
-    influence: [{ label: "Sponsorships", detail: "lifts every offer the club receives" }],
+    influence: [{ label: "Club Marketability", detail: "counts as a bigger name in Squad Star Power" }],
     effects: { marketabilityBonus: 0.14 },
   },
   {
@@ -264,7 +266,7 @@ export const TRAITS: Trait[] = [
     id: "fan_favourite", name: "Fan Favourite", group: "off-pitch", eligible: "any",
     desc: "Adored on the terraces — lifts the mood around the club and shifts plenty of shirts.",
     influence: [
-      { label: "Sponsorships", detail: "lifts every offer the club receives" },
+      { label: "Club Marketability", detail: "counts as a bigger name in Squad Star Power" },
       { label: "Whole XI (passive)", detail: "+0.5% match rating" },
     ],
     effects: { marketabilityBonus: 0.09, teamBuffMult: 1.005 },
@@ -272,7 +274,7 @@ export const TRAITS: Trait[] = [
   {
     id: "global_icon", name: "Global Icon", group: "off-pitch", eligible: "any",
     desc: "A worldwide name — sponsors queue up for the association.",
-    influence: [{ label: "Sponsorships", detail: "substantially lifts every offer" }],
+    influence: [{ label: "Club Marketability", detail: "counts as a far bigger name in Squad Star Power" }],
     effects: { marketabilityBonus: 0.22 },
   },
   {

@@ -17,6 +17,7 @@ import {
   ATTRS_BY_GROUP,
   GK_FAMILY_LABELS,
   uniformAttrs,
+  type AttrKey,
 } from "@/lib/config/attributes";
 import { flagForNat, flagForCountry, nameForNat } from "@/lib/config/flags";
 import { potentialView } from "@/lib/academy";
@@ -812,9 +813,11 @@ export function AttrGrid({ p }: { p: PlayerBio }) {
   const agg = aggregateAttrs(p.attrs, isGk);
   const labelsFor = isGk ? GK_FAMILY_LABELS : ATTR_FAMILY_LABELS;
   return (
-    <div className="grid grid-cols-3 gap-2">
+    // Six across from tablet up (v1.71) — the card faces are a summary strip, so
+    // they read as one line above the full sheet rather than a 3×2 block.
+    <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
       {ATTR_FAMILY_ORDER.map((f) => (
-        <div key={f} className="rounded-md border border-line bg-raised p-2 text-center">
+        <div key={f} className="rounded-md border border-line bg-raised p-2 text-center" title={labelsFor[f]}>
           <div className="display text-[10px] font-semibold tracking-widest text-faint">
             {labelsFor[f].slice(0, 3).toUpperCase()}
           </div>
@@ -825,46 +828,80 @@ export function AttrGrid({ p }: { p: PlayerBio }) {
   );
 }
 
+/** The bar colour behind an attribute value — the same four bands as the text
+ * ramp, so a number and its meter always agree. */
+function attrBar(v: number): string {
+  return v >= 80
+    ? "bg-[var(--color-gold-hi)]"
+    : v >= 70
+      ? "bg-ink/70"
+      : v >= 55
+        ? "bg-dim/50"
+        : "bg-faint/30";
+}
+
+/** One attribute: name, a proportional meter, and the number. The meter is what
+ * makes a 35-row sheet scannable — a manager reads the shape of a player long
+ * before he reads any single figure. */
+function AttrRow({ k, v, isKey, pos }: { k: AttrKey; v: number; isKey: boolean; pos: Pos }) {
+  return (
+    <div
+      className="flex items-center gap-2 border-b border-line/30 py-1 last:border-0"
+      title={isKey ? `${ATTR_META[k].name} — a key attribute at ${pos}` : ATTR_META[k].name}
+    >
+      <span className={`min-w-0 flex-1 truncate text-[11px] ${isKey ? "text-dim" : "text-faint"}`}>
+        {isKey && <span className="mr-1 text-gold">◆</span>}
+        {ATTR_META[k].name}
+      </span>
+      <span className="h-1 w-10 shrink-0 overflow-hidden rounded-full bg-line/60 sm:w-14">
+        <span className={`block h-full rounded-full ${attrBar(v)}`} style={{ width: `${Math.max(2, Math.min(100, v))}%` }} />
+      </span>
+      <span className={`display tnum w-6 shrink-0 text-right text-sm font-bold ${attrTone(v)}`}>{v}</span>
+    </div>
+  );
+}
+
 /**
  * The full 35-attribute breakdown, grouped as players expect to read it
  * (Attacking / Skill / Movement / Power / Mentality / Defending, plus
  * Goalkeeping for a keeper).
  *
+ * Laid out as a MASONRY of group cards (v1.71) rather than one narrow column:
+ * the sheet is the densest thing on the profile, and stacking six groups in a
+ * half-width column made it a scroll instead of a read. Each group is its own
+ * bordered card so the eye can jump straight to "how does he defend"; the
+ * columns are CSS columns rather than a grid so groups of different lengths
+ * pack tightly instead of leaving a ragged bottom edge.
+ *
  * Attributes the player's PRIMARY position actually rates are marked with a gold
- * thread, so a manager can see at a glance which numbers are carrying his rating
- * and which are incidental — a centre-back's finishing is real, but it isn't
- * what makes him good.
+ * diamond, so a manager can see at a glance which numbers are carrying his
+ * rating and which are incidental — a centre-back's finishing is real, but it
+ * isn't what makes him good.
  */
 export function AttrSheet({ p }: { p: PlayerBio }) {
   const pos = p.positions[0];
   const isGk = pos === "GK";
   const key = new Set(keyAttrsFor(pos, 8));
   return (
-    <div className="space-y-3">
+    <div className="gap-3 [column-fill:balance] sm:columns-2 lg:columns-3">
       {attrGroupsFor(isGk).map((g) => (
-        <div key={g}>
-          <div className="display mb-1 text-[10px] font-semibold tracking-widest text-faint">
-            {ATTR_GROUP_LABELS[g].toUpperCase()}
+        <div
+          key={g}
+          className="mb-3 break-inside-avoid rounded-md border border-line bg-raised/40 px-3 py-2"
+        >
+          <div className="display mb-1 flex items-baseline justify-between text-[10px] font-semibold tracking-widest text-faint">
+            <span>{ATTR_GROUP_LABELS[g].toUpperCase()}</span>
+            {/* The group's own mean — the one-number answer to "is he good at
+                this?", which the individual rows then explain. */}
+            <span className="tnum text-dim">
+              {Math.round(
+                ATTRS_BY_GROUP[g].reduce((n, k) => n + p.attrs[k], 0) / ATTRS_BY_GROUP[g].length
+              )}
+            </span>
           </div>
-          <div className="grid grid-cols-1 gap-x-4 gap-y-0.5 sm:grid-cols-2">
-            {ATTRS_BY_GROUP[g].map((k) => {
-              const v = p.attrs[k];
-              const isKey = key.has(k);
-              return (
-                <div
-                  key={k}
-                  className="flex items-baseline justify-between border-b border-line/40 py-0.5"
-                  title={isKey ? `${ATTR_META[k].name} — a key attribute at ${pos}` : ATTR_META[k].name}
-                >
-                  <span className={`truncate text-[11px] ${isKey ? "text-dim" : "text-faint"}`}>
-                    {isKey && <span className="mr-1 text-gold">◆</span>}
-                    {ATTR_META[k].name}
-                  </span>
-                  <span className={`display tnum ml-2 text-sm font-bold ${attrTone(v)}`}>{v}</span>
-                </div>
-              );
-            })}
-          </div>
+          {ATTRS_BY_GROUP[g].map((k) => (
+            <AttrRow key={k} k={k} v={p.attrs[k]} isKey={key.has(k)} pos={pos} />
+          ))}
         </div>
       ))}
     </div>

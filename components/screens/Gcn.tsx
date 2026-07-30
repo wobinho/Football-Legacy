@@ -764,7 +764,7 @@ function FinancePanel({ fin }: { fin: GcnClubFinance }) {
     { label: "TV & prize money", amount: fin.tvIncome },
     { label: "League position bonus", amount: fin.positionBonus },
     { label: "Matchday gate", amount: fin.gateIncome },
-    { label: "Facilities", amount: fin.facilityIncome },
+    { label: "Income upgrades", amount: fin.facilityIncome },
     { label: "Sponsorship", amount: fin.sponsorIncome },
     { label: "Solidarity payment", amount: fin.solidarityIncome },
     { label: "Network funding", amount: fin.networkIncome },

@@ -21,7 +21,7 @@
 // The engine never branches on an achievement by id — conditions are data
 // (ACHIEVEMENT_DEFS), each a pure predicate over the accolades + live state.
 
-import type { GameState, UserAccolades, UserProgress } from "./types";
+import type { GameState, PlayerBio, UserAccolades, UserProgress } from "./types";
 
 /** A fresh, zeroed accolade block. */
 export function emptyAccolades(): UserAccolades {
@@ -127,16 +127,42 @@ export function trackUserMatch(state: GameState, own: number, opp: number): void
 
 /** Record a transfer the user's club was party to. `fee` is the cash paid (buy)
  * or received (sale). Called from completeTransfer. Peaks + spend/receive totals
- * are the user's own money only — AI↔AI deals never reach here. */
-export function trackUserTransfer(state: GameState, kind: "buy" | "sell", fee: number): void {
+ * are the user's own money only — AI↔AI deals never reach here.
+ *
+ * When the fee sets a new record, the player behind it is SNAPSHOTTED onto
+ * `recordSigning` / `recordSale` (v1.7) so the cabinet can name him. A snapshot,
+ * not a reference: he may be sold on, re-rated, or pruned from a long save, and
+ * the record has to outlive all three. */
+export function trackUserTransfer(
+  state: GameState,
+  kind: "buy" | "sell",
+  fee: number,
+  player?: PlayerBio
+): void {
   const a = ensureProgress(state).accolades;
   if (fee <= 0) return; // frees / releases carry no money milestone
+  const snapshot = () =>
+    player && {
+      playerId: player.id,
+      name: player.name,
+      overall: player.overall,
+      pos: player.positions[0],
+      nationality: player.nationality,
+      fee,
+      season: state.season,
+    };
   if (kind === "buy") {
     a.totalSpent += fee;
-    a.biggestSigningFee = Math.max(a.biggestSigningFee, fee);
+    if (fee > a.biggestSigningFee) {
+      a.biggestSigningFee = fee;
+      a.recordSigning = snapshot() ?? a.recordSigning;
+    }
   } else {
     a.totalReceived += fee;
-    a.biggestSaleFee = Math.max(a.biggestSaleFee, fee);
+    if (fee > a.biggestSaleFee) {
+      a.biggestSaleFee = fee;
+      a.recordSale = snapshot() ?? a.recordSale;
+    }
   }
 }
 

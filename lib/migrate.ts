@@ -14,7 +14,7 @@ import { ensureContracts, openContractResolution } from "./contracts";
 import { migrateOldRegion } from "./config/scouting";
 import { aiCommercialIncome, refreshSponsorOffers, seedAiSponsorBooks } from "./sponsors";
 import { RETIRED_TRAIT_IDS, TRAIT_MAP } from "./config/traits";
-import { fitAttrsToOverall, overallFromAttrs } from "./config/positions";
+import { fitAttrsToOverall, LEFT_FOOT_CHANCE, overallFromAttrs } from "./config/positions";
 import { getArchetype, DEFAULT_HEIGHT_CM } from "./config/archetypes";
 import { assignAllKitNumbers } from "./kitnumbers";
 import { trackBiggestWin } from "./recordbook";
@@ -131,9 +131,9 @@ function migrateV4toV5(state: GameState): void {
 function migrateV5toV6(state: GameState): void {
   const STAFF_NATS = ["ENG", "ESP", "ITA", "GER", "FRA", "NED", "POR", "BRA", "ARG", "SCO"];
   for (const team of Object.values(state.teams)) {
-    team.mediaLevel ??= 0;
-    team.hospitalityLevel ??= 0;
-    team.retailLevel ??= 0;
+    // media/hospitality/retail levels were opened here too; they are gone from
+    // the schema as of v43, which refunds and removes them, so there is nothing
+    // left for this step to seed.
     team.assignments ??= {};
     team.sponsors ??= [];
     team.sponsorOffers ??= [];
@@ -542,6 +542,18 @@ export function migrateSave(state: GameState): GameState {
     migrateV40toV41(state);
     state.schemaVersion = 41;
   }
+  if (state.schemaVersion < 42) {
+    migrateV41toV42(state);
+    state.schemaVersion = 42;
+  }
+  if (state.schemaVersion < 43) {
+    migrateV42toV43(state);
+    state.schemaVersion = 43;
+  }
+  if (state.schemaVersion < 44) {
+    migrateV43toV44(state);
+    state.schemaVersion = 44;
+  }
   // future migrations chain here
   state.schemaVersion = SCHEMA_VERSION;
   return state;
@@ -731,9 +743,8 @@ function migrateV18toV19(state: GameState, cfg: TuningConfig): void {
  */
 function migrateV19toV20(state: GameState): void {
   for (const team of Object.values(state.teams)) {
-    team.membershipLevel ??= 0;
-    team.eventsLevel ??= 0;
-    team.academyPartnerLevel ??= 0;
+    // The membership/events/academy-partner levels this step opened are gone from
+    // the schema as of v43 (refunded and removed), so only the gymnasium remains.
     // Gymnasium — a new core training facility (whole-squad growth). Starts at
     // level 0, exactly as a new save would.
     team.gymnasiumLevel ??= 0;
@@ -1287,6 +1298,123 @@ function migrateV40toV41(state: GameState): void {
   // player objects need the same treatment or a pending report would render a
   // player with no attributes at all.
   for (const r of state.academy?.reports ?? []) if (r?.player) expand(r.player);
+}
+
+/**
+ * v41 → v42: preferred foot.
+ *
+ * Every player now carries a `foot`. It is descriptive only — no engine code
+ * reads it — so an old save just needs one assigned to everybody, including
+ * retirees (a legend's profile should read the same as a live player's) and the
+ * scouted prospects that live outside `state.players` until they're signed.
+ *
+ * The roll is DERIVED FROM THE PLAYER ID rather than drawn from a shared stream,
+ * so it is stable: migrating the same save twice gives every player the same
+ * foot, and the result doesn't depend on iteration order. The odds come from the
+ * same positional table worldgen uses, so a migrated world's left/right spread
+ * matches a freshly generated one's.
+ */
+function migrateV41toV42(state: GameState): void {
+  const assign = (p: PlayerBio): void => {
+    if (p.foot === "Left" || p.foot === "Right") return;
+    const pos = p.positions?.[0];
+    if (!pos) return;
+    const rng = mulberry32(deriveSeed(hashString(p.id), "foot"));
+    p.foot = rng() < LEFT_FOOT_CHANCE[pos] ? "Left" : "Right";
+  };
+  for (const p of Object.values(state.players ?? {})) if (p) assign(p);
+  for (const r of state.academy?.reports ?? []) if (r?.player) assign(r.player);
+}
+
+/** The ten pre-v43 revenue facilities: the field each stored its level in, and
+ * the tuning array that held its per-level prices. Both are gone from the live
+ * schema and config, so the migration carries its own copy of the prices — a
+ * migration has to keep working after the tuning it refers to is deleted. */
+const LEGACY_REVENUE_FACILITIES: { levelKey: string; costs: number[] }[] = [
+  { levelKey: "stadiumLevel", costs: [15_750_000, 36_750_000, 73_500_000, 129_500_000, 218_750_000] },
+  { levelKey: "commercialLevel", costs: [12_250_000, 28_000_000, 56_000_000, 101_500_000, 175_000_000] },
+  { levelKey: "mediaLevel", costs: [8_750_000, 21_000_000, 43_750_000, 78_750_000, 133_000_000] },
+  { levelKey: "hospitalityLevel", costs: [14_000_000, 31_500_000, 61_250_000, 108_500_000, 183_750_000] },
+  { levelKey: "retailLevel", costs: [10_500_000, 24_500_000, 49_000_000, 87_500_000, 148_750_000] },
+  { levelKey: "membershipLevel", costs: [4_375_000, 10_500_000, 22_750_000, 42_000_000, 73_500_000] },
+  { levelKey: "eventsLevel", costs: [6_125_000, 14_875_000, 31_500_000, 57_750_000, 99_750_000] },
+  { levelKey: "academyPartnerLevel", costs: [5_250_000, 12_250_000, 26_250_000, 49_000_000, 84_000_000] },
+  { levelKey: "ticketingLevel", costs: [3_937_500, 9_625_000, 21_000_000, 38_500_000, 68_250_000] },
+  { levelKey: "digitalLevel", costs: [7_000_000, 16_625_000, 35_000_000, 63_875_000, 110_250_000] },
+];
+
+/**
+ * v42 → v43: the Club → Income page is rebuilt on seven upgrade tracks (three
+ * flat weekly tiers, a squad-rating bonus, a wage discount, and two match-day
+ * bonuses), replacing the ten flat revenue facilities.
+ *
+ * The old levels can't be mapped onto the new tracks — the new ones aren't the
+ * same purchases at different prices, they're different mechanics — so instead
+ * of inventing a conversion, every level a club bought is REFUNDED at exactly
+ * what it cost. The manager gets their money back and re-spends it on the new
+ * board, which is the honest outcome: nobody loses an investment, and nobody is
+ * handed a track they didn't choose to buy.
+ *
+ * Only the user's club is refunded. AI clubs never bought these levels — worldgen
+ * leaves them at 0 and nothing in the sim upgrades them — so there is nothing to
+ * pay back, and crediting them would inject money into the market for free.
+ */
+function migrateV42toV43(state: GameState): void {
+  for (const team of Object.values(state.teams)) {
+    const legacy = team as unknown as Record<string, number | undefined>;
+    let refund = 0;
+    for (const { levelKey, costs } of LEGACY_REVENUE_FACILITIES) {
+      const level = legacy[levelKey] ?? 0;
+      if (level > 0 && team.id === state.userTeamId) {
+        for (let i = 0; i < Math.min(level, costs.length); i++) refund += costs[i];
+      }
+      delete legacy[levelKey];
+    }
+    if (refund > 0) team.budget += refund;
+    // The new tracks start unbought, exactly as a fresh save would.
+    team.lowTierIncomeLevel ??= 0;
+    team.midTierIncomeLevel ??= 0;
+    team.highTierIncomeLevel ??= 0;
+    team.playerBonusLevel ??= 0;
+    team.contractAccountingLevel ??= 0;
+    team.stadiumBonusLevel ??= 0;
+    team.performanceBonusLevel ??= 0;
+  }
+}
+
+/**
+ * v43 → v44: Club Marketability replaces the squad-trait sponsor model.
+ *
+ * Marketability is now derived on read from division, squad, form and
+ * facilities (`lib/marketability.ts`), so there is no score to store and nothing
+ * on a club to convert — the number simply starts being correct the moment the
+ * save loads.
+ *
+ * What DOES need attention is money already on the table. `sponsorBaseWeekly-
+ * ByReputation` was rebased from 5,200 to 1,630 at the same time, because the
+ * offer multiplier ladder went from topping out at ~1.88× to topping out at
+ * 6.0×. Any offer generated under the old pairing is priced on the old base
+ * WITHOUT the new ladder applied, so leaving it live would hand the club a deal
+ * quoted on a rate that no longer exists — a big overpay for a top club and an
+ * underpay for a modest one. Live offers are therefore cleared and regenerated
+ * at the new rates.
+ *
+ * Deals the club has already SIGNED are left exactly as they are. That money is
+ * banked and the contract is a commitment the manager made in good faith;
+ * repricing it retroactively would take back budget the user has already spent.
+ * They run to their expiry on their original terms, and everything signed from
+ * here is priced on the new model.
+ */
+function migrateV43toV44(state: GameState): void {
+  const userTeam = state.teams[state.userTeamId];
+  if (userTeam) {
+    // Drop stale offers and let the daily refresh quote fresh ones. Cooldowns go
+    // too, so the user isn't made to wait out a lull for offers this migration
+    // removed rather than for anything they passed on.
+    userTeam.sponsorOffers = [];
+    userTeam.sponsorCooldowns = {};
+  }
+  refreshSponsorOffers(state, TUNING);
 }
 
 /** True if the save is a version this build knows how to bring up to date. */

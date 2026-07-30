@@ -5,14 +5,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { DefLine, Focus, Mentality, PlayerBio, Press, Style, TeamAssignments, Tempo, Width } from "@/lib/types";
-import { FORMATIONS, getFormation, MENTALITY_OPTIONS, STYLE_OPTIONS, styleLabel } from "@/lib/config/formations";
+import { FORMATION_GROUPS, formationGroupOf, getFormation, MENTALITY_OPTIONS, STYLE_OPTIONS, styleLabel } from "@/lib/config/formations";
 import { getArchetype } from "@/lib/config/archetypes";
 import { positionFit } from "@/lib/config/positions";
 import { TUNING } from "@/lib/config/tuning";
 import { selectionScore } from "@/lib/selection";
 import { ensureUserLineup } from "@/lib/gameloop";
-import { MAX_SAVED_TACTICS, savedTactics, tacticSummary } from "@/lib/tactics";
-import { ConfirmButton, displayFullName, Flag, GhostButton, GoldButton, Modal, Ovr, PlayerSelect, PosBadge, Section, Tabs, useIsMobile } from "../ui";
+import { bestForRole, MAX_SAVED_TACTICS, savedTactics, tacticSummary } from "@/lib/tactics";
+import { ConfirmButton, displayFullName, Flag, GhostButton, GoldButton, Modal, Ovr, PlayerSelect, PosBadge, Section, useIsMobile } from "../ui";
 
 const MENTALITIES = MENTALITY_OPTIONS;
 const STYLES = STYLE_OPTIONS;
@@ -265,6 +265,7 @@ function Assignments() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const setAssignment = useGame((s) => s.setAssignment);
+  const autoAssign = useGame((s) => s.autoAssign);
   const team = game.teams[game.userTeamId];
   const assignments = team.assignments ?? {};
 
@@ -274,7 +275,17 @@ function Assignments() {
     .filter((p): p is PlayerBio => !!p && !p.retired);
 
   return (
-    <Section title="Assignments" right={<span className="text-xs text-faint">captain & set pieces</span>}>
+    <Section
+      title="Assignments"
+      right={
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-faint">captain &amp; set pieces</span>
+          <GhostButton onClick={autoAssign} disabled={xi.length === 0} className="!px-2.5 !py-1 text-[11px]">
+            Auto-assign
+          </GhostButton>
+        </div>
+      }
+    >
       {xi.length === 0 ? (
         <div className="rounded-md border border-line bg-surface px-3 py-3 text-sm text-faint">
           Pick your lineup first — assignments are chosen from your starting XI.
@@ -285,6 +296,10 @@ function Assignments() {
             const currentId = assignments[role];
             const current = currentId ? game.players[currentId] : null;
             const hasTrait = current?.traits.includes(wants);
+            // What Auto-assign would choose for this row. Shown when it differs
+            // from the current holder, so the recommendation is visible without
+            // having to press the button to find out what it thinks.
+            const best = bestForRole(game, role);
             return (
               <div key={role} className="rounded-md border border-line bg-surface px-3 py-2">
                 <div className="flex items-center gap-3">
@@ -293,7 +308,21 @@ function Assignments() {
                   <PlayerSelect players={xi} value={currentId ?? null} onChange={(id) => setAssignment(role, id)} />
                   {hasTrait && <span className="display shrink-0 rounded-sm border border-gold-lo/50 px-1.5 text-[9px] font-semibold text-gold">IDEAL</span>}
                 </div>
-                <p className="mt-1 pl-[7.75rem] text-[11px] leading-snug text-faint">{hint}</p>
+                <p className="mt-1 pl-[7.75rem] text-[11px] leading-snug text-faint">
+                  {hint}
+                  {best && best.id !== currentId && (
+                    <>
+                      {" "}
+                      <button
+                        onClick={() => setAssignment(role, best.id)}
+                        className="text-gold underline decoration-dotted hover:text-gold-hi"
+                        title={`Give ${displayFullName(best)} this role`}
+                      >
+                        Best fit: {best.name}
+                      </button>
+                    </>
+                  )}
+                </p>
               </div>
             );
           })}
@@ -524,43 +553,19 @@ function fitText(fit: number): string {
 }
 
 /**
- * Condition arc around a pitch token (v1.66): a ring that drains green → amber →
- * red as fitness falls, drawn as a conic gradient behind the token.
+ * Condition colour, green → amber → red as fitness falls (v1.66).
  *
- * This is deliberately a second, outer ring rather than a recolouring of the
- * existing one — position fit and condition are different questions and a
- * manager asks both at once, so they must not compete for the same pixel.
+ * The outer condition ARC that used to wrap each pitch token is gone (v1.69) —
+ * two concentric rings around a 40px circle, one for position fit and one for
+ * stamina, was more ink than either question was worth, and it made the pitch
+ * read as a field of dials. The colour itself still earns its keep in the roster
+ * list, where condition is a column you scan down.
  */
 function conditionColor(fitness: number): string {
   if (fitness >= 85) return "#3fb950";
   if (fitness >= 70) return "#d0a215";
   if (fitness >= 50) return "#d97706";
   return "#da3633";
-}
-
-function ConditionRing({ fitness, children }: { fitness: number; children: React.ReactNode }) {
-  const pctFull = Math.max(0, Math.min(100, fitness));
-  const c = conditionColor(pctFull);
-  return (
-    <span
-      className="relative inline-flex h-[2.9rem] w-[2.9rem] items-center justify-center"
-      title={`Condition ${Math.round(pctFull)}%`}
-    >
-      {/* The arc itself, masked to a 3px band and sitting BEHIND the token so it
-          reads as a ring around it rather than a filled disc competing with the
-          position-fit ring inside. */}
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-0 rounded-full"
-        style={{
-          background: `conic-gradient(${c} ${pctFull * 3.6}deg, rgba(255,255,255,0.10) ${pctFull * 3.6}deg)`,
-          WebkitMask: "radial-gradient(circle, transparent calc(50% - 3px), #000 calc(50% - 3px))",
-          mask: "radial-gradient(circle, transparent calc(50% - 3px), #000 calc(50% - 3px))",
-        }}
-      />
-      {children}
-    </span>
-  );
 }
 
 /**
@@ -801,9 +806,6 @@ function MobileLineup({
   );
 }
 
-/** Which slice of the squad the roster panel is showing (v1.66). */
-type RosterTab = "all" | "bench" | "reserves";
-
 /**
  * The matchday board (v1.66): pitch and roster side by side, one drag surface.
  *
@@ -899,8 +901,6 @@ function MatchdayBoard({
   // a squad he isn't in.
   const poolArmed = !!drag && drag.source.kind !== "squad";
 
-  const [tab, setTab] = useState<RosterTab>("all");
-
   const autoPick = () => {
     game.lineup = {};
     ensureUserLineup(game);
@@ -926,14 +926,11 @@ function MatchdayBoard({
       );
     }, 0) / Math.max(1, Object.keys(game.lineup).length);
 
-  // The roster slice on show. "Reserves" is everyone not named in the matchday
-  // squad — the players you are choosing FROM once the side is picked.
-  const rosterList =
-    tab === "bench"
-      ? benched
-      : tab === "reserves"
-        ? squadPool.filter((p) => !inLineup.has(p.id) && !benchedSet.has(p.id))
-        : squadPool;
+  // One list, the whole squad (v1.69). The Bench and Reserves tabs are gone: the
+  // bench has its own section directly below, and "Reserves" was All Squad minus
+  // the people already wearing an XI/SUB chip — a filter you can apply with your
+  // eyes, at the cost of a third place to look for a player.
+  const rosterList = squadPool;
 
   return (
     <>
@@ -1036,11 +1033,9 @@ function MatchdayBoard({
                       }
                       className={`flex w-16 touch-none flex-col items-center ${drag ? "cursor-grabbing" : p ? "cursor-grab" : "cursor-pointer"}`}
                     >
-                      {/* The token, wrapped in its condition arc when occupied.
-                          Three readings from one glyph: the arc is stamina, the
-                          ring is position fit, the number's colour repeats fit
-                          where the eye actually lands. The drag halo sits behind
-                          all of it. */}
+                      {/* The token. Two readings from one glyph: the ring is
+                          position fit, and the number's colour repeats it where
+                          the eye actually lands. The drag halo sits behind. */}
                       <span className="relative inline-flex items-center justify-center">
                         {guideHalo && (
                           <span
@@ -1048,19 +1043,17 @@ function MatchdayBoard({
                           />
                         )}
                         {p ? (
-                          <ConditionRing fitness={p.fitness}>
-                            <span
-                              className={`display flex h-10 w-10 items-center justify-center rounded-full border text-sm font-bold transition-all ${fitRing(fit)} ${fitText(fit)} ${
-                                isTarget
-                                  ? "scale-110 border-gold ring-2 ring-gold/60"
-                                  : isSource
-                                    ? "opacity-30"
-                                    : ""
-                              }`}
-                            >
-                              {p.overall}
-                            </span>
-                          </ConditionRing>
+                          <span
+                            className={`display flex h-10 w-10 items-center justify-center rounded-full border text-sm font-bold transition-all ${fitRing(fit)} ${fitText(fit)} ${
+                              isTarget
+                                ? "scale-110 border-gold ring-2 ring-gold/60"
+                                : isSource
+                                  ? "opacity-30"
+                                  : ""
+                            }`}
+                          >
+                            {p.overall}
+                          </span>
                         ) : (
                           <span
                             className={`display flex h-10 w-10 items-center justify-center rounded-full border border-dashed border-line bg-surface text-sm font-bold text-faint transition-all ${
@@ -1112,17 +1105,6 @@ function MatchdayBoard({
               <span className="flex items-center gap-1">
                 <span className="inline-block h-2.5 w-2.5 rounded-full border border-loss/70" /> out of position
               </span>
-              <span className="flex items-center gap-1">
-                <span
-                  className="inline-block h-2.5 w-2.5 rounded-full"
-                  style={{
-                    background: `conic-gradient(${conditionColor(100)} 250deg, ${conditionColor(40)} 250deg)`,
-                    WebkitMask: "radial-gradient(circle, transparent calc(50% - 2px), #000 calc(50% - 2px))",
-                    mask: "radial-gradient(circle, transparent calc(50% - 2px), #000 calc(50% - 2px))",
-                  }}
-                />
-                outer arc = condition
-              </span>
             </div>
           </Section>
         </div>
@@ -1139,16 +1121,6 @@ function MatchdayBoard({
               </span>
             }
           >
-            <Tabs<RosterTab>
-              className="!mb-2"
-              tabs={[
-                { id: "all", label: "All Squad" },
-                { id: "bench", label: "Bench", badge: benched.length || undefined },
-                { id: "reserves", label: "Reserves" },
-              ]}
-              active={tab}
-              onChange={setTab}
-            />
             <p className="mb-2 text-[11px] leading-snug text-faint">
               Drag a player onto a position to field him — drop him on an occupied one and the two swap.
               Drop him on the bench to name him a substitute, or back here to take him out of the squad.
@@ -1217,9 +1189,7 @@ function MatchdayBoard({
               })}
               {rosterList.length === 0 && (
                 <div className="rounded-md border border-dashed border-line px-3 py-6 text-center text-[11px] text-faint">
-                  {tab === "bench"
-                    ? "No substitutes named yet — drag players here, or use Auto-pick below."
-                    : "Everyone available is already in the matchday squad."}
+                  No senior players available — everyone is retired, sold or out on loan.
                 </div>
               )}
             </div>
@@ -1364,19 +1334,65 @@ function SaveTacticModal({ onClose }: { onClose: () => void }) {
           Saves your formation, every instruction, the starting XI and the bench order together.
           Load it later to put all of it back — handy before you try something new.
         </p>
-        <input
-          autoFocus
-          value={name}
-          maxLength={32}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && commit()}
-          placeholder="e.g. Home 4-3-3"
-          className="w-full rounded-md border border-line bg-raised px-3 py-2 text-sm placeholder:text-faint focus:border-gold focus:outline-none"
-        />
         <div className="rounded-md border border-line bg-surface px-3 py-2 text-[11px] text-faint">
           Capturing <b className="text-dim">{tacticSummary(game.teams[game.userTeamId].tactic)}</b> ·{" "}
           <span className="tnum text-dim">{filled}</span>/11 picked ·{" "}
           <span className="tnum text-dim">{(game.userBench ?? []).length}</span> subs
+        </div>
+
+        {/* Overwrite an existing slot (v1.69).
+            Saving used to be a bare name field, so updating "Home 4-3-3" after a
+            tweak meant retyping its name exactly — and a typo silently created a
+            second preset instead, which is how you fill all eight slots with
+            near-duplicates. The presets you already have are now listed here:
+            click one to overwrite it in place. */}
+        {presets.length > 0 && (
+          <div>
+            <div className="mb-1.5 text-[11px] uppercase tracking-widest text-faint">
+              Overwrite a saved tactic
+            </div>
+            <div className="max-h-48 space-y-1 overflow-y-auto">
+              {presets.map((t) => {
+                const selected = t.name.toLowerCase() === name.trim().toLowerCase();
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setName(t.name)}
+                    className={`flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left transition-colors ${
+                      selected ? "border-gold bg-hover" : "border-line bg-surface hover:bg-hover"
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-ink">{t.name}</div>
+                      <div className="truncate text-[11px] text-faint">{tacticSummary(t.tactic)}</div>
+                    </div>
+                    <span
+                      className={`display shrink-0 text-[9px] font-semibold uppercase tracking-wider ${
+                        selected ? "text-gold" : "text-faint"
+                      }`}
+                    >
+                      {selected ? "selected" : "overwrite"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div>
+          <div className="mb-1.5 text-[11px] uppercase tracking-widest text-faint">
+            {presets.length > 0 ? "…or save under a new name" : "Name"}
+          </div>
+          <input
+            autoFocus
+            value={name}
+            maxLength={32}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && commit()}
+            placeholder="e.g. Home 4-3-3"
+            className="w-full rounded-md border border-line bg-raised px-3 py-2 text-sm placeholder:text-faint focus:border-gold focus:outline-none"
+          />
         </div>
         {clash && (
           <p className="text-[11px] text-draw">
@@ -1404,6 +1420,7 @@ function SavedTactics() {
   useGame((s) => s.rev);
   const load = useGame((s) => s.loadTactic);
   const remove = useGame((s) => s.deleteTactic);
+  const save = useGame((s) => s.saveTactic);
   const [saving, setSaving] = useState(false);
 
   const presets = savedTactics(game);
@@ -1441,6 +1458,15 @@ function SavedTactics() {
                 <GhostButton onClick={() => load(t.id)} className="!px-3 !py-1 text-xs">
                   Load
                 </GhostButton>
+                {/* Overwrite in place (v1.69) — the common case after a tweak.
+                    Confirmed, because it destroys the snapshot you saved earlier
+                    and there is no undo for that. */}
+                <ConfirmButton
+                  label="Save"
+                  confirmLabel="Overwrite?"
+                  onConfirm={() => save(t.name)}
+                  className="!px-3 !py-1 text-xs"
+                />
                 <ConfirmButton
                   label="✕"
                   confirmLabel="Delete?"
@@ -1483,6 +1509,16 @@ function SetupPanel() {
   const focus = tactic.focus ?? "Mixed";
   const formation = getFormation(tactic.formationId);
   const picked = Object.values(game.lineup).filter((id) => game.players[id]).length;
+  const activeGroup = formationGroupOf(tactic.formationId);
+
+  /** Select a formation. Switching wipes the XI (the slots themselves change), so
+   * a picked side gets a confirm rather than vanishing on a stray click; an empty
+   * XI has nothing to lose and switches straight away. */
+  const pickFormation = (id: string) => {
+    if (id === tactic.formationId) return;
+    if (picked > 0) setFormationSwitch(id);
+    else setTactic({ formationId: id });
+  };
 
   // Average archetype synergy of the picked XI in the chosen style, as a
   // percentage — the headline number for "does this style suit my squad?".
@@ -1500,26 +1536,45 @@ function SetupPanel() {
           <div>
             <div className="mb-1.5 text-[11px] uppercase tracking-widest text-faint">Formation</div>
             <div className="flex flex-wrap gap-1.5">
-              {FORMATIONS.map((f) => (
+              {/* Variants of one shape (the 4-3-3's midfield options) are folded
+                  behind their family's button rather than sitting flat in the
+                  list: they are the same formation, and four near-identical "4-3-3
+                  (…)" buttons in a grid of twenty is how a picker becomes
+                  unreadable. The family button selects the default variant; the
+                  row beneath appears once that family is chosen. */}
+              {FORMATION_GROUPS.map((g) => (
                 <button
-                  key={f.id}
-                  onClick={() => {
-                    // Switching formation wipes the XI (the slots themselves
-                    // change), so a picked side gets a confirm rather than
-                    // vanishing on a stray click. An empty XI has nothing to
-                    // lose and switches straight away.
-                    if (f.id === tactic.formationId) return;
-                    if (picked > 0) setFormationSwitch(f.id);
-                    else setTactic({ formationId: f.id });
-                  }}
+                  key={g.id}
+                  onClick={() => pickFormation(g.formations[0].id)}
                   className={`display rounded px-3 py-1.5 text-sm font-semibold ${
-                    tactic.formationId === f.id ? "gold-grad text-black" : "border border-line text-dim hover:text-ink"
+                    g.formations.some((f) => f.id === tactic.formationId)
+                      ? "gold-grad text-black"
+                      : "border border-line text-dim hover:text-ink"
                   }`}
                 >
-                  {f.name}
+                  {g.name}
                 </button>
               ))}
             </div>
+            {/* The variant row, only for a family that has more than one shape. */}
+            {activeGroup && activeGroup.formations.length > 1 && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 border-l border-line pl-2">
+                <span className="text-[10px] uppercase tracking-widest text-faint">Midfield</span>
+                {activeGroup.formations.map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => pickFormation(f.id)}
+                    className={`rounded px-2 py-1 text-[11px] font-medium ${
+                      tactic.formationId === f.id
+                        ? "border border-gold bg-hover text-gold"
+                        : "border border-line text-dim hover:text-ink"
+                    }`}
+                  >
+                    {f.variant ?? f.name}
+                  </button>
+                ))}
+              </div>
+            )}
             <p className="mt-1.5 text-[11px] leading-snug text-faint">{formation.desc}</p>
           </div>
           <Instruction label="Mentality" options={MENTALITIES} current={tactic.mentality} onPick={(v) => setTactic({ mentality: v })} />

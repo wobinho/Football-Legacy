@@ -14,7 +14,7 @@
 //     codes. Unmapped nations fall back to the club's country so a player never
 //     ends up with a code the flag/name layer can't resolve.
 
-import type { Attributes, Pos } from "../types";
+import type { Attributes, Foot, Pos } from "../types";
 import type { ClubSeed, CountryDatabase, DivisionSeed, PlayerSeed } from "../database";
 import { COUNTRY_DB_SCHEMA } from "../database";
 import { ATTR_KEYS, type AttrKey } from "../config/attributes";
@@ -129,6 +129,18 @@ export function parsePositions(primary: string, secondary: string): Pos[] {
   push(primary);
   for (const token of secondary.split(/[,|]/)) if (token.trim()) push(token);
   return out.length ? out : ["CM"];
+}
+
+// ── Preferred foot ─────────────────────────────────────────────────────────
+
+/** Read the source's `preferred_foot` column (v42). The source spells it "Left"
+ * / "Right"; anything else (or a blank) yields undefined so the seed simply
+ * omits it and worldgen rolls one from the position's split. */
+export function readFoot(raw: string | undefined): Foot | undefined {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (v === "left") return "Left";
+  if (v === "right") return "Right";
+  return undefined;
 }
 
 // ── Nationality mapping ────────────────────────────────────────────────────

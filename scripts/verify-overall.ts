@@ -60,7 +60,7 @@ for (const pos of Object.keys(ATTR_WEIGHTS) as Pos[]) {
 }
 
 // 4. The whole source roster: distribution sanity, overall and per position.
-const CSV = "fl26_players_new.csv";
+const CSV = "fl26-players-new.csv";
 if (existsSync(CSV)) {
   const rows = parseCsv(readFileSync(CSV, "utf8"));
   const byPos = new Map<Pos, number[]>();

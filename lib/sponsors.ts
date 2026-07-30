@@ -1,14 +1,42 @@
 // Sponsors / investments (v6, Club → Income). Companies bid to sponsor the club
 // on season-long deals: front-of-shirt, sleeve, apparel (kit maker), boot deal,
 // and stadium naming rights. Offer quality scales with club reputation, league
-// division, and — the design hook the user asked for — squad *marketability*
-// (the Marketable trait). Sign a deal for a weekly income boost that runs until
-// it expires, at which point a fresh offer arrives.
+// division, and Club Marketability — the 0–100 score in `lib/marketability.ts`.
+// Sign a deal for a lump sum or a weekly income boost that runs until it
+// expires, at which point a fresh offer arrives.
+//
+// v44: the old squad-trait marketability model is gone. Marketability is now
+// earned through division, squad quality, results and facilities — see
+// `lib/marketability.ts` for why. This module consumes that score and does not
+// compute any part of it.
 
-import type { GameState, SponsorDeal, SponsorKind, SponsorOffer, SponsorSlot, Team } from "./types";
+import type {
+  GameState,
+  SponsorBonusTerms,
+  SponsorDeal,
+  SponsorKind,
+  SponsorOffer,
+  SponsorSlot,
+  Team,
+} from "./types";
 import type { TuningConfig } from "./config/tuning";
 import { mulberry32, pick, deriveSeed, uid, type RNG } from "./rng";
-import { TRAITS } from "./config/traits";
+import {
+  marketabilityBreakdown,
+  marketabilityMaxLiveOffers,
+  marketabilityStarRating,
+} from "./marketability";
+
+export {
+  marketabilityBreakdown,
+  marketabilityLabel,
+  marketabilityMaxLiveOffers,
+  marketabilityScore,
+  marketabilityStarRating,
+  marketabilityValueMult,
+  type MarketabilityBreakdown,
+  type MarketabilityFactor,
+} from "./marketability";
 
 export interface SponsorSlotDef {
   slot: SponsorSlot;
@@ -64,102 +92,6 @@ const BRANDS: Record<SponsorSlot, string[]> = {
 
 const TIER_NAMES = ["Regional", "National", "Global"];
 
-/** One squad member's contribution to the club's marketability, with the traits
- * that earned it. Exposed so the Investments page can show the user exactly who
- * is drawing the sponsors in. */
-export interface MarketabilityContributor {
-  playerId: string;
-  name: string;
-  overall: number;
-  traits: string[]; // display names of the marketable traits held
-  amount: number;
-}
-
-/** Total squad marketability: summed marketabilityBonus of the club's on-books
- * players (senior squad). A marketable star lifts every offer. */
-export function squadMarketability(state: GameState, teamId: string): number {
-  return marketabilityContributors(state, teamId).reduce((s, c) => s + c.amount, 0);
-}
-
-/** Who is making the club marketable, biggest draw first. The scoring is the
- * single source of truth for `squadMarketability` — the total is just this
- * summed — so the breakdown the user reads can never drift from the number the
- * sponsor maths actually uses. */
-export function marketabilityContributors(state: GameState, teamId: string): MarketabilityContributor[] {
-  const team = state.teams[teamId];
-  if (!team) return [];
-  const marketableTraits = new Map(
-    TRAITS.filter((t) => t.effects.marketabilityBonus !== undefined).map((t) => [t.id, t])
-  );
-  const out: MarketabilityContributor[] = [];
-  for (const id of team.playerIds) {
-    const p = state.players[id];
-    if (!p || p.retired) continue;
-    let amount = 0;
-    const names: string[] = [];
-    for (const tId of p.traits) {
-      const trait = marketableTraits.get(tId);
-      if (!trait) continue;
-      const b = trait.effects.marketabilityBonus ?? 0;
-      // weight by how big a name the player is (overall) so a marketable star
-      // is worth more than a marketable squad filler
-      amount += b * (0.6 + p.overall / 100);
-      names.push(trait.name);
-    }
-    if (amount > 0) out.push({ playerId: p.id, name: p.name, overall: p.overall, traits: names, amount });
-  }
-  return out.sort((a, b) => b.amount - a.amount);
-}
-
-/**
- * Sponsor Marketability, as the 1–5 star rating the Investments page shows.
- *
- * The raw `squadMarketability` sum is an open-ended number that means nothing to
- * a player looking at it. The star scale is the user-facing reading of the same
- * quantity: how attractive this club looks to a brand. It drives three things —
- * how *many* suitors are willing to talk (offer generation), how *good* the
- * brands are (tier roll), and how much they *pay* (offer amount).
- *
- * Stars are cut from the raw sum via `sponsorMarketabilityStarThresholds`, so
- * the scale is tunable data rather than engine arithmetic. Returned as a float
- * so the UI can render half-stars; `Math.round` it for a whole-star reading.
- */
-export function marketabilityStars(state: GameState, teamId: string, cfg: TuningConfig): number {
-  const raw = squadMarketability(state, teamId);
-  const cuts = cfg.sponsorMarketabilityStarThresholds;
-  // Below the first cut the club is still a 1★ proposition — every club is
-  // sponsorable by someone, so the scale floors at 1 rather than 0.
-  if (raw <= cuts[0]) return 1 + Math.max(0, raw / Math.max(cuts[0], 1e-6));
-  for (let i = 1; i < cuts.length; i++) {
-    if (raw <= cuts[i]) {
-      const span = cuts[i] - cuts[i - 1];
-      return 1 + i + (span > 0 ? (raw - cuts[i - 1]) / span : 0);
-    }
-  }
-  return 5;
-}
-
-/** Whole-star reading of Sponsor Marketability, 1–5. */
-export function marketabilityStarRating(state: GameState, teamId: string, cfg: TuningConfig): number {
-  return Math.max(1, Math.min(5, Math.round(marketabilityStars(state, teamId, cfg))));
-}
-
-/** Flavour label for a star rating — what the commercial department would say. */
-export function marketabilityLabel(stars: number): string {
-  const s = Math.max(1, Math.min(5, Math.round(stars)));
-  return ["Local Interest", "Modest Draw", "Solid Appeal", "Major Attraction", "Global Brand"][s - 1];
-}
-
-/** How many sponsor offers may sit on the table at once for this club (v20).
- *
- * This is the "how many sponsors will try to sponsor the club" half of Sponsor
- * Marketability: an unmarketable side gets the base number of suitors, a 5★ club
- * has brands queuing up. */
-export function marketabilityMaxLiveOffers(state: GameState, teamId: string, cfg: TuningConfig): number {
-  const stars = marketabilityStarRating(state, teamId, cfg);
-  return cfg.sponsorMaxLiveOffers + Math.round((stars - 1) * cfg.sponsorMarketabilityOffersPerStar);
-}
-
 /** Weekly amount for a fresh offer in a given slot at a given tier. */
 function offerAmount(state: GameState, teamId: string, slot: SponsorSlot, tierIndex: number, cfg: TuningConfig, rng: RNG): number {
   const team = state.teams[teamId];
@@ -178,11 +110,10 @@ function offerAmount(state: GameState, teamId: string, slot: SponsorSlot, tierIn
   const share = cfg.sponsorSlotShare[slot] ?? 0.5;
   const base = team.reputation * cfg.sponsorBaseWeeklyByReputation * share * divisionMult;
   const tierMult = cfg.sponsorTierMults[tierIndex] ?? 1.0;
-  // Money follows the star rating (v20), so what the user sees on the
-  // Investments page is literally what is moving the offer. Each star above the
-  // first is worth `sponsorMarketabilityPerStar` on top of the base fee.
-  const stars = marketabilityStars(state, teamId, cfg);
-  const marketMult = 1 + (stars - 1) * cfg.sponsorMarketabilityPerStar;
+  // Money follows Club Marketability (v44), so the "offer multiplier" the
+  // Investments page advertises is literally the number moving the offer: a 5★
+  // club is quoted 6× what a 1★ club is for the same slot.
+  const marketMult = marketabilityBreakdown(state, teamId, cfg).valueMult;
   const noise = 0.9 + rng() * 0.2;
   return Math.round((base * tierMult * marketMult * noise) / 1000) * 1000;
 }
@@ -192,9 +123,9 @@ function offerAmount(state: GameState, teamId: string, slot: SponsorSlot, tierIn
 function rollTier(state: GameState, teamId: string, cfg: TuningConfig, rng: RNG): number {
   const team = state.teams[teamId];
   // Reputation opens the door; marketability decides how good the brand walking
-  // through it is. A 5★ club sees Global suitors far more often (v20).
-  const stars = marketabilityStars(state, teamId, cfg);
-  const pull = team.reputation / 100 + (stars - 1) * cfg.sponsorMarketabilityTierPull;
+  // through it is. A 5★ club sees Global suitors far more often.
+  const stars = marketabilityStarRating(state, teamId, cfg);
+  const pull = team.reputation / 100 + (stars - 1) * cfg.marketabilityTierPull;
   const r = rng() + pull * 0.5;
   if (r > 1.15) return 2; // Global
   if (r > 0.6) return 1; // National
@@ -204,6 +135,26 @@ function rollTier(state: GameState, teamId: string, cfg: TuningConfig, rng: RNG)
 /** Whether a slot is a lump-sum major (from tuning) or a weekly minor. */
 export function slotKind(slot: SponsorSlot, cfg: TuningConfig): SponsorKind {
   return cfg.sponsorMajorSlots.includes(slot) ? "major" : "minor";
+}
+
+/**
+ * The performance-bonus alternative to a guaranteed lump sum (v44).
+ *
+ * Option A is the whole `guaranteed` figure now. Option B pays
+ * `sponsorBonusUpfrontShare` of it now and puts the rest — multiplied up by
+ * `sponsorBonusPayoutMult` — behind a league finish. The multiplier above 1.0 is
+ * what makes this a decision: the gamble is worth more than it costs, so a club
+ * confident of a good season should take it and a club scrapping for survival
+ * should not.
+ */
+function bonusTermsFor(guaranteed: number, cfg: TuningConfig): SponsorBonusTerms {
+  const upfront = Math.round((guaranteed * cfg.sponsorBonusUpfrontShare) / 100_000) * 100_000;
+  const forgone = Math.max(0, guaranteed - upfront);
+  return {
+    upfront,
+    bonusAmount: Math.round((forgone * cfg.sponsorBonusPayoutMult) / 100_000) * 100_000,
+    finishPosition: cfg.sponsorBonusFinishPosition,
+  };
 }
 
 /** Build one offer for a slot — a lump-sum major or a weekly minor. */
@@ -229,6 +180,10 @@ function makeOffer(state: GameState, teamId: string, slot: SponsorSlot, cfg: Tun
       tier: TIER_NAMES[tierIndex],
       day: state.currentDay,
       expiresDay: state.currentDay + cfg.sponsorDeadlineDaysMajor,
+      // Some sponsors present a second way to be paid (v44). Rolled here so the
+      // alternative is part of the offer the user is looking at, not something
+      // generated at the moment they click.
+      ...(rng() < cfg.sponsorBonusOfferChance ? { bonus: bonusTermsFor(upfront, cfg) } : {}),
     };
   }
 
@@ -396,9 +351,9 @@ function startCooldown(state: GameState, slot: SponsorSlot, cfg: TuningConfig) {
   const span = Math.max(0, cfg.sponsorCooldownDaysMax - cfg.sponsorCooldownDaysMin);
   const days = cfg.sponsorCooldownDaysMin + Math.floor(rng() * (span + 1));
   // A marketable club doesn't stay quiet for long — the next suitor is already
-  // waiting, so each star above the first shortens the lull (v20).
+  // waiting, so each star above the first shortens the lull.
   const stars = marketabilityStarRating(state, state.userTeamId, cfg);
-  const shortened = days * Math.max(0.2, 1 - (stars - 1) * cfg.sponsorMarketabilityCooldownPerStar);
+  const shortened = days * Math.max(0.2, 1 - (stars - 1) * cfg.marketabilityCooldownPerStar);
   (team.sponsorCooldowns ??= {})[slot] = state.currentDay + Math.max(1, Math.round(shortened));
 }
 
@@ -455,8 +410,19 @@ function formatOfferMoney(n: number): string {
   return `£${n}`;
 }
 
+/** Which of a sponsor's two payout models the club is signing up to (v44). */
+export type SponsorPayoutChoice = "guaranteed" | "bonus";
+
 /** Accept an offer: it becomes a signed deal, its slot's other offers clear. */
-export function acceptSponsor(state: GameState, offerId: string, cfg: TuningConfig): string | null {
+export function acceptSponsor(
+  state: GameState,
+  offerId: string,
+  cfg: TuningConfig,
+  /** Which payout model the user picked (v44). "guaranteed" is the whole sum now
+   * and is always available; "bonus" takes less up front for a shot at a
+   * performance bonus, and is only valid on an offer carrying `bonus` terms. */
+  payout: SponsorPayoutChoice = "guaranteed"
+): string | null {
   const team = state.teams[state.userTeamId];
   const offer = team.sponsorOffers?.find((o) => o.id === offerId);
   if (!offer) return "That offer is no longer on the table.";
@@ -467,16 +433,23 @@ export function acceptSponsor(state: GameState, offerId: string, cfg: TuningConf
   // until it is full, an exclusive one refuses the moment it is sold.
   const blocked = slotBlockedReason(state, state.userTeamId, offer.slot, cfg);
   if (blocked) return blocked;
+  // Taking the bonus terms is only possible if this sponsor actually offered
+  // them — the UI hides the button otherwise, but the rule lives here.
+  const onBonus = payout === "bonus" && offer.bonus !== undefined;
+  if (payout === "bonus" && !offer.bonus) return `${offer.brand} haven't offered performance terms.`;
   const deal: SponsorDeal = {
     id: uid("spd"),
     slot: offer.slot,
     kind: offer.kind,
     brand: offer.brand,
     weeklyAmount: offer.weeklyAmount,
-    upfront: offer.upfront,
+    upfront: onBonus ? offer.bonus!.upfront : offer.upfront,
     expirySeason: state.season + offer.seasons - 1,
     signedSeason: state.season,
     seasons: offer.seasons,
+    // The obligation rides on the deal so the rollover can settle it without
+    // needing the offer, which is gone the moment this returns.
+    ...(onBonus ? { bonus: { ...offer.bonus!, seasonsRemaining: offer.seasons } } : {}),
   };
   // Major deals pay their lump sum straight into the budget on signing.
   if (deal.kind === "major") team.budget += deal.upfront;
@@ -577,6 +550,110 @@ export function refreshAiCommercial(state: GameState, cfg: TuningConfig, season 
     team.budget += windfall;
     team.lastInvestmentWindfall = windfall;
   }
+}
+
+// ── Early buyout (v44) ─────────────────────────────────────────────────────
+// A four-year shirt deal signed in the third division is a millstone once the
+// club is promoted: the slot is locked at lower-league money while 5★ suitors
+// are queuing. Buying out pays a penalty on what's left and frees the slot.
+
+/** What remains to be paid over a deal's unexpired seasons — the base the
+ * buyout penalty is charged on. A major's value is the lump sum it paid,
+ * pro-rated over the seasons still to run; a minor's is its weekly fee over the
+ * weeks still to run. */
+export function remainingDealValue(state: GameState, deal: SponsorDeal): number {
+  const seasonsLeft = Math.max(0, deal.expirySeason - state.season + 1);
+  if (deal.kind === "major") {
+    const perSeason = deal.seasons > 0 ? deal.upfront / deal.seasons : 0;
+    return Math.round(perSeason * seasonsLeft);
+  }
+  return Math.round(deal.weeklyAmount * 52 * seasonsLeft);
+}
+
+/** The fee to walk away from a deal today. */
+export function buyoutCost(state: GameState, deal: SponsorDeal, cfg: TuningConfig): number {
+  return Math.round((remainingDealValue(state, deal) * cfg.sponsorBuyoutPenaltyRate) / 1000) * 1000;
+}
+
+/** Why this deal can't be bought out right now, or null if it can. Exposed so
+ * the UI can grey the button and say why, rather than failing on click. */
+export function buyoutBlockedReason(
+  state: GameState,
+  deal: SponsorDeal,
+  cfg: TuningConfig
+): string | null {
+  const held = state.season - deal.signedSeason;
+  if (held < cfg.sponsorBuyoutMinSeasonsHeld) {
+    return `Signed too recently — this deal can be bought out from S${
+      deal.signedSeason + cfg.sponsorBuyoutMinSeasonsHeld
+    }.`;
+  }
+  if (deal.expirySeason < state.season) return "This deal has already expired.";
+  if (state.teams[state.userTeamId].budget < buyoutCost(state, deal, cfg)) {
+    return "Not enough budget to pay the buyout penalty.";
+  }
+  return null;
+}
+
+/**
+ * Cancel an active deal early, paying the penalty. Returns an error string, or
+ * null on success.
+ *
+ * The slot does NOT go on cooldown afterwards: the whole point of buying out is
+ * to get a better deal in that slot now, so making the club wait would defeat
+ * the mechanic. The penalty is the cost.
+ */
+export function buyoutSponsor(state: GameState, dealId: string, cfg: TuningConfig): string | null {
+  const team = state.teams[state.userTeamId];
+  const deal = (team.sponsors ?? []).find((d) => d.id === dealId);
+  if (!deal) return "That deal is no longer active.";
+  const blocked = buyoutBlockedReason(state, deal, cfg);
+  if (blocked) return blocked;
+  const cost = buyoutCost(state, deal, cfg);
+  team.budget -= cost;
+  team.sponsors = (team.sponsors ?? []).filter((d) => d.id !== dealId);
+  state.news.unshift(
+    `${team.name} have bought out their ${
+      SPONSOR_SLOTS.find((s) => s.slot === deal.slot)?.title.toLowerCase() ?? deal.slot
+    } deal with ${deal.brand}, paying ${formatOfferMoney(cost)} to end it early.`
+  );
+  return null;
+}
+
+// ── Performance bonuses (v44) ──────────────────────────────────────────────
+
+/**
+ * Settle every outstanding performance bonus against the season just finished.
+ *
+ * Called at the rollover BEFORE `state.season` advances and before fixtures are
+ * compressed, because it needs the final table of the season being settled. A
+ * deal earns its bonus in each season of its term that the club finishes at or
+ * above the target position, so a three-year deal has three chances at it.
+ */
+export function settleSponsorBonuses(state: GameState, finishPosition: number) {
+  const team = state.teams[state.userTeamId];
+  for (const deal of team.sponsors ?? []) {
+    const bonus = deal.bonus;
+    if (!bonus || (bonus.seasonsRemaining ?? 0) <= 0) continue;
+    bonus.seasonsRemaining = (bonus.seasonsRemaining ?? 0) - 1;
+    if (finishPosition > 0 && finishPosition <= bonus.finishPosition) {
+      team.budget += bonus.bonusAmount;
+      state.news.unshift(
+        `${deal.brand} pay out their ${formatOfferMoney(bonus.bonusAmount)} performance bonus — ${
+          team.name
+        } finished ${finishPosition}${ordinalSuffix(finishPosition)}.`
+      );
+    } else {
+      state.news.unshift(
+        `${deal.brand}'s performance bonus goes unpaid — a top-${bonus.finishPosition} finish was needed.`
+      );
+    }
+  }
+}
+
+function ordinalSuffix(n: number): string {
+  if (n % 100 >= 11 && n % 100 <= 13) return "th";
+  return ["th", "st", "nd", "rd"][n % 10] ?? "th";
 }
 
 /** Season rollover: expire deals that have run their course. Expired slots then

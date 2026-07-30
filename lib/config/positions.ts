@@ -360,6 +360,32 @@ export const POS_LABELS: Record<Pos, string> = {
   ST: "Striker",
 };
 
+/**
+ * Chance a player generated at this position is LEFT-footed (v42).
+ *
+ * Real squads are roughly three-quarters right-footed, but the split is nowhere
+ * near uniform by position: left-sided roles are dominated by left-footers, and
+ * a modern inverted winger on the right is more often left-footed than not.
+ * Pure data — the split is read off this table and never special-cased in code.
+ * Descriptive only; the match engine never reads a player's foot.
+ */
+export const LEFT_FOOT_CHANCE: Record<Pos, number> = {
+  GK: 0.15,
+  CB: 0.25,
+  LB: 0.72,
+  RB: 0.08,
+  DM: 0.2,
+  CM: 0.22,
+  LM: 0.68,
+  RM: 0.12,
+  AM: 0.25,
+  // Wingers cut inside onto the far foot as often as they go outside it, so the
+  // flanks are far closer to even than the full-backs behind them.
+  LW: 0.5,
+  RW: 0.42,
+  ST: 0.24,
+};
+
 export const POS_ORDER: Pos[] = ["GK", "CB", "LB", "RB", "DM", "CM", "LM", "RM", "AM", "LW", "RW", "ST"];
 
 // Broad position groups drive the legend / fallback tinting:

@@ -7,6 +7,130 @@ Save-schema version is noted where it moved. The game auto-migrates older saves 
 
 ---
 
+## 2026-07-30 — Club Marketability replaces the sponsor trait gate
+
+Save schema **43 → 44**. Older saves auto-migrate. **Live sponsor offers are cleared and
+re-quoted** at the new rates (see the rebase note below); **deals you have already signed are
+left untouched** and run to expiry on their original terms.
+
+- **The "who's drawing them in" trait list is gone.** Sponsorship used to be gated on players
+  holding one of three commercial traits, so the whole commercial game hinged on whether the RNG
+  had handed you a Marketable striker — you could win the league, fill the ground and rebuild the
+  squad without the number moving at all. **Club Marketability** is now a **0–100 score built from
+  four things you actually control**, each capped at its own weight:
+  - **League & Division Status (35)** — 50 pts for a top-flight side down to 10 for the bottom
+    tier, **+10 for continental qualification**.
+  - **Squad Star Power (25)** — banded on the **average of your three best players**: under 70 → 5
+    pts, rising to 25 at 85+.
+  - **Recent Team Form (25)** — your **last 10 matches** (win 3, draw 1), scaled onto the weight,
+    **+5 for an unbeaten run of 5 or more**.
+  - **Club Facilities (15)** — your **mean level across the seven income tracks**: 5 pts at L1–3,
+    10 at L4–7, 15 at L8–10.
+- **The score buys three things**, on a five-band ladder: **1★ (0–20)** 2 offers at 1.0× from local
+  businesses, through **3★ (41–60)** 4 offers at 2.5× from national corporations, to **5★ (81–100)**
+  **6 offers at 6.0×** from elite mega sponsors. Higher marketability also pulls better-known
+  brands into the tier roll and shortens the quiet spell after you pass on an offer.
+- **The offer base rate is rebased 5,200 → 1,630.** The old star model topped out at a ~1.88×
+  money multiplier and the new ladder tops out at 6.0×; left alone, every elite sponsorship would
+  have roughly **tripled** overnight. The rebase puts the *top* of the new ladder where the top of
+  the old one sat, so the ladder became the spec's without the commercial economy moving.
+- **Two ways to be paid.** Some major offers now arrive with a choice: **Option A** takes the whole
+  lump sum guaranteed on signing, **Option B** takes 70% now plus a bonus paid **every season of
+  the deal you finish in the top 4**. The bonus pays 1.4× the money given up, so a confident club
+  should gamble and a club scrapping for survival shouldn't. Both prices are shown side by side.
+- **Early buyout.** An active deal can be cancelled for **25% of its remaining value**, freeing the
+  slot immediately — the answer to a four-year shirt deal signed two promotions ago. Only after a
+  deal has been held a full season, so nothing can be signed and flipped.
+- **The three commercial traits still matter, but no longer gate anything.** Marketable, Fan
+  Favourite and Global Icon now lift a player's *effective rating inside Squad Star Power* (a
+  Global Icon is worth about +4.4), so a household name is worth more to a sponsor than his
+  overall alone suggests — without being the difference between having a commercial department
+  and not.
+- **The Investments header is a scannable breakdown**: the score out of 100, star rating, offer
+  multiplier and suitor count on one line, with all four factors, their points and a bar beneath.
+  The breakdown is always visible rather than folded away — it is the one thing on the page that
+  tells you what to go and fix.
+
+---
+
+## 2026-07-30 — Club → Income rebuilt on seven upgrade tracks
+
+Save schema **42 → 43**. Older saves auto-migrate. **Every level you bought on the old ten
+revenue facilities is refunded in full**, at exactly what it cost, and the old facilities are
+removed — the new tracks aren't those purchases at different prices, they're different
+mechanics, so rather than invent a conversion the money goes back in the budget and you
+re-spend it on the new board. AI clubs never bought these levels, so they're untouched.
+
+- **The ten flat revenue facilities are gone.** Stadium, Commercial, Media, Hospitality, Retail,
+  Membership, Events, Academy Partnerships, Ticketing and Digital — all ten paid the same way
+  (a flat weekly sum per level) and differed only in price, which made the page ten copies of
+  one decision. They're replaced by **seven tracks that pay in four different shapes**:
+  - **Low / Mid / High Tier Income** — flat weekly money, ten levels each, three price brackets.
+    Low runs +£30k/wk (£1.5M) to +£300k/wk (£120M); Mid +£50k to +£500k/wk; High +£100k/wk (£10M)
+    up to **+£1M/wk** at level 10 (£800M), the most expensive purchase in the game.
+  - **Player Bonus** — five levels, pays per squad member at or above a rating that *rises with
+    the level*: +£5k/wk per 70+ player at L1, up to +£100k/wk per **90+** player at L5. The only
+    track whose payout moves with your squad rather than your balance.
+  - **Contract Accounting** — ten levels, **−2% to −20% off the weekly wage bill**. Applied to the
+    club's books, not to contracts: no player's wage changes, and the Finances page shows the
+    saving as its own credit line so the wage rows still sum to the figure quoted.
+  - **Stadium Bonus** — ten levels, **+£100k to +£1M banked on every home fixture**, league, cup
+    and Europe alike.
+  - **Performance Bonus** — ten levels, paid on *every* match by result: L1 is +£50k/win,
+    +£30k/draw, +£10k/loss, scaling to +£500k / +£300k / +£100k at L10.
+- **Levels replace, they don't stack.** Low Tier level 2 pays £60k/wk — not level 1 plus level 2.
+  The page says so outright, and each row's expanded detail lists the whole ladder with prices, so
+  a buy order can be planned instead of discovered one level at a time.
+- **Match bonuses are paid when the match is played**, not on the weekly tick, since a club plays
+  a varying number of fixtures in a week. Everything else lands on the weekly finances, where the
+  income line is now **"Income upgrades"** and breaks down per track.
+- Each row shows what the track pays *in its own terms* — "+£60k/wk", "−10% wage bill", "+£400k
+  per home game" — because the seven no longer share a unit.
+
+---
+
+## 2026-07-30 — Correct names, preferred foot, a readable attribute sheet
+
+Save schema **41 → 42**. Older saves auto-migrate; every existing player is assigned a
+preferred foot on load, derived from his own id so the result is stable and order-independent.
+
+- **The default database is rebuilt from the corrected source.** `npm run build:db` was reading
+  `fl26_players_new.csv`, a filename that no longer exists in the tree, so the shipped presets had
+  been frozen on an older source with mangled long-form names ("Kylian Mbappé Lottin", "Vinicius
+  José Paixão de Oliveira Junior"). It now reads **`fl26-players-new.csv`** and all 47 country
+  databases have been regenerated: 756 clubs, 20,416 players, correct names throughout.
+  `scripts/verify-overall.ts` carried the same stale filename and was silently skipping its roster
+  checks — fixed, and those checks now run and pass.
+- **Preferred foot.** Players carry a `foot` ("Left" / "Right"), shown on the profile header beside
+  height. Authored by the real-world database (the source CSV has the column); rolled from the
+  position's real-world left/right split (`LEFT_FOOT_CHANCE` in `config/positions.ts`) for a
+  generated player, so left-footers concentrate down the left the way a real squad's do. A regen
+  inherits his predecessor's foot along with the rest of the frame. Descriptive only — like
+  height, the match engine never reads it. Authorable in the create-a-player and library editors
+  and in a custom database (`foot` on a player seed).
+- **The attribute sheet reads across the full width.** All 35 attributes used to sit in a narrow
+  half-width column beside a six-row "This Season" card, which made the densest thing on the
+  profile a scroll rather than a read. The profile is wider, "This Season" is now a horizontal
+  strip of six figures, and the sheet below it is a masonry of **group cards** — Attacking, Skill,
+  Movement, Power, Mentality, Defending (plus Goalkeeping for a keeper) — three across on desktop,
+  two on tablet, one on a phone. Each attribute gets a proportional meter beside its number, and
+  each group card carries its own mean, so the shape of a player reads before any single figure.
+- **Sell a player straight out of the academy.** A new **SELL** action on every academy squad row
+  (and grid card), between Promote and Release, opening the same club chooser the senior squad
+  uses. Releasing a prospect got you nothing; a club that actually wants him pays for him. The
+  same rules gate it as any other sale — an open window, no live loan, not signed this season —
+  plus one of the academy's own: a prospect **registered for the U21 competition** can't be sold
+  until the next registration window, exactly as he can't be promoted or loaned out.
+- **Club → Club Players: an Academy filter.** A fourth filter beside All / Current / Former showing
+  everyone who came through your academy — still in the academy, promoted to the senior squad, or
+  **sold on years ago**. `academyClubId` survives every transfer, so a graduate stays on his
+  club's ledger permanently, which is the point: the production line is visible even when its
+  best work is playing somewhere else. Rows carry an IN ACADEMY / ACADEMY badge, and the header
+  tallies split properly — a prospect is on the books without being in the senior squad, so he
+  now counts as neither "in the squad today" nor "former".
+
+---
+
 ## 2026-07-28 — Club Players, a fuller assist picture, and a tidier board
 
 No save-schema change — everything here is computed from data the save already carries.

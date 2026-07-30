@@ -7,7 +7,7 @@
 // database entry before worldgen runs.
 
 import { useMemo, useState } from "react";
-import type { Attributes, Pos } from "@/lib/types";
+import type { Attributes, Foot, Pos } from "@/lib/types";
 import type { CountryDatabase, PlayerSeed } from "@/lib/database";
 import { archetypesForPosition } from "@/lib/config/archetypes";
 import { traitsForPosition } from "@/lib/config/traits";
@@ -25,6 +25,8 @@ export interface CustomPlayer {
   positions: Pos[]; // [primary, ...secondaries]
   attrs: Attributes;
   potential: number;
+  /** Preferred foot (v42). undefined = auto (rolled for the position). */
+  foot?: Foot;
   archetypeId?: string; // undefined = auto (rolled for the position)
   traits: string[];
   /** Destination: country code + division id + club index within that division. */
@@ -41,6 +43,7 @@ export function customPlayerSeed(p: CustomPlayer): PlayerSeed {
     age: p.age,
     nationality: p.nationality,
     potential: p.potential,
+    ...(p.foot ? { foot: p.foot } : {}),
     ...(p.archetypeId ? { archetypeId: p.archetypeId } : {}),
     ...(p.traits.length ? { traits: p.traits } : {}),
   };
@@ -77,6 +80,7 @@ export default function CreatePlayerModal({
   const [primary, setPrimary] = useState<Pos>(initial?.positions[0] ?? "ST");
   const [secondaries, setSecondaries] = useState<Pos[]>(initial?.positions.slice(1) ?? []);
   const [attrs, setAttrs] = useState<Attributes>(initial?.attrs ?? uniformAttrs(68));
+  const [foot, setFoot] = useState<Foot | undefined>(initial?.foot);
   const [potential, setPotential] = useState(initial?.potential ?? 80);
   const [archetypeId, setArchetypeId] = useState<string | undefined>(initial?.archetypeId);
   const [traits, setTraits] = useState<string[]>(initial?.traits ?? []);
@@ -136,7 +140,7 @@ export default function CreatePlayerModal({
           {club && <Crest colors={club.colors} short={club.short} size={30} />}
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
           <label className="block sm:col-span-2">
             <span className={labelCls}>PLAYER NAME</span>
             <input
@@ -156,6 +160,14 @@ export default function CreatePlayerModal({
               onChange={(e) => setAge(Math.max(15, Math.min(40, Math.round(Number(e.target.value) || 15))))}
               className="tnum mt-1 w-full rounded-md border border-line bg-raised px-3 py-2 text-ink focus:border-gold focus:outline-none"
             />
+          </label>
+          <label className="block">
+            <span className={labelCls}>FOOT</span>
+            <select value={foot ?? ""} onChange={(e) => setFoot((e.target.value || undefined) as Foot | undefined)} className={selectCls}>
+              <option value="">Auto</option>
+              <option value="Right">Right</option>
+              <option value="Left">Left</option>
+            </select>
           </label>
         </div>
 
@@ -320,6 +332,7 @@ export default function CreatePlayerModal({
                 positions: [primary, ...secondaries],
                 attrs: { ...attrs },
                 potential: effectivePotential,
+                foot,
                 archetypeId,
                 traits,
                 country,

@@ -2,9 +2,10 @@
 
 // Achievements (§ Achievements, v1.45): the manager's own cabinet — two tabs.
 //
-//   • User Accolades — the passively-recorded career numbers (seasons played,
-//     matches, peak 90-overalls held, highest budget, biggest signing…). Pure
-//     read-outs of state.progress.accolades, kept fresh by the game loop.
+//   • User Accolades — the manager's legacy & trophy cabinet (v1.7). Pure
+//     read-outs of state.progress.accolades, kept fresh by the game loop, but
+//     ranked by weight: a manager ID hero, then gold honour badges, then the
+//     routine tallies compressed into strips.
 //   • Achievements — the one-off milestones. Earned ones show gold and stamped
 //     with the season won; locked ones show greyed with a progress bar where the
 //     target is a number worth chasing.
@@ -19,7 +20,7 @@ import {
   ensureProgress,
   type AchievementDef,
 } from "@/lib/achievements";
-import type { PlayerBio, UserAccolades } from "@/lib/types";
+import type { PlayerBio, TransferRecord, UserAccolades } from "@/lib/types";
 import { formatMoney } from "@/lib/value";
 import { POS_LABELS } from "@/lib/config/positions";
 import { Card, Crest, Flag, GhostButton, Ovr, PosBadge, Section, Tabs } from "../ui";
@@ -133,78 +134,328 @@ function HallOfFameTab() {
 }
 
 // ── User Accolades ─────────────────────────────────────────────────────────
+//
+// The manager's trophy cabinet (v1.7). The numbers are the same read-outs of
+// state.progress.accolades as before; what changed is the WEIGHT given to each.
+// Major honours (titles, cups, promotions, player awards) get gold badge cards
+// with a watermark trophy behind the number — and a silhouetted, muted card when
+// the count is still 0, so an unwon honour reads as an empty plinth rather than
+// as a zero in a grid. Everything routine (match tallies, squad peaks, money)
+// collapses into compact strips, which is what killed the old screen's dead
+// space: twenty identical boxes gave a league title the same visual rank as
+// "matches drawn".
 
-/** One stat tile. `hero` styling is reserved for the headline lifetime numbers. */
-function StatTile({
+/** A major honour: big gold number over a watermark emblem, muted when unwon. */
+function HonourCard({
   label,
   value,
+  emblem,
   sub,
-  hero,
+}: {
+  label: string;
+  value: number;
+  emblem: string;
+  sub?: string;
+}) {
+  const won = value > 0;
+  return (
+    <Card
+      className={`relative overflow-hidden p-4 ${
+        won ? "border-gold-lo/50 bg-hover/30" : "border-line bg-surface"
+      }`}
+    >
+      {/* Watermark emblem — sits behind the number, never competes with it. */}
+      <div
+        aria-hidden
+        className={`pointer-events-none absolute -right-2 -top-1 select-none text-6xl leading-none ${
+          won ? "opacity-[0.13]" : "opacity-[0.06] grayscale"
+        }`}
+      >
+        {emblem}
+      </div>
+      <div className="relative">
+        <div className="text-[10px] uppercase tracking-widest text-faint">{label}</div>
+        <div
+          className={`display mt-1 text-4xl font-bold tnum ${won ? "gold-text" : "text-faint/60"}`}
+        >
+          {value}
+        </div>
+        <div className="mt-0.5 min-h-4 text-[11px] text-faint">{won ? sub : "Not yet won"}</div>
+      </div>
+    </Card>
+  );
+}
+
+/** One cell in a compact stat strip. `tone` colours the figure — positive stats
+ * green, negative red — so form reads without parsing the labels. */
+function StripStat({
+  label,
+  value,
+  tone = "neutral",
 }: {
   label: string;
   value: string;
-  sub?: string;
-  hero?: boolean;
+  tone?: "neutral" | "good" | "bad" | "gold";
 }) {
+  const color =
+    tone === "good"
+      ? "text-emerald-400"
+      : tone === "bad"
+        ? "text-rose-400"
+        : tone === "gold"
+          ? "gold-text"
+          : "text-ink";
   return (
-    <Card className={`p-4 ${hero ? "border-gold-lo/40" : ""}`}>
+    <div className="border-l border-t border-line/50 px-3 py-2.5">
       <div className="text-[10px] uppercase tracking-widest text-faint">{label}</div>
-      <div className={`display mt-1 font-bold tnum ${hero ? "gold-text text-3xl" : "text-2xl"}`}>{value}</div>
-      {sub && <div className="mt-0.5 text-[11px] text-faint">{sub}</div>}
+      <div className={`display mt-0.5 text-xl font-bold tnum ${color}`}>{value}</div>
+    </div>
+  );
+}
+
+/** Wraps stat cells in one bordered strip with hairline separators between them.
+ *
+ * The separators are per-cell top+left borders rather than Tailwind's `divide-*`
+ * helpers: `divide-x` on a WRAPPING grid skips only the very first child, so
+ * every row after the first opens with a stray left edge. Negative margins on
+ * the grid pull the outermost borders under the card's own, which leaves clean
+ * interior hairlines at any column count. */
+function StatStrip({ children, cols }: { children: React.ReactNode; cols: string }) {
+  return (
+    <Card className="overflow-hidden">
+      <div className={`grid ${cols} -ml-px -mt-px`}>{children}</div>
+    </Card>
+  );
+}
+
+/** Win/draw/loss proportions as a single bar — the season's shape at a glance.
+ * Renders a flat empty track before a ball has been kicked rather than three
+ * zero-width slivers. */
+function WinRateBar({ w, d, l }: { w: number; d: number; l: number }) {
+  const total = w + d + l;
+  if (total === 0) return <div className="h-2 w-full rounded-full bg-line" />;
+  const pct = (n: number) => `${(n / total) * 100}%`;
+  return (
+    <div className="flex h-2 w-full overflow-hidden rounded-full bg-line">
+      <div className="bg-emerald-500" style={{ width: pct(w) }} title={`${w} won`} />
+      <div className="bg-white/25" style={{ width: pct(d) }} title={`${d} drawn`} />
+      <div className="bg-rose-500" style={{ width: pct(l) }} title={`${l} lost`} />
+    </div>
+  );
+}
+
+/** A record signing / sale. Shows the player behind the fee — rating, flag,
+ * position and the season the deal was done — and clicks through to his profile
+ * while he still exists in the save. Falls back to an empty plinth before the
+ * club's first paid deal in that direction. */
+function RecordTransferCard({
+  title,
+  rec,
+  accent,
+}: {
+  title: string;
+  rec?: TransferRecord;
+  accent: "in" | "out";
+}) {
+  const game = useGame((s) => s.game)!;
+  const viewPlayer = useGame((s) => s.viewPlayer);
+
+  if (!rec) {
+    return (
+      <Card className="p-4">
+        <div className="text-[10px] uppercase tracking-widest text-faint">{title}</div>
+        <div className="mt-2.5 flex items-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-dashed border-line text-lg text-faint/50">
+            ?
+          </div>
+          <div className="text-[12px] text-faint">No major transfers yet</div>
+        </div>
+      </Card>
+    );
+  }
+
+  // The id may dangle once a long save prunes the player — the card is built
+  // from the snapshot either way, and only the click-through is gated.
+  const exists = !!game.players[rec.playerId];
+  const body = (
+    <div className="flex items-center gap-3">
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-line bg-raised">
+        <Ovr value={rec.overall} size="sm" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="display flex items-center gap-2 font-semibold text-ink">
+          <Flag nat={rec.nationality} size={14} />
+          <span className="truncate">{rec.name}</span>
+        </div>
+        <div className="mt-0.5 flex items-center gap-2 text-[11px] text-faint">
+          <PosBadge pos={rec.pos} />
+          <span>Season {rec.season}</span>
+        </div>
+      </div>
+      <div
+        className={`display shrink-0 text-xl font-bold tnum ${
+          accent === "in" ? "text-ink" : "text-emerald-400"
+        }`}
+      >
+        {formatMoney(rec.fee)}
+      </div>
+    </div>
+  );
+
+  return (
+    <Card className="border-gold-lo/30 p-4">
+      <div className="text-[10px] uppercase tracking-widest text-faint">{title}</div>
+      <div className="mt-2.5">
+        {exists ? (
+          <button
+            onClick={() => viewPlayer(rec.playerId)}
+            className="w-full text-left transition-opacity hover:opacity-80"
+            title="View profile"
+          >
+            {body}
+          </button>
+        ) : (
+          body
+        )}
+      </div>
+    </Card>
+  );
+}
+
+/** The manager ID badge: who you are, where you are, and the two numbers that
+ * sum up a career — seasons served and silverware lifted. */
+function ManagerHero({ a }: { a: UserAccolades }) {
+  const game = useGame((s) => s.game)!;
+  const club = game.teams[game.userTeamId];
+  const league = club ? game.leagues[club.leagueId] : undefined;
+  const trophies = a.leagueTitles + a.cupsWon;
+
+  return (
+    <Card className="relative mb-6 overflow-hidden border-gold-lo/40">
+      {/* Soft gold wash from the left so the badge glows without a hard border. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-[0.07]"
+        style={{
+          background:
+            "radial-gradient(120% 140% at 0% 0%, var(--color-gold-hi), transparent 60%)",
+        }}
+      />
+      {/* The identity block takes a whole row on a phone (basis-full) and shares
+          one with the tallies from `sm` up — at 390px the two side by side
+          truncated the manager's name to make room for two single digits. */}
+      <div className="relative flex flex-wrap items-center gap-x-6 gap-y-4 p-5">
+        {club && <Crest colors={club.colors} short={club.short} size={52} />}
+        <div className="min-w-0 flex-1 basis-[60%] sm:basis-auto">
+          <div className="text-[10px] uppercase tracking-widest text-faint">Manager</div>
+          <div className="display truncate text-2xl font-bold text-ink">
+            {game.managerName || "Manager"}
+          </div>
+          <div className="mt-0.5 truncate text-[12px] text-dim">
+            {club ? club.name : "—"}
+            {league && <span className="text-faint"> · {league.name}</span>}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-6">
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-faint">Seasons</div>
+            <div className="display text-3xl font-bold tnum text-ink">{a.seasonsPlayed}</div>
+          </div>
+          <div className="h-10 w-px bg-line" />
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-faint">Trophies</div>
+            <div className="display text-3xl font-bold tnum gold-text">{trophies}</div>
+          </div>
+        </div>
+      </div>
+      <div className="gold-thread w-full" />
     </Card>
   );
 }
 
 function AccoladesTab({ a }: { a: UserAccolades }) {
-  const winPct =
-    a.matchesPlayed > 0 ? Math.round((a.matchesWon / a.matchesPlayed) * 100) : 0;
+  const winPct = a.matchesPlayed > 0 ? Math.round((a.matchesWon / a.matchesPlayed) * 100) : 0;
+  const gd = a.goalsFor - a.goalsAgainst;
+  const net = a.totalSpent - a.totalReceived;
+
   return (
-    <div className="space-y-6">
-      <Section title="Career">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          <StatTile label="Seasons Played" value={String(a.seasonsPlayed)} hero />
-          <StatTile label="League Titles" value={String(a.leagueTitles)} hero />
-          <StatTile label="Cups Won" value={String(a.cupsWon)} hero />
-          <StatTile label="Promotions" value={String(a.promotions)} hero />
-        </div>
-      </Section>
+    <div>
+      <ManagerHero a={a} />
 
-      <Section title="Matches">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          <StatTile label="Played" value={String(a.matchesPlayed)} />
-          <StatTile label="Won" value={String(a.matchesWon)} sub={`${winPct}% win rate`} />
-          <StatTile label="Drawn" value={String(a.matchesDrawn)} />
-          <StatTile label="Lost" value={String(a.matchesLost)} />
-          <StatTile label="Goals For" value={String(a.goalsFor)} />
-          <StatTile label="Goals Against" value={String(a.goalsAgainst)} />
-          <StatTile
-            label="Goal Difference"
-            value={`${a.goalsFor - a.goalsAgainst >= 0 ? "+" : ""}${a.goalsFor - a.goalsAgainst}`}
+      <Section title="Major Honours">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <HonourCard label="League Titles" value={a.leagueTitles} emblem="🏆" />
+          <HonourCard label="Cups Won" value={a.cupsWon} emblem="🥇" />
+          <HonourCard label="Promotions" value={a.promotions} emblem="⬆️" />
+          <HonourCard
+            label="Player Honours"
+            value={a.playerAwards}
+            emblem="⭐"
+            sub="won by your players"
           />
         </div>
       </Section>
 
-      <Section title="Squad Quality">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          <StatTile label="Peak 90+ Rated" value={String(a.peak90Overalls)} sub="held at once" />
-          <StatTile label="Peak 85+ Rated" value={String(a.peak85Overalls)} sub="held at once" />
-          <StatTile label="Player Honours" value={String(a.playerAwards)} sub="won by your players" />
+      <Section title="Match Record">
+        <div className="space-y-3">
+          <StatStrip cols="grid-cols-2 sm:grid-cols-4 lg:grid-cols-7">
+            <StripStat label="Played" value={String(a.matchesPlayed)} />
+            <StripStat label="Won" value={String(a.matchesWon)} tone="good" />
+            <StripStat label="Drawn" value={String(a.matchesDrawn)} />
+            <StripStat label="Lost" value={String(a.matchesLost)} tone="bad" />
+            <StripStat label="Goals For" value={String(a.goalsFor)} tone="good" />
+            <StripStat label="Goals Against" value={String(a.goalsAgainst)} tone="bad" />
+            <StripStat
+              label="Goal Diff"
+              value={`${gd >= 0 ? "+" : ""}${gd}`}
+              tone={gd > 0 ? "good" : gd < 0 ? "bad" : "neutral"}
+            />
+          </StatStrip>
+          <Card className="p-4">
+            <div className="mb-2 flex items-baseline justify-between">
+              <span className="text-[10px] uppercase tracking-widest text-faint">Win Rate</span>
+              <span className="display text-lg font-bold tnum text-ink">{winPct}%</span>
+            </div>
+            <WinRateBar w={a.matchesWon} d={a.matchesDrawn} l={a.matchesLost} />
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-faint">
+              <span className="flex items-center gap-1.5">
+                <i className="h-2 w-2 rounded-full bg-emerald-500" /> {a.matchesWon} won
+              </span>
+              <span className="flex items-center gap-1.5">
+                <i className="h-2 w-2 rounded-full bg-white/25" /> {a.matchesDrawn} drawn
+              </span>
+              <span className="flex items-center gap-1.5">
+                <i className="h-2 w-2 rounded-full bg-rose-500" /> {a.matchesLost} lost
+              </span>
+            </div>
+          </Card>
         </div>
       </Section>
 
-      <Section title="Finances & Market">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          <StatTile label="Peak Budget" value={formatMoney(a.peakBudget)} hero />
-          <StatTile label="Biggest Signing" value={formatMoney(a.biggestSigningFee)} />
-          <StatTile label="Biggest Sale" value={formatMoney(a.biggestSaleFee)} />
-          <StatTile label="Total Spent" value={formatMoney(a.totalSpent)} />
-          <StatTile label="Total Received" value={formatMoney(a.totalReceived)} />
-          <StatTile
-            label="Net Spend"
-            value={formatMoney(a.totalSpent - a.totalReceived)}
-            sub={a.totalSpent - a.totalReceived >= 0 ? "spent" : "profit"}
-          />
+      <Section title="Squad Records">
+        <div className="space-y-3">
+          <StatStrip cols="grid-cols-2">
+            <StripStat label="Peak 90+ Rated" value={String(a.peak90Overalls)} tone="gold" />
+            <StripStat label="Peak 85+ Rated" value={String(a.peak85Overalls)} tone="gold" />
+          </StatStrip>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <RecordTransferCard title="Record Signing" rec={a.recordSigning} accent="in" />
+            <RecordTransferCard title="Record Sale" rec={a.recordSale} accent="out" />
+          </div>
         </div>
+      </Section>
+
+      <Section title="Financial Legacy">
+        <StatStrip cols="grid-cols-2 lg:grid-cols-4">
+          <StripStat label="Peak Budget" value={formatMoney(a.peakBudget)} tone="gold" />
+          <StripStat label="Total Spent" value={formatMoney(a.totalSpent)} tone="bad" />
+          <StripStat label="Total Received" value={formatMoney(a.totalReceived)} tone="good" />
+          <StripStat
+            label={net >= 0 ? "Net Spend" : "Net Profit"}
+            value={formatMoney(Math.abs(net))}
+            tone={net > 0 ? "bad" : net < 0 ? "good" : "neutral"}
+          />
+        </StatStrip>
       </Section>
     </div>
   );

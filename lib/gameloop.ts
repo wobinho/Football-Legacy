@@ -28,7 +28,14 @@ import {
   mentorGrowthBonus,
   weeklyProgressTick,
 } from "./development";
-import { weeklyEconomyTick, applySeasonPrizes, applyAiSeasonSubsidy, applyAiSurplusReinvestment, facilityGrowthMult } from "./economy";
+import {
+  weeklyEconomyTick,
+  applySeasonPrizes,
+  applyAiSeasonSubsidy,
+  applyAiSurplusReinvestment,
+  facilityGrowthMult,
+  matchUpgradeIncome,
+} from "./economy";
 import { gcnWeeklyTick } from "./gcn";
 import {
   aiWeeklyTransferTick,
@@ -48,7 +55,12 @@ import { ACCOLADE_META, runSeasonAwardsCeremony } from "./accolades";
 import { trackUserMatch, trackRollover, syncProgress, userPlayerAwardsIn, achievementTitles } from "./achievements";
 import { generateStaffMarket, staffMarketTick, refreshStaffMarket } from "./staff";
 import { scoutMarketTick, refreshScoutMarketFull } from "./scouts";
-import { refreshAiCommercial, refreshSponsorOffers, rolloverSponsors } from "./sponsors";
+import {
+  refreshAiCommercial,
+  refreshSponsorOffers,
+  rolloverSponsors,
+  settleSponsorBonuses,
+} from "./sponsors";
 import { getFormation } from "./config/formations";
 import {
   runIntakeDay,
@@ -273,6 +285,11 @@ export function applyMatchResult(state: GameState, fixture: Fixture, result: Mat
     const own = userIsHome ? result.homeGoals : result.awayGoals;
     const opp = userIsHome ? result.awayGoals : result.homeGoals;
     trackUserMatch(state, own, opp);
+    // Match-day income upgrades (v43): the Stadium Bonus for playing at home and
+    // the Performance Bonus for the result. Banked here, when the fixture is
+    // played, rather than on the weekly tick — they're per-match lump sums, and
+    // a club plays a varying number of matches in a week.
+    state.teams[state.userTeamId].budget += matchUpgradeIncome(state, state.userTeamId, userIsHome, own, opp, cfg);
     syncProgress(state);
   }
 }
@@ -725,6 +742,12 @@ function appendCareerRows(state: GameState) {
 
 export function runSeasonRollover(state: GameState) {
   const summary = buildSeasonSummary(state);
+
+  // Settle sponsor performance bonuses (v44) against the finish just recorded —
+  // here, while the summary still describes the season being closed out and
+  // before promotion/relegation moves the club. A deal signed on bonus terms
+  // pays out in each season of its term the club hits the target.
+  settleSponsorBonuses(state, summary.userPosition ?? 0);
 
   // prizes before promotion shuffle (based on final tables)
   applySeasonPrizes(state, cfg);

@@ -2,16 +2,16 @@
 // playable divisions plus selected sim-only leagues — into the game schema.
 // Deterministic given a seed. A future CSV importer writes the same shapes.
 
-import type { Attributes, GameState, League, PlayerBio, Pos, Team, Tactic } from "./types";
+import type { Attributes, Foot, GameState, League, PlayerBio, Pos, Team, Tactic } from "./types";
 import { SCHEMA_VERSION } from "./types";
 import { TUNING, type TuningConfig } from "./config/tuning";
 import { archetypesForPosition, getArchetype, DEFAULT_HEIGHT_CM } from "./config/archetypes";
 import { traitsForPosition } from "./config/traits";
-import { fitAttrsToOverall, keyAttrsFor, overallFromAttrs } from "./config/positions";
+import { fitAttrsToOverall, keyAttrsFor, LEFT_FOOT_CHANCE, overallFromAttrs } from "./config/positions";
 import { ATTR_KEYS, normalizeAttrs } from "./config/attributes";
 import { poolFor, NAME_POOLS } from "./config/names";
 import { defaultCountryDB, type ClubSeed, type CountryDatabase, type PlayerSeed } from "./database";
-import { FORMATIONS } from "./config/formations";
+import { AI_FORMATIONS } from "./config/formations";
 import { DEFAULT_TIER_NAMES, MAX_DIVISION_DEPTH, generateDivisionClubs } from "./config/divisions";
 import { mulberry32, deriveSeed, pick, randInt, randNormal, randRange, shuffle, type RNG } from "./rng";
 import { playerValue } from "./value";
@@ -23,7 +23,7 @@ import { resolveSimLeagues } from "./simresolver";
 import { refreshSponsorOffers, seedAiSponsorBooks } from "./sponsors";
 import { initAcademyState, seedInitialAcademy } from "./academy";
 import { canRunEuropeanCups, initEuropeanState } from "./european";
-import { emptyProgress } from "./achievements";
+import { emptyProgress, syncProgress } from "./achievements";
 import { baseWage, ensureContracts, marketWageMult } from "./contracts";
 
 /** The season a brand-new world is built at. Authored contract terms are anchored
@@ -135,6 +135,13 @@ function rollHeight(rng: RNG, archetypeId: string, age: number, cfg: TuningConfi
   // Below the full-growth age a prospect is still short of his adult frame.
   const grown = age >= cfg.heightFullAge ? 1 : 1 - (cfg.heightFullAge - age) * cfg.heightPerYoungYear;
   return Math.round(Math.max(160, Math.min(210, adult * Math.max(0.9, grown))));
+}
+
+/** Roll a preferred foot (v42) from the position's real-world left/right split.
+ * Descriptive only — nothing in the engine reads it — but it makes a squad list
+ * read like a real one, with left-footers concentrated down the left. */
+function rollFoot(rng: RNG, pos: Pos): Foot {
+  return rng() < LEFT_FOOT_CHANCE[pos] ? "Left" : "Right";
 }
 
 /**
@@ -279,6 +286,7 @@ export function generatePlayer(
     age,
     nationality: opts.nat,
     heightCm: rollHeight(rng, archetype.id, age, cfg),
+    foot: rollFoot(rng, opts.pos),
     positions,
     archetypeId: archetype.id,
     attrs,
@@ -332,8 +340,10 @@ export function regenFromRetiree(rng: RNG, cfg: TuningConfig, retiree: PlayerBio
   // Inherit the retiree's peak ceiling — the whole point of a regen is the chance
   // it grows into the shoes it was born to fill.
   p.potential = Math.round(Math.min(cfg.potentialAbsoluteCap, Math.max(p.overall + 6, retiree.potential)));
-  // Same frame as the man he succeeds (a target man's regen is a target man).
+  // Same frame as the man he succeeds (a target man's regen is a target man),
+  // down to the foot he plays off.
   if (typeof retiree.heightCm === "number") p.heightCm = retiree.heightCm;
+  if (retiree.foot) p.foot = retiree.foot;
   // A free agent: no club, ready to be signed off the market.
   p.clubId = null;
   p.contract = undefined;
@@ -382,6 +392,8 @@ export function materializePlayer(
   if (typeof seed.heightCm === "number" && Number.isFinite(seed.heightCm)) {
     p.heightCm = Math.round(Math.max(150, Math.min(215, seed.heightCm)));
   }
+  // Authored foot (v42) beats the positional roll, same reasoning as height.
+  if (seed.foot === "Left" || seed.foot === "Right") p.foot = seed.foot;
 
   if (seed.attrs) {
     // Attribute-driven: authored attrs are the source of truth; overall derives.
@@ -633,7 +645,7 @@ function randomTactic(rng: RNG): Tactic {
   // the v19 hybrids appearing as the distinctive minority — so a Gegenpress or a
   // Park-the-Bus side is a match-up worth noticing rather than the norm.
   return {
-    formationId: pick(rng, FORMATIONS).id,
+    formationId: pick(rng, AI_FORMATIONS).id,
     mentality: pick(rng, ["Defensive", "Balanced", "Balanced", "Attacking"] as const),
     style: pick(rng, [
       "Possession", "Possession",
@@ -994,6 +1006,13 @@ export function generateWorld(opts: NewGameOptions): GameState {
   // order, 0 games) for the open summer window. They fill in at the winter window
   // (~halfway) and again after their final round (full).
   resolveSimLeagues(state, 0, cfg);
+
+  // Seed the accolade high-water marks off the opening squad and war chest
+  // (v1.7). Without this the cabinet reads "Peak Budget £0" on a brand-new save
+  // — the marks are only refreshed at a match, transfer or rollover, so a club
+  // that starts with £53m and an 88-rated striker showed nothing until its first
+  // game. New worlds skip the migration path that syncs everything else.
+  syncProgress(state);
 
   const user = teams[opts.userTeamId];
   state.inbox.push({

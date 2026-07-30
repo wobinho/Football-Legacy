@@ -15,7 +15,8 @@
 // `loadSavedTactic` restores whatever part of the preset is still legal and
 // reports what it had to drop, so an old preset is always worth loading.
 
-import type { GameState, SavedTactic, Tactic } from "./types";
+import type { AttrKey } from "./config/attributes";
+import type { GameState, PlayerBio, SavedTactic, Tactic, TeamAssignments } from "./types";
 import { getFormation, styleLabel } from "./config/formations";
 import { TUNING } from "./config/tuning";
 import { uid } from "./rng";
@@ -189,4 +190,163 @@ export function loadSavedTactic(state: GameState, id: string): LoadTacticResult 
 export function tacticSummary(t: Tactic): string {
   const formation = getFormation(t.formationId);
   return `${formation.name} · ${t.mentality} · ${styleLabel(t.style)}`;
+}
+
+// ── Auto-assign (v1.69) ───────────────────────────────────────────────────
+// Captain and the three set-piece takers are four dropdowns over the same XI,
+// and the right answer to each is legible from the attributes — a manager
+// scrolling four pickers to find who has the best Penalties is doing arithmetic
+// the game can do for him. Auto-assign fills all four with the best man in slot.
+//
+// Scoring is a TABLE, in the same spirit as the rest of the config: each role
+// names the attributes that decide it and the trait that is ideal for it. Adding
+// a role means adding a row, never a branch. Nothing here reads an archetype by
+// name (§ the engine rule) — the trait bonus is a flat multiplier looked up by id.
+
+interface RoleSpec {
+  role: keyof TeamAssignments;
+  /** Attributes that decide the role, with their relative weights. */
+  attrs: Partial<Record<AttrKey, number>>;
+  /** Trait id that makes a player ideal here, and how much it is worth. */
+  trait?: { id: string; mult: number };
+  /** Weight on raw overall, so a far better footballer wins a near-tie. */
+  overallWeight: number;
+  /** A keeper is a legal captain but never a set-piece taker. */
+  allowGk?: boolean;
+}
+
+/**
+ * What each on-pitch role actually wants.
+ *
+ * The trait multipliers are deliberately decisive but not absolute (a
+ * Dead-Ball Specialist is worth roughly a 25-point attribute edge): the engine
+ * gives the designated taker a real bonus for the trait, so it should dominate a
+ * marginal attribute gap — but a Dead-Ball Specialist who cannot pass should
+ * still lose the corners to a genuine crosser.
+ */
+const ROLE_SPECS: RoleSpec[] = [
+  {
+    // No "leadership" attribute exists, so the armband goes to the composed,
+    // aggressive, positionally-aware professional — plus a strong pull toward
+    // experience, since a 19-year-old is rarely the right captain.
+    role: "captainId",
+    attrs: { composure: 1, aggression: 0.5, reactions: 0.4, positioning: 0.3 },
+    trait: { id: "leader", mult: 1.3 },
+    overallWeight: 0.6,
+    allowGk: true,
+  },
+  {
+    role: "penaltyTakerId",
+    attrs: { penalties: 1, composure: 0.6, finishing: 0.5, shotPower: 0.3 },
+    trait: { id: "dead_ball", mult: 1.25 },
+    overallWeight: 0.15,
+  },
+  {
+    role: "freeKickTakerId",
+    attrs: { fkAccuracy: 1, curve: 0.5, shotPower: 0.4, longShots: 0.3 },
+    trait: { id: "dead_ball", mult: 1.25 },
+    overallWeight: 0.15,
+  },
+  {
+    role: "cornerTakerId",
+    attrs: { crossing: 1, curve: 0.6, vision: 0.4, longPassing: 0.3 },
+    trait: { id: "maestro", mult: 1.2 },
+    overallWeight: 0.15,
+  },
+];
+
+/** Extra weight on age for the armband: peaks in the late twenties. Captaincy is
+ * the one role where being a senior figure in the dressing room matters more than
+ * being the best footballer on the pitch. */
+function captaincyAgeMult(age: number): number {
+  if (age >= 27 && age <= 34) return 1.15;
+  if (age >= 24) return 1.05;
+  if (age >= 21) return 0.95;
+  return 0.85;
+}
+
+/** How well `p` suits `spec`. Higher is better; never negative. */
+function roleScore(p: PlayerBio, spec: RoleSpec): number {
+  let sum = 0;
+  let weight = 0;
+  for (const [key, w] of Object.entries(spec.attrs) as [AttrKey, number][]) {
+    sum += (p.attrs[key] ?? 0) * w;
+    weight += w;
+  }
+  let score = (weight > 0 ? sum / weight : 0) + p.overall * spec.overallWeight;
+  if (spec.trait && p.traits.includes(spec.trait.id)) score *= spec.trait.mult;
+  if (spec.role === "captainId") score *= captaincyAgeMult(p.age);
+  return Math.max(0, score);
+}
+
+/** What an auto-assign actually changed, so the UI can say something specific. */
+export interface AutoAssignResult {
+  /** How many of the four roles now name a different player than before. */
+  changed: number;
+  /** The XI was empty, so nothing could be assigned. */
+  noXi: boolean;
+}
+
+/**
+ * Fill every on-pitch assignment with the best man in the current starting XI.
+ *
+ * Roles are independent by design — the captain may well also be the penalty
+ * taker, exactly as at a real club — so this makes four separate best-in-slot
+ * picks rather than distributing the four roles across four different players.
+ *
+ * Only the fielded XI is considered: an assignment held by someone on the bench
+ * is ignored by the engine (`buildSideInput` drops it), so offering it here would
+ * be a setting that silently does nothing.
+ */
+export function autoAssignRoles(state: GameState): AutoAssignResult {
+  const team = state.teams[state.userTeamId];
+  const xi = Object.values(state.lineup ?? {})
+    .map((id) => state.players[id])
+    .filter((p): p is PlayerBio => !!p && !p.retired);
+
+  if (xi.length === 0) return { changed: 0, noXi: true };
+
+  const assignments = (team.assignments ??= {});
+  let changed = 0;
+  for (const spec of ROLE_SPECS) {
+    const pool = spec.allowGk ? xi : xi.filter((p) => p.positions[0] !== "GK");
+    // A side of eleven keepers is not a real case, but a one-man XI mid-pick is:
+    // fall back to the whole XI rather than leaving the role empty.
+    const candidates = pool.length > 0 ? pool : xi;
+    let best: PlayerBio | null = null;
+    let bestScore = -1;
+    for (const p of candidates) {
+      const score = roleScore(p, spec);
+      if (score > bestScore) {
+        bestScore = score;
+        best = p;
+      }
+    }
+    if (!best) continue;
+    if (assignments[spec.role] !== best.id) changed++;
+    assignments[spec.role] = best.id;
+  }
+  return { changed, noXi: false };
+}
+
+/** The best man in the XI for one role — what the per-row "best fit" hint reads.
+ * Returns null when the XI is empty. */
+export function bestForRole(state: GameState, role: keyof TeamAssignments): PlayerBio | null {
+  const spec = ROLE_SPECS.find((r) => r.role === role);
+  if (!spec) return null;
+  const xi = Object.values(state.lineup ?? {})
+    .map((id) => state.players[id])
+    .filter((p): p is PlayerBio => !!p && !p.retired);
+  const pool = spec.allowGk ? xi : xi.filter((p) => p.positions[0] !== "GK");
+  const candidates = pool.length > 0 ? pool : xi;
+  let best: PlayerBio | null = null;
+  let bestScore = -1;
+  for (const p of candidates) {
+    const score = roleScore(p, spec);
+    if (score > bestScore) {
+      bestScore = score;
+      best = p;
+    }
+  }
+  return best;
 }

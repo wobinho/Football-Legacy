@@ -22,6 +22,8 @@ import { ARCHETYPES } from "../lib/config/archetypes";
 import { TRAITS, RETIRED_TRAIT_IDS } from "../lib/config/traits";
 import { SPONSOR_SLOTS } from "../lib/sponsors";
 import { clubPlayerHistory } from "../lib/recordbook";
+import { saleSuitors, sellToClub } from "../lib/transfers";
+import { transferWindowState } from "../lib/calendar";
 
 const SEASONS = Number(process.argv[2] ?? 3);
 
@@ -219,3 +221,41 @@ if (longest) {
 }
 const squadCovered = state.teams[state.userTeamId].playerIds.every((id) => roll.some((s) => s.playerId === id));
 console.log(`every current squad member listed: ${squadCovered}`);
+// The Academy filter (v1.71) spans every graduate the club ever produced — on the
+// books, promoted, or sold on — so it has to cover the academy squad too.
+const academyRows = roll.filter((s) => s.academy);
+const academyCovered = (state.teams[state.userTeamId].academyPlayerIds ?? []).every((id) =>
+  roll.some((s) => s.playerId === id)
+);
+console.log(
+  `academy filter: ${new Set(academyRows.map((s) => s.playerId)).size} graduates (${academyRows.filter((s) => s.inAcademy).length} on the books) · every prospect listed: ${academyCovered}`
+);
+
+// ── Selling out of the academy (v1.71) ────────────────────────────────────
+// A prospect can be sold straight from the academy, through the same chooser the
+// senior squad uses. The point of the assertion is the AFTERMATH: he has to
+// leave BOTH squad lists, and he has to stay on the club's academy ledger
+// forever — the whole reason the Academy filter can show players who were sold.
+const sellable = (state.teams[state.userTeamId].academyPlayerIds ?? [])
+  .map((id) => state.players[id])
+  .filter((p) => p && !p.loan && !(state.academy.u21.registered ?? []).includes(p.id))
+  .sort((a, b) => b.overall - a.overall);
+const forSale = sellable.find((p) => saleSuitors(state, p.id, TUNING).length > 0);
+console.log(`\n── Academy sale ──`);
+if (!forSale) {
+  console.log(`no prospect drew a suitor today (window ${transferWindowState(state.currentDay, state.schedule).open ? "open" : "shut"}) — nothing to sell`);
+} else {
+  const suitor = saleSuitors(state, forSale.id, TUNING)[0];
+  const before = state.teams[state.userTeamId].budget;
+  const err = sellToClub(state, forSale.id, suitor.clubId, TUNING);
+  const team = state.teams[state.userTeamId];
+  console.log(
+    `sold ${forSale.name} (${forSale.age}y, ${forSale.overall}) to ${suitor.name} for £${(suitor.fee / 1e6).toFixed(1)}M${err ? ` — ERROR: ${err}` : ""}`
+  );
+  console.log(`  off the academy list: ${!(team.academyPlayerIds ?? []).includes(forSale.id)}`);
+  console.log(`  off the senior list:  ${!team.playerIds.includes(forSale.id)}`);
+  console.log(`  budget credited:      ${team.budget > before}`);
+  const after = clubPlayerHistory(state, state.userTeamId);
+  const row = after.find((s) => s.playerId === forSale.id);
+  console.log(`  still on the academy ledger after the sale: ${!!row?.academy} (in academy: ${!!row?.inAcademy})`);
+}

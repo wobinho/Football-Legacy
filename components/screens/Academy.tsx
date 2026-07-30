@@ -58,9 +58,11 @@ import { formatMoney } from "@/lib/value";
 import { matchesPlayerName } from "@/lib/search";
 import { staffSlotsForDept } from "@/lib/staff";
 import { Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, GhostButton, GoldButton, Modal, Ovr, PlayerCard, PlayerGrid, PosBadge, PotentialBadge, Section, Stars, StarRange, Tabs, UpgradeCard, usePlayerView, ViewToggle } from "../ui";
-// The loan chooser is shared with the senior squad now (v1.52) — both squads
-// resolve a move the same way, so the modal lives outside this screen.
-import { LoanOfferModal } from "./SquadMoveModals";
+// The loan and sale choosers are shared with the senior squad (v1.52, v1.71) —
+// both squads resolve a move the same way, so the modals live outside this
+// screen and a prospect is sold through exactly the path a senior pro is.
+import { LoanOfferModal, SellPlayerModal } from "./SquadMoveModals";
+import { signedThisSeason } from "@/lib/transfers";
 
 // The Staff tab is gone (v1.65): the Youth Coach and the scout roster were split
 // across two tabs from the assignments they drive, so hiring a scout and sending
@@ -655,6 +657,8 @@ function SquadTab() {
   const [view, setView] = usePlayerView("academy");
   // Which prospect (if any) has the "Send on Loan" chooser open.
   const [loanFor, setLoanFor] = useState<string | null>(null);
+  // …and which has the "Sell Player" chooser open (v1.71).
+  const [sellFor, setSellFor] = useState<string | null>(null);
 
   const team = game.teams[game.userTeamId];
   const seniorRoom = TUNING.squadCap - team.playerIds.length;
@@ -702,22 +706,25 @@ function SquadTab() {
     />
   );
 
-  const loanModal = loanFor ? (
-    <LoanOfferModal playerId={loanFor} onClose={() => setLoanFor(null)} />
-  ) : null;
+  const moveModals = (
+    <>
+      {loanFor && <LoanOfferModal playerId={loanFor} onClose={() => setLoanFor(null)} />}
+      {sellFor && <SellPlayerModal playerId={sellFor} onClose={() => setSellFor(null)} />}
+    </>
+  );
 
   if (view === "grid")
     return (
       <>
         <GraduatesPanel />
         {grid()}
-        {loanModal}
+        {moveModals}
       </>
     );
 
   return (
     <div className="space-y-6">
-      {loanModal}
+      {moveModals}
       <GraduatesPanel />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-2">
@@ -791,9 +798,11 @@ function SquadTab() {
                   isFocus={isFocus}
                   registered={registered}
                   windowOpen={windowOpen}
+                  signedLock={signedThisSeason(game, p)}
                   seniorRoom={seniorRoom}
                   onToggleFocus={toggleFocus}
                   onLoanClick={setLoanFor}
+                  onSellClick={setSellFor}
                   onRecall={recall}
                   onPromote={promote}
                   onRelease={release}
@@ -860,9 +869,11 @@ function SquadTab() {
                       isFocus={isFocus}
                       registered={registered}
                       windowOpen={windowOpen}
+                      signedLock={signedThisSeason(game, p)}
                       seniorRoom={seniorRoom}
                       onToggleFocus={toggleFocus}
                       onLoanClick={setLoanFor}
+                      onSellClick={setSellFor}
                       onRecall={recall}
                       onPromote={promote}
                       onRelease={release}
@@ -879,16 +890,18 @@ function SquadTab() {
 }
 
 /** The per-prospect action cluster (training-plan picker, focus, loan, promote,
- * release), shared between the academy squad's list rows and its grid cards so
- * both offer exactly the same controls. */
+ * sell, release), shared between the academy squad's list rows and its grid
+ * cards so both offer exactly the same controls. */
 function SquadActions({
   p,
   isFocus,
   registered,
   windowOpen,
+  signedLock,
   seniorRoom,
   onToggleFocus,
   onLoanClick,
+  onSellClick,
   onRecall,
   onPromote,
   onRelease,
@@ -897,9 +910,11 @@ function SquadActions({
   isFocus: boolean;
   registered: boolean;
   windowOpen: boolean;
+  signedLock: boolean;
   seniorRoom: number;
   onToggleFocus: (id: string) => void;
   onLoanClick: (id: string) => void;
+  onSellClick: (id: string) => void;
   onRecall: (id: string) => void;
   onPromote: (id: string) => void;
   onRelease: (id: string) => void;
@@ -949,6 +964,26 @@ function SquadActions({
         }
         onClick={() => onPromote(p.id)}
         disabled={seniorRoom <= 0 || !!p.loan || p.age < TUNING.academyPromoteMinAge || registered}
+      />
+      {/* Sell a prospect straight out of the academy (v1.71). Releasing him gets
+          you nothing; a club that actually wants him pays for him. Same chooser
+          the senior squad uses, and the same rules gate it — an open window, no
+          live loan, and not locked into a registered U21 squad. */}
+      <TextBtn
+        label="Sell"
+        title={
+          p.loan
+            ? "Recall him from his loan spell first"
+            : registered
+              ? "Registered for the U21 competition — he can't be sold until the next registration window"
+              : signedLock
+                ? "Signed this season — he can't be sold until next season"
+                : windowOpen
+                  ? "See which clubs would buy him and what each would pay"
+                  : "Players can only be sold while a transfer window is open"
+        }
+        onClick={() => onSellClick(p.id)}
+        disabled={!windowOpen || registered || !!p.loan || signedLock}
       />
       <ConfirmButton
         label="Release"

@@ -25,8 +25,17 @@ import { userBid, respondToOffer, releasePlayer, sellToClub, signedThisSeason, t
 import { markAvailable, clearAvailable } from "@/lib/consent";
 import { hireStaff, dismissCandidate, fireStaff } from "@/lib/staff";
 import { hireScout, fireScout, dismissScoutCandidate } from "@/lib/scouts";
-import { acceptSponsor, declineSponsor } from "@/lib/sponsors";
-import { upgradeFacility, upgradeTrainingFacility, valueWithYouthPr, FACILITY_TITLE, type Facility, type TrainingFacility } from "@/lib/economy";
+import { acceptSponsor, buyoutSponsor, declineSponsor, type SponsorPayoutChoice } from "@/lib/sponsors";
+import {
+  upgradeFacility,
+  upgradeTrainingFacility,
+  valueWithYouthPr,
+  describeIncomeLevel,
+  incomeUpgradeLevel,
+  FACILITY_TITLE,
+  type Facility,
+  type TrainingFacility,
+} from "@/lib/economy";
 import {
   depositToFunds,
   unlockGcn,
@@ -55,7 +64,7 @@ import { formatMoney } from "@/lib/value";
 import type { GcnFacility } from "@/lib/types";
 import { setKitNumber } from "@/lib/kitnumbers";
 import { syncProgress, achievementTitles } from "@/lib/achievements";
-import { saveTactic, loadSavedTactic, deleteSavedTactic, renameSavedTactic } from "@/lib/tactics";
+import { saveTactic, loadSavedTactic, deleteSavedTactic, renameSavedTactic, autoAssignRoles } from "@/lib/tactics";
 import { deleteInboxItem, clearInbox } from "@/lib/inbox";
 import { optimalTrainingPlan } from "@/lib/config/training";
 import type { StaffSlot, TeamAssignments } from "@/lib/types";
@@ -215,10 +224,15 @@ interface GameStore {
   deleteAllMail: () => void;
 
   // Sponsors / investments (v6)
-  signSponsor: (offerId: string) => void;
+  signSponsor: (offerId: string, payout?: SponsorPayoutChoice) => void;
   passSponsor: (offerId: string) => void;
+  /** Cancel an active deal early for a penalty (v44), freeing the slot. */
+  buyoutSponsorDeal: (dealId: string) => void;
   // On-pitch assignments (v6): captain + set-piece takers
   setAssignment: (role: keyof TeamAssignments, playerId: string | null) => void;
+  /** Fill captain and all three set-piece takers with the best man in the
+   * starting XI (v1.69). Roles are independent, so one player may take several. */
+  autoAssign: () => void;
 
   // Contracts (§10 v5)
   negotiateContract: (playerId: string, wage: number, years: number, releaseClause?: number) => OfferVerdict;
@@ -1008,12 +1022,26 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
-  signSponsor: (offerId) => {
+  signSponsor: (offerId, payout = "guaranteed") => {
     const g = get().game;
     if (!g) return;
-    const err = acceptSponsor(g, offerId, TUNING);
+    const err = acceptSponsor(g, offerId, TUNING, payout);
     if (err) get().showToast(err);
-    else get().showToast("Sponsorship deal signed — weekly income up.");
+    else
+      get().showToast(
+        payout === "bonus"
+          ? "Deal signed on performance terms — the bonus rides on your finish."
+          : "Sponsorship deal signed."
+      );
+    get().bump(true);
+  },
+
+  buyoutSponsorDeal: (dealId) => {
+    const g = get().game;
+    if (!g) return;
+    const err = buyoutSponsor(g, dealId, TUNING);
+    if (err) get().showToast(err);
+    else get().showToast("Deal bought out — the slot is free for a new sponsor.");
     get().bump(true);
   },
 
@@ -1038,12 +1066,30 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
+  autoAssign: () => {
+    const g = get().game;
+    if (!g) return;
+    const result = autoAssignRoles(g);
+    if (result.noXi) get().showToast("Pick your starting XI first — assignments come from the XI.");
+    else if (result.changed === 0) get().showToast("Your assignments are already the best fit.");
+    else get().showToast(`Assignments set — ${result.changed} role${result.changed === 1 ? "" : "s"} updated.`);
+    get().bump(true);
+  },
+
   upgrade: (facility) => {
     const g = get().game;
     if (!g) return;
     const err = upgradeFacility(g, facility, TUNING);
     if (err) get().showToast(err);
-    else get().showToast(`${FACILITY_TITLE[facility]} upgraded — weekly income up.`);
+    else {
+      // The tracks don't all pay weekly (v43) — two are per-match and one is a
+      // wage discount — so the toast quotes the new level's own terms rather
+      // than asserting "weekly income up" for all seven.
+      const level = incomeUpgradeLevel(g, g.userTeamId, facility);
+      get().showToast(
+        `${FACILITY_TITLE[facility]} level ${level} — now ${describeIncomeLevel(facility, level, TUNING)}.`
+      );
+    }
     get().bump(true);
   },
 
