@@ -83,16 +83,47 @@ export default function ClubScreen() {
  * money, the position bonus) instead explain how the number was arrived at.
  * Either way no figure on this page is a bare assertion.
  */
+/**
+ * A section heading inside the weekly ledger — INCOME / COSTS (v1.74).
+ *
+ * Promoted from a thin tinted strip to a proper header band: a coloured pill
+ * carrying the word, a rule to its right, and the section total. The old version
+ * set 10px coloured text on `bg-raised`, which at that size and weight read as a
+ * faint label rather than as the thing that divides the table in two.
+ */
+function LedgerHeading({ label, amount, tone }: { label: string; amount: number; tone: "win" | "loss" }) {
+  const color = tone === "win" ? "var(--color-win)" : "var(--color-loss)";
+  return (
+    <div className="flex items-center gap-3 border-y border-line/60 bg-raised px-4 py-2">
+      <span
+        className="display shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest"
+        style={{ background: `${tone === "win" ? "rgba(63,178,127" : "rgba(224,82,82"},0.16)`, color }}
+      >
+        {label}
+      </span>
+      <span className="h-px flex-1" style={{ background: "var(--color-line)" }} />
+      <span className="display shrink-0 tnum text-sm font-bold" style={{ color }}>
+        {tone === "win" ? "+" : "−"}
+        {formatMoney(Math.abs(amount))}
+      </span>
+    </div>
+  );
+}
+
 function LedgerRow({
   label,
   amount,
   items,
   note,
+  zebra = false,
 }: {
   label: string;
   amount: number;
   items?: BreakdownItem[];
   note?: string;
+  /** Alternate-row shading (v1.74) — makes a label and its figure easier to
+   * track across a wide screen than a hairline divider alone. */
+  zebra?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const expandable = (items?.length ?? 0) > 0;
@@ -103,27 +134,48 @@ function LedgerRow({
 
   const head = (
     <>
-      <span className="flex min-w-0 items-center gap-1.5 text-dim">
-        {expandable && (
-          <span className={`text-[10px] text-faint transition-transform ${open ? "rotate-90" : ""}`}>▶</span>
+      <span className="flex min-w-0 items-center gap-2 text-dim">
+        {/* A boxed chevron rather than a bare ▶ (v1.74): the old glyph was 10px
+            of `text-faint` and didn't read as a control, so the expandable rows
+            looked identical to the flat ones. The box, the brighter glyph and
+            the row's hover state together are what say "this opens". */}
+        {expandable ? (
+          <span
+            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-line bg-raised text-[9px] leading-none text-dim transition-all group-hover:border-gold-lo group-hover:text-gold ${
+              open ? "rotate-90" : ""
+            }`}
+            aria-hidden
+          >
+            ▶
+          </span>
+        ) : (
+          // A matching spacer, so labels line up whether or not a row expands.
+          <span className="h-4 w-4 shrink-0" aria-hidden />
         )}
-        <span className="truncate">{label}</span>
+        <span className="truncate group-hover:text-ink">{label}</span>
         {expandable && <span className="shrink-0 text-[11px] text-faint">({items!.length})</span>}
       </span>
-      <span className={`shrink-0 tnum font-medium ${zero ? "text-faint" : negative ? "text-loss" : "text-win"}`}>
+      <span className={`shrink-0 tnum font-medium ${zero ? "text-dim" : negative ? "text-loss" : "text-win"}`}>
         {zero ? "" : negative ? "−" : "+"}
         {formatMoney(Math.abs(amount))}
       </span>
     </>
   );
 
+  // Alternate rows sit on `raised` at full strength. At 40% it was invisible
+  // against `surface` — the two tokens are only six points apart to begin with,
+  // so the shading has to be the whole difference to register as striping.
+  const shade = zebra ? "bg-raised" : "";
+
   return (
-    <div>
+    <div className={`border-b border-line/40 ${shade}`}>
       {expandable ? (
         <button
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className="flex w-full items-center justify-between px-4 py-2.5 text-left text-sm hover:bg-hover"
+          className={`group flex w-full items-center justify-between px-4 py-2.5 text-left text-sm transition-colors hover:bg-hover ${
+            open ? "bg-hover/60" : ""
+          }`}
         >
           {head}
         </button>
@@ -132,11 +184,11 @@ function LedgerRow({
       )}
 
       {/* The formula behind a line that has no constituent parts. */}
-      {!expandable && note && <div className="px-4 pb-2 text-[11px] text-faint">{note}</div>}
+      {!expandable && note && <div className="px-4 pb-2 pl-10 text-[11px] leading-relaxed text-mute">{note}</div>}
 
       {expandable && open && (
         <div className="border-t border-line/40 bg-base/40 px-4 py-2">
-          {note && <div className="pb-1.5 text-[11px] text-faint">{note}</div>}
+          {note && <div className="pb-1.5 text-[11px] leading-relaxed text-mute">{note}</div>}
           {/* Scrolls past ~12 rows; a full senior squad is 25+ names and the
               page shouldn't grow a screen-length column for one expanded line. */}
           <div className="max-h-72 overflow-y-auto">
@@ -144,7 +196,7 @@ function LedgerRow({
               <div key={`${it.label}-${i}`} className="flex items-baseline justify-between gap-3 py-1 text-[12px]">
                 <span className="min-w-0">
                   <span className="truncate text-dim">{it.label}</span>
-                  {it.detail && <span className="ml-2 text-[10px] text-faint">{it.detail}</span>}
+                  {it.detail && <span className="ml-2 text-[10px] text-mute">{it.detail}</span>}
                 </span>
                 <span className={`shrink-0 tnum ${it.amount < 0 ? "text-loss" : "text-win"}`}>
                   {formatMoney(Math.abs(it.amount))}
@@ -163,6 +215,11 @@ function LedgerRow({
     </div>
   );
 }
+
+/** Quick-deposit steps for the GCN Funds box (v1.74). Presentation only — every
+ * one is clamped against the same budget/remaining rules `depositToFunds`
+ * enforces, so a preset can never stage an amount the rule would reject. */
+const GCN_DEPOSIT_PRESETS = [1_000_000, 10_000_000, 100_000_000];
 
 /** GCN Funds (v34): the deposit box that gates the Global Club Network. Before
  * unlock it's a progress-to-threshold deposit; after unlock it becomes the
@@ -213,6 +270,9 @@ function GcnFundsSection() {
   const target = TUNING.gcnUnlockFundsTarget;
   const pct = Math.min(100, Math.round((funds / target) * 100));
   const ready = funds >= target;
+  // The most this club could deposit right now: what it has, and what the target
+  // still needs. Mirrors `depositToFunds` so the presets and Max stay honest.
+  const maxDeposit = Math.max(0, Math.min(game.teams[game.userTeamId].budget, target - funds));
   return (
     <Section title="GCN Funds">
       <Card className="p-4">
@@ -220,22 +280,70 @@ function GcnFundsSection() {
           Fund the Global Club Network
         </div>
         <div className="display mt-1 text-2xl font-bold tnum">
-          {formatMoney(funds)} <span className="text-sm text-faint">/ {formatMoney(target)}</span>
+          {formatMoney(funds)} <span className="text-sm text-dim">/ {formatMoney(target)}</span>
         </div>
-        {/* progress bar */}
-        <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-raised">
-          <div className="h-full rounded-full gold-grad" style={{ width: `${pct}%` }} />
+        {/* Progress toward the threshold. The track is lifted off the card
+            (bg-line, not bg-raised) so the empty bar is visible as a bar at all,
+            and a part-filled one reads at a glance. A non-zero deposit always
+            shows at least a 2px sliver of gold — the first £1m of a £5bn target
+            is 0.02% of the width and would otherwise render as nothing, which
+            looks like the deposit failed. */}
+        <div className="mt-2 h-2.5 w-full overflow-hidden rounded-full border border-line/60 bg-line/70">
+          <div
+            className="h-full rounded-full gold-grad transition-all"
+            style={{ width: funds > 0 ? `max(2px, ${pct}%)` : 0 }}
+          />
         </div>
-        <p className="mt-3 text-xs leading-relaxed text-faint">
+        <div className="mt-1 flex items-baseline justify-between text-[10px] text-dim">
+          <span className="tnum">{pct}% funded</span>
+          {!ready && <span className="tnum">{formatMoney(target - funds)} to go</span>}
+        </div>
+        <p className="mt-3 text-xs leading-relaxed text-dim">
           Deposit toward a {formatMoney(target)} reserve. Reach it and you can unlock the Global
           Club Network — becoming head of a network of clubs across the world.
         </p>
         {!ready && (
           <>
-            <div className="mt-3">
+            {/* Quick presets (v1.74): the threshold is measured in billions, so
+                typing the amount digit by digit was the slowest part of the
+                screen. Each preset is clamped to what the club can actually
+                afford and to what the target still needs, so no button ever
+                stages a deposit that would be rejected. */}
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {GCN_DEPOSIT_PRESETS.map((step) => {
+                // A preset above what the club can afford stages the affordable
+                // amount rather than greying out. Disabling it read as a broken
+                // button on a £79m budget — the manager's intent ("put a lot
+                // in") is still servable, so serve it and say so in the tooltip.
+                const staged = Math.min(step, maxDeposit);
+                const clamped = staged < step;
+                return (
+                  <GhostButton
+                    key={step}
+                    className="flex-1 px-2 py-1 text-[11px]"
+                    disabled={maxDeposit <= 0}
+                    onClick={() => setAmount(staged)}
+                    title={clamped ? `Only ${formatMoney(staged)} available` : undefined}
+                  >
+                    {formatMoney(step)}
+                    {clamped && <span className="ml-0.5 text-faint">*</span>}
+                  </GhostButton>
+                );
+              })}
+              <GhostButton
+                className="flex-1 px-2 py-1 text-[11px]"
+                disabled={maxDeposit <= 0}
+                onClick={() => setAmount(maxDeposit)}
+                title={`All you can deposit right now — ${formatMoney(maxDeposit)}`}
+              >
+                Max
+              </GhostButton>
+            </div>
+            <div className="mt-2">
               <MoneyInput
                 value={amount}
                 onChange={setAmount}
+                showCurrency
                 className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm tnum outline-none focus:border-gold"
                 placeholder="Amount to deposit"
               />
@@ -372,41 +480,59 @@ function FinancesTab() {
             </Card>
           </div>
         </Section>
-        <GcnFundsSection />
       </div>
+      {/* `flex flex-col` on the grid item, and `contents` on nothing else: the
+          column is a full-height flex context so the ledger Card below can take
+          the slack the left column's stack leaves. */}
       <div className="lg:col-span-2">
         <Section
           title="Weekly Breakdown"
-          right={<span className="text-xs text-faint">Tap a line to see what makes it up</span>}
+          right={<span className="text-xs text-mute">Tap a line to see what makes it up</span>}
         >
+          {/* The card sizes to its rows rather than stretching to match the left
+              column (v1.74). Stretching was tried and is worse: padding the rows
+              out to fill a taller neighbour opens a band of empty card between
+              the last cost line and the net row, which looks like missing data
+              rather than balance. The columns are squared off by moving GCN
+              Funds beneath this ledger instead — see below. */}
           <Card className="overflow-hidden">
-            <div className="flex items-center justify-between border-b border-line/50 bg-raised px-4 py-1.5 text-[10px] uppercase tracking-widest text-win">
-              <span>Income</span>
-              <span className="tnum">+{formatMoney(totalIn)}</span>
-            </div>
-            <div className="divide-y divide-line/50">
-              {incomeRows.map((r) => (
-                <LedgerRow key={r.label} label={r.label} amount={r.amount} items={r.items} note={r.note} />
+            <LedgerHeading label="Income" amount={totalIn} tone="win" />
+            <div>
+              {incomeRows.map((r, i) => (
+                <LedgerRow key={r.label} label={r.label} amount={r.amount} items={r.items} note={r.note} zebra={i % 2 === 1} />
               ))}
             </div>
-            <div className="flex items-center justify-between border-y border-line/50 bg-raised px-4 py-1.5 text-[10px] uppercase tracking-widest text-loss">
-              <span>Costs</span>
-              <span className="tnum">−{formatMoney(Math.abs(totalOut))}</span>
-            </div>
-            <div className="divide-y divide-line/50">
-              {costRows.map((r) => (
-                <LedgerRow key={r.label} label={r.label} amount={r.amount} items={r.items} note={r.note} />
+            <LedgerHeading label="Costs" amount={totalOut} tone="loss" />
+            <div>
+              {costRows.map((r, i) => (
+                <LedgerRow key={r.label} label={r.label} amount={r.amount} items={r.items} note={r.note} zebra={i % 2 === 1} />
               ))}
             </div>
-            <div className="flex items-center justify-between border-t-2 border-line bg-base/40 px-4 py-3 text-sm font-semibold">
-              <span className="display uppercase tracking-wide">Net / week</span>
-              <span className={`display tnum text-base ${b.net >= 0 ? "text-win" : "text-loss"}`}>
-                {b.net >= 0 ? "+" : ""}
-                {formatMoney(b.net)}
+            {/* The bottom line, as a full-width tinted card rather than another
+                ledger row — it is the one number the screen exists to answer, and
+                the tint says which way it went before the digits are read. */}
+            <div
+              className="flex items-center justify-between gap-3 border-t-2 px-4 py-3.5"
+              style={{
+                borderTopColor: b.net >= 0 ? "var(--color-win)" : "var(--color-loss)",
+                background: b.net >= 0 ? "rgba(63,178,127,0.12)" : "rgba(224,82,82,0.12)",
+              }}
+            >
+              <span className="display text-sm font-bold uppercase tracking-wide text-ink">Net / week</span>
+              <span className={`display tnum text-xl font-bold ${b.net >= 0 ? "text-win" : "text-loss"}`}>
+                {b.net >= 0 ? "+" : "−"}
+                {formatMoney(Math.abs(b.net))}
               </span>
             </div>
           </Card>
         </Section>
+        {/* GCN Funds sits under the ledger rather than under the balance cards
+            (v1.74). It is the tallest box on the screen, and in the narrow left
+            column it was what made that column overrun the breakdown and leave
+            the dead space at bottom-right. Here it uses the wide column's width,
+            the two columns finish within a row or two of each other, and the
+            deposit controls get the room they need. */}
+        <GcnFundsSection />
       </div>
     </div>
   );

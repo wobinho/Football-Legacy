@@ -13,7 +13,6 @@ export function toEnginePlayer(p: PlayerBio): EnginePlayer {
     name: p.name,
     overall: p.overall,
     positions: p.positions,
-    archetypeId: p.archetypeId,
     traits: p.traits,
     form: p.form,
     fitness: p.fitness,

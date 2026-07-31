@@ -5,12 +5,11 @@
 import { useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { PlayerBio, Pos } from "@/lib/types";
-import { getArchetype } from "@/lib/config/archetypes";
 import { POS_LABELS, POS_ORDER } from "@/lib/config/positions";
 import { yearsLeft } from "@/lib/contracts";
 import { formatMoney } from "@/lib/value";
 import { matchesPlayerName } from "@/lib/search";
-import { ArchetypeIcon, Card, displayFullName, FitnessBar, Flag, FormChip, Money, Ovr, PlayerCard, PlayerGrid, PosBadge, Section, usePlayerView, ViewToggle } from "../ui";
+import { Card, displayFullName, FitnessBar, Flag, FormChip, Money, Ovr, ArchetypeLabel, PlayerCard, PlayerGrid, PosBadge, Section, usePlayerView, ViewToggle } from "../ui";
 
 // The contract used to be a single column (years, then wage as a tiebreak). It's
 // now split so wage/week and years-left are each their own sortable column with
@@ -202,12 +201,7 @@ export default function SquadScreen() {
               p={p}
               onOpen={() => viewPlayer(p.id)}
               ovr={<Ovr value={p.overall} size="sm" />}
-              sub={
-                <>
-                  <ArchetypeIcon archetypeId={p.archetypeId} size={12} />
-                  <span className="truncate">{getArchetype(p.archetypeId).name}</span>
-                </>
-              }
+              sub={<ArchetypeLabel p={p} iconSize={14} />}
               badges={
                 <>
                   {game.transferList.includes(p.id) && <span className="text-[10px] text-gold">LISTED</span>}
@@ -275,11 +269,12 @@ export default function SquadScreen() {
                   </span>
                 </td>
                 <td className="px-2 py-2 text-center tnum text-dim">{p.age}</td>
+                {/* v1.75: the archetype icon that used to sit here is gone —
+                    ArchetypeLabel now carries the archetype's own art, and two
+                    circular glyphs in a column headed "Archetype" read as one
+                    thing repeated. The archetype is still on the profile. */}
                 <td className="px-2 py-2 text-[13px] text-dim">
-                  <span className="flex items-center gap-1.5">
-                    <ArchetypeIcon archetypeId={p.archetypeId} size={14} />
-                    {getArchetype(p.archetypeId).name}
-                  </span>
+                  <ArchetypeLabel p={p} />
                 </td>
                 <td className="px-2 py-2 text-center">
                   {/* No season-growth badge on the squad list (v21): at the start

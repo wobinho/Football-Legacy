@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { Pos, PlayerBio, ProspectTier, ScoutPosGroup, ScoutRegion, U21Opponent } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
-import { ARCHETYPES, getArchetype } from "@/lib/config/archetypes";
+import { ARCHETYPE_MAP, archetypesForPositions, positionsOfArchetype } from "@/lib/config/archetype";
 import {
   academyGrowthSummary,
   academyPlayers,
@@ -40,7 +40,11 @@ import {
 } from "@/lib/academy";
 import { POS_GROUP_COLORS, POS_LABELS, POS_ORDER, posGroup } from "@/lib/config/positions";
 import { academySquadCap, trainingNextCost } from "@/lib/economy";
-import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan, type TrainingPlanDef } from "@/lib/config/training";
+import { optimalTrainingPlan, resolveTrainingPlan, type TrainingPlanDef } from "@/lib/config/training";
+// The plan picker, its status dot and its attribute chips are the senior
+// Training Plans implementation (v1.74) — prospects set the same 45 plans, so
+// there is one control rather than two that drift.
+import { PlanStatus, PlanTargets, planOptions } from "./Development";
 import { devPhase, seasonFamilyFocus, seasonGrowth, seasonGrowthEstimate } from "@/lib/development";
 import { ATTR_FAMILY_LABELS, ATTR_FAMILY_ORDER, GK_FAMILY_LABELS } from "@/lib/config/attributes";
 import { SCOUT_WORLD, locateTarget, scoutRegion } from "@/lib/config/scouting";
@@ -57,7 +61,7 @@ import { transferWindowState, formatDayShort } from "@/lib/calendar";
 import { formatMoney } from "@/lib/value";
 import { matchesPlayerName } from "@/lib/search";
 import { staffSlotsForDept } from "@/lib/staff";
-import { Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, GhostButton, GoldButton, Modal, Ovr, PlayerCard, PlayerGrid, PosBadge, PotentialBadge, Section, Stars, StarRange, Tabs, UpgradeCard, usePlayerView, ViewToggle } from "../ui";
+import { Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, GhostButton, GoldButton, Modal, Ovr, ArchetypeLabel, PlayerCard, PlayerGrid, PosBadge, PotentialBadge, Section, Select, Stars, StarRange, Tabs, UpgradeCard, usePlayerView, ViewToggle } from "../ui";
 // The loan and sale choosers are shared with the senior squad (v1.52, v1.71) —
 // both squads resolve a move the same way, so the modals live outside this
 // screen and a prospect is sold through exactly the path a senior pro is.
@@ -773,7 +777,7 @@ function SquadTab() {
                     <TierTag tier={p.u21Tier} />
                   </span>
                   <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-faint">
-                    {getArchetype(p.archetypeId).name}
+                    <ArchetypeLabel p={p} />
                     {chips.map((c) => (
                       <span key={c.label} className={`display rounded-sm border px-1 text-[9px] font-semibold ${c.cls}`}>
                         {c.label}
@@ -848,7 +852,7 @@ function SquadTab() {
                   p={p}
                   onOpen={() => viewPlayer(p.id)}
                   ovr={<Ovr value={p.overall} size="sm" />}
-                  sub={<span className="truncate">{getArchetype(p.archetypeId).name}</span>}
+                  sub={<ArchetypeLabel p={p} />}
                   badges={[
                     ...(p.u21Tier ? [<TierTag key="tier" tier={p.u21Tier} />] : []),
                     ...chips.map((c) => (
@@ -1039,7 +1043,9 @@ function TextBtn({
 
 // Shared grid template for the academy training-plan header + rows. The focus
 // dropdown track narrows on phones so a row still fits a small screen.
-const ACADEMY_PLAN_GRID = "grid-cols-[2rem_1fr_2rem_2.5rem_8rem] sm:grid-cols-[2.25rem_1fr_2.5rem_3rem_11rem]";
+// v1.74: widened in step with the senior Training Plans grid — the plan names
+// are the same length here, so they were truncating for the same reason.
+const ACADEMY_PLAN_GRID = "grid-cols-[2rem_1fr_2rem_2.5rem_9rem] sm:grid-cols-[2.25rem_1fr_2.5rem_3rem_15rem]";
 
 
 function academyDevPhaseChip(phase: "growth" | "prime" | "decline") {
@@ -1144,7 +1150,6 @@ function AcademyDevelopmentTab() {
         <PlayerGrid>
           {squad.map((p) => {
             const plan = resolveTrainingPlan(p.trainingPlan, p.positions[0]);
-            const options = plansForPosition(p.positions[0]);
             const best = optimalTrainingPlan(p);
             const isOptimal = plan.id === best.id;
             const growing = p.age <= TUNING.growthEndAge;
@@ -1162,35 +1167,28 @@ function AcademyDevelopmentTab() {
                   </span>
                 }
                 stats={
-                  last && last.toOverall !== last.fromOverall ? (
-                    <span className={`tnum ${last.toOverall > last.fromOverall ? "text-win" : "text-loss"}`}>
-                      {last.toOverall > last.fromOverall ? "+" : ""}
-                      {last.toOverall - last.fromOverall} last season
-                    </span>
-                  ) : (
-                    <span className="text-faint">—</span>
-                  )
+                  <span className="flex items-center gap-1.5">
+                    <PlanTargets plan={plan} attrs={p.attrs} max={3} />
+                    {last && last.toOverall !== last.fromOverall && (
+                      <span className={`tnum ${last.toOverall > last.fromOverall ? "text-win" : "text-loss"}`}>
+                        {last.toOverall > last.fromOverall ? "+" : ""}
+                        {last.toOverall - last.fromOverall}
+                      </span>
+                    )}
+                  </span>
                 }
                 actions={
                   <span className="flex w-full items-center gap-1.5">
-                    <span
-                      className={`shrink-0 text-[10px] leading-none ${isOptimal ? "text-win" : "text-gold"}`}
-                      title={isOptimal ? "Optimal training focus" : `Recommended: ${best.name}`}
-                    >
-                      {isOptimal ? "●" : "○"}
-                    </span>
-                    <select
+                    <PlanStatus optimal={isOptimal} growing={growing} best={best} />
+                    <Select
                       value={plan.id}
-                      onChange={(e) => setPlan(p.id, e.target.value)}
-                      className="min-w-0 flex-1 truncate rounded-md border border-line bg-raised px-2 py-1 text-xs text-ink focus:border-gold focus:outline-none"
+                      options={planOptions(p.positions[0], p.attrs, best.id)}
+                      onChange={(v) => setPlan(p.id, v)}
+                      className="min-w-0 flex-1"
+                      buttonClassName="!py-1 text-xs"
                       title={plan.blurb}
-                    >
-                      {options.map((o) => (
-                        <option key={o.id} value={o.id}>
-                          {o.name}
-                        </option>
-                      ))}
-                    </select>
+                      ariaLabel={`Training focus for ${p.name}`}
+                    />
                   </span>
                 }
               />
@@ -1208,7 +1206,6 @@ function AcademyDevelopmentTab() {
           </div>
           {squad.map((p) => {
             const plan = resolveTrainingPlan(p.trainingPlan, p.positions[0]);
-            const options = plansForPosition(p.positions[0]);
             const best = optimalTrainingPlan(p);
             const isOptimal = plan.id === best.id;
             const isOpen = open === p.id;
@@ -1239,24 +1236,15 @@ function AcademyDevelopmentTab() {
                     <Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />
                   </span>
                   <span className="flex items-center justify-end gap-1.5">
-                    <span
-                      className={`shrink-0 text-[10px] leading-none ${isOptimal ? "text-win" : "text-gold"}`}
-                      title={isOptimal ? "Optimal training focus" : `Recommended: ${best.name}`}
-                    >
-                      {isOptimal ? "●" : "○"}
-                    </span>
-                    <select
+                    <PlanStatus optimal={isOptimal} growing={p.age <= TUNING.growthEndAge} best={best} />
+                    <Select
                       value={plan.id}
-                      onChange={(e) => setPlan(p.id, e.target.value)}
-                      className="w-full truncate rounded-md border border-line bg-raised px-2 py-1.5 text-sm text-ink focus:border-gold focus:outline-none"
+                      options={planOptions(p.positions[0], p.attrs, best.id)}
+                      onChange={(v) => setPlan(p.id, v)}
+                      className="min-w-0 flex-1"
                       title={plan.blurb}
-                    >
-                      {options.map((o) => (
-                        <option key={o.id} value={o.id}>
-                          {o.name}
-                        </option>
-                      ))}
-                    </select>
+                      ariaLabel={`Training focus for ${p.name}`}
+                    />
                   </span>
                 </div>
 
@@ -2078,8 +2066,7 @@ const GROUP_POSITIONS: Record<ScoutPosGroup, Pos[]> = {
 
 /** Archetypes a scout can be briefed to look for within a position group. */
 function archetypesForGroup(group: ScoutPosGroup) {
-  const positions = new Set(GROUP_POSITIONS[group]);
-  return ARCHETYPES.filter((a) => a.positions.some((p) => positions.has(p)));
+  return archetypesForPositions(GROUP_POSITIONS[group]);
 }
 
 const posGroupLabel = (id: ScoutPosGroup) =>
@@ -2362,7 +2349,7 @@ function ScoutOperationsPane() {
             <Card className="p-4">
               <div className="space-y-2">
                 {assignments.map((a) => {
-                  const briefArch = (a.archetypes ?? []).map((id) => getArchetype(id).name);
+                  const briefArch = (a.archetypes ?? []).map((id) => ARCHETYPE_MAP[id]?.name).filter(Boolean);
                   const s = scoutById(game, a.scoutId);
                   // How far through the current report cycle this scout is. The
                   // assignment stores only the next report day, so the cycle
@@ -2553,7 +2540,7 @@ function ScoutOperationsPane() {
                       byline, not as another clause in the middle of the line. */}
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     <MetaTag icon="🎯" title="Player type your scout filed this prospect under">
-                      {getArchetype(p.archetypeId).name}
+                      <ArchetypeLabel p={p} icon={false} />
                     </MetaTag>
                     <MetaTag icon="📅" title="How long ago this report was filed">
                       {(() => {
@@ -3062,8 +3049,9 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
               // its first — a wing-back covers LB and RB and a winger LW and RW,
               // so showing only the first flank made RB/RW look absent from an
               // "Any position" list. Falls back to the primary if none intersect.
-              const covered = a.positions.filter((p) => briefPositions.has(p));
-              const badges = covered.length > 0 ? covered : [a.positions[0]];
+              const archPositions = positionsOfArchetype(a);
+              const covered = archPositions.filter((p) => briefPositions.has(p));
+              const badges = covered.length > 0 ? covered : [archPositions[0]];
               return (
                 <button
                   key={a.id}

@@ -6,7 +6,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { PlayerBio, Pos, SeasonSchedule } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
-import { ARCHETYPES, getArchetype } from "@/lib/config/archetypes";
+import {
+  ARCHETYPE_MAP,
+  ARCHETYPE_ROSTER,
+  deriveArchetype,
+  positionsOfArchetype,
+} from "@/lib/config/archetype";
 import { TRAITS } from "@/lib/config/traits";
 import { POS_ORDER } from "@/lib/config/positions";
 import { askPrice, negotiationStateOf, signedThisSeason } from "@/lib/transfers";
@@ -16,7 +21,7 @@ import { transferWindowState, formatDayShort, seasonYearLabel } from "@/lib/cale
 import { formatMoney } from "@/lib/value";
 import { matchesPlayerName } from "@/lib/search";
 import { nameForNat } from "@/lib/config/flags";
-import { ArchetypeIcon, Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, GhostButton, GoldButton, Modal, Money, MoneyInput, Ovr, PlayerCard, PlayerGrid, PosBadge, Tabs, useIsMobile, usePlayerView, ViewToggle } from "../ui";
+import { Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, GhostButton, GoldButton, Modal, Money, MoneyInput, Ovr, ArchetypeLabel, PlayerCard, PlayerGrid, PosBadge, Tabs, useIsMobile, usePlayerView, ViewToggle } from "../ui";
 import ReleaseClauseField from "./ReleaseClauseField";
 import { LoanOfferModal, SellPlayerModal } from "./SquadMoveModals";
 
@@ -137,8 +142,7 @@ function PlayerRowButton({
           <span className="ml-1 shrink-0 text-[11px] text-faint">{p.age}y</span>
         </div>
         <div className="flex items-center gap-1.5 truncate text-[11px] text-faint">
-          <ArchetypeIcon archetypeId={p.archetypeId} size={12} />
-          <span className="truncate">{getArchetype(p.archetypeId).name}</span>
+          <ArchetypeLabel p={p} iconSize={14} />
           <span>·</span>
           {club ? (
             <span className="flex items-center gap-1 truncate text-dim">
@@ -223,8 +227,7 @@ function PlayerCardButton({
       ovr={<Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />}
       sub={
         <>
-          <ArchetypeIcon archetypeId={p.archetypeId} size={12} />
-          <span className="truncate">{getArchetype(p.archetypeId).name}</span>
+          <ArchetypeLabel p={p} iconSize={14} />
         </>
       }
       stats={
@@ -298,9 +301,17 @@ function SearchActions({ p, onSign }: { p: PlayerBio; onSign: () => void }) {
 
 function SearchTab() {
   const game = useGame((s) => s.game)!;
-  const [pos, setPos] = useState<Pos | "ALL">("ALL");
+  // A search handed over from another screen (the Tactics blueprint's "Find a
+  // Constructor"). READ during the initialiser so the very first render is
+  // already filtered — a useEffect would flash the unfiltered market first — but
+  // CLEARED in an effect, because clearing is a store write and a write during
+  // render is exactly the "setState while rendering another component" React
+  // rightly complains about. Reading twice is harmless; the second read is
+  // discarded by the initialiser.
+  const [preset] = useState(() => useGame.getState().scoutPreset);
+  const [pos, setPos] = useState<Pos | "ALL">(preset?.pos ?? "ALL");
   const [maxValue, setMaxValue] = useState<number>(0);
-  const [archetype, setArchetype] = useState<string>("ALL");
+  const [archetype, setArchetype] = useState<string>(preset?.archetypeId ?? "ALL");
   const [trait, setTrait] = useState<string>("ALL");
   // Where a player plays and where he's from (v1.5) — the three questions a
   // scout actually asks of a market this size. League and Club cascade: pick a
@@ -314,10 +325,20 @@ function SearchTab() {
   const [view, setView] = usePlayerView("transfers");
   const scouted = useScouted();
 
+  // Consume the handoff once the first render is committed, so returning to this
+  // tab later starts from a clean market rather than a filter the user has no
+  // memory of setting.
+  useEffect(() => {
+    if (preset) useGame.getState().takeScoutPreset();
+  }, [preset]);
+
   // Archetypes offered in the picker narrow to the selected position, so the
   // list stays relevant — a "Target Man" filter makes no sense under Goalkeeper.
   const archetypeOptions = useMemo(
-    () => (pos === "ALL" ? ARCHETYPES : ARCHETYPES.filter((a) => a.positions.includes(pos))),
+    () =>
+      pos === "ALL"
+        ? ARCHETYPE_ROSTER
+        : ARCHETYPE_ROSTER.filter((a) => positionsOfArchetype(a).includes(pos)),
     [pos]
   );
 
@@ -357,7 +378,7 @@ function SearchTab() {
       if (p.retired || !p.clubId || p.clubId === game.userTeamId) return false;
       if (pos !== "ALL" && !p.positions.includes(pos)) return false;
       if (maxValue !== 0 && p.value > maxValue) return false;
-      if (archetype !== "ALL" && p.archetypeId !== archetype) return false;
+      if (archetype !== "ALL" && deriveArchetype(p.attrs, p.positions[0])?.id !== archetype) return false;
       if (trait !== "ALL" && !p.traits.includes(trait)) return false;
       if (clubId !== "ALL" && p.clubId !== clubId) return false;
       if (leagueId !== "ALL" && game.teams[p.clubId]?.leagueId !== leagueId) return false;
@@ -385,7 +406,8 @@ function SearchTab() {
             const next = e.target.value as Pos | "ALL";
             setPos(next);
             // Drop an archetype filter that the new position can't field.
-            if (archetype !== "ALL" && next !== "ALL" && !getArchetype(archetype).positions.includes(next)) {
+            const arch = ARCHETYPE_MAP[archetype];
+            if (archetype !== "ALL" && next !== "ALL" && arch && !positionsOfArchetype(arch).includes(next)) {
               setArchetype("ALL");
             }
           }}
@@ -555,7 +577,7 @@ type SignedDeal = {
   pos: Pos;
   age: number;
   overall: number;
-  archetypeId: string;
+  archetypeId: string; // the archetype the player read as when the deal closed
   /** The club he came from, or null on a free transfer. */
   fromClubId: string | null;
   fromName: string;
@@ -586,7 +608,7 @@ function SigningModal({ deal, onClose }: { deal: SignedDeal; onClose: () => void
         </div>
         <div className="mt-1.5 flex items-center justify-center gap-2 text-[12px] text-dim">
           <PosBadge pos={deal.pos} />
-          <span>{getArchetype(deal.archetypeId).name}</span>
+          <span>{ARCHETYPE_MAP[deal.archetypeId]?.name ?? "Unknown"}</span>
           <span className="text-faint">·</span>
           <span className="tnum">{deal.age}y</span>
           <Ovr value={deal.overall} size="sm" />
@@ -702,7 +724,7 @@ function BidModal({ p, onClose, onSigned }: { p: PlayerBio; onClose: () => void;
         pos: p.positions[0],
         age: p.age,
         overall: p.overall,
-        archetypeId: p.archetypeId,
+        archetypeId: deriveArchetype(p.attrs, p.positions[0])?.id ?? "",
         fromClubId: isFreeAgent ? null : fromClubId,
         fromName,
         fee: isFreeAgent ? 0 : amount,
@@ -724,7 +746,7 @@ function BidModal({ p, onClose, onSigned }: { p: PlayerBio; onClose: () => void;
     <Modal title={isFreeAgent ? `Sign ${displayFullName(p)}` : `Bid for ${displayFullName(p)}`} onClose={onClose}>
       <div className="mb-3 flex items-center justify-between text-sm text-dim">
         <span>
-          {getArchetype(p.archetypeId).name} · {p.age}y · <Ovr value={p.overall} size="sm" />
+          <ArchetypeLabel p={p} /> · {p.age}y · <Ovr value={p.overall} size="sm" />
         </span>
         <button className="text-xs text-faint hover:text-dim" onClick={() => viewPlayer(p.id)}>
           Full profile →
@@ -1166,7 +1188,7 @@ function NegotiateModal({ offerId, onClose }: { offerId: string; onClose: () => 
             <span className="truncate">{displayFullName(p)}</span>
           </div>
           <div className="truncate text-[11px] text-faint">
-            {getArchetype(p.archetypeId).name} · {p.age}y
+            <ArchetypeLabel p={p} /> · {p.age}y
           </div>
         </div>
         <div className="text-right">
@@ -1349,8 +1371,7 @@ function ListedTab() {
               ovr={<Ovr value={p.overall} size="sm" />}
               sub={
                 <>
-                  <ArchetypeIcon archetypeId={p.archetypeId} size={12} />
-                  <span className="truncate">{getArchetype(p.archetypeId).name}</span>
+                  <ArchetypeLabel p={p} iconSize={14} />
                 </>
               }
               stats={<Money value={p.value} className="text-dim" />}
@@ -1370,8 +1391,7 @@ function ListedTab() {
                   <span className="ml-1 shrink-0 text-[11px] text-faint">{p.age}y</span>
                 </span>
                 <span className="flex items-center gap-1.5 truncate text-[11px] text-faint">
-                  <ArchetypeIcon archetypeId={p.archetypeId} size={12} />
-                  <span className="truncate">{getArchetype(p.archetypeId).name}</span>
+                  <ArchetypeLabel p={p} iconSize={14} />
                 </span>
               </button>
               <Money value={p.value} className="text-dim" />

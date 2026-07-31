@@ -6,7 +6,6 @@
 
 import { useState } from "react";
 import { useGame } from "@/store/gameStore";
-import { getArchetype } from "@/lib/config/archetypes";
 import { POS_LABELS, posColors } from "@/lib/config/positions";
 import { formatHeight, formatMoney, playerWage } from "@/lib/value";
 import { TUNING } from "@/lib/config/tuning";
@@ -26,7 +25,9 @@ import { MAX_KIT_NUMBER, MIN_KIT_NUMBER, squadNumbersFor } from "@/lib/kitnumber
 import { ACCOLADE_META } from "@/lib/accolades";
 import { TIER_COLOR, TIER_LABEL, migrateProspectTier } from "@/lib/scouts";
 import type { Accolade, AccoladeType, GameState, PlayerBio } from "@/lib/types";
-import { ArchetypeIcon, AttrGrid, AttrSheet, Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, FitnessBar, FormChip, GhostButton, GoldButton, GrowthBadge, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip, useEscapeKey } from "../ui";
+import { ARCHETYPE_CLASS_COLOR, deriveArchetype, describePrefs, profileOf, rankArchetypes } from "@/lib/config/archetype";
+import { styleLabel } from "@/lib/config/formations";
+import { ArchetypeIcon, AttrGrid, ClassPill, AttrSheet, Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, FitnessBar, FormChip, GhostButton, GoldButton, GrowthBadge, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip, useEscapeKey } from "../ui";
 import ContractModal from "./ContractModal";
 import { LoanOfferModal, SellPlayerModal } from "./SquadMoveModals";
 import { transferWindowState } from "@/lib/calendar";
@@ -43,7 +44,7 @@ export default function PlayerProfileModal() {
   const toggleHallOfFame = useGame((s) => s.toggleHallOfFame);
   const releaseSenior = useGame((s) => s.releaseSenior);
   const recallLoanPlayer = useGame((s) => s.academyRecall);
-  const [tab, setTab] = useState<"bio" | "career">("bio");
+  const [tab, setTab] = useState<"bio" | "career" | "manage">("bio");
   const [contractOpen, setContractOpen] = useState(false);
   // The two direct-move choosers (v1.52). Selling and loaning both resolve
   // through a club picker rather than a listing flag.
@@ -95,7 +96,18 @@ export default function PlayerProfileModal() {
   // or retired. Only a not-yet-signed scouted preview is excluded.
   const canHallOfFame = !isPreview;
   const inHallOfFame = (game.hallOfFame ?? []).includes(p.id);
-  const arch = getArchetype(p.archetypeId);
+  // The archetype is EARNED — read off the attribute line he actually has, not
+  // stored (§2). A scouted preview whose attributes are still hidden therefore
+  // has no archetype at all: there is nothing to name until he is scouted far
+  // enough to reveal what he can do.
+  const archetype = p.attrs ? deriveArchetype(p.attrs, p.positions[0]) : undefined;
+  // The identity he is closest to shifting into, for the "next" line.
+  const nextArchetype = p.attrs
+    ? rankArchetypes(p.attrs, p.positions[0]).find((r) => r.archetype.id !== archetype?.id)?.archetype
+    : undefined;
+  // The class colour, drawn straight from the archetype palette so the Role card's
+  // frame, title and pill all match the artwork inside it.
+  const classColor = archetype ? ARCHETYPE_CLASS_COLOR[archetype.cls] : undefined;
   // Both direct moves need an open window — the buttons say so rather than
   // failing on click.
   const windowOpen = transferWindowState(game.currentDay, game.schedule).open;
@@ -111,7 +123,7 @@ export default function PlayerProfileModal() {
     >
       <div className="relative my-auto w-full max-w-5xl rounded-lg border border-line bg-surface p-5 shadow-2xl">
         {/* header card */}
-        <div className="mb-5 flex flex-wrap items-center gap-5 rounded-lg border border-line bg-raised p-5">
+        <div className="mb-5 flex flex-wrap items-center gap-5 rounded-lg border border-line bg-raised p-5 pr-12">
           <div
             className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-lg"
             style={{ background: `${primaryColor.bg}22`, border: `1px solid ${primaryColor.bg}` }}
@@ -179,36 +191,52 @@ export default function PlayerProfileModal() {
               </div>
             )}
           </div>
-          <div className="text-right">
+          {/* The right-hand block (reworked v1.76). Four facts stacked in a
+              narrow right-aligned column made the header as tall as its own
+              content twice over — the modal opened with a band of empty space
+              beside the name. They now run as a ROW of fields: the club on its
+              own line above, then value / wage / potential side by side, which
+              is the shape the data actually has (three small labelled numbers)
+              and costs one line instead of three. */}
+          <div className="flex shrink-0 flex-col items-end gap-2">
             {club && (
-              <div className="mb-1 flex items-center justify-end gap-2 text-sm">
+              <div className="flex items-center gap-2 text-sm">
                 <Crest colors={club.colors} short={club.short} size={20} />
-                <span>{club.name}</span>
+                <span className="truncate">{club.name}</span>
               </div>
             )}
-            <div className="display tnum text-xl font-semibold">{p.retired ? "—" : formatMoney(p.value)}</div>
-            <div className="text-[10px] uppercase tracking-widest text-faint">Market value</div>
-            {/* Wage sits beside the value so a player's cost reads at a glance
-                anywhere the profile opens — not just for the user's own squad,
-                where the Contract section below carries the full terms. A player
-                with no signed deal (a free agent, a scouted preview) shows what
-                his rating would command. */}
-            {!p.retired && (
-              <div className="mt-1.5">
-                <div className="display tnum text-sm font-semibold text-ink">
-                  {formatMoney(p.contract?.wage ?? playerWage(p.overall, TUNING))}/wk
-                </div>
-                <div className="text-[10px] uppercase tracking-widest text-faint">
-                  {p.contract ? "Weekly wage" : "Wage demand"}
+            <div className="flex items-end gap-5 text-right">
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-faint">Market value</div>
+                <div className="display tnum text-xl font-semibold leading-tight">
+                  {p.retired ? "—" : formatMoney(p.value)}
                 </div>
               </div>
-            )}
-            {!p.retired && (
-              <div className="mt-1.5">
-                <PotentialBadge game={game} p={p} />
-                <div className="text-[10px] uppercase tracking-widest text-faint">Potential</div>
-              </div>
-            )}
+              {/* Wage sits beside the value so a player's cost reads at a glance
+                  anywhere the profile opens — not just for the user's own squad,
+                  where the Contract section on Manage carries the full terms. A
+                  player with no signed deal (a free agent, a scouted preview)
+                  shows what his rating would command. */}
+              {!p.retired && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-widest text-faint">
+                    {p.contract ? "Weekly wage" : "Wage demand"}
+                  </div>
+                  <div className="display tnum text-xl font-semibold leading-tight text-ink">
+                    {formatMoney(p.contract?.wage ?? playerWage(p.overall, TUNING))}
+                    <span className="text-sm font-normal text-faint">/wk</span>
+                  </div>
+                </div>
+              )}
+              {!p.retired && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-widest text-faint">Potential</div>
+                  <div className="flex h-7 items-center justify-end">
+                    <PotentialBadge game={game} p={p} />
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
           {/* The only way out of the profile now that the backdrop no longer
               dismisses it — so it shows on phones too, where it used to be
@@ -223,10 +251,16 @@ export default function PlayerProfileModal() {
           </button>
         </div>
 
+        {/* Three tabs (v1.76). Bio is now purely WHO HE IS — role, this season,
+            attributes — and every lever the manager can actually pull moved to
+            Manage. The split is what it always should have been: reading a
+            player and acting on one are different jobs, and stacking the second
+            under the first buried the attribute sheet under six action panels. */}
         <Tabs
           tabs={[
             { id: "bio", label: "Bio" },
             { id: "career", label: "Career" },
+            { id: "manage", label: "Manage" },
           ]}
           active={tab}
           onChange={setTab}
@@ -234,25 +268,69 @@ export default function PlayerProfileModal() {
 
         {tab === "bio" ? (
           <>
-          {/* Role — the archetype is the soul of the player (§1). It gets its own
-              prominent section with a description and the positions he plays. */}
+          {/* Role — the archetype is the soul of the player (§1, v1.73). It leads
+              the card because it is what he has BECOME; the archetype line below
+              is what he was made to be, and a mismatch is the visible proof that
+              training changed him. */}
           <Section title="Role">
             <Card className="overflow-hidden">
+              {/* v1.76: the profile is the one surface with room to show the
+                  archetype art at the size it was drawn, so the icon runs at 64px
+                  here rather than the 16px list badge — and the header tints to
+                  the CLASS colour instead of gold, which is what makes the badge
+                  and its label read as one object. The gold accent stays
+                  reserved for the active/important thing elsewhere. */}
               <div
-                className="flex items-center gap-3 border-b border-gold-lo/30 px-4 py-3"
-                style={{ background: "linear-gradient(90deg, var(--color-gold-lo, #6b5a2a)15, transparent)" }}
+                className="flex items-center gap-3.5 border-b px-4 py-3.5"
+                style={{
+                  borderColor: classColor ? `${classColor}40` : undefined,
+                  background: classColor
+                    ? `linear-gradient(90deg, ${classColor}1f, transparent)`
+                    : "linear-gradient(90deg, var(--color-gold-lo, #6b5a2a)15, transparent)",
+                }}
               >
+                {/* The card names the PERSONA, so it wears the archetype's art;
+                    the archetype icon only stands in while no archetype is earned
+                    (attributes still hidden), matching the title beneath it. */}
                 <span
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-gold-lo/60 bg-surface"
+                  className="flex h-[72px] w-[72px] shrink-0 items-center justify-center rounded-xl border bg-surface"
+                  style={{ borderColor: classColor ? `${classColor}59` : undefined }}
                 >
-                  <ArchetypeIcon archetypeId={p.archetypeId} size={22} />
+                  {archetype ? (
+                    <ArchetypeIcon archetype={archetype} size={64} ring={false} />
+                  ) : (
+                    <span className="display text-2xl text-faint">?</span>
+                  )}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="display gold-text text-lg font-bold leading-tight">{arch.name}</div>
+                  <div
+                    className="display text-xl font-bold leading-tight"
+                    style={{ color: classColor ?? undefined }}
+                  >
+                    {archetype ? archetype.name : <span className="text-faint">Unknown</span>}
+                  </div>
                   <div className="text-[11px] uppercase tracking-widest text-faint">Archetype</div>
                 </div>
+                {archetype && <ClassPill cls={archetype.cls} className="shrink-0 px-2.5 py-1 tracking-widest" />}
               </div>
-              <p className="px-4 py-3 text-[13px] leading-relaxed text-dim">{arch.desc}</p>
+              <p className="px-4 py-3 text-[13px] leading-relaxed text-dim">
+                {archetype?.desc ?? "Scout this player further to reveal the kind of footballer he is."}
+              </p>
+              {archetype && (
+                <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-line/50 px-4 py-3 text-[11px]">
+                  <span>
+                    <span className="uppercase tracking-widest text-faint">Training</span>{" "}
+                    <span className="text-dim">{resolveTrainingPlan(p.trainingPlan, p.positions[0]).name}</span>
+                  </span>
+                  {nextArchetype && (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="uppercase tracking-widest text-faint">Closest to</span>
+                      <ArchetypeIcon archetype={nextArchetype} size={14} />
+                      <span className="text-dim">{nextArchetype.name}</span>
+                    </span>
+                  )}
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-2 border-t border-line/50 px-4 py-3">
                 <span className="mr-1 text-[11px] uppercase tracking-widest text-faint">Positions</span>
                 {p.positions.map((pos, i) => (
@@ -315,15 +393,39 @@ export default function PlayerProfileModal() {
               </Card>
               <p className="text-[12px] leading-relaxed text-faint">
                 <span className="text-gold">◆</span> marks an attribute the {POS_LABELS[p.positions[0]]} role
-                actually rates — those are the numbers carrying his overall. {arch.name}: shines in{" "}
-                {Object.entries(arch.styleSynergy)
-                  .filter(([, v]) => v > 1.02)
-                  .map(([k]) => k)
-                  .join(", ") || "any style"}
-                .
+                actually rates — those are the numbers carrying his overall.
+                {archetype && (
+                  <>
+                    {" "}
+                    {/* v1.78: the band is zero-centred now, so ">1.02" no longer
+                        means "a strength" — it meant that only against the old
+                        positively-biased rows. Naming the struggles too is what
+                        makes the sentence a decision rather than a compliment. */}
+                    {archetype.name}: shines in{" "}
+                    {Object.entries(profileOf(archetype).styleSynergy)
+                      .filter(([, v]) => (v as number) >= 1.05)
+                      .map(([k]) => styleLabel(k))
+                      .join(", ") || "no style in particular"}
+                    {(() => {
+                      const weak = Object.entries(profileOf(archetype).styleSynergy)
+                        .filter(([, v]) => (v as number) <= 0.95)
+                        .map(([k]) => styleLabel(k));
+                      return weak.length ? `; struggles in ${weak.join(", ")}` : "";
+                    })()}
+                    . Wants {describePrefs(profileOf(archetype).instructionPrefs)}.
+                  </>
+                )}
               </p>
             </div>
           </Section>
+
+          </>
+        ) : tab === "manage" ? (
+          <>
+          {/* Everything the manager can DO with this player (v1.76). The panels
+              are unchanged; only their home is. A player none of them apply to
+              (another club's, a retiree, a scouted preview) gets the empty note
+              at the bottom rather than a blank tab. */}
 
           {/* Scouting shortlist (v21) — track another club's player (or a free
               agent) as a recruitment target. Purely a personal watchlist; it
@@ -563,6 +665,16 @@ export default function PlayerProfileModal() {
                     {p.contract && yearsLeft(game, p) <= 1 ? "RE-SIGN (URGENT)" : "OFFER NEW DEAL"}
                   </GoldButton>
                 )}
+              </Card>
+            </Section>
+          )}
+
+          {/* Nothing to manage — he isn't yours and isn't a target. Said plainly
+              rather than left as an empty tab. */}
+          {!canShortlist && !canHallOfFame && !isUserOwned && !isUserSenior && !isUserLoanedSenior && !p.contract && (
+            <Section title="Manage">
+              <Card className="p-4 text-sm text-faint">
+                Nothing to manage here — he isn&apos;t one of your players.
               </Card>
             </Section>
           )}

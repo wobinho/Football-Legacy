@@ -12,7 +12,9 @@
     "verify:overall": "tsx scripts/verify-overall.ts",
     "verify:formations": "tsx scripts/check-formations.ts",
     "verify:training": "tsx scripts/verify-training.ts",
-    "verify:tacticfit": "tsx scripts/verify-tacticfit.ts"
+    "verify:tacticfit": "tsx scripts/verify-tacticfit.ts",
+    "verify:archetypes": "tsx scripts/check-archetypes.ts",
+    "verify:archetypes:tactics": "tsx scripts/verify-archetype-tactics.ts"
   },
   "dependencies": {
     "next": "^15.3.3",

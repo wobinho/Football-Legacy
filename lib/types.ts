@@ -2,7 +2,7 @@
 // Single source of truth for all game data shapes. Schema-versioned so the
 // save/export format doubles as the modding format (GAME_DESIGN.md §2, §13).
 
-export const SCHEMA_VERSION = 44;
+export const SCHEMA_VERSION = 45;
 
 export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "LM" | "RM" | "AM" | "LW" | "RW" | "ST";
 
@@ -164,7 +164,6 @@ export interface PlayerBio {
    * and re-assignable by the user (swapping with the incumbent). */
   kitNumber?: number;
   positions: Pos[]; // first entry = primary
-  archetypeId: string;
   attrs: Attributes;
   overall: number; // 1-99, drives the sim
   potential: number;

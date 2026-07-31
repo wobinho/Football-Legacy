@@ -9,7 +9,7 @@
 import { useMemo, useState } from "react";
 import type { Attributes, Foot, Pos } from "@/lib/types";
 import type { CountryDatabase, PlayerSeed } from "@/lib/database";
-import { archetypesForPosition } from "@/lib/config/archetypes";
+import { archetypesForPosition } from "@/lib/config/archetype";
 import { traitsForPosition } from "@/lib/config/traits";
 import { overallFromAttrs } from "@/lib/config/positions";
 import { uniformAttrs } from "@/lib/config/attributes";
@@ -27,7 +27,7 @@ export interface CustomPlayer {
   potential: number;
   /** Preferred foot (v42). undefined = auto (rolled for the position). */
   foot?: Foot;
-  archetypeId?: string; // undefined = auto (rolled for the position)
+  trainingPlan?: string; // undefined = auto (rolled for the position)
   traits: string[];
   /** Destination: country code + division id + club index within that division. */
   country: string;
@@ -44,7 +44,7 @@ export function customPlayerSeed(p: CustomPlayer): PlayerSeed {
     nationality: p.nationality,
     potential: p.potential,
     ...(p.foot ? { foot: p.foot } : {}),
-    ...(p.archetypeId ? { archetypeId: p.archetypeId } : {}),
+    ...(p.trainingPlan ? { trainingPlan: p.trainingPlan } : {}),
     ...(p.traits.length ? { traits: p.traits } : {}),
   };
 }
@@ -82,7 +82,7 @@ export default function CreatePlayerModal({
   const [attrs, setAttrs] = useState<Attributes>(initial?.attrs ?? uniformAttrs(68));
   const [foot, setFoot] = useState<Foot | undefined>(initial?.foot);
   const [potential, setPotential] = useState(initial?.potential ?? 80);
-  const [archetypeId, setArchetypeId] = useState<string | undefined>(initial?.archetypeId);
+  const [trainingPlan, setTrainingPlan] = useState<string | undefined>(initial?.trainingPlan);
   const [traits, setTraits] = useState<string[]>(initial?.traits ?? []);
   const [country, setCountry] = useState(initial?.country ?? countries[0]?.code ?? "");
   const [divisionId, setDivisionId] = useState<string | null>(initial?.divisionId ?? null);
@@ -105,7 +105,7 @@ export default function CreatePlayerModal({
     setPrimary(pos);
     setSecondaries((s) => s.filter((x) => x !== pos));
     // an archetype/trait picked for the old position may not fit the new one
-    setArchetypeId(undefined);
+    setTrainingPlan(undefined);
     setTraits((t) => t.filter((id) => traitsForPosition(pos).some((tr) => tr.id === id)));
   };
 
@@ -184,13 +184,13 @@ export default function CreatePlayerModal({
           <label className="block">
             <span className={labelCls}>ARCHETYPE</span>
             <select
-              value={archetypeId ?? ""}
-              onChange={(e) => setArchetypeId(e.target.value || undefined)}
+              value={trainingPlan ?? ""}
+              onChange={(e) => setTrainingPlan(e.target.value || undefined)}
               className={selectCls}
             >
               <option value="">Auto (fits position)</option>
               {archetypes.map((a) => (
-                <option key={a.id} value={a.id}>
+                <option key={a.id} value={a.planId}>
                   {a.name}
                 </option>
               ))}
@@ -233,7 +233,7 @@ export default function CreatePlayerModal({
           </div>
         </div>
 
-        <AttrEditor attrs={attrs} setAttrs={setAttrs} primary={primary} archetypeId={archetypeId} />
+        <AttrEditor attrs={attrs} setAttrs={setAttrs} primary={primary} planId={trainingPlan} />
 
         <label className="block">
           <span className="flex items-baseline justify-between">
@@ -333,7 +333,7 @@ export default function CreatePlayerModal({
                 attrs: { ...attrs },
                 potential: effectivePotential,
                 foot,
-                archetypeId,
+                trainingPlan,
                 traits,
                 country,
                 divisionId: division.id,

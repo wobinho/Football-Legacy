@@ -9,7 +9,7 @@
 import { useMemo, useState } from "react";
 import type { Attributes, Foot, Pos } from "@/lib/types";
 import type { LibraryPlayer } from "@/lib/customdb";
-import { archetypesForPosition } from "@/lib/config/archetypes";
+import { archetypesForPosition } from "@/lib/config/archetype";
 import { traitsForPosition } from "@/lib/config/traits";
 import { overallFromAttrs } from "@/lib/config/positions";
 import { uniformAttrs } from "@/lib/config/attributes";
@@ -43,7 +43,7 @@ export default function LibraryPlayerModal({
   const [attrs, setAttrs] = useState<Attributes>(initial?.attrs ?? uniformAttrs(68));
   const [foot, setFoot] = useState<Foot | undefined>(initial?.foot);
   const [potential, setPotential] = useState(initial?.potential ?? 80);
-  const [archetypeId, setArchetypeId] = useState<string | undefined>(initial?.archetypeId);
+  const [trainingPlan, setTrainingPlan] = useState<string | undefined>(initial?.trainingPlan);
   const [traits, setTraits] = useState<string[]>(initial?.traits ?? []);
 
   const overall = overallFromAttrs(attrs, primary);
@@ -54,7 +54,7 @@ export default function LibraryPlayerModal({
   const setPrimaryPos = (pos: Pos) => {
     setPrimary(pos);
     setSecondaries((s) => s.filter((x) => x !== pos));
-    setArchetypeId(undefined);
+    setTrainingPlan(undefined);
     setTraits((t) => t.filter((id) => traitsForPosition(pos).some((tr) => tr.id === id)));
   };
 
@@ -132,13 +132,13 @@ export default function LibraryPlayerModal({
           <label className="block">
             <span className={labelCls}>ARCHETYPE</span>
             <select
-              value={archetypeId ?? ""}
-              onChange={(e) => setArchetypeId(e.target.value || undefined)}
+              value={trainingPlan ?? ""}
+              onChange={(e) => setTrainingPlan(e.target.value || undefined)}
               className={selectCls}
             >
               <option value="">Auto (fits position)</option>
               {archetypes.map((a) => (
-                <option key={a.id} value={a.id}>
+                <option key={a.id} value={a.planId}>
                   {a.name}
                 </option>
               ))}
@@ -181,7 +181,7 @@ export default function LibraryPlayerModal({
           </div>
         </div>
 
-        <AttrEditor attrs={attrs} setAttrs={setAttrs} primary={primary} archetypeId={archetypeId} />
+        <AttrEditor attrs={attrs} setAttrs={setAttrs} primary={primary} planId={trainingPlan} />
 
         <label className="block">
           <span className="flex items-baseline justify-between">
@@ -233,7 +233,7 @@ export default function LibraryPlayerModal({
                 attrs: { ...attrs },
                 potential: effectivePotential,
                 foot,
-                archetypeId,
+                trainingPlan,
                 traits,
               })
             }

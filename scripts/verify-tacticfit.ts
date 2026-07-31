@@ -35,7 +35,6 @@ function squad(label: string, strong: (keyof Attributes)[], weak: (keyof Attribu
       name: `${label} ${i}`,
       overall: OVERALL,
       positions: [s.pos],
-      archetypeId: "",
       traits: [],
       form: 1,
       fitness: 100,

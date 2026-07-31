@@ -39,7 +39,6 @@
 // reads `weights` and `growthMult` and never special-cases a plan by name.
 
 import type { PlayerBio, Pos } from "../types";
-import { getArchetype } from "./archetypes";
 import { ATTR_WEIGHTS } from "./positions";
 import { ATTR_KEYS, type AttrKey } from "./attributes";
 
@@ -740,13 +739,28 @@ export function verifyPlanMultipliers(): PlanMultCheck[] {
  * Pure and deterministic — the same player always resolves to the same plan.
  */
 export function planScore(p: PlayerBio, plan: TrainingPlanDef): number {
-  const profile = getArchetype(p.archetypeId).attrProfile;
-  const maxProfile = Math.max(...ATTR_KEYS.map((k) => profile[k])) || 1;
+  // v1.77: the emphasis is read off the archetype the player's CURRENT
+  // attributes earn him, not a seed assigned at birth. The recommendation is
+  // about the footballer he is now — which is the whole point of asking — and it
+  // moves as he develops.
+  //
+  // It must NOT come from his existing training plan: that would score every
+  // plan against itself and auto-assign would only ever recommend the plan
+  // already set.
+  //
+  // Read as the player's own attribute SHAPE rather than by calling into
+  // `archetype.ts` — that module imports this one, so the dependency would be
+  // circular. Relative standing within his own line is the same signal the
+  // archetype is derived from, and it needs nothing but the attributes.
+  const line = ATTR_KEYS.map((k) => p.attrs[k] ?? 0);
+  const lo = Math.min(...line);
+  const span = Math.max(1, Math.max(...line) - lo);
 
   let score = 0;
   for (const k of ATTR_KEYS) {
-    // How much this attribute defines the player's archetype, 0..1.
-    const rel = profile[k] / maxProfile;
+    // Where this attribute stands in the player's own range, 0..1 — what he is
+    // relatively best at, which is what an archetype reads.
+    const rel = ((p.attrs[k] ?? 0) - lo) / span;
     // Headroom as a saturating factor: an attribute already at the ceiling is
     // not worth aiming a plan at, but a merely-low one isn't a target either —
     // the archetype decides direction, headroom only discounts what's finished.

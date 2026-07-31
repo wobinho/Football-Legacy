@@ -1127,7 +1127,7 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
               positions: [...lp.positions],
               attrs: { ...lp.attrs },
               potential: lp.potential,
-              archetypeId: lp.archetypeId,
+              trainingPlan: lp.trainingPlan,
               traits: [...lp.traits],
               country: playableCountry,
               divisionId: destDivId,
@@ -1369,7 +1369,7 @@ function CustomDbGuide({ onClose }: { onClose: () => void }) {
           <p className="mt-1">
             <code className="text-gold">name</code>, <code className="text-gold">positions</code> (e.g.{" "}
             <code>[&quot;ST&quot;]</code>), <code className="text-gold">overall</code> (40–99), plus optional{" "}
-            <code>age</code>, <code>nationality</code>, <code>potential</code>, <code>archetypeId</code>,{" "}
+            <code>age</code>, <code>nationality</code>, <code>potential</code>, <code>trainingPlan</code>,{" "}
             <code>traits</code>. A rostered player may also set <code className="text-gold">wage</code> (weekly) and{" "}
             <code className="text-gold">contractYears</code> (1–6 seasons remaining); leave them off to let the game decide.
             Missing fields are filled automatically.

@@ -4,7 +4,7 @@
 // own the rules); the store bumps `rev` to signal React and auto-saves.
 
 import { create } from "zustand";
-import type { GameState, PlayerBio, ScreenId, Tactic } from "@/lib/types";
+import type { GameState, PlayerBio, Pos, ScreenId, Tactic } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
 import { generateWorld, type NewGameOptions } from "@/lib/worldgen";
 import {
@@ -115,6 +115,11 @@ interface GameStore {
   previewPlayer: PlayerBio | null;
   lastStop: StopReason | null;
   toast: string | null;
+  /** A search the user asked for from somewhere else — the Tactics screen's
+   * Squad Blueprint sends "find me a Constructor at LB" here. Consumed and
+   * cleared by the Transfers search tab on mount, so it is a one-shot handoff
+   * and never a second source of truth for the filters. */
+  scoutPreset: { archetypeId: string; pos: Pos } | null;
   /** The season summary to show in the end-of-season review modal, set the
    * moment END SEASON takes the rollover and cleared when the user dismisses it.
    * Null the rest of the time. */
@@ -131,6 +136,10 @@ interface GameStore {
 
   bump: (save?: boolean) => void;
   setScreen: (s: ScreenId) => void;
+  /** Jump to the transfer search with a position + archetype already selected. */
+  scoutFor: (archetypeId: string, pos: Pos) => void;
+  /** Take the pending preset, clearing it so a later visit starts clean. */
+  takeScoutPreset: () => { archetypeId: string; pos: Pos } | null;
   viewPlayer: (id: string) => void;
   /** Preview a player who isn't in the world yet (e.g. a scouted prospect still
    * embedded in a report) — the profile modal reads this when the id isn't a
@@ -434,6 +443,7 @@ export const useGame = create<GameStore>((set, get) => ({
   pendingSimTarget: null,
   pendingGate: null,
   toast: null,
+  scoutPreset: null,
   seasonReview: null,
   contractRoundOpen: false,
   gcnUnlockPromptOpen: false,
@@ -540,6 +550,13 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   setScreen: (screen) => set({ screen }),
+
+  scoutFor: (archetypeId, pos) => set({ scoutPreset: { archetypeId, pos }, screen: "transfers" }),
+  takeScoutPreset: () => {
+    const preset = get().scoutPreset;
+    if (preset) set({ scoutPreset: null });
+    return preset;
+  },
   // Player profile is a popup overlay now — open it without leaving the screen.
   viewPlayer: (id) => set({ selectedPlayerId: id, previewPlayer: null }),
   viewProspect: (player) => set({ selectedPlayerId: player.id, previewPlayer: player }),

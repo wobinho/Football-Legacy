@@ -18,7 +18,7 @@ import { formatDay } from "../lib/calendar";
 import { SCOUT_WORLD, SCOUT_REGIONS } from "../lib/config/scouting";
 import { NAME_POOLS } from "../lib/config/names";
 import { flagForNat } from "../lib/config/flags";
-import { ARCHETYPES } from "../lib/config/archetypes";
+import { ARCHETYPE_ROSTER, ARCHETYPE_PROFILE } from "../lib/config/archetype";
 import { TRAITS, RETIRED_TRAIT_IDS } from "../lib/config/traits";
 import { SPONSOR_SLOTS } from "../lib/sponsors";
 import { clubPlayerHistory } from "../lib/recordbook";
@@ -154,10 +154,13 @@ console.log(`\n── Config coverage ──`);
   }
   console.log(`styles: ${styles.length} (all have shape + counter rows)`);
 
-  // Archetypes must declare synergy for every style, for the same reason.
-  const badArch = ARCHETYPES.filter((a) => styles.some((s) => a.styleSynergy[s as keyof typeof a.styleSynergy] === undefined));
+  // Archetypes must resolve a profile declaring synergy for every style.
+  const badArch = ARCHETYPE_ROSTER.filter((a) => {
+    const syn = ARCHETYPE_PROFILE[a.id]?.styleSynergy;
+    return !syn || styles.some((s) => syn[s as keyof typeof syn] === undefined);
+  });
   if (badArch.length) console.error(`!! archetypes missing style synergy: ${badArch.map((a) => a.id).join(", ")}`);
-  console.log(`archetypes: ${ARCHETYPES.length}, traits: ${TRAITS.length}`);
+  console.log(`archetypes: ${ARCHETYPE_ROSTER.length}, traits: ${TRAITS.length}`);
 
   // A retired trait must not also be a live one, or migration strips it.
   const resurrected = RETIRED_TRAIT_IDS.filter((id) => TRAITS.some((t) => t.id === id));

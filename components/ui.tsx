@@ -2,11 +2,12 @@
 
 // Shared UI primitives — the design system in miniature.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { formatMoney, groupDigits, parseMoney } from "@/lib/value";
 import type { Attributes, GameState, PlayerBio, Pos } from "@/lib/types";
 import { keyAttrsFor, overallFromAttrs, posColors, resolvePos } from "@/lib/config/positions";
-import { shapeAttrsToRole } from "@/lib/config/archetypes";
+import { shapeAttrsToArchetype } from "@/lib/config/archetype";
 import {
   aggregateAttrs,
   attrGroupsFor,
@@ -19,6 +20,14 @@ import {
   uniformAttrs,
   type AttrKey,
 } from "@/lib/config/attributes";
+import {
+  deriveArchetype,
+  archetypeIconSrc,
+  ARCHETYPE_CLASS_BLURB,
+  ARCHETYPE_CLASS_COLOR,
+  type Archetype,
+  type ArchetypeClass,
+} from "@/lib/config/archetype";
 import { flagForNat, flagForCountry, nameForNat } from "@/lib/config/flags";
 import { potentialView } from "@/lib/academy";
 import { TRAIT_MAP } from "@/lib/config/traits";
@@ -113,18 +122,24 @@ export function MoneyInput({
   value,
   onChange,
   className = "",
+  showCurrency = false,
   ...rest
 }: {
   value: number;
   onChange: (n: number) => void;
   className?: string;
-} & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type">) {
+  /** Render a permanent £ inside the field (v1.74). Off by default so the
+   * existing bare inputs are unchanged; on where the field is unambiguously a
+   * money box and the symbol removes a guess. Named `showCurrency` rather than
+   * `prefix` because the latter collides with the native input attribute. */
+  showCurrency?: boolean;
+} & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type" | "prefix">) {
   // Keep raw keystrokes while focused so mid-edit text (a trailing "m", a
   // half-typed number) isn't clobbered by re-grouping; snap to the canonical
   // grouped form on blur.
   const [draft, setDraft] = useState<string | null>(null);
   const display = draft ?? groupDigits(value);
-  return (
+  const input = (
     <input
       type="text"
       inputMode="numeric"
@@ -135,9 +150,18 @@ export function MoneyInput({
         if (parsed !== null) onChange(parsed);
       }}
       onBlur={() => setDraft(null)}
-      className={className}
+      className={showCurrency ? `${className} pl-7` : className}
       {...rest}
     />
+  );
+  if (!showCurrency) return input;
+  // The symbol is decoration over a real input rather than part of the value —
+  // keeping it out of the string is what lets `parseMoney` stay strict.
+  return (
+    <span className="relative block">
+      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-dim">£</span>
+      {input}
+    </span>
   );
 }
 
@@ -427,19 +451,188 @@ export function NationalityPicker({
 }
 
 /**
- * Archetype icon slot. Real art will live in /assets/archetypes (currently
- * empty), keyed by archetype id. Until then we render a placeholder ring so the
- * layout, spacing, and "icon before name" pattern are already in place.
+ * The archetype a player has earned, for display (§2, v1.73).
+ *
+ * The single place the UI reads identity from, so every surface — squad list,
+ * transfer row, academy card, profile modal — names the player the same thing.
+ * Archetypes are a derived view: nothing is stored, this reads his current
+ * attribute line every time, which is what makes retraining visibly change who
+ * he is.
+ *
+ * Memoised on the attribute line and position, since the ranking runs over all
+ * 35 attributes × 5 plans and squad tables render it a few hundred times.
+ *
+ * Falls back to `undefined` for a player with no attribute sheet (a scouted
+ * preview whose attributes are still hidden), and callers show the archetype in
+ * that case — what he was made to be, when what he has become isn't yet known.
  */
-export function ArchetypeIcon({ archetypeId, size = 14 }: { archetypeId?: string; size?: number }) {
-  void archetypeId; // reserved for keyed art once assets ship
+export function useArchetype(p: { attrs?: Attributes; positions: Pos[] }): Archetype | undefined {
+  const attrs = p.attrs;
+  const pos = p.positions[0];
+  return useMemo(() => (attrs ? deriveArchetype(attrs, pos) : undefined), [attrs, pos]);
+}
+
+/**
+ * Archetype name for a non-hook context (table cell renderers, `sub` props).
+ *
+ * Same derivation as `useArchetype` without the memo — call it in a loop only
+ * where the list is short, or prefer the hook.
+ */
+export function archetypeName(p: { attrs?: Attributes; positions: Pos[] }): string | undefined {
+  return p.attrs ? deriveArchetype(p.attrs, p.positions[0])?.name : undefined;
+}
+
+/**
+ * An archetype's icon — the picture form of an earned identity (v1.75).
+ *
+ * The art is the fastest way to read a squad list: a manager learns the Sniper
+ * mark long before he reads 45 role names, and unlike the class dot it
+ * identifies the exact archetype rather than its family. The class colour stays on
+ * the ring around it, so both facts are on screen at once and the colour
+ * association the rest of the UI teaches is never dropped.
+ *
+ * An archetype whose PNG is missing falls back to the plain `ClassDot` rather than
+ * a broken image — the roster and the icon folder are maintained separately, so
+ * an archetype without art has to degrade to something honest rather than break the
+ * row it sits in. `next/image` is deliberately not used: these are small fixed
+ * assets from our own public folder, and a bare `img` keeps the fallback logic
+ * to one `onError`.
+ */
+export function ArchetypeIcon({
+  archetype,
+  size = 16,
+  ring = true,
+  className = "",
+}: {
+  archetype: Archetype;
+  size?: number;
+  /** The class-coloured ring. Off for surfaces that name the class alongside. */
+  ring?: boolean;
+  className?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  const color = ARCHETYPE_CLASS_COLOR[archetype.cls];
+
+  if (failed) return <ClassDot cls={archetype.cls} size={Math.max(6, Math.round(size / 2.5))} />;
+
   return (
     <span
-      className="inline-flex shrink-0 items-center justify-center rounded-full border border-gold-lo/60 bg-raised"
-      style={{ width: size, height: size }}
-      aria-hidden
+      className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full align-middle ${className}`}
+      style={{
+        width: size,
+        height: size,
+        background: `${color}1f`,
+        border: ring ? `1px solid ${color}66` : undefined,
+      }}
+      title={`${archetype.name} · ${archetype.cls} — ${archetype.desc}`}
     >
-      <span className="rounded-full bg-gold-lo/50" style={{ width: size * 0.4, height: size * 0.4 }} />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={archetypeIconSrc(archetype)}
+        alt=""
+        width={size}
+        height={size}
+        loading="lazy"
+        decoding="async"
+        onError={() => setFailed(true)}
+        style={{ width: "100%", height: "100%", objectFit: "contain" }}
+      />
+    </span>
+  );
+}
+
+/**
+ * A class dot — the one-glyph form of a archetype's class (v1.74).
+ *
+ * Used wherever the class matters but there is no room to spell it: beside a
+ * archetype name in a squad row, in the Tactics legend, on a transfer target. The
+ * colour is the information, so the `title` carries the same fact in words for
+ * anyone who can't use it.
+ */
+export function ClassDot({ cls, size = 6 }: { cls: ArchetypeClass; size?: number }) {
+  return (
+    <span
+      className="inline-block shrink-0 rounded-full align-middle"
+      style={{ width: size, height: size, background: ARCHETYPE_CLASS_COLOR[cls] }}
+      title={`${cls} — ${ARCHETYPE_CLASS_BLURB[cls]}`}
+      aria-label={cls}
+    />
+  );
+}
+
+/**
+ * The class name as a tinted pill — for the surfaces with room to name it
+ * (the profile header, the Tactics legend).
+ *
+ * Tinted rather than filled: a solid block of colour would compete with the gold
+ * accent, which is reserved for the active/important thing. A 15%-alpha fill
+ * with a full-strength label reads clearly at 10px without shouting.
+ */
+export function ClassPill({ cls, className = "" }: { cls: ArchetypeClass; className?: string }) {
+  const color = ARCHETYPE_CLASS_COLOR[cls];
+  return (
+    <span
+      className={`display inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] uppercase leading-none tracking-wider ${className}`}
+      style={{ background: `${color}26`, color, border: `1px solid ${color}59` }}
+      title={ARCHETYPE_CLASS_BLURB[cls]}
+    >
+      {cls}
+    </span>
+  );
+}
+
+/**
+ * A player's identity as one line: his archetype name, coloured by class.
+ *
+ * This is the canonical replacement for the `archetypeName(p) ?? archetype.name`
+ * pattern that every player-listing surface repeated. Folding it into one
+ * component is what makes the colour coding consistent by construction — a new
+ * screen gets it for free rather than having to remember the fallback and the
+ * palette.
+ *
+ * A player whose attributes are still hidden (an unscouted target) has no
+ * archetype at all: since v1.77 identity is read off the attribute line and
+ * nothing is stored, so there is genuinely nothing to name yet. He shows a
+ * neutral placeholder rather than a guess — the honest signal that scouting him
+ * further is what reveals who he is.
+ */
+export function ArchetypeLabel({
+  p,
+  dot = true,
+  icon = true,
+  iconSize = 16,
+  className = "",
+}: {
+  p: { attrs?: Attributes; positions: Pos[] };
+  dot?: boolean;
+  /** Show the archetype artwork. On by default — this is the canonical identity
+   * surface, so turning it on here is what puts the icons on every list at once.
+   * Off for the tightest rows, which fall back to the class dot. */
+  icon?: boolean;
+  iconSize?: number;
+  className?: string;
+}) {
+  const archetype = useArchetype(p);
+  if (!archetype) {
+    return (
+      <span className={`truncate text-faint ${className}`} title="Scout this player to reveal his archetype">
+        Unknown
+      </span>
+    );
+  }
+  return (
+    <span
+      className={`inline-flex min-w-0 items-center gap-1 ${className}`}
+      title={`${archetype.name} · ${archetype.cls} — ${archetype.desc}`}
+    >
+      {icon ? (
+        <ArchetypeIcon archetype={archetype} size={iconSize} />
+      ) : (
+        dot && <ClassDot cls={archetype.cls} />
+      )}
+      <span className="truncate" style={{ color: ARCHETYPE_CLASS_COLOR[archetype.cls] }}>
+        {archetype.name}
+      </span>
     </span>
   );
 }
@@ -591,16 +784,21 @@ export function GoldButton({
   onClick,
   disabled,
   className = "",
+  title,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
   className?: string;
+  /** Hover text. Worth setting on a DISABLED button in particular — it is the
+   * only room a greyed-out control has to say why it is greyed out. */
+  title?: string;
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={`gold-grad display rounded-md px-5 py-2 text-sm font-bold tracking-wider text-[#14120a] transition-transform hover:brightness-110 active:scale-[0.98] disabled:opacity-40 ${className}`}
     >
       {children}
@@ -612,17 +810,20 @@ export function GhostButton({
   children,
   onClick,
   disabled,
+  title,
   className = "",
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
+  title?: string;
   className?: string;
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={`rounded-md border border-line bg-raised px-4 py-2 text-sm text-ink transition-colors hover:border-faint hover:bg-hover disabled:opacity-40 ${className}`}
     >
       {children}
@@ -801,6 +1002,219 @@ export function Tabs<T extends string>({
   );
 }
 
+/** One option in a {@link Select}. `hint` renders as a second line in the open
+ * menu — room for the thing the label alone can't say. */
+export interface SelectOption<T extends string> {
+  value: T;
+  label: string;
+  hint?: React.ReactNode;
+  /** Trailing marker on the row (a recommendation dot, a badge). */
+  badge?: React.ReactNode;
+  disabled?: boolean;
+  /** Section this option belongs to (v1.77). Consecutive options sharing a
+   * `group` render under one sticky heading — what turns a flat list of twenty
+   * formations into three readable buckets. Options are NOT reordered: the
+   * caller supplies them already grouped, so the keyboard order and the visual
+   * order can never disagree. */
+  group?: string;
+}
+
+/**
+ * A dropdown in the app's own theme (v1.74).
+ *
+ * A native `<select>` renders its menu with the OS widget — square corners, a
+ * system-blue highlight, the platform's font — which is the one part of this
+ * app the design system cannot reach. This is the replacement: a button plus a
+ * popover list, styled like everything else, with room for a hint line and a
+ * trailing badge per row that `<option>` (text-only by spec) can never carry.
+ *
+ * Keyboard behaviour mirrors the native control closely enough to be
+ * unsurprising: ↑/↓ move the highlight, Enter/Space commit, Escape cancels,
+ * Home/End jump. It closes on outside click and on scroll of an ancestor, since
+ * the menu is absolutely positioned against the trigger.
+ */
+export function Select<T extends string>({
+  value,
+  options,
+  onChange,
+  className = "",
+  buttonClassName = "",
+  menuClassName = "",
+  title,
+  placeholder = "—",
+  ariaLabel,
+}: {
+  value: T;
+  options: SelectOption<T>[];
+  onChange: (v: T) => void;
+  className?: string;
+  buttonClassName?: string;
+  menuClassName?: string;
+  title?: string;
+  placeholder?: string;
+  ariaLabel?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  // Menus near the bottom of a long list would open off-screen, so the popover
+  // flips above the trigger when there isn't room below it.
+  const [flip, setFlip] = useState(false);
+  // Viewport-space geometry for the portalled menu, measured off the trigger at
+  // open time. `flipBottom` is the CSS `bottom` for the flipped case, which is
+  // measured from the viewport's bottom edge rather than its top.
+  const [menuBox, setMenuBox] = useState<{ left: number; width: number; top: number; flipBottom: number } | null>(null);
+
+  const selected = options.find((o) => o.value === value);
+  const selectedIndex = Math.max(0, options.findIndex((o) => o.value === value));
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    // Any scroll detaches the menu from its trigger — close rather than let it
+    // float somewhere it doesn't belong.
+    const onScroll = (e: Event) => {
+      if (listRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open]);
+
+  const openMenu = () => {
+    const r = rootRef.current?.getBoundingClientRect();
+    if (r) {
+      setFlip(window.innerHeight - r.bottom < 240 && r.top > 240);
+      setMenuBox({
+        left: r.left,
+        width: r.width,
+        top: r.bottom + 4,
+        flipBottom: window.innerHeight - r.top + 4,
+      });
+    }
+    setActive(selectedIndex);
+    setOpen(true);
+  };
+
+  const commit = (i: number) => {
+    const o = options[i];
+    if (!o || o.disabled) return;
+    onChange(o.value);
+    setOpen(false);
+  };
+
+  /** Next selectable index in `dir`, skipping disabled rows. */
+  const step = (from: number, dir: 1 | -1) => {
+    for (let i = from + dir; i >= 0 && i < options.length; i += dir) {
+      if (!options[i].disabled) return i;
+    }
+    return from;
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (!open) {
+      if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
+        e.preventDefault();
+        openMenu();
+      }
+      return;
+    }
+    switch (e.key) {
+      case "ArrowDown": e.preventDefault(); setActive((i) => step(i, 1)); break;
+      case "ArrowUp": e.preventDefault(); setActive((i) => step(i, -1)); break;
+      case "Home": e.preventDefault(); setActive(step(-1, 1)); break;
+      case "End": e.preventDefault(); setActive(step(options.length, -1)); break;
+      case "Enter": case " ": e.preventDefault(); commit(active); break;
+      case "Escape": e.preventDefault(); setOpen(false); break;
+      case "Tab": setOpen(false); break;
+    }
+  };
+
+  return (
+    <div ref={rootRef} className={`relative ${className}`}>
+      <button
+        type="button"
+        role="combobox"
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label={ariaLabel}
+        title={title}
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        onKeyDown={onKeyDown}
+        className={`flex w-full items-center gap-1.5 rounded-md border bg-raised px-2 py-1.5 text-left text-sm text-ink transition-colors ${
+          open ? "border-gold" : "border-line hover:border-faint"
+        } ${buttonClassName}`}
+      >
+        <span className="min-w-0 flex-1 truncate">{selected?.label ?? placeholder}</span>
+        {selected?.badge}
+        <span className={`shrink-0 text-[10px] leading-none text-faint transition-transform ${open ? "rotate-180" : ""}`}>▾</span>
+      </button>
+
+      {/* The menu is PORTALLED to the body and positioned fixed, rather than
+          absolutely inside the trigger. In a long list every row is its own
+          stacking context painted after the last, so an in-flow menu is
+          overlapped by the rows beneath it however high its z-index goes —
+          which is exactly what a dropdown must never do. Fixed positioning also
+          means no ancestor's overflow can clip it. */}
+      {open && menuBox && createPortal(
+        <div
+          ref={listRef}
+          role="listbox"
+          style={{
+            position: "fixed",
+            left: menuBox.left,
+            width: menuBox.width,
+            ...(flip ? { bottom: menuBox.flipBottom } : { top: menuBox.top }),
+          }}
+          className={`z-[70] max-h-60 min-w-max overflow-y-auto rounded-md border border-gold-lo/40 bg-surface py-1 shadow-[0_12px_28px_rgba(0,0,0,0.55)] ${menuClassName}`}
+        >
+          {options.map((o, i) => {
+            const isSel = o.value === value;
+            // A heading whenever the group changes — including the first row, so
+            // a grouped list always opens with one.
+            const heading = o.group && o.group !== options[i - 1]?.group ? o.group : null;
+            return (
+              <Fragment key={o.value}>
+              {heading && (
+                <div className="sticky top-0 z-[1] bg-surface px-2.5 pb-1 pt-2 text-[10px] uppercase tracking-widest text-faint">
+                  {heading}
+                </div>
+              )}
+              <button
+                type="button"
+                role="option"
+                aria-selected={isSel}
+                disabled={o.disabled}
+                onMouseEnter={() => !o.disabled && setActive(i)}
+                onClick={() => commit(i)}
+                className={`flex w-full items-start gap-2 px-2.5 py-1.5 text-left transition-colors ${
+                  o.disabled ? "cursor-not-allowed opacity-40" : i === active ? "bg-hover" : ""
+                }`}
+              >
+                <span className={`mt-[3px] w-1.5 shrink-0 self-stretch rounded-full ${isSel ? "gold-grad" : ""}`} />
+                <span className="min-w-0 flex-1">
+                  <span className={`block truncate text-sm ${isSel ? "font-semibold text-gold" : "text-ink"}`}>{o.label}</span>
+                  {o.hint && <span className="mt-0.5 block text-[11px] leading-snug text-faint">{o.hint}</span>}
+                </span>
+                {o.badge}
+              </button>
+              </Fragment>
+            );
+          })}
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
+
 /** Colour ramp shared by every attribute readout. */
 function attrTone(v: number): string {
   return v >= 80 ? "gold-text" : v >= 70 ? "text-ink" : v >= 55 ? "text-dim" : "text-faint";
@@ -922,12 +1336,12 @@ export function AttrEditor({
   attrs,
   setAttrs,
   primary,
-  archetypeId,
+  planId,
 }: {
   attrs: Attributes;
   setAttrs: (a: Attributes) => void;
   primary: Pos;
-  archetypeId?: string;
+  planId?: string;
 }) {
   const isGk = primary === "GK";
   const overall = overallFromAttrs(attrs, primary);
@@ -960,7 +1374,7 @@ export function AttrEditor({
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <button
-          onClick={() => setAttrs(shapeAttrsToRole(primary, archetypeId, overall))}
+          onClick={() => setAttrs(shapeAttrsToArchetype(primary, planId, overall))}
           className="display rounded-md border border-line px-2 py-1 text-[11px] font-semibold text-dim hover:text-ink"
           title="Rewrite the sheet to fit this position and archetype, keeping the current overall"
         >

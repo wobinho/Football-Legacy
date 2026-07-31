@@ -15,7 +15,13 @@ import { migrateOldRegion } from "./config/scouting";
 import { aiCommercialIncome, refreshSponsorOffers, seedAiSponsorBooks } from "./sponsors";
 import { RETIRED_TRAIT_IDS, TRAIT_MAP } from "./config/traits";
 import { fitAttrsToOverall, LEFT_FOOT_CHANCE, overallFromAttrs } from "./config/positions";
-import { getArchetype, DEFAULT_HEIGHT_CM } from "./config/archetypes";
+import { ARCHETYPE_BY_PLAN, profileOf } from "./config/archetype";
+import {
+  TRAINING_PLAN_MAP,
+  defaultPlanFor,
+  optimalTrainingPlan,
+  resolveTrainingPlan,
+} from "./config/training";
 import { assignAllKitNumbers } from "./kitnumbers";
 import { trackBiggestWin } from "./recordbook";
 import { ensureProgress, syncProgress, userPlayerAwardsIn } from "./achievements";
@@ -359,7 +365,7 @@ function migrateV13toV14(state: GameState, cfg: TuningConfig): void {
 function migrateV14toV15(state: GameState): void {
   for (const p of Object.values(state.players)) {
     if (typeof p.heightCm !== "number") {
-      const [mean, sd] = getArchetype(p.archetypeId).heightCm ?? DEFAULT_HEIGHT_CM;
+      const [mean, sd] = profileOf(ARCHETYPE_BY_PLAN[resolveTrainingPlan(p.trainingPlan, p.positions[0]).id]).heightCm;
       // Deterministic per player: same save → same heights on every migration.
       const rng = mulberry32(hashString(`height:${p.id}`));
       p.heightCm = Math.round(Math.max(160, Math.min(210, mean + randNormal(rng) * sd)));
@@ -553,6 +559,10 @@ export function migrateSave(state: GameState): GameState {
   if (state.schemaVersion < 44) {
     migrateV43toV44(state);
     state.schemaVersion = 44;
+  }
+  if (state.schemaVersion < 45) {
+    migrateV44toV45(state);
+    state.schemaVersion = 45;
   }
   // future migrations chain here
   state.schemaVersion = SCHEMA_VERSION;
@@ -1280,6 +1290,21 @@ function migrateV39toV40(state: GameState): void {
  * A player whose attrs are missing or already migrated is left alone, so the
  * pass is idempotent and a partially-written save can't be corrupted by it.
  */
+/**
+ * The attribute emphasis to expand a pre-v41 six-attribute player against.
+ *
+ * This runs BEFORE the v45 pass that assigns training plans, so a save arriving
+ * here may have neither a plan nor (since v1.77 deleted the roster) a resolvable
+ * archetype. The player's own plan is used when he has one; otherwise the
+ * position's balanced plan, which is the neutral choice and expands the six
+ * aggregates evenly — exactly what an unknown archetype did before.
+ */
+function legacyProfileFor(p: PlayerBio) {
+  const pos = p.positions[0];
+  const plan = p.trainingPlan ? TRAINING_PLAN_MAP[p.trainingPlan] : undefined;
+  return (plan ?? defaultPlanFor(pos)).weights;
+}
+
 function migrateV40toV41(state: GameState): void {
   const expand = (p: PlayerBio): void => {
     const legacy = p.attrs as unknown;
@@ -1287,7 +1312,7 @@ function migrateV40toV41(state: GameState): void {
     if (!isLegacyAttrs(legacy)) return;
     if (!p.positions?.length) return;
     const pos = p.positions[0];
-    const next = expandLegacyAttrs(legacy, pos === "GK", getArchetype(p.archetypeId).attrProfile);
+    const next = expandLegacyAttrs(legacy, pos === "GK", legacyProfileFor(p));
     // Land him back on the overall the rest of the save already believes.
     p.attrs = fitAttrsToOverall(next, pos, p.overall);
   };
@@ -1415,6 +1440,39 @@ function migrateV43toV44(state: GameState): void {
     userTeam.sponsorCooldowns = {};
   }
   refreshSponsorOffers(state, TUNING);
+}
+
+/**
+ * v44 → v45: the two archetype systems collapse into one (v1.77).
+ *
+ * Every player carried a stored `archetypeId` naming one of 38 generation-seed
+ * archetypes, alongside a separate set of 45 derived ones the UI showed. The
+ * seed roster is gone: an archetype is now read off the attributes a player
+ * actually has, and the only stored identity is the TRAINING PLAN he is on.
+ *
+ * The migration therefore has one job — make sure every player has a training
+ * plan — and then drops the dead field. Nothing else needs converting: the
+ * archetype a migrated player reads as is computed from his existing attribute
+ * line, so his identity carries over exactly as the new system would have
+ * derived it anyway.
+ *
+ * Players who already had a plan (the user's own squad, mostly) keep it. Those
+ * who never had one — every AI player — are given the plan that best fits the
+ * attributes they already have, which is the closest thing to the identity the
+ * old seed was expressing.
+ */
+function migrateV44toV45(state: GameState): void {
+  for (const p of Object.values(state.players ?? {})) {
+    if (!p) continue;
+    const legacy = p as unknown as { archetypeId?: string };
+    delete legacy.archetypeId;
+    if (!p.positions?.length || !p.attrs) continue;
+    // An existing plan is kept as long as it's valid for the position he plays;
+    // otherwise fit one to the line he already has.
+    const current = p.trainingPlan ? TRAINING_PLAN_MAP[p.trainingPlan] : undefined;
+    if (current && current.planPos === defaultPlanFor(p.positions[0]).planPos) continue;
+    p.trainingPlan = optimalTrainingPlan(p).id;
+  }
 }
 
 /** True if the save is a version this build knows how to bring up to date. */

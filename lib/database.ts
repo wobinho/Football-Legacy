@@ -15,7 +15,7 @@ import type { CountryDef } from "./config/countries";
 import { getCountry } from "./config/countries";
 import { POS_ORDER } from "./config/positions";
 import { ATTR_KEYS, expandLegacyAttrs, isLegacyAttrs } from "./config/attributes";
-import { getArchetype } from "./config/archetypes";
+import { TRAINING_PLAN_MAP } from "./config/training";
 
 // v2 (attribute-driven): a player may be authored via the six raw attributes
 // (Pace/Shooting/Passing/Dribbling/Defending/Physical), and `overall` is derived
@@ -52,7 +52,10 @@ export interface PlayerSeed {
   /** Preferred foot, "Left" or "Right" (v42). Optional — omitted, it is rolled
    * from the position's real-world left/right split, as before. */
   foot?: Foot;
-  archetypeId?: string; // default: random archetype valid for the primary pos
+  /** The training plan the player starts on, which is also the archetype he is
+   * built to read as (v1.77 — this replaces the old `archetypeId` seed roster).
+   * Default: a random plan valid for the primary position. */
+  trainingPlan?: string;
   traits?: string[]; // default: rolled by position eligibility
   /** Weekly wage for the initial contract, honored verbatim when the player is
    * placed on a club (a roster member). Omit to let the wage curve set it. */
@@ -168,10 +171,13 @@ export function upgradeLegacyAttrsInDB(json: unknown): void {
         if (!isLegacyAttrs(seed.attrs)) continue;
         const positions = Array.isArray(seed.positions) ? seed.positions : [];
         const isGk = positions[0] === "GK";
-        // The archetype (if authored) supplies the within-family detail; without
-        // one the six aggregates fan out evenly, which is still a valid player.
+        // The authored training plan (if any) supplies the within-family
+        // detail; without one the six aggregates fan out evenly, which is still
+        // a valid player.
         const profile =
-          typeof seed.archetypeId === "string" ? getArchetype(seed.archetypeId).attrProfile : undefined;
+          typeof seed.trainingPlan === "string"
+            ? TRAINING_PLAN_MAP[seed.trainingPlan]?.weights
+            : undefined;
         seed.attrs = expandLegacyAttrs(seed.attrs, isGk, profile);
       }
     }

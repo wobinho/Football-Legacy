@@ -7,6 +7,176 @@ Save-schema version is noted where it moved. The game auto-migrates older saves 
 
 ---
 
+## 2026-08-01 — The Tactics screen shows its work (v1.79)
+
+**No save migration.** UI only — no engine path was touched, and calibration is unchanged
+(2.65 goals/match, 44.3% home wins, identical to v1.78).
+
+v1.78 made archetypes matter to tactics; this makes that visible on the screen where the
+decisions are actually made. Previously the whole layer surfaced as one sentence under each
+dial, and the question a manager asks next — *what side should I be building?* — had no
+answer anywhere in the game.
+
+- **Squad Blueprint** (new panel, collapsed by default). For the current formation and style,
+  the best role available at every slot, a ✓/~/✗ against the incumbent, the weakest link named
+  in the collapsed header, and buttons that open the transfer market already filtered to the
+  archetype and position you're missing. Ranking lives in `lib/assistant.ts`
+  (`squadBlueprint()`); the component only draws it.
+- **Grade bands cut from the real distribution.** The first cut graded `poor` at a >12% gap,
+  which put **36%** of all 360 (style × position × archetype) combinations in the red — an
+  ordinary auto-picked XI rendered as a wall of ✗, which reads as "your whole team is wrong"
+  and is therefore advice about nothing. At >20% the split is 39% ✓ / 49% ~ / 12% ✗, so a ✗ is
+  rare enough to be worth reacting to. Verified end-to-end: one Forest XI reads **6 ✗ under
+  Possession and 0 under Counter, Park the Bus and Gegenpress** — the panel is telling that
+  squad Possession is the wrong plan for it, not that its players are bad.
+- **Style is the bigger lever, and the UI now says so.** Style runs ±15% against the
+  instruction layer's ±6%, so wherever one class wins a style column outright it also wins
+  every dial combination — meaning the ideal role is *mostly* a function of style. Rather than
+  distort the arithmetic to hide that, each row also names the best role for your **dials
+  alone** after a slash where the two disagree (42% of slot-setups do).
+- **Advanced dials became comparable without clicking.** Each unselected option carries a ▲/▼
+  showing what the XI would make of it, and the selected one gets a diverging want/don't bar
+  with the role names on hover. Where another option is strictly better, the line says which.
+  This matters most in the state every new game starts in: all five dials default to a
+  "Standard" no archetype names, so the panel used to open with five identical *"no one minds
+  either way"* lines. It now reads "Low would suit 4 of them".
+- **Instruction summary on the Basic tab** — what the five advanced dials are worth to this XI
+  as one real percentage, plus the role fighting them hardest. The Advanced tab was otherwise
+  a door with nothing written on it.
+
+## 2026-08-01 — Archetypes finally matter to tactics (v1.78)
+
+**No save migration.** Archetype ids are unchanged and no class or synergy value was ever
+stored, so old saves load untouched — every player's tactical contribution simply reads
+differently from the next matchday, which is the point of the change.
+
+- **The style table was unfair, and now provably isn't.** Measured against a generated world,
+  the old class rows were worth wildly different amounts *merely for existing*: Engine summed
+  to **+45** across the six styles against Creator's **+15**, and Maverick was the strict best
+  pick for **no style at all** — beaten at Possession by Creator and at Counter by Blitzer.
+  There was no reason to build around a Maverick. Every row now **sums to zero**, every class
+  is the strict best at ≥1 style (Maverick owns Wing Play), and no class is dominated.
+- **The advanced instructions moved from class to ARCHETYPE.** Previously all 45 archetypes
+  collapsed into 5 classes the moment tactics were involved, so a Sniper and a Ram — opposite
+  footballers, both Maverick strikers — were tactically identical. Each archetype now states
+  what it wants from tempo, width, press, defensive line and focus. Sniper and Ram agree on
+  only **16%** of the 405 possible setups.
+- **Six engine quantities became one.** The v1.73 system moved `styleEffect`, `midfield`,
+  `defense`, `oppChance`, `chances` and `fitnessDrain` through an accumulation with a cap.
+  `midfield` was an intermediate Poisson term no player could locate in a match. All six are
+  gone: an archetype's instruction fit is a single ±6% multiplier on **his own rating**, which
+  already feeds attack, midfield, defense and goal-scoring. `lib/config/archetypeclass.ts` is
+  **deleted**, four tuning knobs became one, and the engine lost ~48 lines.
+- **A real bug went with it.** The old `rowFires` matched on *any* listed axis while its own
+  comments described *all* of them, so an Engine squad collected its full stamina bonus on a
+  **slow-tempo, low-press** setup, and an Enforcer could be rewarded and punished by the same
+  high line simultaneously.
+- **Width and Focus do something now.** No class row read either axis, so two of the five
+  dials had no bearing on identity at all. Nine archetypes name width and seven name focus.
+- **Squad-buildability is now a checked invariant.** The classes reachable at a position are
+  fixed by the roster — a striker can only be a Creator or a Maverick — so a table can look
+  fair and still leave every striker in the game on negative synergy under Counter, Direct and
+  Gegenpress. All 72 (style, position) pairs are asserted to have a non-negative option.
+- **`npm run verify:archetypes:tactics`** is the new harness: 12 table-fairness assertions
+  plus 3 simulated ones. It proves each archetype's mean score over all 405 setups is exactly
+  **0** — no archetype gains from the system by existing — and that the tables reach the
+  engine. Goals/match moved 2.64 → 2.65 and home wins held at 44.3%, so no rebalance of
+  `baseChancesPerSegment` was needed: the zero-sum tables are net-neutral by construction.
+- **UI.** Each advanced dial now reads "3 of your XI want this · 1 doesn't". The assistant's
+  notes name archetypes rather than classes ("Your Sniper is fighting these instructions"),
+  and a player's profile says what he wants from the dials and which styles he struggles in.
+
+---
+
+## 2026-08-01 — One archetype system, and a decluttered Tactics screen
+
+**Save schema v45.** Saves auto-migrate: the dead `archetypeId` field is dropped and every
+player without a training plan is given the one that best fits the attributes he already has,
+so no identity is lost.
+
+- **The two archetype systems collapse into one.** The game carried a roster of 38
+  GENERATION-SEED archetypes assigned at birth *and* 45 attribute-derived ones — a player
+  could be generated a "Poacher" and read as a "Sniper", and the UI had to show one and hide
+  the other. The seed roster (`config/archetypes.ts`) is **deleted**. The 45 derived
+  archetypes are now the only ones, and everything the old roster supplied moved:
+  - **Attribute generation** now runs off the archetype's own **training plan** weights, which
+    is what resolves the circularity that forced two systems apart — worldgen shapes a line
+    from a plan, and the archetype the finished player reads as is, by construction, the one
+    that plan aims at.
+  - **Style synergy, scorer/assist weights, pace reliance, height and goal flavour** hang off
+    the archetype's **class**, with per-archetype overrides for roles that genuinely differ (a
+    Tower is tall; a keeper never scores).
+  - **"Persona" is gone as a word** — everywhere, in the UI and in the code. The concept was
+    always the archetype; the second name was only ever a naming convention.
+- Growth and decline emphasis now reads a player's **training plan** rather than his derived
+  archetype. Deriving it would have been a feedback loop: whatever he was best at would grow
+  fastest, entrenching an identity training could never move him out of.
+- Calibration re-run and on target after the engine change: **2.65 goals/match**, **44.0% home
+  wins**.
+
+### Tactics — the Setup panel, decluttered
+
+- **Formations are a dropdown, grouped by back line** (three / four / five at the back) instead
+  of a grid of nineteen permanently-visible buttons. It reclaims most of the panel and answers
+  the question a manager actually asks first.
+- **Basic / Advanced tabs.** Basic is Mentality and Style — everything a casual player needs.
+  Advanced holds Tempo, Width, Press, Defensive Line and Focus.
+- **"Squad fit" and "Squad identity" merge into the Assistant's Report**: one **Tactical
+  Synergy grade** (A+ to E) plus two to four plain-language notes ("👍 Perfect match: Your 5
+  Creators suit Possession well", "💡 Missing piece: You have no Mavericks on the pitch") in
+  place of three sets of bars and raw percentages. The figures survive as tooltips.
+- **The class mix moved onto the pitch.** Each player node carries a glowing dot in his
+  archetype-class colour, so you can see what kind of side you are picking while you pick it.
+- **Style modifiers simplified.** The line of maths under the style buttons
+  ("per-player fit ±20% | your XI avg +10.9%") is now a dial: **Style mastery — High (69%)**,
+  with the exact figure on hover.
+
+### Elsewhere
+
+- **Development → Training Plans**: the four focus-stat chips are off the row, halving its
+  height. They remain in the plan picker's menu, where they are actually being compared.
+- **Facilities/Staff**: the Facilities tab is now a work-in-progress placeholder alongside
+  Staff, while the two are redesigned together. Facilities already built keep running and keep
+  developing your squad — only the spending UI is hidden.
+
+---
+
+## 2026-07-31 — Persona roster renamed, a fifth class, and persona artwork
+
+No save-schema change. Persona **ids are unchanged**, so every player keeps the identity he had
+earned — only the names, descriptions and class placements moved.
+
+- **All 45 personas renamed** to the owner's roster, and the definite article dropped: "The Apex
+  Predator" is now **Predator**, "The Iron Lung" is **Lung**, "The Battering Ram" is **Ram**. A
+  bare noun is a badge that sits beside a player's name; "The" in front of all 45 cost width in
+  every squad row without adding anything. Descriptions are the roster's own, replacing the
+  older in-house flavour text.
+- **A fifth class: Mavericks.** The old **Spearhead** is renamed **Blitzer** (direct running,
+  finishing, counter-attacking speed) and the flair half of it splits out as **Maverick**
+  (technical skill, unpredictable movement, clinical execution). The old single attacking class
+  bundled the player who runs straight at goal with the one who invents something, so a side of
+  nine forwards all wanted the exact same instructions. **The two now pull opposite ways:**
+  Blitzers gain chances at **high tempo** and lose them in a slow setup, Mavericks gain at **slow
+  tempo** and lose at high, and Mavericks favour Possession/Counter against the Blitzer's
+  Counter/Direct. A squad has to decide which kind of attacker it is built around instead of
+  stacking one bonus.
+- **The table is an even nine personas per class**, which is now a deliberate invariant: a class's
+  share of the world decides how easy its tactical bonus is to stack.
+- **Persona artwork throughout the UI.** Each persona has its own icon
+  (`public/archetype_icons`), shown in the squad and Development lists, the training-plan picker
+  (so you can see the badge you are training toward), and the profile Role card, which now wears
+  the persona's art instead of the archetype's once an identity is earned. The class colour moves
+  to a ring around the icon, so persona and class read at once. A persona whose art is missing
+  falls back to the plain class dot rather than a broken image.
+- **`npm run verify:personas`** is new: it checks the persona↔plan mapping is 1:1 and that the
+  icon folder matches the roster exactly in both directions. The icon path is derived from the
+  persona's *name*, so a rename with no matching file rename would otherwise only surface as a
+  broken image in the browser.
+- **Calibration re-run and unchanged** — 2.71 goals/match against the 2.7 target, 43.4% home
+  wins. The new class needed no tuning change.
+
+---
+
 ## 2026-07-30 — Club Marketability replaces the sponsor trait gate
 
 Save schema **43 → 44**. Older saves auto-migrate. **Live sponsor offers are cleared and

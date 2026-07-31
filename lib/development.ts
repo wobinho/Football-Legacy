@@ -4,7 +4,7 @@
 
 import type { DevLogEntry, GameState, PlayerBio } from "./types";
 import type { TuningConfig } from "./config/tuning";
-import { getArchetype } from "./config/archetypes";
+import { profileForAttrs } from "./config/archetype";
 import {
   ATTR_FAMILIES,
   ATTR_FAMILY_ORDER,
@@ -185,7 +185,7 @@ export function primeHeadroom(overall: number, potential: number, cfg: TuningCon
  * them would show a player "Prime" on his profile while the engine declined him.
  */
 export function declineOnsetFor(p: PlayerBio, cfg: TuningConfig): number {
-  const arch = getArchetype(p.archetypeId);
+  const arch = profileForAttrs(p.attrs, p.positions[0]);
   let longevityBonus = 0;
   for (const t of p.traits) longevityBonus += TRAIT_MAP[t]?.effects.longevityBonus ?? 0;
   const longevity = Math.min(1, p.longevity + longevityBonus);
@@ -235,7 +235,7 @@ export function developPlayer(
   extraGrowthMult = 1, // e.g. focus-prospect attention (§18)
   planGrowthMult = 1 // training-plan growth-rate nudge (§5 v8)
 ): DevelopmentOutcome {
-  const arch = getArchetype(p.archetypeId);
+  const arch = profileForAttrs(p.attrs, p.positions[0]);
   const minutesFactor = Math.min(1, p.stats.minutes / FULL_SEASON_MINUTES);
   const avgRating = p.stats.apps > 0 ? p.stats.ratingSum / p.stats.apps : 6.5;
   const perf = Math.max(-1, Math.min(1, (avgRating - 6.7) / 1.2)); // -1..1
@@ -352,7 +352,13 @@ export function developPlayer(
  */
 function distributeAttrs(p: PlayerBio, attrDelta: number, targetOverall: number, plan?: TrainingPlanDef) {
   if (attrDelta === 0) return;
-  const profile = getArchetype(p.archetypeId).attrProfile;
+  // The emphasis a player's growth and decline follow is his own TRAINING PLAN's
+  // (v1.77), not the archetype his current attributes read as. Deriving it from
+  // the attributes would be a feedback loop: whatever he is strongest at would
+  // grow fastest, entrenching an identity he can never train out of. The plan is
+  // the stable seed — the one worldgen generated him from, or the one his
+  // manager has since chosen — so identity remains something training moves.
+  const profile = resolveTrainingPlan(p.trainingPlan, p.positions[0]).weights;
   const pos = p.positions[0];
   const target = Math.max(1, Math.min(99, Math.round(targetOverall)));
   const maxW = Math.max(...ATTR_KEYS.map((k) => profile[k])) || 1;
@@ -686,7 +692,7 @@ export function seasonAttrFocus(
   const out = {} as Record<AttrKey, number>;
   for (const k of ATTR_KEYS) out[k] = 0;
   if (overallDelta <= 0) return out;
-  const profile = getArchetype(p.archetypeId).attrProfile;
+  const profile = resolveTrainingPlan(p.trainingPlan, p.positions[0]).weights;
   const maxW = Math.max(...ATTR_KEYS.map((k) => profile[k])) || 1;
   // Same position-relevance factor distributeAttrs applies, so the projection
   // the UI shows matches the growth the rollover will actually deliver.

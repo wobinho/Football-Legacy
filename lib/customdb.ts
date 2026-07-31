@@ -63,7 +63,9 @@ export interface LibraryPlayer {
   /** Preferred foot (v42). Optional — omitted, worldgen rolls one from the
    * primary position's split when the player is materialized. */
   foot?: Foot;
-  archetypeId?: string;
+  /** The training plan the player starts on — and so the archetype he reads as
+   * (v1.77). */
+  trainingPlan?: string;
   traits: string[];
   updatedAt: number;
 }
@@ -105,7 +107,7 @@ export function libraryPlayerToSeed(p: LibraryPlayer): PlayerSeed {
     nationality: p.nationality,
     potential: p.potential,
     ...(p.foot ? { foot: p.foot } : {}),
-    ...(p.archetypeId ? { archetypeId: p.archetypeId } : {}),
+    ...(p.trainingPlan ? { trainingPlan: p.trainingPlan } : {}),
     ...(p.traits.length ? { traits: [...p.traits] } : {}),
   };
 }
@@ -152,7 +154,7 @@ export function seedToLibraryPlayer(seed: PlayerSeed, fallbackNat: string): Libr
     // A seed may omit potential; give a still-growing player a little headroom.
     potential: seed.potential ?? Math.min(96, Math.round(overallFromAttrs(attrs, seed.positions[0]) + 4)),
     ...(seed.foot ? { foot: seed.foot } : {}),
-    ...(seed.archetypeId ? { archetypeId: seed.archetypeId } : {}),
+    ...(seed.trainingPlan ? { trainingPlan: seed.trainingPlan } : {}),
     traits: seed.traits ? [...seed.traits] : [],
     updatedAt: Date.now(),
   };

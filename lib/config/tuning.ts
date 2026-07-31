@@ -32,6 +32,24 @@ export interface TuningConfig {
   chanceQualityCenter: number;
   homeAdvantage: number; // +5% effective rating
   synergyCap: number; // ±20% (archetype/tactic synergy band)
+  /**
+   * How far a role's INSTRUCTION fit may move his own effective rating. ±6%.
+   *
+   * The archetype half of the identity system: `synergyCap` above bounds "does
+   * this KIND of player suit the style" (a class question), and this bounds
+   * "does this exact ROLE suit the five dials". Deliberately the smaller of the
+   * two — style is the headline choice and the dials are fine-tuning, so the
+   * fine-tuning must not outweigh it. Smaller than `TACTIC_FIT_SWING` (±8%) for
+   * the same reason: whether a squad CAN execute a plan matters more than
+   * whether a role enjoys it.
+   *
+   * There is deliberately no second channel. Rating already feeds attack,
+   * midfield, defense and scorer weighting, so one lever moves everything — the
+   * v1.73 system that moved six separate engine quantities was both harder to
+   * reason about and, as it turned out, quietly broken. If you are tempted to
+   * add "…and it should also affect stamina", that is how the six came back.
+   */
+  instructionFitSwing: number;
   formMin: number;
   formMax: number;
   fitnessFloorMult: number; // ×0.85 exhausted
@@ -75,34 +93,6 @@ export interface TuningConfig {
     Style,
     { midfield: number; defense: number; oppChance: number; fitnessDrain: number; wideBias: number }
   >;
-
-  // ── Persona classes (§5, v1.73) ──
-  /**
-   * What ONE player of a class contributes to the side, per the design's math
-   * rule: +2% to a favoured style, +3% to a favoured instruction, −3% against a
-   * clashing one. These are the per-player steps; the engine sums them over the
-   * players actually on the pitch and then caps the total (below).
-   *
-   * Authored as fractional deltas rather than multipliers so the accumulation is
-   * a plain sum — eleven players of a class give 11 × the step, which is exactly
-   * the "cumulative, flat" rule, and is what the cap then bounds.
-   */
-  personaStyleStep: number; // +2% per player to a favoured style
-  personaBoostStep: number; // +3% per player on a favoured instruction
-  personaClashStep: number; // −3% per player on a clashing instruction
-
-  /**
-   * How far the whole persona-class system may move any one quantity, either
-   * way. This is the exploit guard the design calls for: without it a mono-class
-   * XI stacks +22% style effectiveness on top of the existing ±20% archetype
-   * synergy band, and the Poisson chance model stops being stable.
-   *
-   * Set level with `synergyCap` so the two identity systems — the archetype's
-   * style synergy and the persona's class contribution — can each move a side by
-   * at most the same amount. A side built entirely for its tactic reaches the cap
-   * and is genuinely strong; it cannot run away with the match.
-   */
-  personaClassCap: number;
 
   // ── Set pieces (v6, EA-FC-style assignments) ──
   penaltyChance: number; // chance a given chance is a penalty
@@ -1206,8 +1196,8 @@ export const TUNING: TuningConfig = {
   // aggregate of it), which pushed scoring to ~2.94 goals/match at the previous
   // 1.87. Trimming the chance rate restores the ~2.7 target without touching the
   // engine. Re-check with `npm run calibrate` after any attribute-model change.
-  // v1.73: trimmed from 1.74 when persona classes landed. Spearheads are the
-  // most common class in a generated world and add chance volume, which pushed
+  // v1.73: trimmed from 1.74 when archetype classes landed. The attacking classes
+  // are the most common in a generated world and add chance volume, which pushed
   // the calibration harness from 2.76 to 2.84 goals/match; this pulls the base
   // rate back so the target holds with the new system switched on.
   baseChancesPerSegment: 1.69,
@@ -1218,6 +1208,7 @@ export const TUNING: TuningConfig = {
   chanceQualityCenter: 0.385,
   homeAdvantage: 1.07,
   synergyCap: 0.2,
+  instructionFitSwing: 0.06,
   formMin: 0.94,
   formMax: 1.06,
   fitnessFloorMult: 0.85,
@@ -1245,13 +1236,6 @@ export const TUNING: TuningConfig = {
   assistChance: 0.82,
   assistChanceSetPiece: 0.93,
 
-  // Persona classes (§5). The three steps are the design's math rule as written;
-  // the cap is what keeps a mono-class XI from running away with it, and sits
-  // level with `synergyCap` so neither identity system can outweigh the other.
-  personaStyleStep: 0.02,
-  personaBoostStep: 0.03,
-  personaClashStep: 0.03,
-  personaClassCap: 0.2,
 
   // Rock-paper-scissors, hidden. Counter beats Possession, Possession beats
   // Direct, Direct beats Counter. Diagonal (mirror) is neutral 1.0. Off-diagonal

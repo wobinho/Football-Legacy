@@ -4,17 +4,26 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useGame } from "@/store/gameStore";
-import type { DefLine, Focus, Mentality, PlayerBio, Press, Style, Tactic, TeamAssignments, Tempo, Width } from "@/lib/types";
-import { ATTR_META } from "@/lib/config/attributes";
-import { FIT_PHASE_LABEL, fitLabel, tacticDemands, tacticFitReport } from "@/lib/config/tacticfit";
-import { FORMATION_GROUPS, formationGroupOf, getFormation, MENTALITY_OPTIONS, STYLE_OPTIONS, styleLabel } from "@/lib/config/formations";
-import { getArchetype } from "@/lib/config/archetypes";
+import type { DefLine, Focus, Mentality, PlayerBio, Pos, Press, Style, Tactic, TeamAssignments, Tempo, Width } from "@/lib/types";
+import {
+  BACK_LINE_LABEL,
+  backLineOfGroup,
+  FORMATION_GROUPS,
+  formationGroupOf,
+  getFormation,
+  MENTALITY_OPTIONS,
+  STYLE_OPTIONS,
+  styleLabel,
+} from "@/lib/config/formations";
+import { instructionFitScore, profileForAttrs, type InstructionPrefs } from "@/lib/config/archetype";
 import { positionFit } from "@/lib/config/positions";
 import { TUNING } from "@/lib/config/tuning";
 import { selectionScore } from "@/lib/selection";
 import { ensureUserLineup } from "@/lib/gameloop";
 import { bestForRole, MAX_SAVED_TACTICS, savedTactics, tacticSummary } from "@/lib/tactics";
-import { ConfirmButton, displayFullName, Flag, GhostButton, GoldButton, Modal, Ovr, PlayerSelect, PosBadge, Section, useIsMobile } from "../ui";
+import { deriveArchetype, ARCHETYPE_CLASS_BLURB, ARCHETYPE_CLASS_COLOR, ARCHETYPE_CLASS_ORDER } from "@/lib/config/archetype";
+import { assistantReport, instructionViewOf, squadBlueprint, type BlueprintSlot, type NoteTone, type ReportSlot, type SlotGrade } from "@/lib/assistant";
+import { ConfirmButton, displayFullName, Flag, GhostButton, GoldButton, Modal, Ovr, ArchetypeIcon, ArchetypeLabel, PlayerSelect, PosBadge, Section, Select, Tabs, useIsMobile, type SelectOption } from "../ui";
 
 const MENTALITIES = MENTALITY_OPTIONS;
 const STYLES = STYLE_OPTIONS;
@@ -145,34 +154,62 @@ function effectsFor(label: string, option: string): Effect[] {
  *  conceded) invert: a number above 1 is a downside there, not an upside. */
 const COST_EFFECTS = new Set(["fitness drain", "chances conceded"]);
 
-function EffectTags({ label, option, styleFit }: { label: string; option: string; styleFit?: number }) {
-  // Style is per-player, so instead of a team multiplier we show the band and
-  // the current XI's actual average fit in the selected style.
-  if (label === "Style") {
-    const cap = Math.round(TUNING.synergyCap * 100);
-    return (
-      <span className="flex flex-wrap items-center gap-1">
-        <span className="rounded-sm border border-line px-1 py-px text-[10px] text-faint">
-          per-player fit <b className="tnum text-dim">±{cap}%</b>
-        </span>
-        {typeof styleFit === "number" && (
-          <span className="rounded-sm border border-line px-1 py-px text-[10px] text-faint">
-            your XI avg{" "}
-            <b className={`tnum ${styleFit > 0.5 ? "text-win" : styleFit < -0.5 ? "text-loss" : "text-faint"}`}>
-              {styleFit > 0 ? "+" : ""}
-              {styleFit.toFixed(1)}%
-            </b>
-          </span>
-        )}
-      </span>
-    );
+/**
+ * Style mastery (v1.77) — how well the XI plays the chosen style, as one word.
+ *
+ * This replaces the two tags that used to sit here ("per-player fit ±20% | your
+ * XI avg +10.9%"), which stated the mechanism and the raw arithmetic and left
+ * the player to decide whether +10.9% was good. The band is a fixed property of
+ * the game, not of their team, so it was never news; the average only meant
+ * something against a scale nobody was given.
+ *
+ * So: a bar, a word, and a percentage. The exact figure the bar was cut from
+ * stays available on hover, which is where a number that precise belongs.
+ */
+function StyleMastery({ styleFit, style }: { styleFit?: number; style: string }) {
+  if (typeof styleFit !== "number") {
+    return <span className="text-[10px] text-faint">Pick your XI to see how well they play this style.</span>;
   }
+  // The authored synergy band runs ±15%, and since v1.78 it is ZERO-CENTRED:
+  // every class row sums to zero, so a random XI reads "Average" rather than the
+  // "Excellent" the old positively-biased rows produced. The cuts below were
+  // always written for a centred band — they only became correct here.
+  const t = Math.max(0, Math.min(1, 0.5 + styleFit / 40));
+  const [label, tone] =
+    styleFit >= 10 ? ["Excellent", "text-win"]
+    : styleFit >= 4 ? ["High", "text-win"]
+    : styleFit >= -2 ? ["Average", "text-dim"]
+    : styleFit >= -6 ? ["Low", "text-loss"]
+    : ["Poor", "text-loss"];
+  const color = styleFit >= 4 ? "var(--color-win)" : styleFit >= -2 ? "#9aa4b2" : "var(--color-loss)";
+  return (
+    <span
+      className="flex items-center gap-2 text-[10px] text-faint"
+      title={`Average class synergy across your XI in ${style}: ${styleFit > 0 ? "+" : ""}${styleFit.toFixed(1)}% (each player is capped at ±${Math.round(TUNING.synergyCap * 100)}%)`}
+    >
+      <span>Style mastery</span>
+      <span className="relative h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-raised">
+        <span className="absolute left-0 top-0 h-full rounded-full" style={{ width: `${t * 100}%`, background: color }} />
+      </span>
+      <b className={tone}>{label}</b>
+      <span className="tnum text-faint">({Math.round(t * 100)}%)</span>
+    </span>
+  );
+}
+
+function EffectTags({ label, option, styleFit }: { label: string; option: string; styleFit?: number }) {
+  // Style is per-player, so instead of a team multiplier we show how well the
+  // current XI actually plays it.
+  if (label === "Style") return <StyleMastery styleFit={styleFit} style={styleLabel(option as Style)} />;
 
   const effects = effectsFor(label, option);
   if (effects.length === 0) {
-    // Every multiplier for this option is exactly 1.0 — it's the neutral
-    // baseline the other options are measured against, not an inert choice.
-    return <span className="text-[10px] text-faint">baseline — no modifier (other options are measured against this)</span>;
+    // Every multiplier for this option is exactly 1.0 — the neutral baseline the
+    // others are measured against. Said briefly: all five advanced dials default
+    // here, so the long form was the same sentence five times down one panel,
+    // crowding out the roles readout beneath it, which is the line that actually
+    // differs per dial.
+    return <span className="text-[10px] text-faint">baseline — no modifier</span>;
   }
   return (
     <span className="flex flex-wrap items-center gap-1">
@@ -191,7 +228,7 @@ function EffectTags({ label, option, styleFit }: { label: string; option: string
 }
 
 function synergyOf(p: PlayerBio, style: Style): number {
-  const raw = getArchetype(p.archetypeId).styleSynergy[style];
+  const raw = profileForAttrs(p.attrs, p.positions[0]).styleSynergy[style];
   return Math.max(1 - TUNING.synergyCap, Math.min(1 + TUNING.synergyCap, raw));
 }
 
@@ -204,12 +241,210 @@ function SynergyDot({ p, style }: { p: PlayerBio; style: Style }) {
 }
 
 /** A labelled segmented control with a "what this does" line beneath it. */
+/**
+ * How the XI's own roles feel about the setting currently selected (v1.78).
+ *
+ * The five advanced dials became an ARCHETYPE-level question in v1.78, and
+ * without this the whole layer is invisible on the screen where it is chosen —
+ * `EffectTags` above shows only the team-level multiplier from TUNING. This is
+ * the point of contact between the decision and its consequence: change the
+ * dial and watch the counts move.
+ */
+/** How many of the XI want / reject one setting on one axis. */
+function tallyAxis(xi: ReportSlot[], axis: keyof InstructionPrefs, value: string) {
+  let want = 0;
+  let hate = 0;
+  const wanters: string[] = [];
+  const haters: string[] = [];
+  for (const s of xi) {
+    const pref = profileForAttrs(s.player.attrs, s.slotPos).instructionPrefs[axis] as
+      | { likes?: readonly string[]; dislikes?: readonly string[] }
+      | undefined;
+    if (!pref) continue;
+    const name = deriveArchetype(s.player.attrs, s.slotPos)?.name ?? s.slotPos;
+    if (pref.likes?.includes(value)) {
+      want++;
+      wanters.push(name);
+    } else if (pref.dislikes?.includes(value)) {
+      hate++;
+      haters.push(name);
+    }
+  }
+  return { want, hate, wanters, haters };
+}
+
+/**
+ * The squad's verdict on the SELECTED setting, as a diverging bar (v1.79).
+ *
+ * v1.78 shipped this as a sentence ("4 of your XI want this · 2 don't"), which
+ * was accurate and completely flat: two numbers in prose that the eye has to
+ * parse before it can compare. A diverging bar answers "is this setting good for
+ * my side?" pre-attentively, and the names on hover answer "who?" — which is the
+ * only follow-up question, and the one the sentence could never fit.
+ */
+function RolesLine({
+  axis,
+  value,
+  options,
+  xi,
+}: {
+  axis: keyof InstructionPrefs;
+  value: string;
+  options: readonly string[];
+  xi: ReportSlot[];
+}) {
+  const { want, hate, wanters, haters } = useMemo(() => tallyAxis(xi, axis, value), [axis, value, xi]);
+
+  // Which option this XI would actually prefer. Every dial defaults to a
+  // "Standard" that no archetype names, so without this the panel opens with
+  // five identical "no one minds" lines in exactly the state a new game starts
+  // in — informative only once the manager has already changed something.
+  const best = useMemo(() => {
+    if (xi.length === 0) return undefined;
+    let top: { option: string; net: number } | undefined;
+    for (const o of options) {
+      const { want: w, hate: h } = tallyAxis(xi, axis, o);
+      if (w === 0 && h === 0) continue;
+      if (!top || w - h > top.net) top = { option: o, net: w - h };
+    }
+    return top && top.net > 0 && top.option !== value ? top : undefined;
+  }, [axis, options, value, xi]);
+
+  if (xi.length === 0) return null;
+  if (want === 0 && hate === 0) {
+    return (
+      <span className="text-[10px] text-faint">
+        No one in your XI minds either way.
+        {best && (
+          <>
+            {" "}
+            <b className="text-win">{best.option}</b> would suit {best.net} of them.
+          </>
+        )}
+      </span>
+    );
+  }
+  // Scaled against the loudest voice on this axis, not against eleven: a dial
+  // only three roles have an opinion about should still fill its bar.
+  const span = Math.max(want, hate, 3);
+  const net = want - hate;
+  return (
+    <span
+      className="flex items-center gap-2 text-[10px]"
+      title={[
+        wanters.length ? `Wants it: ${wanters.join(", ")}` : "",
+        haters.length ? `Fighting it: ${haters.join(", ")}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n")}
+    >
+      {/* Two bars growing out from a shared centre line. */}
+      <span className="flex h-2 w-24 shrink-0 items-center">
+        <span className="flex h-full flex-1 justify-end">
+          <span className="h-full rounded-l-sm bg-loss/70" style={{ width: `${(hate / span) * 100}%` }} />
+        </span>
+        <span className="h-full w-px shrink-0 bg-line" />
+        <span className="flex h-full flex-1">
+          <span className="h-full rounded-r-sm bg-win/70" style={{ width: `${(want / span) * 100}%` }} />
+        </span>
+      </span>
+      <span className={net > 0 ? "text-win" : net < 0 ? "text-loss" : "text-faint"}>
+        {want > 0 && `${want} want${want === 1 ? "s" : ""} this`}
+        {want > 0 && hate > 0 && " · "}
+        {hate > 0 && `${hate} ${hate === 1 ? "doesn't" : "don't"}`}
+      </span>
+      {/* Only when another option is strictly better for this XI — otherwise the
+          current pick already is the best one and saying so is noise. */}
+      {best && (
+        <span className="text-faint">
+          → <b className="text-win">{best.option}</b> suits {best.net} more
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * A dot on each unselected option showing what the XI would make of it (v1.79).
+ *
+ * The bar above reports the setting you already chose; this is what makes the
+ * choice comparable without clicking through all three. Green means more of your
+ * roles want that option than fight it — so the best setting for the side you
+ * picked is visible on the button itself, which is the whole point of moving the
+ * instructions to archetype level.
+ */
+function OptionMood({ axis, value, xi }: { axis: keyof InstructionPrefs; value: string; xi: ReportSlot[] }) {
+  const { want, hate } = useMemo(() => tallyAxis(xi, axis, value), [axis, value, xi]);
+  const net = want - hate;
+  if (want === 0 && hate === 0) return null;
+  return (
+    <span
+      className={`ml-1 align-middle text-[9px] ${net > 0 ? "text-win" : net < 0 ? "text-loss" : "text-faint"}`}
+      title={`${want} of your XI want this, ${hate} don't`}
+      aria-hidden
+    >
+      {net > 0 ? "▲" : net < 0 ? "▼" : "•"}
+    </span>
+  );
+}
+
+/**
+ * What the five advanced dials are worth to this XI, as one line (v1.79).
+ *
+ * Shown on the Basic tab, where the advanced instructions are otherwise a tab
+ * label with nothing on it. Reads the same `instructionFitScore` the engine
+ * multiplies onto each player's rating, averaged across the XI and expressed as
+ * the percentage swing it actually is — so "worth +2.1%" is a real figure, not a
+ * proxy, and a manager can decide from the Basic tab whether fine-tuning is
+ * worth their time.
+ */
+function InstructionSummary({ xi, tactic, onOpen }: { xi: ReportSlot[]; tactic: Tactic; onOpen: () => void }) {
+  const { pct, worst } = useMemo(() => {
+    if (xi.length === 0) return { pct: 0, worst: undefined as undefined | { name: string; score: number } };
+    const view = instructionViewOf(tactic);
+    let sum = 0;
+    let worst: { name: string; score: number } | undefined;
+    for (const s of xi) {
+      const prof = profileForAttrs(s.player.attrs, s.slotPos);
+      const score = instructionFitScore(prof.instructionPrefs, view);
+      sum += score;
+      const name = deriveArchetype(s.player.attrs, s.slotPos)?.name;
+      if (name && score < 0 && (!worst || score < worst.score)) worst = { name, score };
+    }
+    return { pct: (sum / xi.length) * TUNING.instructionFitSwing * 100, worst };
+  }, [xi, tactic]);
+
+  if (xi.length === 0) return null;
+  const tone = pct >= 0.5 ? "text-win" : pct <= -0.5 ? "text-loss" : "text-faint";
+  return (
+    <p className="text-[10px] leading-snug text-faint">
+      Your roles make these dials worth{" "}
+      <b className={`tnum ${tone}`}>
+        {pct > 0 ? "+" : ""}
+        {pct.toFixed(1)}%
+      </b>
+      {worst ? (
+        <>
+          {" "}— your <b className="text-dim">{worst.name}</b> is fighting them.{" "}
+          <button onClick={onOpen} className="text-dim underline underline-offset-2 hover:text-ink">
+            Fix
+          </button>
+        </>
+      ) : (
+        " across the XI."
+      )}
+    </p>
+  );
+}
+
 function Instruction<T extends string>({
   label,
   options,
   current,
   onPick,
   styleFit,
+  axis,
+  xi,
 }: {
   label: string;
   options: readonly T[];
@@ -217,6 +452,9 @@ function Instruction<T extends string>({
   onPick: (v: T) => void;
   /** Style row only: the current XI's average synergy, as a percentage. */
   styleFit?: number;
+  /** Advanced-dial rows only: which axis this is, for the roles readout. */
+  axis?: keyof InstructionPrefs;
+  xi?: ReportSlot[];
 }) {
   // Focus overrides the shared copy for "Wide" (Width uses the same word for a
   // different idea); Style renders presentable names for its camel-case ids.
@@ -243,6 +481,10 @@ function Instruction<T extends string>({
             }`}
           >
             {textFor(o)}
+            {/* What the XI makes of the options you HAVEN'T picked — the
+                selected one has the full bar beneath, and a mood dot on a gold
+                button would read as part of the label. */}
+            {axis && xi && current !== o && <OptionMood axis={axis} value={o} xi={xi} />}
           </button>
         ))}
       </div>
@@ -250,6 +492,12 @@ function Instruction<T extends string>({
       <div className="mt-1.5">
         <EffectTags label={label} option={current} styleFit={styleFit} />
       </div>
+      {/* and what the ROLES you have picked make of it (v1.78) */}
+      {axis && xi && (
+        <div className="mt-1">
+          <RolesLine axis={axis} value={current} options={options} xi={xi} />
+        </div>
+      )}
       <p className="mt-1 text-[11px] leading-snug text-faint">{INSTRUCTION_INFO[label]}</p>
     </div>
   );
@@ -538,6 +786,42 @@ function DragGhost({ p, x, y }: { p: PlayerBio; x: number; y: number }) {
   );
 }
 
+/**
+ * The archetype-class marker on a pitch token (v1.77).
+ *
+ * The class mix used to be a stacked bar chart in the right-hand column, which
+ * told you the squad contained three Creators but never which three. Putting the
+ * colour on the token itself answers the question you actually have while
+ * picking a side — "what kind of player is standing here?" — and does it without
+ * costing a single row of vertical space.
+ *
+ * A DOT rather than a ring because the ring is already spoken for: it carries
+ * position fit, and overloading one glyph with two unrelated meanings is how
+ * both stop being readable. The dot sits on the token's edge with a soft glow in
+ * its own colour, which is enough to read at a glance against the dark pitch
+ * without competing with the rating in the middle.
+ *
+ * The palette is the shared one every other surface uses (ARCHETYPE_CLASS_COLOR),
+ * so the association a manager learns in the squad list is the same one here.
+ * A player whose archetype cannot be resolved simply gets no dot.
+ */
+function ClassMarker({ p, slotPos }: { p: PlayerBio; slotPos: Pos }) {
+  // Read against the slot he is FILLING, exactly as the engine and the
+  // assistant's report do, so all three agree about what he is being asked
+  // to be.
+  const cls = deriveArchetype(p.attrs, slotPos)?.cls;
+  if (!cls) return null;
+  const color = ARCHETYPE_CLASS_COLOR[cls];
+  return (
+    <span
+      className="pointer-events-none absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border border-black/40"
+      style={{ background: color, boxShadow: `0 0 5px ${color}` }}
+      title={`${cls} — ${ARCHETYPE_CLASS_BLURB[cls]}`}
+      aria-hidden
+    />
+  );
+}
+
 /** Colour a player token by how well he fits the slot he's standing in. */
 function fitRing(fit: number): string {
   if (fit >= 1) return "border-gold-lo bg-raised";
@@ -673,12 +957,15 @@ function MobileLineup({
                   title={p ? `${displayFullName(p)} — tap to change` : `Tap to pick a ${slot.label}`}
                   className="flex w-16 cursor-pointer flex-col items-center"
                 >
-                  <span
-                    className={`display flex h-10 w-10 items-center justify-center rounded-full border text-sm font-bold ${
-                      p ? `${fitRing(fit)} text-ink` : "border-dashed border-line bg-surface text-faint"
-                    }`}
-                  >
-                    {p ? p.overall : slot.label}
+                  <span className="relative inline-flex">
+                    <span
+                      className={`display flex h-10 w-10 items-center justify-center rounded-full border text-sm font-bold ${
+                        p ? `${fitRing(fit)} text-ink` : "border-dashed border-line bg-surface text-faint"
+                      }`}
+                    >
+                      {p ? p.overall : slot.label}
+                    </span>
+                    {p && <ClassMarker p={p} slotPos={slot.pos} />}
                   </span>
                   <span className="mt-0.5 w-full truncate text-center text-[10px] leading-tight text-dim">
                     {p ? p.name.split(" ").slice(-1)[0] : slot.label}
@@ -1035,9 +1322,10 @@ function MatchdayBoard({
                       }
                       className={`flex w-16 touch-none flex-col items-center ${drag ? "cursor-grabbing" : p ? "cursor-grab" : "cursor-pointer"}`}
                     >
-                      {/* The token. Two readings from one glyph: the ring is
-                          position fit, and the number's colour repeats it where
-                          the eye actually lands. The drag halo sits behind. */}
+                      {/* The token. Three readings from one glyph: the ring is
+                          position fit, the number's colour repeats it where the
+                          eye actually lands, and the corner dot is his archetype
+                          class (v1.77). The drag halo sits behind. */}
                       <span className="relative inline-flex items-center justify-center">
                         {guideHalo && (
                           <span
@@ -1045,16 +1333,19 @@ function MatchdayBoard({
                           />
                         )}
                         {p ? (
-                          <span
-                            className={`display flex h-10 w-10 items-center justify-center rounded-full border text-sm font-bold transition-all ${fitRing(fit)} ${fitText(fit)} ${
-                              isTarget
-                                ? "scale-110 border-gold ring-2 ring-gold/60"
-                                : isSource
-                                  ? "opacity-30"
-                                  : ""
-                            }`}
-                          >
-                            {p.overall}
+                          <span className="relative inline-flex">
+                            <span
+                              className={`display flex h-10 w-10 items-center justify-center rounded-full border text-sm font-bold transition-all ${fitRing(fit)} ${fitText(fit)} ${
+                                isTarget
+                                  ? "scale-110 border-gold ring-2 ring-gold/60"
+                                  : isSource
+                                    ? "opacity-30"
+                                    : ""
+                              }`}
+                            >
+                              {p.overall}
+                            </span>
+                            {!isSource && <ClassMarker p={p} slotPos={slot.pos} />}
                           </span>
                         ) : (
                           <span
@@ -1494,11 +1785,33 @@ function SavedTactics() {
  * the lineup instead. It owns the formation-switch confirm because that dialogue
  * belongs to the control that triggers it, not to the screen.
  */
+/** The two halves of the setup. Basic is everything a casual manager needs to
+ * touch; Advanced is the fine-tuning. */
+type SetupTab = "basic" | "advanced";
+
+/**
+ * The formation dropdown's options, sectioned by how many defenders the shape
+ * lines up with (v1.77).
+ *
+ * Built once at module load: the formation table is static, and the grouping is
+ * derived from the slots rather than authored, so there is nothing per-render to
+ * recompute. Options are emitted already ordered by bucket, which is what lets
+ * `Select` render a heading on each change without reordering anything itself.
+ */
+const FORMATION_OPTIONS: SelectOption<string>[] = ([3, 4, 5] as const).flatMap((back) =>
+  FORMATION_GROUPS.filter((g) => backLineOfGroup(g) === back).map((g) => ({
+    value: g.id,
+    label: g.name,
+    group: BACK_LINE_LABEL[back],
+    hint: g.formations[0].desc,
+  }))
+);
+
 function SetupPanel() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const setTactic = useGame((s) => s.setTactic);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [setupTab, setSetupTab] = useState<SetupTab>("basic");
   /** Formation the user has clicked but not yet confirmed. Null when none. */
   const [formationSwitch, setFormationSwitch] = useState<string | null>(null);
 
@@ -1531,33 +1844,41 @@ function SetupPanel() {
     ? (xiPlayers.reduce((sum, p) => sum + synergyOf(p, tactic.style), 0) / xiPlayers.length - 1) * 100
     : undefined;
 
+  // The XI paired with the slot each player is FILLING — the same reading the
+  // engine and the assistant report use, so the roles readout under each dial
+  // can never disagree with them.
+  const xiSlots: ReportSlot[] = formation.slots.flatMap((slot) => {
+    const p = game.players[game.lineup[slot.id]];
+    return p?.attrs ? [{ player: p, slotPos: slot.pos }] : [];
+  });
+
   return (
     <>
       <Section title="Setup">
         <div className="space-y-4">
           <div>
             <div className="mb-1.5 text-[11px] uppercase tracking-widest text-faint">Formation</div>
-            <div className="flex flex-wrap gap-1.5">
-              {/* Variants of one shape (the 4-3-3's midfield options) are folded
-                  behind their family's button rather than sitting flat in the
-                  list: they are the same formation, and four near-identical "4-3-3
-                  (…)" buttons in a grid of twenty is how a picker becomes
-                  unreadable. The family button selects the default variant; the
-                  row beneath appears once that family is chosen. */}
-              {FORMATION_GROUPS.map((g) => (
-                <button
-                  key={g.id}
-                  onClick={() => pickFormation(g.formations[0].id)}
-                  className={`display rounded px-3 py-1.5 text-sm font-semibold ${
-                    g.formations.some((f) => f.id === tactic.formationId)
-                      ? "gold-grad text-black"
-                      : "border border-line text-dim hover:text-ink"
-                  }`}
-                >
-                  {g.name}
-                </button>
-              ))}
-            </div>
+            {/* v1.77: a dropdown sectioned by back line, not a grid of nineteen
+                buttons. The buttons were the largest block on the screen, all of
+                them permanently visible for a choice made once, and they offered
+                no way to answer the question a manager asks first — "what plays
+                with a back three?". Sectioning by defenders makes that scannable
+                and reclaims the vertical space.
+
+                Variants of one shape (the 4-3-3's midfield options) stay folded
+                behind their family and appear as a row below once it is chosen:
+                they are the same formation, and four near-identical "4-3-3 (…)"
+                rows in the list would undo the grouping. */}
+            <Select
+              value={activeGroup?.id ?? FORMATION_GROUPS[0].id}
+              options={FORMATION_OPTIONS}
+              onChange={(id) => {
+                const g = FORMATION_GROUPS.find((x) => x.id === id);
+                if (g) pickFormation(g.formations[0].id);
+              }}
+              ariaLabel="Formation"
+              title={formation.desc}
+            />
             {/* The variant row, only for a family that has more than one shape. */}
             {activeGroup && activeGroup.formations.length > 1 && (
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5 border-l border-line pl-2">
@@ -1579,43 +1900,57 @@ function SetupPanel() {
             )}
             <p className="mt-1.5 text-[11px] leading-snug text-faint">{formation.desc}</p>
           </div>
-          <Instruction label="Mentality" options={MENTALITIES} current={tactic.mentality} onPick={(v) => setTactic({ mentality: v })} />
-          <Instruction label="Style" options={STYLES} current={tactic.style} onPick={(v) => setTactic({ style: v })} styleFit={styleFit} />
+          {/* v1.77: the instructions split across two tabs rather than stacking
+              two always-open controls above a collapsible block of five. Basic is
+              the whole game for a casual manager — how committed you are, and how
+              you play — and Advanced is fine-tuning that now costs nothing to
+              ignore. The old collapsible carried a summary line because it was
+              hidden by default; a tab is visible in the strip itself, so that
+              summary moves onto the Basic panel as a link across. */}
+          <Tabs
+            className="mb-0"
+            tabs={[
+              { id: "basic", label: "Basic" },
+              { id: "advanced", label: "Advanced" },
+            ]}
+            active={setupTab}
+            onChange={setSetupTab}
+          />
+          {setupTab === "basic" ? (
+            <div className="space-y-4">
+              <Instruction label="Mentality" options={MENTALITIES} current={tactic.mentality} onPick={(v) => setTactic({ mentality: v })} />
+              <Instruction label="Style" options={STYLES} current={tactic.style} onPick={(v) => setTactic({ style: v })} styleFit={styleFit} />
+              <p className="text-[10px] leading-snug text-faint">
+                Also playing {tempo.toLowerCase()} tempo · {width.toLowerCase()} · {press.toLowerCase()} press ·{" "}
+                {line.toLowerCase()} line · {focus.toLowerCase()} focus.{" "}
+                <button onClick={() => setSetupTab("advanced")} className="text-dim underline underline-offset-2 hover:text-ink">
+                  Fine-tune
+                </button>
+              </p>
+              {/* What those five dials are worth to the XI, summed (v1.79).
+                  Without it the Advanced tab is a door with nothing written on
+                  it — this is the one number that says whether it's worth
+                  opening, and it moves the moment the XI or the dials change. */}
+              <InstructionSummary xi={xiSlots} tactic={tactic} onOpen={() => setSetupTab("advanced")} />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <Instruction label="Tempo" options={TEMPOS} current={tempo} onPick={(v) => setTactic({ tempo: v })} axis="tempo" xi={xiSlots} />
+              <Instruction label="Width" options={WIDTHS} current={width} onPick={(v) => setTactic({ width: v })} axis="width" xi={xiSlots} />
+              <Instruction label="Press" options={PRESSES} current={press} onPick={(v) => setTactic({ press: v })} axis="press" xi={xiSlots} />
+              <Instruction label="Defensive Line" options={LINES} current={line} onPick={(v) => setTactic({ line: v })} axis="line" xi={xiSlots} />
+              <Instruction label="Focus" options={FOCI} current={focus} onPick={(v) => setTactic({ focus: v })} axis="focus" xi={xiSlots} />
+            </div>
+          )}
+          {/* One report in place of the old Squad-fit and Squad-identity panels
+              (v1.77) — the far end of the Training Plan → Attributes → Archetype
+              → Tactics loop, stated as advice rather than as three charts. */}
+          <AssistantReportPanel tactic={tactic} />
 
-          {/* Advanced instructions collapse into a dropdown so the setup doesn't
-              fill the screen — the core three (formation/mentality/style) stay
-              open, the fine-tuning tucks away with a live summary. */}
-          <div className="rounded-md border border-line">
-            <button
-              onClick={() => setAdvancedOpen((o) => !o)}
-              className="flex w-full items-center justify-between px-3 py-2 text-left"
-              aria-expanded={advancedOpen}
-            >
-              <span className="text-[11px] uppercase tracking-widest text-faint">Advanced instructions</span>
-              <span className="flex items-center gap-2">
-                {!advancedOpen && (
-                  <span className="hidden text-[10px] text-faint sm:inline">
-                    {tempo} · {width} · {press} press · {line} line · {focus}
-                  </span>
-                )}
-                <span className={`text-xs text-dim transition-transform ${advancedOpen ? "rotate-180" : ""}`}>▾</span>
-              </span>
-            </button>
-            {advancedOpen && (
-              <div className="space-y-4 border-t border-line px-3 py-3">
-                <Instruction label="Tempo" options={TEMPOS} current={tempo} onPick={(v) => setTactic({ tempo: v })} />
-                <Instruction label="Width" options={WIDTHS} current={width} onPick={(v) => setTactic({ width: v })} />
-                <Instruction label="Press" options={PRESSES} current={press} onPick={(v) => setTactic({ press: v })} />
-                <Instruction label="Defensive Line" options={LINES} current={line} onPick={(v) => setTactic({ line: v })} />
-                <Instruction label="Focus" options={FOCI} current={focus} onPick={(v) => setTactic({ focus: v })} />
-              </div>
-            )}
-          </div>
-          {/* How well the XI's ATTRIBUTES suit the instructions (v1.72). Distinct
-              from the ▲▼ marks below, which read archetype synergy with the
-              style: this is what the setup is asking of the players and whether
-              they can actually do it. */}
-          <TacticFitPanel players={xiPlayers} tactic={tactic} />
+          {/* And the side you SHOULD be building for this plan (v1.79) — the
+              question the report above can't answer, because it only ever grades
+              the players you already have. */}
+          <SquadBlueprintPanel tactic={tactic} />
 
           <p className="text-[11px] leading-relaxed text-faint">
             ▲▼ marks show each player&apos;s fit with <b className="text-dim">{styleLabel(tactic.style)}</b>.
@@ -1727,7 +2062,7 @@ export default function TacticsScreen() {
                       {displayFullName(p)}
                       {used && <span className="ml-2 text-[10px] text-faint">in XI</span>}
                     </span>
-                    <span className="text-[11px] text-faint">{getArchetype(p.archetypeId).name}</span>
+                    <ArchetypeLabel p={p} className="text-[11px]" />
                     <SynergyDot p={p} style={tactic.style} />
                     {fit < 1 && <span className="text-[10px] text-loss">{Math.round(fit * 100)}%</span>}
                     <span className="w-8 text-right tnum text-xs text-dim">{Math.round(p.fitness)}%</span>
@@ -1763,57 +2098,301 @@ export default function TacticsScreen() {
  * Standard-everything tactic asks nothing and shows nothing — which is honest,
  * and is also the hint that the safe setup is the one with no requirements.
  */
-function TacticFitPanel({ players, tactic }: { players: PlayerBio[]; tactic: Tactic }) {
-  const rows = useMemo(() => {
-    if (players.length === 0) return [];
-    const fitPlayers = players.map((p) => ({ overall: p.overall, attrs: p.attrs }));
-    return tacticFitReport(fitPlayers, tacticDemands(tactic));
-  }, [players, tactic]);
+// ── The Assistant Manager's report (§15.3, v1.77) ─────────────────────────
+//
+// One box replacing three. Until v1.77 this column carried a "Squad fit" panel
+// of centred bars, a "Squad identity" stacked bar with five class counts and a
+// list of signed percentages, and a line of raw arithmetic under the style
+// picker. Every number was accurate and none of it was advice — the player had
+// to hold three scales in their head and work out for themselves whether the
+// combination was good.
+//
+// The report does that work instead: a single grade, then at most four
+// sentences in the voice of an assistant manager. The numbers still exist and
+// each note carries the figure that produced it on hover, but they are the
+// evidence for the advice rather than the interface itself.
+//
+// The class MIX moved out of here entirely: it is now drawn on the pitch, as a
+// coloured ring on each player node (`MatchdayBoard`), which is where it is
+// actually actionable — you can see which slot is which class while you are
+// picking, instead of reading a bar chart beside the picture.
+//
+// All of the analysis lives in `lib/assistant.ts` and is computed from the same
+// functions the match engine calls, so this can never claim something the
+// simulation won't do.
 
-  if (players.length === 0 || rows.length === 0) return null;
+const NOTE_ICON: Record<NoteTone, string> = { good: "👍", warn: "⚠️", tip: "💡" };
+const NOTE_TONE: Record<NoteTone, string> = {
+  good: "text-win",
+  warn: "text-loss",
+  tip: "text-gold",
+};
+
+/** The grade's colour ramp — A green through E red. */
+function gradeColor(grade: string): string {
+  if (grade.startsWith("A")) return "var(--color-win)";
+  if (grade.startsWith("B")) return "#7fbf5f";
+  if (grade.startsWith("C")) return "#d9a441";
+  if (grade.startsWith("D")) return "#d97a4a";
+  return "var(--color-loss)";
+}
+
+function AssistantReportPanel({ tactic }: { tactic: Tactic }) {
+  const game = useGame((s) => s.game)!;
+  // `rev` is a real dependency, not just a re-render subscription: lib modules
+  // mutate the single GameState in place, so `game` keeps its identity when the
+  // lineup changes and a memo keyed on it alone would never recompute.
+  const rev = useGame((s) => s.rev);
+  const formation = getFormation(tactic.formationId);
+
+  const report = useMemo(() => {
+    // Judged against the slot each player is FILLING, exactly as the engine
+    // does — a midfielder at full back is read as the full back he is asked to
+    // be, so the report and Saturday agree.
+    const slots: ReportSlot[] = [];
+    for (const slot of formation.slots) {
+      const p = game.players[game.lineup[slot.id]];
+      if (p?.attrs) slots.push({ player: p, slotPos: slot.pos });
+    }
+    return assistantReport(slots, tactic, synergyOf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game, rev, formation, tactic]);
+
+  if (report.filled === 0) {
+    return (
+      <div className="rounded-md border border-line px-3 py-2.5">
+        <div className="text-[11px] uppercase tracking-widest text-faint">Assistant&apos;s report</div>
+        <p className="mt-1.5 text-[11px] leading-snug text-faint">
+          Pick a starting XI and I&apos;ll tell you how well it suits this plan.
+        </p>
+      </div>
+    );
+  }
+
+  const color = gradeColor(report.grade);
 
   return (
-    <div className="rounded-md border border-line px-3 py-2.5">
-      <div className="mb-2 flex items-baseline justify-between gap-2">
-        <span className="text-[11px] uppercase tracking-widest text-faint">Squad fit</span>
-        <span className="text-[10px] text-faint">What this setup asks of your XI</span>
+    <div className="rounded-md border border-line">
+      <div className="flex items-center gap-3 border-b border-line/60 px-3 py-2.5">
+        {/* The grade IS the summary — everything else is why. */}
+        <span
+          className="display flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-lg font-bold"
+          style={{ color, background: `${color}1a`, border: `1px solid ${color}59` }}
+        >
+          {report.grade}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[11px] uppercase tracking-widest text-faint">Tactical synergy</span>
+          <span className="block text-[11px] leading-snug text-dim">
+            {report.filled < 11
+              ? `${report.filled}/11 picked — partial read.`
+              : "How well this XI suits your instructions."}
+          </span>
+        </span>
       </div>
-      <div className="space-y-1.5">
-        {rows.map((r) => {
-          // score is −1..1; render it as a centred bar so "workable" reads as
-          // neutral rather than as a half-empty gauge.
-          const pct = Math.round(Math.abs(r.score) * 50);
-          const good = r.score >= 0;
-          const color = r.score >= 0.2 ? "var(--color-win)" : r.score > -0.2 ? "#9aa4b2" : "var(--color-loss)";
-          return (
-            <div key={r.phase} className="flex items-center gap-2 text-[11px]">
-              <span className="display w-20 shrink-0 uppercase tracking-wide text-dim">
-                {FIT_PHASE_LABEL[r.phase]}
+
+      <div className="space-y-1.5 px-3 py-2.5">
+        {report.notes.length === 0 ? (
+          <p className="text-[11px] leading-snug text-faint">
+            Nothing stands out either way — this is a workable, unremarkable setup.
+          </p>
+        ) : (
+          report.notes.map((n, i) => (
+            <p key={i} className="flex gap-1.5 text-[11px] leading-snug text-dim" title={n.detail}>
+              <span className="shrink-0" aria-hidden>{NOTE_ICON[n.tone]}</span>
+              <span className="min-w-0">
+                <b className={NOTE_TONE[n.tone]}>{n.title}:</b> {n.body}
               </span>
-              <span className="relative h-1.5 w-24 shrink-0 rounded-full bg-raised">
-                <span className="absolute left-1/2 top-0 h-full w-px bg-line" />
-                <span
-                  className="absolute top-0 h-full rounded-full"
-                  style={{
-                    background: color,
-                    width: `${pct}%`,
-                    left: good ? "50%" : `${50 - pct}%`,
-                  }}
-                />
-              </span>
-              <span className="w-20 shrink-0" style={{ color }}>
-                {fitLabel(r.score)}
-              </span>
-              <span
-                className="min-w-0 truncate text-faint"
-                title={r.attrs.map((k) => ATTR_META[k].name).join(", ")}
-              >
-                {r.attrs.slice(0, 3).map((k) => ATTR_META[k].name).join(" · ")}
-              </span>
+            </p>
+          ))
+        )}
+      </div>
+
+      {/* The class mix, as a one-line key to the coloured rings on the pitch —
+          the counts without the chart the pitch now carries. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line/60 px-3 py-2">
+        {ARCHETYPE_CLASS_ORDER.map((c) => (
+          <span
+            key={c}
+            className={`flex items-center gap-1.5 text-[10px] ${report.counts[c] > 0 ? "" : "opacity-30"}`}
+            title={ARCHETYPE_CLASS_BLURB[c]}
+          >
+            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: ARCHETYPE_CLASS_COLOR[c] }} />
+            <span className="text-faint">{c}</span>
+            <span className="tnum font-semibold text-dim">{report.counts[c]}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Squad Blueprint (§9c, v1.79) ───────────────────────────────────────────
+//
+// The report above grades the side you have. This is the side you SHOULD have:
+// for the current formation, style and dials, the best archetype at every slot,
+// how the incumbent measures up, and a button that opens the transfer market
+// already filtered to what's missing.
+//
+// It exists because the redesign is only worth building if a manager can act on
+// it. Knowing that a Possession 4-3-3 wants a Constructor at full back rather
+// than a Protector otherwise means holding 45 archetypes × 6 styles × five dials
+// in your head — that is a wiki, not a game. All the ranking lives in
+// `lib/assistant.ts`; this only draws it.
+//
+// Collapsed by default: it is a planning tool, not a per-matchday readout, and
+// the assistant's report stays the headline.
+
+const GRADE_MARK: Record<SlotGrade, { mark: string; tone: string; title: string }> = {
+  ideal: { mark: "✓", tone: "text-win", title: "The best role available here for this setup" },
+  // "0 is neutral, not a trap" made visible: a role that simply isn't what the
+  // style is built around costs you a little, and is not a mistake.
+  fine: { mark: "~", tone: "text-dim", title: "Workable — not the ideal role, but no real cost" },
+  poor: { mark: "✗", tone: "text-loss", title: "This role is costing you against the best you could field here" },
+};
+
+function BlueprintRow({ row }: { row: BlueprintSlot }) {
+  const g = GRADE_MARK[row.grade];
+  const gap = row.idealPct - row.actualPct;
+  // Worth naming only where the dials disagree with the style — which is the
+  // interesting case and, because style is the bigger lever, not the common one.
+  const dialPick = row.bestForDials.id !== row.ideal.id ? row.bestForDials : undefined;
+  return (
+    <div className="flex items-center gap-2 px-3 py-1 text-[11px] odd:bg-raised/30">
+      <span className="w-7 shrink-0 font-semibold text-faint">{row.label}</span>
+
+      {/* What this slot should be. */}
+      <span className="flex min-w-0 flex-[1.1] items-center gap-1" title={`${row.ideal.name} · ${row.ideal.cls} — ${row.ideal.desc}`}>
+        <ArchetypeIcon archetype={row.ideal} size={14} />
+        <span className="truncate text-dim">{row.ideal.name}</span>
+        {dialPick && (
+          <span
+            className="shrink-0 text-faint"
+            title={`${row.ideal.name} is the best fit for ${row.slotPos} in this style. For your dials alone, a ${dialPick.name} suits them better — but the style is the bigger lever, so it doesn't overturn the pick.`}
+          >
+            /{dialPick.name}
+          </span>
+        )}
+      </span>
+
+      {/* What it is. */}
+      <span className="flex min-w-0 flex-1 items-center gap-1">
+        {row.actual ? (
+          <>
+            <ArchetypeIcon archetype={row.actual} size={14} />
+            <span
+              className="truncate text-faint"
+              title={[
+                row.incumbent ? displayFullName(row.incumbent) : "",
+                `Style ${row.actualStylePct > 0 ? "+" : ""}${row.actualStylePct.toFixed(0)}% · dials ${row.actualDialsPct > 0 ? "+" : ""}${row.actualDialsPct.toFixed(1)}%`,
+              ]
+                .filter(Boolean)
+                .join("\n")}
+            >
+              {row.actual.name}
+            </span>
+          </>
+        ) : (
+          <span className="italic text-faint">empty</span>
+        )}
+      </span>
+
+      <span className={`w-4 shrink-0 text-center ${g.tone}`} title={g.title} aria-label={row.grade}>
+        {g.mark}
+      </span>
+      {/* The cost, not the absolute: what this slot gives up against its ideal.
+          Shown only from the `fine` band up, so the column carries the same
+          message as the mark beside it rather than pricing every rounding error. */}
+      <span className={`w-9 shrink-0 text-right tnum ${row.grade === "poor" ? "text-loss" : "text-faint"}`}>
+        {row.actual && gap > 4 ? `−${Math.round(gap)}%` : ""}
+      </span>
+    </div>
+  );
+}
+
+function SquadBlueprintPanel({ tactic }: { tactic: Tactic }) {
+  const game = useGame((s) => s.game)!;
+  const rev = useGame((s) => s.rev);
+  const scoutFor = useGame((s) => s.scoutFor);
+  const [open, setOpen] = useState(false);
+  const formation = getFormation(tactic.formationId);
+
+  const bp = useMemo(() => {
+    const lineup: Record<string, PlayerBio | undefined> = {};
+    for (const slot of formation.slots) lineup[slot.id] = game.players[game.lineup[slot.id]];
+    return squadBlueprint(
+      formation.slots.map((s) => ({ id: s.id, pos: s.pos, label: s.label })),
+      lineup,
+      tactic,
+      TUNING.instructionFitSwing
+    );
+    // `rev` is a real dependency: lib modules mutate GameState in place, so
+    // `game` keeps its identity when the lineup changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game, rev, formation, tactic]);
+
+  return (
+    <div className="rounded-md border border-line">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-hover"
+      >
+        <span className="flex-1 text-[11px] uppercase tracking-widest text-faint">Squad blueprint</span>
+        {/* The headline even when collapsed — one sentence of advice is worth
+            more than a disclosure triangle on its own. */}
+        <span className="truncate text-[10px] text-dim">
+          {bp.weakest ? (
+            <>
+              Weakest link: <b className="text-loss">{bp.weakest.label}</b>
+            </>
+          ) : (
+            "Every slot is well suited"
+          )}
+        </span>
+        <span className="shrink-0 text-[10px] text-faint" aria-hidden>{open ? "▾" : "▸"}</span>
+      </button>
+
+      {open && (
+        <>
+          <p className="border-t border-line/60 px-3 py-2 text-[11px] leading-snug text-faint">
+            The best role at each slot for <b className="text-dim">{styleLabel(tactic.style)}</b> — and how your XI
+            measures up. Style is the bigger lever, so it decides most picks; where your advanced dials would pick
+            someone else, that role is named after a slash.
+          </p>
+          <div className="flex items-center gap-2 border-b border-line/60 px-3 pb-1 text-[9px] uppercase tracking-widest text-faint">
+            <span className="w-7 shrink-0">Slot</span>
+            <span className="flex-[1.1]">Ideal</span>
+            <span className="flex-1">You have</span>
+            <span className="w-4 shrink-0" />
+            <span className="w-9 shrink-0" />
+          </div>
+          <div className="py-1">
+            {bp.slots.map((row) => (
+              <BlueprintRow key={row.slotId} row={row} />
+            ))}
+          </div>
+
+          {/* The shopping list. This is what makes the panel quality-of-life
+              rather than one more readout: a ✗ row now has somewhere to go. */}
+          {bp.wants.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 border-t border-line/60 px-3 py-2">
+              <span className="text-[10px] text-faint">Shop for:</span>
+              {bp.wants.slice(0, 3).map((w) => (
+                <button
+                  key={w.archetype.id}
+                  onClick={() => scoutFor(w.archetype.id, w.pos)}
+                  title={`Search the market for a ${w.archetype.name} at ${w.pos}`}
+                  className="flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[10px] text-dim hover:border-gold hover:text-gold"
+                >
+                  <ArchetypeIcon archetype={w.archetype} size={12} ring={false} />
+                  {w.archetype.name}
+                  <span className="text-faint">({w.pos})</span>
+                </button>
+              ))}
             </div>
-          );
-        })}
-      </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

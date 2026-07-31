@@ -5,7 +5,8 @@
 import type { Attributes, Foot, GameState, League, PlayerBio, Pos, Team, Tactic } from "./types";
 import { SCHEMA_VERSION } from "./types";
 import { TUNING, type TuningConfig } from "./config/tuning";
-import { archetypesForPosition, getArchetype, DEFAULT_HEIGHT_CM } from "./config/archetypes";
+import { ARCHETYPE_BY_PLAN, profileOf } from "./config/archetype";
+import { TRAINING_PLAN_MAP, plansForPosition, type TrainingPlanDef } from "./config/training";
 import { traitsForPosition } from "./config/traits";
 import { fitAttrsToOverall, keyAttrsFor, LEFT_FOOT_CHANCE, overallFromAttrs } from "./config/positions";
 import { ATTR_KEYS, normalizeAttrs } from "./config/attributes";
@@ -135,8 +136,8 @@ function ageAdjustedOverall(rng: RNG, requested: number, age: number, cfg: Tunin
 
 /** Roll a height in cm from the archetype's band, with a small age allowance:
  * the youngest prospects haven't finished growing yet (v15). */
-function rollHeight(rng: RNG, archetypeId: string, age: number, cfg: TuningConfig): number {
-  const [mean, sd] = getArchetype(archetypeId).heightCm ?? DEFAULT_HEIGHT_CM;
+function rollHeight(rng: RNG, planId: string, age: number, cfg: TuningConfig): number {
+  const [mean, sd] = profileOf(ARCHETYPE_BY_PLAN[planId]).heightCm;
   const adult = mean + randNormal(rng) * sd;
   // Below the full-growth age a prospect is still short of his adult frame.
   const grown = age >= cfg.heightFullAge ? 1 : 1 - (cfg.heightFullAge - age) * cfg.heightPerYoungYear;
@@ -153,19 +154,25 @@ function rollFoot(rng: RNG, pos: Pos): Foot {
 /**
  * Roll a full 35-attribute line for a player of the given ability (v41).
  *
- * The archetype's expanded profile says WHERE this player's quality should sit
- * (a Poacher's finishing is his signature; his tackling is not). The profile is
- * a 0..1 emphasis, so it is read as a spread around the requested ability:
- * signature attributes land above it, off-profile attributes below, with a
- * small per-attribute jitter so no two players of the same archetype are twins.
+ * The TRAINING PLAN's weights say WHERE this player's quality should sit (the
+ * poacher plan's finishing is its signature; its tackling is not). The weights
+ * are a 0..1 emphasis, so they are read as a spread around the requested
+ * ability: primary attributes land above it, background ones below, with a
+ * small per-attribute jitter so no two players off the same plan are twins.
+ *
+ * v1.77: this used to read a seed archetype's `attrProfile`. Generating from the
+ * plan instead is what collapsed the two archetype systems into one — the
+ * archetype a player reads as is derived from the line this produces, and
+ * because the line was shaped by that archetype's own plan, the two agree by
+ * construction rather than by coincidence.
  *
  * The result is then FITTED to the requested overall (fitAttrsToOverall), which
  * is what keeps the two consistent: the attributes are the source of truth and
  * the headline number is derived from them, so the spread can be as expressive
  * as it likes without the rating drifting.
  */
-function deriveAttrs(rng: RNG, overall: number, archetypeId: string, pos: Pos): Attributes {
-  const profile = getArchetype(archetypeId).attrProfile;
+function deriveAttrs(rng: RNG, overall: number, plan: TrainingPlanDef, pos: Pos): Attributes {
+  const profile = plan.weights;
   const maxW = Math.max(...ATTR_KEYS.map((k) => profile[k])) || 1;
   const attrs = {} as Attributes;
   for (const k of ATTR_KEYS) {
@@ -200,17 +207,22 @@ function normalizeAttrsOnto(base: Attributes, authored: Partial<Attributes>): At
 export function generatePlayer(
   rng: RNG,
   cfg: TuningConfig,
-  opts: { pos: Pos; overall: number; nat: string; age?: number; prodigy?: boolean; archetypeId?: string }
+  opts: { pos: Pos; overall: number; nat: string; age?: number; prodigy?: boolean; planId?: string }
 ): PlayerBio {
   const age = opts.age ?? Math.round(Math.min(35, Math.max(17, 24 + randNormal(rng) * 4.2)));
   // Quality floor (balance): no generated player is ever weaker than cfg.minOverall,
   // so the world holds no hopeless 38-rated bodies — every player is at least a
   // rough professional, and every prospect is genuinely developable.
   const requested = Math.round(Math.max(cfg.minOverall, Math.min(94, opts.overall)));
-  // The caller may brief a specific archetype (e.g. a scout looking for a "Poacher");
-  // otherwise pick a realistic one for the position. Guard against a mismatched id.
-  const briefed = opts.archetypeId ? getArchetype(opts.archetypeId) : null;
-  const archetype = briefed && briefed.positions.includes(opts.pos) ? briefed : pick(rng, archetypesForPosition(opts.pos));
+  // The caller may brief a specific archetype by naming its training plan (a
+  // scout looking for a "Sniper" asks for `st_poacher`); otherwise pick one of
+  // the position's five at random. A plan from another position group is ignored
+  // — briefing a striker plan for a centre back would generate an incoherent
+  // line — so a mismatched id falls back to a random valid plan.
+  const briefed = opts.planId ? TRAINING_PLAN_MAP[opts.planId] : undefined;
+  const options = plansForPosition(opts.pos);
+  const plan =
+    briefed && options.some((o) => o.id === briefed.id) ? briefed : pick(rng, options);
 
   // Age realism (§5, v15): a young player's *current* ability is his requested
   // ability scaled by a smooth physical/technical maturity curve. Unlike the old
@@ -282,7 +294,7 @@ export function generatePlayer(
   // all the youth-cap / prodigy / potential logic above, generate an attribute
   // spread from it, then recompute overall from those attrs so the stored number
   // matches what the engine and UI read off the six attributes.
-  const attrs = deriveAttrs(rng, overall, archetype.id, opts.pos);
+  const attrs = deriveAttrs(rng, overall, plan, opts.pos);
   overall = Math.max(cfg.minOverall, overallFromAttrs(attrs, opts.pos));
   potential = Math.max(potential, overall);
 
@@ -291,10 +303,13 @@ export function generatePlayer(
     name: makeName(rng, opts.nat),
     age,
     nationality: opts.nat,
-    heightCm: rollHeight(rng, archetype.id, age, cfg),
+    heightCm: rollHeight(rng, plan.id, age, cfg),
     foot: rollFoot(rng, opts.pos),
     positions,
-    archetypeId: archetype.id,
+    // The plan he was generated from is also the plan he starts on, so an
+    // untouched player keeps developing into the archetype he already reads as
+    // rather than drifting off it the moment the first season rolls over.
+    trainingPlan: plan.id,
     attrs,
     overall,
     potential,
@@ -341,7 +356,9 @@ export function regenFromRetiree(rng: RNG, cfg: TuningConfig, retiree: PlayerBio
     overall: requested,
     nat: retiree.nationality,
     age,
-    archetypeId: retiree.archetypeId,
+    // A regen inherits the retiree's identity by inheriting the plan that
+    // produced it — the successor is the same kind of footballer.
+    planId: retiree.trainingPlan,
   });
   // Inherit the retiree's peak ceiling — the whole point of a regen is the chance
   // it grows into the shoes it was born to fill.
@@ -392,7 +409,12 @@ export function materializePlayer(
   if (full && full !== seed.name.trim()) p.fullName = full;
   // honor explicit multi-position lists (else keep the generated primary+rolled)
   if (seed.positions.length > 1) p.positions = [...seed.positions];
-  if (seed.archetypeId && getArchetype(seed.archetypeId).id === seed.archetypeId) p.archetypeId = seed.archetypeId;
+  // A seed may name the training plan the player should start on (and so the
+  // archetype he is meant to read as). Only a plan valid for his position is
+  // taken; anything else keeps the procedurally rolled one.
+  if (seed.trainingPlan && plansForPosition(primary).some((o) => o.id === seed.trainingPlan)) {
+    p.trainingPlan = seed.trainingPlan;
+  }
   // Authored height (v41) beats the archetype roll — the real-world databases
   // carry the player's actual height, which is simply better data.
   if (typeof seed.heightCm === "number" && Number.isFinite(seed.heightCm)) {

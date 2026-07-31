@@ -3,22 +3,36 @@
 // Player Development (§5, new 8th screen). Training Plans is the heart of the
 // screen: a per-player training focus you can set, with each row expanding to
 // show how that player is developing — growth per season, projected ceilings,
-// estimated time to potential, and growth history. Alongside it, the training
-// facilities and development staff that drive it all.
+// estimated time to potential, and growth history.
+//
+// v1.74 rework of the Training Plans tab. The old list had five problems, all of
+// them the same problem in different clothes — the row said what the plan was
+// CALLED and nothing about what it DID:
+//
+//   · plan names truncated to "Balanced Goalke…" in an 11rem track;
+//   · the dropdown was a native <select>, so its menu was the OS widget —
+//     square corners, system-blue highlight, nothing to do with this theme;
+//   · nothing showed which attributes a plan actually trains;
+//   · a huge dead gutter between the player name and the right-hand columns;
+//   · one green dot carrying a binary "optimal / not" with no third state.
+//
+// The row is now: identity (pos, name, flag, archetype) · age · OVR · phase ·
+// growth · the plan itself with its target attributes underneath. The plan
+// picker is the themed `Select`, whose menu has room for the archetype each plan
+// aims at and the attributes it trains — the information that makes the choice
+// mean something. See PlanStatus for the three-state indicator.
 
 import { useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
-import type { PlayerBio } from "@/lib/types";
+import type { Attributes, PlayerBio, Pos } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
 import { devPhase, seasonGrowth, seasonGrowthEstimate, seasonFamilyFocus } from "@/lib/development";
-import { ATTR_FAMILY_LABELS, ATTR_FAMILY_ORDER, GK_FAMILY_LABELS } from "@/lib/config/attributes";
-import { trainingNextCost, type TrainingFacility } from "@/lib/economy";
+import { ATTR_FAMILY_LABELS, ATTR_FAMILY_ORDER, ATTR_META, GK_FAMILY_LABELS } from "@/lib/config/attributes";
 import { academyGrowthSummary, prospectGrowth, type ProspectGrowth } from "@/lib/academy";
-import { formatMoney } from "@/lib/value";
 import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan, type TrainingPlanDef } from "@/lib/config/training";
+import { ARCHETYPE_BY_PLAN, ARCHETYPE_CLASS_COLOR, deriveArchetype } from "@/lib/config/archetype";
 import { POS_ORDER } from "@/lib/config/positions";
-import { Card, displayFullName, Flag, GhostButton, GoldButton, Ovr, PlayerCard, PlayerGrid, PosBadge, Tabs, UpgradeCard, usePlayerView, ViewToggle } from "../ui";
-import StaffPanel from "./StaffPanel";
+import { Card, ClassDot, displayFullName, FitnessBar, Flag, GhostButton, GoldButton, Modal, Ovr, ArchetypeIcon, PlayerCard, PlayerGrid, PosBadge, Select, Tabs, usePlayerView, ViewToggle, type SelectOption } from "../ui";
 
 // Columns the Training Plans list can be sorted by. Position is the default —
 // keepers first — so the list reads in team-sheet order out of the box.
@@ -83,27 +97,166 @@ function SortHeader({
 }
 
 
-// Shared grid template for the Training Plans header + rows. The last track is a
-// fixed width so the training-focus dropdown is the same size across every
-// position (plan names differ per position) and its header lines up above it.
-// The dropdown track narrows on phones so the row still fits a small screen.
-const PLAN_GRID = "grid-cols-[2rem_1fr_2rem_2.5rem_8rem] sm:grid-cols-[2.25rem_1fr_2.5rem_3rem_11rem]";
+// Shared grid template for the Training Plans header + rows.
+//
+// v1.74: the plan track went 11rem → 15rem, which is what the longest shipped
+// plan name ("Balanced Goalkeeper", "Distribution Specialist") actually needs —
+// the truncation was never a naming problem, it was a width one, so the names
+// stay honest and the column grew. Two tracks were added between the name and
+// the right-hand block (phase, growth), which is what closes the dead gutter:
+// the space is now carrying the two numbers a development screen is for.
+//
+// v1.76: the archetype moved OUT of the name cell into a track of its own, and the
+// two text tracks became `1fr` again. Both changes fix the same bug from opposite
+// ends. Capping the name at 22rem and fixing every other track meant the row's
+// total width was a constant ~55rem — on any wide window the whole table hugged
+// the left edge with the right half of the card empty, which is the "half a
+// container" the screen was showing. Letting name and archetype share the slack is
+// what makes the row fill its card at any width. Stacking the archetype under the
+// name was also the wrong shape for a sortable table: it made the name cell two
+// lines tall and left the identity unreadable as a column. It is a fact about the
+// player like age or overall, so it gets a column like them.
+const PLAN_GRID =
+  "grid-cols-[2rem_1fr_2rem_2.5rem_9rem] sm:grid-cols-[2.25rem_minmax(9rem,1fr)_minmax(8rem,1fr)_2.5rem_3rem_4.5rem_4.5rem_15rem]";
+
+/** The position groups the filter bar offers, and which real positions each
+ * covers. Filtering by unit is what a manager actually wants ("show me the
+ * defenders"), and it is four buttons rather than twelve. */
+const POS_GROUPS: { id: string; label: string; match: (pos: Pos) => boolean }[] = [
+  { id: "GK", label: "GK", match: (p) => p === "GK" },
+  { id: "DEF", label: "DEF", match: (p) => ["CB", "LB", "RB"].includes(p) },
+  { id: "MID", label: "MID", match: (p) => ["DM", "CM", "AM", "LM", "RM"].includes(p) },
+  { id: "ATT", label: "ATT", match: (p) => ["LW", "RW", "ST"].includes(p) },
+];
+
+/**
+ * The three-state status marker for a player's training focus (v1.74).
+ *
+ * The old marker was binary — a green dot for "this is the optimal plan", a
+ * gold ring for anything else — which collapsed two quite different situations
+ * into one: a player on a deliberately-chosen alternative plan looked exactly
+ * like a player nobody had ever looked at, and a player too old to gain anything
+ * from any plan looked like a mistake.
+ *
+ *   ● green  Optimal — the plan that best fits the player he is.
+ *   ● gold   Sub-optimal — a workable plan, but another fits him better.
+ *   ● dim    Settled — past the growth window, so the plan changes little.
+ *
+ * Settled deliberately outranks sub-optimal: telling a 33-year-old's manager to
+ * switch his focus is noise, and dimming him is what keeps the gold dots
+ * meaningful as a to-do list.
+ */
+export function PlanStatus({ optimal, growing, best }: { optimal: boolean; growing: boolean; best: TrainingPlanDef }) {
+  const state = !growing
+    ? { cls: "text-faint", title: "Settled — past the growth window, so the focus changes little now." }
+    : optimal
+      ? { cls: "text-win", title: "Optimal — the focus that best fits this player." }
+      : { cls: "text-gold", title: `Sub-optimal — ${best.name} fits him better.` };
+  return (
+    <span className={`shrink-0 text-[10px] leading-none ${state.cls}`} title={state.title} aria-label={state.title}>
+      ●
+    </span>
+  );
+}
+
+/**
+ * The attributes a plan trains, as compact chips (v1.74).
+ *
+ * "Why am I changing this focus?" was unanswerable from the old row — the plan
+ * was a name and nothing else. A plan's four PRIMARY attributes are the answer,
+ * and they are already authored in the training table, so this reads them rather
+ * than restating anything: Distribution Specialist shows KIC · HAN · GKP · VIS.
+ *
+ * `secondary` adds the supporting four in a dimmer tone, for the dropdown menu
+ * where there is room for the full picture.
+ */
+export function PlanTargets({
+  plan,
+  attrs,
+  secondary = false,
+  max = 4,
+}: {
+  plan: TrainingPlanDef;
+  /** The player's current values, to colour a chip that has run out of room. */
+  attrs?: Attributes;
+  secondary?: boolean;
+  max?: number;
+}) {
+  const keys = [...plan.primary.slice(0, max), ...(secondary ? plan.secondary.slice(0, max) : [])];
+  return (
+    <span className="flex min-w-0 flex-wrap items-center gap-1">
+      {keys.map((k, i) => {
+        const isSecondary = i >= plan.primary.slice(0, max).length;
+        const v = attrs?.[k];
+        // An attribute already at the ceiling can't absorb more training, so it
+        // reads dim even when it is a primary target — that is the honest
+        // signal that this plan has less left to give this player.
+        const maxed = v !== undefined && v >= 95;
+        return (
+          <span
+            key={k}
+            title={`${ATTR_META[k].name}${v !== undefined ? ` — currently ${v}` : ""}${
+              isSecondary ? " (supporting)" : ""
+            }${maxed ? ", little room left" : ""}`}
+            className={`display shrink-0 rounded-sm border px-1 py-px text-[9px] font-semibold tracking-wide ${
+              maxed
+                ? "border-line text-faint"
+                : isSecondary
+                  ? "border-line text-dim"
+                  : "border-gold-lo/40 text-gold"
+            }`}
+          >
+            {ATTR_META[k].short}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+/**
+ * Build the themed dropdown's options for one player's position.
+ *
+ * Each row carries what the bare name can't: the archetype the plan aims at (the
+ * far end of the Training Plan → Attributes → Archetype loop, so the manager can
+ * see he is training a Sniper rather than "Finishing"), the attributes it
+ * trains, and a ★ on the recommended one.
+ */
+export function planOptions(pos: Pos, attrs: Attributes, bestId: string): SelectOption<string>[] {
+  return plansForPosition(pos).map((o) => {
+    const archetype = ARCHETYPE_BY_PLAN[o.id];
+    return {
+      value: o.id,
+      label: o.name,
+      hint: (
+        <span className="flex flex-col gap-1">
+          <span className="flex items-center gap-1.5">
+            {archetype && (
+              <>
+                {/* The art leads the row: picking a plan IS picking the archetype
+                    at the end of it, so the manager sees the badge he is
+                    training toward before he reads its name. */}
+                <ArchetypeIcon archetype={archetype} size={16} />
+                <span style={{ color: ARCHETYPE_CLASS_COLOR[archetype.cls] }}>{archetype.name}</span>
+                <ClassDot cls={archetype.cls} />
+                <span className="text-faint">{archetype.cls}</span>
+              </>
+            )}
+          </span>
+          <PlanTargets plan={o} attrs={attrs} />
+        </span>
+      ),
+      badge:
+        o.id === bestId ? (
+          <span className="shrink-0 text-[10px] text-gold" title="Recommended for this player">
+            ★
+          </span>
+        ) : undefined,
+    };
+  });
+}
 
 type Tab = "plans" | "growth";
-
-/** One upgrade card's worth of display data. The accent tints the whole card
- * so each facility reads as its own bounded module. */
-interface FacilityRow {
-  key: TrainingFacility;
-  title: string;
-  icon: string;
-  accent: string;
-  level: number;
-  maxLevel: number;
-  influence: string;
-  effectNow: string;
-  effectNext: string;
-}
 
 export default function DevelopmentScreen() {
   const [tab, setTab] = useState<Tab>("plans");
@@ -142,6 +295,12 @@ function TrainingPlansTab() {
   // goalkeepers lead the list (POS_ORDER puts GK first); click a header to
   // re-sort, click again to flip the direction.
   const [sort, setSort] = useState<{ key: PlanSortKey; dir: 1 | -1 }>({ key: "pos", dir: 1 });
+  // Filter bar (v1.74): a squad is 25+ players, so finding one was a scroll.
+  const [group, setGroup] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  // Confirmation for auto-assign — it rewrites every plan in the squad at once,
+  // which is not something to do on a mis-click with no statement of the rule.
+  const [confirmAuto, setConfirmAuto] = useState(false);
   const ctx = devContext(game);
   const team = game.teams[game.userTeamId];
 
@@ -149,7 +308,7 @@ function TrainingPlansTab() {
   // Academy screen (their training plans are set there, not here).
   const academyIds = new Set(team.academyPlayerIds ?? []);
   const ids = [...team.playerIds];
-  const squad = ids
+  const all = ids
     .map((id) => game.players[id])
     .filter((p): p is PlayerBio => !!p && !p.retired)
     .sort((a, b) => {
@@ -158,9 +317,17 @@ function TrainingPlansTab() {
       return cmp || (POS_RANK[a.positions[0]] ?? 99) - (POS_RANK[b.positions[0]] ?? 99) || a.name.localeCompare(b.name);
     });
 
+  const q = query.trim().toLowerCase();
+  const squad = all.filter((p) => {
+    if (group && !POS_GROUPS.find((g) => g.id === group)?.match(p.positions[0])) return false;
+    if (q && !displayFullName(p).toLowerCase().includes(q) && !p.name.toLowerCase().includes(q)) return false;
+    return true;
+  });
+
   // How many players aren't yet on the focus that would most improve them —
-  // drives the auto-assign call to action.
-  const suboptimal = squad.filter(
+  // drives the auto-assign call to action. Counted over the WHOLE squad, not
+  // the filtered view: the button acts on everyone, so its count must too.
+  const suboptimal = all.filter(
     (p) => resolveTrainingPlan(p.trainingPlan, p.positions[0]).id !== optimalTrainingPlan(p).id
   ).length;
 
@@ -173,8 +340,8 @@ function TrainingPlansTab() {
             {suboptimal > 0 ? (
               <>
                 <span className="text-gold">{suboptimal}</span> player{suboptimal === 1 ? " is" : "s are"} on a focus
-                that isn&apos;t the best fit. Auto-assign picks the plan that lifts each player&apos;s overall fastest,
-                from their archetype, position and how much room each attribute still has.
+                that isn&apos;t the best fit. Auto-assign gives each player the plan that suits the player he already
+                is — the one built around the attributes his archetype is defined by, where he still has room to grow.
               </>
             ) : (
               "Every player is already training the focus that suits them best."
@@ -183,17 +350,60 @@ function TrainingPlansTab() {
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <ViewToggle view={view} onChange={setView} />
-          <GoldButton onClick={() => autoAssign()} disabled={suboptimal === 0} className="!py-1.5 text-xs">
+          <GoldButton
+            onClick={() => setConfirmAuto(true)}
+            disabled={suboptimal === 0}
+            className="!py-1.5 text-xs"
+            title={
+              suboptimal === 0
+                ? "Every player is already on his best-fit focus"
+                : `Set all ${suboptimal} mismatched players to their best-fit focus`
+            }
+          >
             AUTO-ASSIGN ALL
           </GoldButton>
         </div>
       </Card>
 
+      {/* Filter bar — position group and name search. Both narrow the list only;
+          nothing here changes a plan, so it is safe to leave set. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setGroup(null)}
+            className={`display rounded px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition-colors ${
+              group === null ? "gold-grad text-black" : "border border-line text-dim hover:text-ink"
+            }`}
+          >
+            All
+          </button>
+          {POS_GROUPS.map((g) => (
+            <button
+              key={g.id}
+              onClick={() => setGroup(group === g.id ? null : g.id)}
+              className={`display rounded px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition-colors ${
+                group === g.id ? "gold-grad text-black" : "border border-line text-dim hover:text-ink"
+              }`}
+            >
+              {g.label}
+            </button>
+          ))}
+        </div>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search squad…"
+          className="w-44 rounded-md border border-line bg-raised px-2.5 py-1 text-xs text-ink outline-none transition-colors placeholder:text-faint hover:border-faint focus:border-gold"
+        />
+        <span className="text-[11px] text-faint">
+          {squad.length === all.length ? `${all.length} players` : `${squad.length} of ${all.length}`}
+        </span>
+      </div>
+
       {view === "grid" ? (
         <PlayerGrid>
           {squad.map((p) => {
             const plan = resolveTrainingPlan(p.trainingPlan, p.positions[0]);
-            const options = plansForPosition(p.positions[0]);
             const best = optimalTrainingPlan(p);
             const isOptimal = plan.id === best.id;
             const growing = p.age <= TUNING.growthEndAge;
@@ -212,35 +422,28 @@ function TrainingPlansTab() {
                   </span>
                 }
                 stats={
-                  last && last.toOverall !== last.fromOverall ? (
-                    <span className={`tnum ${last.toOverall > last.fromOverall ? "text-win" : "text-loss"}`}>
-                      {last.toOverall > last.fromOverall ? "+" : ""}
-                      {last.toOverall - last.fromOverall} last season
-                    </span>
-                  ) : (
-                    <span className="text-faint">—</span>
-                  )
+                  <span className="flex items-center gap-1.5">
+                    <PlanTargets plan={plan} attrs={p.attrs} max={3} />
+                    {last && last.toOverall !== last.fromOverall && (
+                      <span className={`tnum ${last.toOverall > last.fromOverall ? "text-win" : "text-loss"}`}>
+                        {last.toOverall > last.fromOverall ? "+" : ""}
+                        {last.toOverall - last.fromOverall}
+                      </span>
+                    )}
+                  </span>
                 }
                 actions={
                   <span className="flex w-full items-center gap-1.5">
-                    <span
-                      className={`shrink-0 text-[10px] leading-none ${isOptimal ? "text-win" : "text-gold"}`}
-                      title={isOptimal ? "Optimal training focus" : `Recommended: ${best.name}`}
-                    >
-                      {isOptimal ? "●" : "○"}
-                    </span>
-                    <select
+                    <PlanStatus optimal={isOptimal} growing={growing} best={best} />
+                    <Select
                       value={plan.id}
-                      onChange={(e) => setPlan(p.id, e.target.value)}
-                      className="min-w-0 flex-1 truncate rounded-md border border-line bg-raised px-2 py-1 text-xs text-ink focus:border-gold focus:outline-none"
+                      options={planOptions(p.positions[0], p.attrs, best.id)}
+                      onChange={(v) => setPlan(p.id, v)}
+                      className="min-w-0 flex-1"
+                      buttonClassName="!py-1 text-xs"
                       title={plan.blurb}
-                    >
-                      {options.map((o) => (
-                        <option key={o.id} value={o.id}>
-                          {o.name}
-                        </option>
-                      ))}
-                    </select>
+                      ariaLabel={`Training focus for ${p.name}`}
+                    />
                   </span>
                 }
               />
@@ -252,23 +455,46 @@ function TrainingPlansTab() {
         <div className={`grid ${PLAN_GRID} items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-faint`}>
           <SortHeader label="Pos" col="pos" sort={sort} onSort={setSort} />
           <SortHeader label="Player" col="name" sort={sort} onSort={setSort} />
+          {/* v1.76: the identity as its own column. Hidden on phones, where the
+              row has no width to spare — the card view is the mobile answer. */}
+          <span className="hidden sm:block" title="The identity his current attributes have earned">
+            Archetype
+          </span>
           <SortHeader label="Age" col="age" sort={sort} onSort={setSort} align="center" />
           <SortHeader label="OVR" col="ovr" sort={sort} onSort={setSort} align="center" />
+          {/* v1.74: two columns pulled into the old dead gutter. Phase is the
+              honest substitute for the potential the manager can't see, and
+              Growth is this season's estimate — the two things that decide
+              whether a training focus is worth thinking about at all. */}
+          <span className="hidden text-center sm:block" title="Where this player is in his career arc">
+            Phase
+          </span>
+          <span className="hidden text-center sm:block" title="Estimated overall gain this season on the current focus">
+            Growth
+          </span>
           <span className="text-center">Training focus</span>
         </div>
+        {squad.length === 0 && (
+          <div className="px-4 py-8 text-center text-sm text-faint">No players match that filter.</div>
+        )}
         {squad.map((p) => {
           const plan = resolveTrainingPlan(p.trainingPlan, p.positions[0]);
-          const options = plansForPosition(p.positions[0]);
           const best = optimalTrainingPlan(p);
           const isOptimal = plan.id === best.id;
           const inAcademy = academyIds.has(p.id);
           const isOpen = open === p.id;
+          const growing = p.age <= TUNING.growthEndAge;
 
           // Potential is hidden from the manager. Everything shown here is a
           // one-season-ahead estimate — no ceilings, no multi-season horizon.
           const phase = devPhase(p, TUNING);
           const season = seasonGrowthEstimate(p, TUNING, ctx.devCoachStars, ctx.trainingLevel, plan);
           const last = p.devLog && p.devLog.length ? p.devLog[p.devLog.length - 1] : null;
+          // The archetype is the far end of the loop this screen drives: the plan
+          // shapes attributes, and the attributes earn the identity. Showing it
+          // beside the name is what makes the training focus feel consequential
+          // rather than like a stat allocation.
+          const archetype = deriveArchetype(p.attrs, p.positions[0]);
 
           return (
             <div key={p.id}>
@@ -277,47 +503,105 @@ function TrainingPlansTab() {
                 <button
                   onClick={() => setOpen(isOpen ? null : p.id)}
                   className="group flex min-w-0 items-center gap-2 text-left"
+                  aria-expanded={isOpen}
                 >
                   <span className={`shrink-0 text-[10px] text-faint transition-transform ${isOpen ? "rotate-90" : ""}`}>▶</span>
                   <Flag nat={p.nationality} size={12} />
-                  <span className="truncate font-medium transition-colors group-hover:text-gold">{displayFullName(p)}</span>
-                  {inAcademy && <AcademyTag />}
-                  {last && last.toOverall !== last.fromOverall && (
-                    <span className={`text-[11px] tnum ${last.toOverall > last.fromOverall ? "text-win" : "text-loss"}`}>
-                      {last.toOverall > last.fromOverall ? "+" : ""}{last.toOverall - last.fromOverall} last season
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate font-medium transition-colors group-hover:text-gold">
+                      {displayFullName(p)}
                     </span>
-                  )}
+                    {inAcademy && <AcademyTag />}
+                  </span>
                 </button>
+                {/* The archetype column (v1.76). The far end of the loop this
+                    screen drives: the plan shapes attributes, and the attributes
+                    earn the identity — so it sits beside the focus that produced
+                    it rather than tucked under the name. */}
+                <span className="hidden min-w-0 sm:block">
+                  {archetype ? (
+                    <span className="flex min-w-0 items-center gap-1.5 text-[12px]" title={archetype.desc}>
+                      <ArchetypeIcon archetype={archetype} size={18} />
+                      <span className="min-w-0">
+                        <span
+                          className="block truncate leading-tight"
+                          style={{ color: ARCHETYPE_CLASS_COLOR[archetype.cls] }}
+                        >
+                          {archetype.name}
+                        </span>
+                        <span className="block truncate text-[10px] uppercase tracking-widest text-faint">
+                          {archetype.cls}
+                        </span>
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="text-[12px] text-faint">—</span>
+                  )}
+                </span>
                 <span className="text-center tnum text-sm text-dim">{p.age}</span>
                 <span className="flex items-center justify-center">
                   <Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />
                 </span>
-                <span className="flex items-center justify-end gap-1.5">
-                  {/* A dot marks the focus that would improve this player most,
-                      so a mis-set plan is visible without opening the row. */}
-                  <span
-                    className={`shrink-0 text-[10px] leading-none ${isOptimal ? "text-win" : "text-gold"}`}
-                    title={isOptimal ? "Optimal training focus" : `Recommended: ${best.name}`}
-                  >
-                    {isOptimal ? "●" : "○"}
-                  </span>
-                  <select
+                <span className="hidden justify-center sm:flex">{phaseChip(phase)}</span>
+                <span className="hidden justify-center text-center sm:flex">
+                  {season && season.delta > 0 ? (
+                    <span className="tnum text-sm font-semibold text-win">+{season.delta}</span>
+                  ) : last && last.toOverall !== last.fromOverall ? (
+                    <span
+                      className={`text-[11px] tnum ${last.toOverall > last.fromOverall ? "text-win" : "text-loss"}`}
+                      title="No growth projected — last season's movement instead"
+                    >
+                      {last.toOverall > last.fromOverall ? "+" : ""}
+                      {last.toOverall - last.fromOverall}
+                    </span>
+                  ) : (
+                    <span className="tnum text-faint">—</span>
+                  )}
+                </span>
+                {/* v1.77: the four target chips used to sit under the picker on
+                    a second line. They doubled the height of every row for
+                    information the picker's own menu already carries, and the
+                    drawer repeats in full — so the row is now a single line and
+                    the chips live only where they're asked for. */}
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <PlanStatus optimal={isOptimal} growing={growing} best={best} />
+                  <Select
                     value={plan.id}
-                    onChange={(e) => setPlan(p.id, e.target.value)}
-                    className="w-full truncate rounded-md border border-line bg-raised px-2 py-1.5 text-sm text-ink focus:border-gold focus:outline-none"
+                    options={planOptions(p.positions[0], p.attrs, best.id)}
+                    onChange={(v) => setPlan(p.id, v)}
+                    className="min-w-0 flex-1"
                     title={plan.blurb}
-                  >
-                    {options.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.name}
-                      </option>
-                    ))}
-                  </select>
+                    ariaLabel={`Training focus for ${p.name}`}
+                  />
                 </span>
               </div>
 
               {isOpen && (
                 <div className="border-t border-line/50 bg-raised px-4 py-4">
+                  {/* Condition strip (v1.74): fitness and the current identity,
+                      so the drawer answers "can he take this work right now?"
+                      without a trip to the profile page. */}
+                  <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line/60 pb-3">
+                    <span className="flex min-w-[10rem] items-center gap-2">
+                      <span className="text-[10px] uppercase tracking-widest text-faint">Fitness</span>
+                      <span className="w-24">
+                        <FitnessBar value={p.fitness} showValue />
+                      </span>
+                    </span>
+                    {archetype && (
+                      <span className="flex items-center gap-2">
+                        <span className="text-[10px] uppercase tracking-widest text-faint">Archetype</span>
+                        <span className="display text-sm font-semibold text-ink">{archetype.name}</span>
+                        <span className="rounded-sm border border-line px-1.5 py-px text-[10px] text-dim">
+                          {archetype.cls}
+                        </span>
+                      </span>
+                    )}
+                    <span className="flex items-center gap-2">
+                      <span className="text-[10px] uppercase tracking-widest text-faint">Focus trains</span>
+                      <PlanTargets plan={plan} attrs={p.attrs} secondary />
+                    </span>
+                  </div>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                     {/* this-season projection */}
                     <div>
@@ -381,6 +665,39 @@ function TrainingPlansTab() {
           );
         })}
       </Card>
+      )}
+
+      {/* Auto-assign confirmation (v1.74). The button rewrites every plan in the
+          squad at once, and the old one did it silently on a single click — so
+          a deliberate hand-set plan could be wiped with no warning and no
+          statement of the rule being applied. The rule is stated here. */}
+      {confirmAuto && (
+        <Modal title="Auto-assign every training focus?" onClose={() => setConfirmAuto(false)}>
+          <div className="space-y-3">
+            <p className="text-sm leading-relaxed text-dim">
+              This sets <b className="text-ink tnum">{suboptimal}</b> player{suboptimal === 1 ? "" : "s"} to their
+              best-fit focus. Any focus you set by hand on those players is replaced.
+            </p>
+            <p className="text-[12px] leading-relaxed text-faint">
+              Best fit means the plan built around the attributes the player is already defined by, weighted by how
+              much room each of those attributes still has to grow — so it points a target man at Target Man rather
+              than at False 9. It is <b className="text-dim">not</b> the fastest route to a higher overall: every plan
+              for a position develops overall at the same rate, so what you are choosing is where the growth
+              <em> lands</em>, never how much of it there is.
+            </p>
+            <div className="flex justify-end gap-2">
+              <GhostButton onClick={() => setConfirmAuto(false)}>Cancel</GhostButton>
+              <GoldButton
+                onClick={() => {
+                  autoAssign();
+                  setConfirmAuto(false);
+                }}
+              >
+                AUTO-ASSIGN
+              </GoldButton>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );
@@ -665,209 +982,4 @@ function AttrProjection({ p, delta, plan }: { p: PlayerBio; delta: number; plan:
       </p>
     </div>
   );
-}
-
-// Parked while the rework is in flight (v1.67) — not rendered, but kept whole so
-// the new design has the working implementation to build from. This reference
-// keeps the unused-symbol check quiet without commenting the code out.
-//
-// As of v1.72 these two belong to the Facilities/Staff screen
-// (components/screens/Facilities.tsx), which is where the reworked versions will
-// render. They stay here only as the reference implementation to port from.
-export const PARKED_FOR_REWORK = { FacilitiesTab, StaffDevTab };
-
-function FacilitiesTab() {
-  const game = useGame((s) => s.game)!;
-  useGame((s) => s.rev);
-  const upgradeTraining = useGame((s) => s.upgradeTraining);
-  const team = game.teams[game.userTeamId];
-
-  const facilities: FacilityRow[] = [
-    {
-      key: "training",
-      title: "Training Centre",
-      icon: "🎯",
-      accent: "#d9a441", // gold
-      level: team.trainingLevel ?? 0,
-      maxLevel: TUNING.trainingFacilityMaxLevel,
-      influence:
-        "Speeds up how fast players under 25 develop toward their potential each season. Works together with your Development Coach.",
-      // effectNow is the bare figure and effectNext carries the unit — the card
-      // renders them as "+0% ➔ +12% development speed", one progression rather
-      // than two columns to compare.
-      effectNow: `+${Math.round((team.trainingLevel ?? 0) * TUNING.trainingFacilityGrowthPerLevel * 100)}%`,
-      effectNext: `+${Math.round(((team.trainingLevel ?? 0) + 1) * TUNING.trainingFacilityGrowthPerLevel * 100)}% development speed`,
-    },
-    {
-      key: "medical",
-      title: "Medical Centre",
-      icon: "➕",
-      accent: "#4fb8b8", // teal
-      level: team.medicalLevel ?? 0,
-      maxLevel: TUNING.trainingFacilityMaxLevel,
-      influence:
-        "Improves fitness recovery between matches and softens the extra fatigue older players (30+) pick up, so your squad can play more often.",
-      effectNow: `+${((team.medicalLevel ?? 0) * TUNING.medicalFacilityRecoveryPerLevel).toFixed(1)}`,
-      effectNext: `+${(((team.medicalLevel ?? 0) + 1) * TUNING.medicalFacilityRecoveryPerLevel).toFixed(1)} fitness / day`,
-    },
-    {
-      key: "gymnasium",
-      title: "Gymnasium",
-      icon: "🏋️",
-      accent: "#c96a6a", // clay red
-      level: team.gymnasiumLevel ?? 0,
-      maxLevel: TUNING.trainingFacilityMaxLevel,
-      influence:
-        "Strength and conditioning for the whole squad, every age. A broad development boost that stacks on top of the Training Centre — the Training Centre only helps your under-25s, this lifts everyone.",
-      effectNow: `+${Math.round((team.gymnasiumLevel ?? 0) * TUNING.gymnasiumGrowthPerLevel * 100)}%`,
-      effectNext: `+${Math.round(((team.gymnasiumLevel ?? 0) + 1) * TUNING.gymnasiumGrowthPerLevel * 100)}% development (all ages)`,
-    },
-    {
-      key: "academy",
-      title: "Youth Academy",
-      icon: "🌱",
-      accent: "#5fbf8a", // green
-      level: team.academyLevel ?? 0,
-      maxLevel: TUNING.academyMaxLevel,
-      influence:
-        "Bigger, better intake classes every March and faster growth for the academy squad. Costs a small weekly upkeep per level — the only thing academy players cost you.",
-      effectNow: `~${Math.max(2, Math.round(TUNING.intakeClassBase + (team.academyLevel ?? 0) * TUNING.intakeClassPerLevel))} per class, +${Math.round((team.academyLevel ?? 0) * TUNING.trainingFacilityGrowthPerLevel * 100)}%`,
-      effectNext: `~${Math.max(2, Math.round(TUNING.intakeClassBase + ((team.academyLevel ?? 0) + 1) * TUNING.intakeClassPerLevel))} per class, +${Math.round(((team.academyLevel ?? 0) + 1) * TUNING.trainingFacilityGrowthPerLevel * 100)}% academy growth`,
-    },
-    // Scouting-department upgrades (Max Scouts, Academy Squad Size) live on the
-    // Academy → Scouting page (§18 v7), not here.
-  ];
-
-  // ── Specialist facilities (v15) ──
-  // Two families beyond the core three. POSITION centres lift one position
-  // group; PLAN centres amplify the training focuses the user is already
-  // setting. Both are deliberately narrower (and cheaper) than the general
-  // Training Centre, so a club can specialise rather than only scaling up.
-  const posPct = (lvl: number) => Math.round(lvl * TUNING.positionFacilityGrowthPerLevel * 100);
-  const planPct = (lvl: number) => Math.round(lvl * TUNING.planFacilityBoostPerLevel * 100);
-  const youthPct = (lvl: number) => Math.round(lvl * TUNING.youthDevCentreGrowthPerLevel * 100);
-
-  const positionFacilities: FacilityRow[] = [
-    {
-      key: "gkCentre", title: "Goalkeeping Centre", icon: "🧤", accent: "#c98cd4",
-      level: team.gkCentreLevel ?? 0, maxLevel: TUNING.positionFacilityMaxLevel,
-      influence: "A dedicated keeper unit — specialist coaching, shot-stopping rigs and distribution work. Speeds up development for every goalkeeper on your books.",
-      effectNow: `+${posPct(team.gkCentreLevel ?? 0)}%`,
-      effectNext: `+${posPct((team.gkCentreLevel ?? 0) + 1)}% GK growth`,
-    },
-    {
-      key: "defenceCentre", title: "Defensive Unit", icon: "🛡️", accent: "#5b8fd6",
-      level: team.defenceCentreLevel ?? 0, maxLevel: TUNING.positionFacilityMaxLevel,
-      influence: "Back-line drills, shape work and duel training. Speeds up development for centre backs and full backs.",
-      effectNow: `+${posPct(team.defenceCentreLevel ?? 0)}%`,
-      effectNext: `+${posPct((team.defenceCentreLevel ?? 0) + 1)}% defender growth`,
-    },
-    {
-      key: "midfieldCentre", title: "Midfield Hub", icon: "⚙️", accent: "#5fbf8a",
-      level: team.midfieldCentreLevel ?? 0, maxLevel: TUNING.positionFacilityMaxLevel,
-      influence: "Rondos, tempo work and transition drills. Speeds up development for defensive, central and attacking midfielders.",
-      effectNow: `+${posPct(team.midfieldCentreLevel ?? 0)}%`,
-      effectNext: `+${posPct((team.midfieldCentreLevel ?? 0) + 1)}% midfielder growth`,
-    },
-    {
-      key: "attackCentre", title: "Attacking Centre", icon: "⚔️", accent: "#d97a4a",
-      level: team.attackCentreLevel ?? 0, maxLevel: TUNING.positionFacilityMaxLevel,
-      influence: "Final-third patterns, movement in behind and one-v-one work. Speeds up development for wingers and strikers.",
-      effectNow: `+${posPct(team.attackCentreLevel ?? 0)}%`,
-      effectNext: `+${posPct((team.attackCentreLevel ?? 0) + 1)}% forward growth`,
-    },
-  ];
-
-  const planFacilities: FacilityRow[] = [
-    {
-      key: "sportsScience", title: "Sports Science Lab", icon: "🔬", accent: "#4fb8b8",
-      level: team.sportsScienceLevel ?? 0, maxLevel: TUNING.planFacilityMaxLevel,
-      influence: "GPS tracking, load management and conditioning science. Amplifies the Pace & Movement and Strength & Stamina training plans.",
-      effectNow: `+${planPct(team.sportsScienceLevel ?? 0)}%`,
-      effectNext: `+${planPct((team.sportsScienceLevel ?? 0) + 1)}% on physical plans`,
-    },
-    {
-      key: "techCentre", title: "Technical Centre", icon: "🎓", accent: "#8a7fd6",
-      level: team.techCentreLevel ?? 0, maxLevel: TUNING.planFacilityMaxLevel,
-      influence: "Video suites, pattern-of-play rooms and small-sided technical pitches. Amplifies the Playmaking, Ball Control and Defending plans.",
-      effectNow: `+${planPct(team.techCentreLevel ?? 0)}%`,
-      effectNext: `+${planPct((team.techCentreLevel ?? 0) + 1)}% on technical plans`,
-    },
-    {
-      key: "finishingCentre", title: "Finishing School", icon: "🥅", accent: "#d9a441",
-      level: team.finishingCentreLevel ?? 0, maxLevel: TUNING.planFacilityMaxLevel,
-      influence: "Dedicated shooting pitches and finishing coaches working in and around the box. Amplifies the Finishing training plan.",
-      effectNow: `+${planPct(team.finishingCentreLevel ?? 0)}%`,
-      effectNext: `+${planPct((team.finishingCentreLevel ?? 0) + 1)}% on finishing plans`,
-    },
-    {
-      key: "youthDevCentre", title: "Youth Development Centre", icon: "🌿", accent: "#7fbf5f",
-      level: team.youthDevCentreLevel ?? 0, maxLevel: TUNING.planFacilityMaxLevel,
-      influence: `Age-group coaching, individual development plans and a pathway to the first team. Speeds up development for every player aged ${TUNING.academyMaxAge} or under, senior squad or academy.`,
-      effectNow: `+${youthPct(team.youthDevCentreLevel ?? 0)}%`,
-      effectNext: `+${youthPct((team.youthDevCentreLevel ?? 0) + 1)}% growth for U${TUNING.academyMaxAge + 1}s`,
-    },
-  ];
-
-  const renderCard = (f: FacilityRow) => {
-    const nextCost = trainingNextCost(game, game.userTeamId, f.key, TUNING);
-    const maxed = nextCost === null;
-    const canAfford = nextCost !== null && team.budget >= nextCost;
-    return (
-      <UpgradeCard
-        key={f.key}
-        title={f.title}
-        icon={f.icon}
-        accent={f.accent}
-        level={f.level}
-        maxLevel={f.maxLevel}
-        blurb={f.influence}
-        effectNow={f.effectNow}
-        effectNext={f.effectNext}
-        cost={maxed ? "—" : formatMoney(nextCost!)}
-        maxed={maxed}
-        canAfford={canAfford}
-        // Only a blocked state earns a note (v1.65). The old string here —
-        // "A long-term investment in your squad." — was identical on all twelve
-        // cards, so it carried no information and cost a line on each one.
-        note={canAfford || maxed ? undefined : "Not enough budget yet."}
-        onUpgrade={() => upgradeTraining(f.key)}
-      />
-    );
-  };
-
-  // The cards carry their own title now, so each family is introduced once by a
-  // gold-threaded section head rather than every card announcing itself.
-  const group = (title: string, blurb: string, rows: FacilityRow[]) => (
-    <section>
-      <h3 className="display text-base font-semibold uppercase tracking-wide text-ink">{title}</h3>
-      <div className="gold-thread mt-1 mb-2 w-full" />
-      <p className="mb-3 max-w-3xl text-[13px] leading-relaxed text-dim">{blurb}</p>
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">{rows.map(renderCard)}</div>
-    </section>
-  );
-
-  return (
-    <div className="space-y-7">
-      {group(
-        "Core Facilities",
-        "Infrastructure is the slowest and most permanent way to improve a squad. These four lift the whole club; the specialist centres below are narrower but cheaper, so you can build an identity rather than only scaling up.",
-        facilities
-      )}
-      {group(
-        "Position Centres",
-        "Each centre speeds up development for one position group. Cheaper than the Training Centre because each only helps a quarter of the squad — build the ones your best prospects sit in.",
-        positionFacilities
-      )}
-      {group(
-        "Training Plan Centres",
-        "These amplify the training focuses you set on the Training Plans tab, so they pay off most when your squad is actually training the matching plans.",
-        planFacilities
-      )}
-    </div>
-  );
-}
-
-function StaffDevTab() {
-  return <StaffPanel dept="development" />;
 }

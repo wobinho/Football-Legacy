@@ -29,7 +29,7 @@ import { generatePlayer } from "./worldgen";
 import { playerValue } from "./value";
 import { transferWindowState } from "./calendar";
 import { regionNats } from "./config/scouting";
-import { getArchetype } from "./config/archetypes";
+import { ARCHETYPE_MAP, positionsOfArchetype } from "./config/archetype";
 import { applyContract, grantDefaultContract } from "./contracts";
 import { academySquadCap } from "./economy";
 import { pushInboxItem } from "./inbox";
@@ -1310,18 +1310,22 @@ export function clampScoutAssignments(state: GameState, cfg: TuningConfig) {
  * assignment carries an archetype focus, both the position and the archetype are
  * constrained to that focus (falling back to the plain group if the brief can't
  * be honoured for the rolled group). */
-function briefTarget(a: ScoutAssignment, rng: RNG): { pos: Pos; archetypeId?: string } {
+function briefTarget(a: ScoutAssignment, rng: RNG): { pos: Pos; planId?: string } {
   const focus = a.archetypes ?? [];
   if (focus.length === 0) return { pos: pick(rng, POS_GROUPS[a.positions]) };
   // archetypes in the focus that also sit in the requested position group
   const groupPositions = new Set(POS_GROUPS[a.positions]);
   const eligible = focus
-    .map((id) => getArchetype(id))
-    .filter((arch) => arch.positions.some((p) => groupPositions.has(p)));
+    .map((id) => ARCHETYPE_MAP[id])
+    .filter((arch): arch is NonNullable<typeof arch> => !!arch)
+    .map((arch) => ({ arch, positions: positionsOfArchetype(arch).filter((p) => groupPositions.has(p)) }))
+    .filter((e) => e.positions.length > 0);
   if (eligible.length === 0) return { pos: pick(rng, POS_GROUPS[a.positions]) };
-  const arch = pick(rng, eligible);
-  const pos = pick(rng, arch.positions.filter((p) => groupPositions.has(p)));
-  return { pos, archetypeId: arch.id };
+  const choice = pick(rng, eligible);
+  // The brief is honoured by generating from the archetype's own training plan:
+  // that is what shapes the attribute line, and so what makes the finished
+  // prospect actually read as the archetype the scout was sent to find.
+  return { pos: pick(rng, choice.positions), planId: choice.arch.planId };
 }
 
 // ── The brief's auto-filter (v1.67) ───────────────────────────────────────
@@ -1447,7 +1451,7 @@ function generateScoutReport(
   batch: number,
   scout: Scout
 ): ProspectReport | null {
-  const { pos, archetypeId } = briefTarget(a, rng);
+  const { pos, planId } = briefTarget(a, rng);
   const nat = pick(rng, regionNats(a.region));
 
   // The brief's auto-filter (v1.67). The candidate is rolled, BUILT, and only then
@@ -1467,7 +1471,7 @@ function generateScoutReport(
     // (see isEliteTier).
     const prodigy = isEliteTier(cfg, rolledTier);
     const candidate = freshId(
-      generatePlayer(rng, cfg, { pos, overall: band.overall, nat, age, prodigy, archetypeId })
+      generatePlayer(rng, cfg, { pos, overall: band.overall, nat, age, prodigy, planId })
     );
     candidate.potential = Math.round(
       Math.min(cfg.potentialAbsoluteCap, Math.max(candidate.overall + 3, band.potential))

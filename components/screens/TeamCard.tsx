@@ -10,11 +10,10 @@ import { useGame } from "@/store/gameStore";
 import { computeTable } from "@/lib/season";
 import { formatDayShort } from "@/lib/calendar";
 import { POS_ORDER } from "@/lib/config/positions";
-import { getArchetype } from "@/lib/config/archetypes";
 import { squadWageBill } from "@/lib/value";
 import { TUNING } from "@/lib/config/tuning";
 import type { Fixture } from "@/lib/types";
-import { ArchetypeIcon, Card, Crest, Flag, Money, Ovr, PosBadge, useEscapeKey } from "../ui";
+import { Card, Crest, Flag, Money, Ovr, ArchetypeLabel, PosBadge, useEscapeKey } from "../ui";
 
 export default function TeamCard({ teamId, onClose }: { teamId: string; onClose: () => void }) {
   const game = useGame((s) => s.game)!;
@@ -222,8 +221,7 @@ export default function TeamCard({ teamId, onClose }: { teamId: string; onClose:
               </span>
               <span className="min-w-0 flex-1 truncate font-medium">{p.name}</span>
               <span className="hidden items-center gap-1.5 truncate text-[11px] text-faint sm:flex">
-                <ArchetypeIcon archetypeId={p.archetypeId} size={12} />
-                {getArchetype(p.archetypeId).name}
+                <ArchetypeLabel p={p} iconSize={14} />
               </span>
               <span className="w-8 text-center tnum text-[11px] text-faint">{p.age}y</span>
               <Ovr value={p.overall} size="sm" />

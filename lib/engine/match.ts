@@ -14,7 +14,11 @@
 
 import type { Focus, MatchEvent, MatchResult, Mentality, Pos, Style, Tactic } from "../types";
 import type { TuningConfig } from "../config/tuning";
-import { getArchetype } from "../config/archetypes";
+import {
+  NEUTRAL_ARCHETYPE_PROFILE,
+  profileForAttrs,
+  type ArchetypeProfile,
+} from "../config/archetype";
 import { TRAIT_MAP } from "../config/traits";
 import { PHASE_WEIGHTS, positionFit } from "../config/positions";
 import type { AttrKey } from "../config/attributes";
@@ -25,13 +29,7 @@ import {
   type FitDemand,
   type FitPlayer,
 } from "../config/tacticfit";
-import { derivePersona, type PersonaClass } from "../config/personas";
-import {
-  accumulateClassEffects,
-  tallyClasses,
-  NEUTRAL_CLASS_EFFECTS,
-  type ClassEffects,
-} from "../config/personaclass";
+import { instructionFitScore, type InstructionView } from "../config/archetype";
 import { mulberry32, pickWeighted, randPoisson, type RNG } from "../rng";
 
 // Resolved tactic-instruction defaults — a tactic may omit the expanded fields
@@ -60,7 +58,6 @@ export interface EnginePlayer {
   name: string;
   overall: number;
   positions: Pos[];
-  archetypeId: string;
   traits: string[];
   form: number;
   fitness: number; // at kickoff
@@ -122,9 +119,10 @@ interface SideState {
   counterAttackMult: number;
   /** How well this side's players suit its own instructions (v1.72). */
   fit: TacticFit;
-  /** What the on-pitch personas' classes contribute to this side (§5, v1.73).
-   * Capped fractional deltas, applied as `1 + delta`. */
-  classes: ClassEffects;
+  /** The five advanced dials, resolved once per tactic change (v1.78). Every
+   * player's instruction fit is scored against this — an inert value object,
+   * not an accumulated effect. */
+  instructions: InstructionView;
 }
 
 /** Per-phase tactical-fit multipliers. `drain` is a fitness-drain multiplier —
@@ -160,9 +158,51 @@ function fitnessMult(fitness: number, cfg: TuningConfig): number {
   return cfg.fitnessFloorMult + (1 - cfg.fitnessFloorMult) * (f / 100);
 }
 
-function synergyMult(archetypeId: string, tactic: Tactic, cfg: TuningConfig): number {
-  const raw = getArchetype(archetypeId).styleSynergy[tactic.style] ?? 1;
+/**
+ * The archetype profile for one player (v1.77).
+ *
+ * An archetype is DERIVED from the 35 attributes, and deriving it means scoring
+ * five training plans across 35 keys — far too much to repeat for every player
+ * on every one of the ~40 lookups a match makes. It is a pure function of the
+ * attribute line, though, and a player's attributes never move during a match,
+ * so the result is memoised per player for the duration of the call.
+ *
+ * The cache is keyed by identity of the attrs object rather than by player id:
+ * two matches in the same tick may hold different snapshots of the same player,
+ * and keying on the object means a stale line can never be read for a fresh one.
+ * A WeakMap so nothing is retained once the match is done.
+ */
+const PROFILE_CACHE = new WeakMap<object, ArchetypeProfile>();
+
+function profileOfPlayer(p: EnginePlayer): ArchetypeProfile {
+  // A caller-built player with no attribute line (the calibration harness) has
+  // no archetype to read — neutral in every respect, exactly as before.
+  if (!p.attrs) return NEUTRAL_ARCHETYPE_PROFILE;
+  const hit = PROFILE_CACHE.get(p.attrs);
+  if (hit) return hit;
+  const prof = profileForAttrs(p.attrs, p.positions[0]);
+  PROFILE_CACHE.set(p.attrs, prof);
+  return prof;
+}
+
+function synergyMult(p: EnginePlayer, tactic: Tactic, cfg: TuningConfig): number {
+  const raw = profileOfPlayer(p).styleSynergy[tactic.style] ?? 1;
   return Math.max(1 - cfg.synergyCap, Math.min(1 + cfg.synergyCap, raw));
+}
+
+/**
+ * How well this player's ROLE suits the five advanced dials (v1.78).
+ *
+ * The archetype half of the identity system, where `synergyMult` above is the
+ * class half. Bounded to `1 ± instructionFitSwing` by construction — the score
+ * is a mean of per-axis −1/0/+1 verdicts, so it cannot leave −1..1 and needs no
+ * clamp. A player whose archetype names no preferences scores 0 and multiplies
+ * by exactly 1, which is how a harness side with no attributes stays neutral
+ * without the engine branching on it.
+ */
+function instructionMult(p: EnginePlayer, side: SideState, cfg: TuningConfig): number {
+  const prefs = profileOfPlayer(p).instructionPrefs;
+  return 1 + instructionFitScore(prefs, side.instructions) * cfg.instructionFitSwing;
 }
 
 /** The intrinsic shape of a side's chosen style (v19). A pure table lookup —
@@ -182,10 +222,7 @@ function drainRateMult(side: SideState, cfg: TuningConfig): number {
     styleShape(side.tactic, cfg).fitnessDrain *
     // v1.72: a squad built for the instructions holds them better. A side told to
     // press with no stamina fades faster than one that has the legs for it.
-    side.fit.drain *
-    // v1.73: and the personas on the pitch decide who carries that load —
-    // Engines shoulder a high press, Creators wilt under it.
-    (1 + side.classes.fitnessDrain)
+    side.fit.drain
   );
 }
 
@@ -204,13 +241,15 @@ function effectiveRating(
   let eff =
     p.overall *
     fit *
-    synergyMult(p.archetypeId, side.tactic, cfg) *
+    // What KIND of player he is, against the STYLE (class-level).
+    synergyMult(p, side.tactic, cfg) *
+    // v1.78: and how well HIS ROLE suits the five advanced dials. Style is a
+    // class question, the dials are a role question — which is why a Sniper and
+    // a Ram, the same class at the same position, now diverge here.
+    instructionMult(p, side, cfg) *
     p.form *
     fitnessMult(drained, cfg) *
-    side.coachMult *
-    // v1.73: style effectiveness earned by the side's personas — a Possession
-    // side full of Creators plays the style better than one that isn't.
-    (1 + side.classes.styleEffect);
+    side.coachMult;
   // Width shifts emphasis between wide and central roles (a wide player is worth
   // more in a Wide setup, less in a Narrow one, and vice-versa).
   if (isWide(op.entry.slotPos)) eff *= cfg.widthWideMult[resolveWidth(side.tactic)];
@@ -269,10 +308,6 @@ function phaseStrengths(side: SideState, isHome: boolean, minute: number, cfg: T
   attack *= side.fit.attack;
   midfield *= side.fit.midfield;
   defense *= side.fit.defense;
-  // Persona classes (§5, v1.73): Creators given a slow tempo see more of the
-  // ball, Engines sat deep see less; Enforcers behind a deep line defend better.
-  midfield *= 1 + side.classes.midfield;
-  defense *= 1 + side.classes.defense;
   return { attack, midfield, defense, concedeMult };
 }
 
@@ -322,7 +357,7 @@ function pickScorer(rng: RNG, side: SideState, cfg: TuningConfig, setPiece: SetP
   const cornerTakerId = setPiece === "corner" ? side.input.cornerTakerId : null;
 
   const scorer = pickWeighted(rng, active, (op) => {
-    const arch = getArchetype(op.entry.player.archetypeId);
+    const arch = profileOfPlayer(op.entry.player);
     let w = arch.scorerWeight * (0.25 + PHASE_WEIGHTS[op.entry.slotPos].attack) * op.entry.player.overall;
     w *= focusMult(focus, op.entry.slotPos, side.tactic, cfg);
     for (const t of op.entry.player.traits) {
@@ -349,7 +384,7 @@ function pickScorer(rng: RNG, side: SideState, cfg: TuningConfig, setPiece: SetP
     const others = active.filter((op) => op !== scorer);
     if (others.length) {
       assister = pickWeighted(rng, others, (op) => {
-        const arch = getArchetype(op.entry.player.archetypeId);
+        const arch = profileOfPlayer(op.entry.player);
         const w = PHASE_WEIGHTS[op.entry.slotPos];
         let aw =
           arch.assistWeight *
@@ -370,7 +405,7 @@ function pickScorer(rng: RNG, side: SideState, cfg: TuningConfig, setPiece: SetP
 }
 
 function goalText(rng: RNG, scorer: OnPitch, assister: OnPitch | null): string {
-  const arch = getArchetype(scorer.entry.player.archetypeId);
+  const arch = profileOfPlayer(scorer.entry.player);
   const tmpl = arch.goalFlavor[Math.floor(rng() * arch.goalFlavor.length)] ?? "{p} scores!";
   let text = tmpl.replace("{p}", scorer.entry.player.name);
   if (assister) text += ` (assist: ${assister.entry.player.name})`;
@@ -430,10 +465,8 @@ function makeSub(
   // (v1.72) — a like-for-like swap barely moves it, but bringing a runner on for
   // a passer genuinely changes what the side can do.
   side.fit = computeFit(side);
-  // Same for the personas on the pitch (v1.73): substituting a Creator for an
-  // Engine changes what the side's instructions are worth, which is exactly the
-  // decision a manager makes when a high press starts to tell late on.
-  side.classes = computeClasses(side, state.cfg);
+  // The archetypes need no recompute (v1.78): instruction fit is scored on each
+  // player's OWN rating, so the man coming on brings his own automatically.
   state.events.push({
     minute,
     type: "sub",
@@ -601,18 +634,11 @@ function playSegment(state: MatchState) {
   const exposure = (opp: SideState) =>
     cfg.pressOppChanceMult[resolvePress(opp.tactic)] *
     cfg.lineOppChanceMult[resolveLine(opp.tactic)] *
-    styleShape(opp.tactic, cfg).oppChance *
-    // v1.73: Enforcers held behind a high line get turned — the chances that
-    // creates belong to whoever is playing against them.
-    (1 + opp.classes.oppChance);
-
-  // v1.73: Spearheads create in a fast, attacking setup and go missing in a slow,
-  // defensive one — a side's own chance volume, not its opponent's.
-  const spearhead = (own: SideState) => 1 + own.classes.chances;
+    styleShape(opp.tactic, cfg).oppChance;
 
   const perSegBase = cfg.baseChancesPerSegment;
-  const homeLambda = perSegBase * homeShare * mentality(state.home, state.away) * tempoMult(state.home, state.away) * exposure(state.away) * spearhead(state.home);
-  const awayLambda = perSegBase * (1 - homeShare) * mentality(state.away, state.home) * tempoMult(state.away, state.home) * exposure(state.home) * spearhead(state.away);
+  const homeLambda = perSegBase * homeShare * mentality(state.home, state.away) * tempoMult(state.home, state.away) * exposure(state.away);
+  const awayLambda = perSegBase * (1 - homeShare) * mentality(state.away, state.home) * tempoMult(state.away, state.home) * exposure(state.home);
 
   interface PendingChance {
     side: SideState;
@@ -690,7 +716,20 @@ function makeSideState(input: SideInput): SideState {
     coachMult: input.coachMult ?? 1,
     counterAttackMult: 1,
     fit: NEUTRAL_FIT,
-    classes: NEUTRAL_CLASS_EFFECTS,
+    instructions: resolveInstructions(input.tactic),
+  };
+}
+
+/** The five advanced dials with their v2-save defaults applied — the same
+ * resolution `resolveTempo` and friends do, gathered into one object so the
+ * per-player scoring reads settled values. */
+function resolveInstructions(t: Tactic): InstructionView {
+  return {
+    tempo: resolveTempo(t),
+    width: resolveWidth(t),
+    press: resolvePress(t),
+    line: resolveLine(t),
+    focus: resolveFocus(t),
   };
 }
 
@@ -727,49 +766,6 @@ function computeFit(side: SideState): TacticFit {
 }
 
 /**
- * What the personas currently on the pitch contribute to this side (§5, v1.73).
- *
- * Each player's persona is DERIVED from his attributes here rather than read off
- * a stored field — that is what makes the identity live: a player who has been
- * retrained since the last match brings his new class into this one, with no
- * migration and nothing to keep in sync.
- *
- * A player with no attributes (a hand-built harness side) contributes no class,
- * so a side the harness assembles is unaffected — the same escape hatch
- * `computeFit` uses.
- */
-function computeClasses(side: SideState, cfg: TuningConfig): ClassEffects {
-  const classes: (PersonaClass | undefined)[] = [];
-  for (const op of side.onPitch) {
-    if (op.leftMinute !== null) continue;
-    const p = op.entry.player;
-    if (!p.attrs) continue;
-    // Derived against the slot he is FILLING, not his listed position: a
-    // midfielder played at full back is judged as the full back he is being
-    // asked to be, which is the same logic `positionFit` already applies.
-    classes.push(derivePersona(p.attrs, op.entry.slotPos)?.cls);
-  }
-  if (classes.length === 0) return NEUTRAL_CLASS_EFFECTS;
-
-  return accumulateClassEffects(
-    tallyClasses(classes),
-    {
-      mentality: side.tactic.mentality,
-      style: side.tactic.style,
-      tempo: resolveTempo(side.tactic),
-      press: resolvePress(side.tactic),
-      line: resolveLine(side.tactic),
-    },
-    {
-      styleStep: cfg.personaStyleStep,
-      boostStep: cfg.personaBoostStep,
-      clashStep: cfg.personaClashStep,
-      cap: cfg.personaClassCap,
-    }
-  );
-}
-
-/**
  * Hidden counter edge (§6): own ATTACK is multiplied by how well own style and
  * mentality match up against the opponent's. Recomputed whenever a side's tactic
  * changes (kickoff and any halftime tweak) so the read stays live. Never surfaced
@@ -790,11 +786,10 @@ function refreshCounters(state: MatchState) {
   // it refreshes on the same beat as the counter edge — kickoff, and any change.
   state.home.fit = computeFit(state.home);
   state.away.fit = computeFit(state.away);
-  // Persona classes (§5, v1.73) depend on the same two things — a side's own
-  // instructions and who is on the pitch — so they refresh on the same beat. A
-  // halftime switch to a high press re-reads what the XI can carry.
-  state.home.classes = computeClasses(state.home, state.cfg);
-  state.away.classes = computeClasses(state.away, state.cfg);
+  // The dials themselves can change at halftime, and every player's instruction
+  // fit is scored against them, so they re-resolve on the same beat (v1.78).
+  state.home.instructions = resolveInstructions(state.home.tactic);
+  state.away.instructions = resolveInstructions(state.away.tactic);
 }
 
 export function createMatch(home: SideInput, away: SideInput, cfg: TuningConfig, seed: number): MatchState {

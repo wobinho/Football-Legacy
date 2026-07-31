@@ -418,6 +418,41 @@ export interface FormationGroup {
   formations: Formation[];
 }
 
+/**
+ * How many defenders a shape lines up with — the picker's top-level grouping
+ * (v1.77).
+ *
+ * Counted from the slots rather than parsed out of the name: the name is a
+ * display string and a "3-4-2-1" is only a back three because of what its slots
+ * actually are. Wing backs in a back three are authored LM/RM (see the note on
+ * `FORMATIONS`), so they correctly do NOT count here — which is what keeps a
+ * 3-4-3 in the three-at-the-back group and a 5-3-2 in the five.
+ */
+export type BackLine = 3 | 4 | 5;
+
+const DEFENSIVE_SLOTS = new Set<Pos>(["CB", "LB", "RB"]);
+
+export function backLineOf(f: Formation): BackLine {
+  const n = f.slots.filter((s) => DEFENSIVE_SLOTS.has(s.pos)).length;
+  // Clamp rather than trust the count: a mod file could author something the
+  // three buckets don't cover, and the picker must still be able to place it.
+  return n <= 3 ? 3 : n >= 5 ? 5 : 4;
+}
+
+/** Display label for a back-line bucket. */
+export const BACK_LINE_LABEL: Record<BackLine, string> = {
+  3: "Three at the back",
+  4: "Four at the back",
+  5: "Five at the back",
+};
+
+/** The back line a whole family lines up with — its default variant's. Variants
+ * of one shape never differ in defenders (they are midfield options), so the
+ * first member speaks for the group. */
+export function backLineOfGroup(g: FormationGroup): BackLine {
+  return backLineOf(g.formations[0]);
+}
+
 export const FORMATION_GROUPS: FormationGroup[] = (() => {
   const groups: FormationGroup[] = [];
   const byFamily = new Map<string, FormationGroup>();
