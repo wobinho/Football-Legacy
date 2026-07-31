@@ -368,14 +368,25 @@ function distributeAttrs(p: PlayerBio, attrDelta: number, targetOverall: number,
     const rel = profile[k] / maxW; // 0..1, 1 = signature attribute
     let share: number;
     if (attrDelta > 0) {
-      // Growth flows to attributes that are BOTH the archetype's signature and
-      // relevant at the position, then is nudged toward the training plan's
-      // emphasis (a plan weight of 1 pulls growth here; ~0.2 pushes it
-      // elsewhere). Balanced plans are flat, so they leave the natural spread
-      // untouched. Decline is never re-steered by a plan.
+      // Growth flows to attributes that are the archetype's signature and
+      // relevant at the position — and, when the manager has chosen a training
+      // plan, primarily to what that plan trains.
+      //
+      // v1.72: the plan is now the LEADING term rather than a nudge. Its three
+      // tiers (100% / 60% / 20%) are applied as the share directly, so a
+      // Ball-Playing Defender's growth genuinely lands on his passing instead of
+      // being dragged back to tackling by his archetype. The archetype and
+      // position factors are still present, but compressed to a modest tilt: they
+      // decide the spread WITHIN a tier, not which tier wins.
+      //
+      // With no plan (every AI player, and the in-season tick) nothing changes —
+      // planW is flat 1 and the old archetype-led spread is what remains.
       const planW = plan ? plan.weights[k] : 1;
       const relevance = 0.25 + 0.75 * Math.max(0, posW[k] ?? 0) / maxPosW;
-      share = attrDelta * (0.5 + 0.9 * rel) * (0.55 + 0.9 * planW) * relevance;
+      const natural = (0.5 + 0.9 * rel) * relevance;
+      share = plan
+        ? attrDelta * planW * (0.65 + 0.35 * natural)
+        : attrDelta * (0.5 + 0.9 * rel) * (0.55 + 0.9 * planW) * relevance;
     } else {
       // Decline: athleticism first, technique and game-reading last, and
       // non-signature attributes ahead of signature ones.
@@ -685,7 +696,12 @@ export function seasonAttrFocus(
     const rel = profile[k] / maxW;
     const planW = plan ? plan.weights[k] : 1;
     const relevance = 0.25 + 0.75 * Math.max(0, posW[k] ?? 0) / maxPosW;
-    const share = overallDelta * (0.5 + 0.9 * rel) * (0.55 + 0.9 * planW) * relevance;
+    // Mirrors distributeAttrs exactly (v1.72) — a projection that used a
+    // different blend would promise growth the rollover then doesn't deliver.
+    const natural = (0.5 + 0.9 * rel) * relevance;
+    const share = plan
+      ? overallDelta * planW * (0.65 + 0.35 * natural)
+      : overallDelta * (0.5 + 0.9 * rel) * (0.55 + 0.9 * planW) * relevance;
     out[k] = Math.max(0, Math.round(share));
   }
   return out;

@@ -12,7 +12,13 @@ import { ATTR_KEYS, normalizeAttrs } from "./config/attributes";
 import { poolFor, NAME_POOLS } from "./config/names";
 import { defaultCountryDB, type ClubSeed, type CountryDatabase, type PlayerSeed } from "./database";
 import { AI_FORMATIONS } from "./config/formations";
-import { DEFAULT_TIER_NAMES, MAX_DIVISION_DEPTH, generateDivisionClubs } from "./config/divisions";
+import {
+  DEFAULT_TIER_NAMES,
+  MAX_DIVISION_DEPTH,
+  generateDivisionClubs,
+  topUpDivisionClubs,
+} from "./config/divisions";
+import { leagueReputationOf } from "./config/leaguerep";
 import { mulberry32, deriveSeed, pick, randInt, randNormal, randRange, shuffle, type RNG } from "./rng";
 import { playerValue } from "./value";
 import { buildSeasonSchedule } from "./calendar";
@@ -857,7 +863,17 @@ export function generateWorld(opts: NewGameOptions): GameState {
       };
       teamIds.push(teamId);
     });
-    leagues[div.id] = { id: div.id, name: div.name, country: db.name, tier: div.tier, playable, teamIds };
+    leagues[div.id] = {
+      id: div.id,
+      name: div.name,
+      country: db.name,
+      tier: div.tier,
+      playable,
+      teamIds,
+      // Structural standing of the division (v1.72), from the country band and
+      // the tier — see config/leaguerep.ts. Stamped once here; it never moves.
+      reputation: leagueReputationOf(div.id, div.tier),
+    };
   };
 
   // Playable country: every division runs the real engine (the user's club sits
@@ -873,8 +889,16 @@ export function generateWorld(opts: NewGameOptions): GameState {
   const buildLadder = (db: CountryDatabase, code: string, depth: number): CountryDatabase["divisions"] => {
     const authored = [...db.divisions].sort((a, b) => a.tier - b.tier);
     const want = Math.max(1, Math.min(MAX_DIVISION_DEPTH, depth));
-    const ladder: CountryDatabase["divisions"] = authored.slice(0, want);
     const authoredNames = new Set(authored.flatMap((d) => d.clubs.map((c) => c.name)));
+    // A database that authors only a token league (four or six clubs — several
+    // shipped countries do) is filled out to a playable size before anything
+    // else looks at it, so every country runs a real season (v1.72).
+    const ladder: CountryDatabase["divisions"] = authored.slice(0, want).map((d) => {
+      const clubs = topUpDivisionClubs(divSeed, code, d.tier, d.clubs, authoredNames);
+      if (clubs === d.clubs) return d;
+      for (const c of clubs) authoredNames.add(c.name);
+      return { ...d, clubs };
+    });
     for (let tier = authored.length + 1; tier <= want; tier++) {
       ladder.push({
         id: `${code}${tier}`,

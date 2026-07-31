@@ -16,7 +16,14 @@ import {
 } from "@/lib/database";
 import { libraryClubToSeed } from "@/lib/customdb";
 import { divisionSeed, teamIdFor } from "@/lib/worldgen";
-import { DEFAULT_TIER_NAMES, MAX_DIVISION_DEPTH, generateDivisionClubs } from "@/lib/config/divisions";
+import {
+  DEFAULT_TIER_NAMES,
+  MAX_DIVISION_DEPTH,
+  MIN_AUTHORED_DIVISION_SIZE,
+  TOPPED_UP_DIVISION_SIZE,
+  generateDivisionClubs,
+  topUpDivisionClubs,
+} from "@/lib/config/divisions";
 import { storedKey } from "@/lib/auth";
 import { EURO_MIN_COUNTRIES, europeanCountryCodes } from "@/lib/european";
 import { NAME_POOLS } from "@/lib/config/names";
@@ -180,11 +187,20 @@ function needsPresetAsset(code: string, choice: DbChoice): boolean {
   return choice.source === "generated" && !option.hasEngineDefault;
 }
 
-/** One-line size summary of a country's real database, for the country card. */
+/** One-line size summary of a country's real database, for the country card.
+ *
+ * A country whose database authors fewer than `MIN_AUTHORED_DIVISION_SIZE` clubs
+ * is filled out to a playable league at worldgen (v1.72), so the card reports the
+ * size the league will ACTUALLY be rather than the thin authored figure — the
+ * count is there to answer "is this country worth picking", and 4 was the wrong
+ * answer once every country plays a real 16-club season. */
 function presetSummary(code: string): string {
   const p = getPreset(code);
   if (!p?.clubs) return "Real database";
   const tiers = p.tiers && p.tiers > 1 ? `${p.tiers} divisions · ` : "";
+  if (p.clubs < MIN_AUTHORED_DIVISION_SIZE && (p.tiers ?? 1) <= 1) {
+    return `${TOPPED_UP_DIVISION_SIZE} clubs · ${p.clubs} real`;
+  }
   return `${tiers}${p.clubs} clubs`;
 }
 
@@ -282,17 +298,48 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [includedCodes, dbChoices]);
 
+  /**
+   * Fill a country's thin divisions out to a playable size (v1.72).
+   *
+   * Several shipped databases author only four or six clubs, which is not a
+   * league anyone can manage a season in. Worldgen tops those up itself, but the
+   * setup screen has to show the SAME clubs — this is the list the user picks
+   * their club from — so the padding is applied here as well, off a
+   * club-independent per-country seed. `resolveCountryDBs` then hands the padded
+   * database to worldgen verbatim, which is what keeps the two identical.
+   *
+   * Returns the input unchanged when nothing needed topping up, so an untouched
+   * engine default stays recognisable as one.
+   */
+  const withToppedUpDivisions = (code: string, base: CountryDatabase): CountryDatabase => {
+    const authoredNames = new Set(base.divisions.flatMap((d) => d.clubs.map((c) => c.name)));
+    const thin = base.divisions.some((d) => d.clubs.length < MIN_AUTHORED_DIVISION_SIZE);
+    if (!thin) return base;
+    // Keyed off the base database alone — never off resolveCountryDBs(), which
+    // reads this function and would make the seed circular.
+    const seed = divisionSeed({ playableCountry: code, viewCountries: [], countryDBs: { [code]: base } });
+    const db = structuredClone(base);
+    for (const d of db.divisions) {
+      const clubs = topUpDivisionClubs(seed, code, d.tier, d.clubs, authoredNames);
+      if (clubs === d.clubs) continue;
+      for (const c of clubs) authoredNames.add(c.name);
+      d.clubs = clubs;
+    }
+    return db;
+  };
+
   // The database that will actually be used for a country given its choice.
   const dbForChoice = (code: string): CountryDatabase | null => {
     const choice = choiceFor(code);
-    if (choice.source === "custom") return choice.db;
+    const topUp = (db: CountryDatabase | null) => (db ? withToppedUpDivisions(code, db) : null);
+    if (choice.source === "custom") return topUp(choice.db);
     // The real shipped database, squads and all.
-    if (choice.source === "default") return presetDbs[code] ?? null;
+    if (choice.source === "default") return topUp(presetDbs[code] ?? null);
     // Generated: the engine's fictional world where one exists, else the real
     // clubs with their rosters stripped so worldgen fills them procedurally.
     const engine = defaultCountryDB(code);
-    if (engine) return engine;
-    return presetDbs[code] ? proceduralFromPreset(presetDbs[code]) : null;
+    if (engine) return topUp(engine);
+    return presetDbs[code] ? topUp(proceduralFromPreset(presetDbs[code])) : null;
   };
 
   // The European countries as the qualification modal needs them: display name
@@ -410,10 +457,19 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
       // passed to worldgen verbatim, or worldgen would regenerate those lower
       // tiers off a different seed and the preview would no longer match the world.
       const materialized = !!base && db.divisions.length > base.divisions.length;
+      // A topped-up thin division (v1.72) is in the same class as a materialized
+      // ladder: the padding previewed here must be the padding worldgen builds,
+      // so the padded database has to be handed over rather than reconstructed.
+      // Detected against the UNPADDED engine default, since `base` has already
+      // been through dbForChoice and therefore already carries the padding.
+      const engineBase = defaultCountryDB(code);
+      const toppedUp =
+        !!engineBase && engineBase.divisions.some((d) => d.clubs.length < MIN_AUTHORED_DIVISION_SIZE);
       const modified =
         (code === playableCountry && customClub !== null) ||
         customPlayers.some((p) => p.country === code) ||
-        materialized;
+        materialized ||
+        toppedUp;
       // Worldgen can only reconstruct a country's fictional engine world on its
       // own. Anything else — the shipped real database, a preset-derived
       // generated world, an upload, or a default touched by custom content —

@@ -18,6 +18,9 @@ export function toEnginePlayer(p: PlayerBio): EnginePlayer {
     form: p.form,
     fitness: p.fitness,
     age: p.age,
+    // The 35 attributes (v1.72) — read by the engine's tactical-fit pass. Passed
+    // by reference: the engine never mutates a player it is handed.
+    attrs: p.attrs,
   };
 }
 

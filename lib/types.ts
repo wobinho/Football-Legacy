@@ -657,6 +657,15 @@ export interface League {
   tier: number;
   playable: boolean;
   teamIds: string[];
+  /** Standing of this division in the world game, 0–10 (v1.72).
+   *
+   * A property of the league itself, not of the clubs in it: the English top
+   * flight is a 10 regardless of who wins it, and a fourth division is a 1.
+   * Stamped at worldgen from `config/leaguerep.ts` (country band × tier).
+   *
+   * Optional so pre-v1.72 saves load; `leagueReputation()` in that module
+   * recomputes it for a league that predates the field. */
+  reputation?: number;
 }
 
 export interface MatchEvent {
@@ -1364,6 +1373,9 @@ export type ScreenId =
   | "achievements"
   | "gcn"
   | "development"
+  /** Facilities & Staff (v1.72): the club's physical plant and its backroom,
+   * sitting between Club and Achievements in the nav. */
+  | "facilities"
   | "academy"
   | "player";
 

@@ -10,7 +10,9 @@
     "build:db": "tsx scripts/build-fl26.ts",
     "build:names": "tsx scripts/build-namepool.ts",
     "verify:overall": "tsx scripts/verify-overall.ts",
-    "verify:formations": "tsx scripts/check-formations.ts"
+    "verify:formations": "tsx scripts/check-formations.ts",
+    "verify:training": "tsx scripts/verify-training.ts",
+    "verify:tacticfit": "tsx scripts/verify-tacticfit.ts"
   },
   "dependencies": {
     "next": "^15.3.3",

@@ -12,7 +12,16 @@ import { formatHeight, formatMoney, playerWage } from "@/lib/value";
 import { TUNING } from "@/lib/config/tuning";
 import { yearsLeft } from "@/lib/contracts";
 import { seasonGrowth } from "@/lib/development";
-import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan } from "@/lib/config/training";
+import {
+  OTHER_SHARE,
+  PRIMARY_SHARE,
+  SECONDARY_SHARE,
+  optimalTrainingPlan,
+  plansForPosition,
+  resolveTrainingPlan,
+  type TrainingPlanDef,
+} from "@/lib/config/training";
+import { ATTR_META, type AttrKey } from "@/lib/config/attributes";
 import { MAX_KIT_NUMBER, MIN_KIT_NUMBER, squadNumbersFor } from "@/lib/kitnumbers";
 import { ACCOLADE_META } from "@/lib/accolades";
 import { TIER_COLOR, TIER_LABEL, migrateProspectTier } from "@/lib/scouts";
@@ -415,6 +424,12 @@ export default function PlayerProfileModal() {
                         >
                           AUTO
                         </GhostButton>
+                      </div>
+                      {/* What the plan actually trains (v1.72). The three tiers
+                          are the whole system, so the picker shows them rather
+                          than leaving the player to infer them from the name. */}
+                      <div className="w-full border-t border-line/50 pt-3">
+                        <PlanTiers plan={plan} />
                       </div>
                     </>
                   );
@@ -869,5 +884,40 @@ function KitNumberPanel({ playerId }: { playerId: string }) {
         </div>
       </Card>
     </Section>
+  );
+}
+
+/**
+ * The three training tiers a plan splits its effort across (v1.72).
+ *
+ * The plan system's whole substance is WHERE growth goes, so the picker names
+ * the attributes rather than making the manager infer them from a plan title.
+ * "Other" isn't listed — it's every remaining attribute, and the percentage is
+ * the honest way to say "everything else ticks over".
+ */
+function PlanTiers({ plan }: { plan: TrainingPlanDef }) {
+  const row = (label: string, share: number, keys: AttrKey[], accent: string) => (
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+      <span className="display w-20 shrink-0 text-[10px] uppercase tracking-widest" style={{ color: accent }}>
+        {label}
+      </span>
+      <span className="tnum shrink-0 text-[10px] text-faint">{Math.round(share * 100)}%</span>
+      <span className="min-w-0 text-[12px] leading-snug text-dim">
+        {keys.map((k) => ATTR_META[k].name).join(" · ")}
+      </span>
+    </div>
+  );
+  return (
+    <div className="space-y-1.5">
+      {row("Primary", PRIMARY_SHARE, plan.primary, "var(--color-gold-hi)")}
+      {row("Secondary", SECONDARY_SHARE, plan.secondary, "#9aa4b2")}
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span className="display w-20 shrink-0 text-[10px] uppercase tracking-widest text-faint">Other</span>
+        <span className="tnum shrink-0 text-[10px] text-faint">{Math.round(OTHER_SHARE * 100)}%</span>
+        <span className="min-w-0 text-[12px] leading-snug text-faint">
+          Everything else ticks over in the background.
+        </span>
+      </div>
+    </div>
   );
 }

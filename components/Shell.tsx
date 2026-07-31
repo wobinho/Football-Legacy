@@ -19,6 +19,7 @@ import CompetitionScreen from "./screens/Competition";
 import TransfersScreen from "./screens/Transfers";
 import ClubScreen from "./screens/Club";
 import AchievementsScreen from "./screens/Achievements";
+import FacilitiesScreen from "./screens/Facilities";
 import GcnScreen from "./screens/Gcn";
 import DevelopmentScreen from "./screens/Development";
 import AcademyScreen from "./screens/Academy";
@@ -37,6 +38,7 @@ const NAV: { id: ScreenId; label: string }[] = [
   { id: "academy", label: "Academy" },
   { id: "development", label: "Development" },
   { id: "club", label: "Club" },
+  { id: "facilities", label: "Facilities/Staff" },
   { id: "achievements", label: "Achievements" },
   // GCN (v34) sits just below Achievements — but only once the network is
   // unlocked. Filtered in at render (see `nav` in the component body).
@@ -233,6 +235,7 @@ export default function Shell() {
           {screen === "academy" && <AcademyScreen />}
           {screen === "development" && <DevelopmentScreen />}
           {screen === "club" && <ClubScreen />}
+          {screen === "facilities" && <FacilitiesScreen />}
           {screen === "achievements" && <AchievementsScreen />}
           {screen === "gcn" && <GcnScreen />}
         </main>

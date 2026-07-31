@@ -89,7 +89,7 @@ function SortHeader({
 // The dropdown track narrows on phones so the row still fits a small screen.
 const PLAN_GRID = "grid-cols-[2rem_1fr_2rem_2.5rem_8rem] sm:grid-cols-[2.25rem_1fr_2.5rem_3rem_11rem]";
 
-type Tab = "plans" | "growth" | "facilities" | "staff";
+type Tab = "plans" | "growth";
 
 /** One upgrade card's worth of display data. The accent tints the whole card
  * so each facility reads as its own bounded module. */
@@ -109,39 +109,20 @@ export default function DevelopmentScreen() {
   const [tab, setTab] = useState<Tab>("plans");
   return (
     <div>
+      {/* v1.72: Training Facilities and Development Staff moved off this screen
+          to the Facilities/Staff page. They are club-level concerns; Development
+          is about individual players and where their growth is going. */}
       <Tabs
         tabs={[
           { id: "plans", label: "Training Plans" },
           { id: "growth", label: "Growth" },
-          { id: "facilities", label: "Training Facilities" },
-          { id: "staff", label: "Development Staff" },
         ]}
         active={tab}
         onChange={setTab}
       />
       {tab === "plans" && <TrainingPlansTab />}
       {tab === "growth" && <GrowthTab />}
-      {/* v1.67: Training Facilities and Development Staff are being reworked.
-          The tabs stay in place so the shape of the screen is unchanged, but
-          both bodies are parked behind a placeholder until the new design
-          lands. FacilitiesTab/StaffDevTab below are kept intact for that. */}
-      {tab === "facilities" && <WorkInProgress title="Training Facilities" />}
-      {tab === "staff" && <WorkInProgress title="Development Staff" />}
     </div>
-  );
-}
-
-/** Placeholder body for a tab whose feature is mid-rework (v1.67). */
-function WorkInProgress({ title }: { title: string }) {
-  return (
-    <Card className="mt-3 p-8 text-center">
-      <div className="text-3xl">🚧</div>
-      <div className="mt-3 font-display text-lg uppercase tracking-wide">{title}</div>
-      <div className="gold-thread mx-auto my-3 w-24" />
-      <p className="mx-auto max-w-sm text-[12px] leading-snug text-faint">
-        Work in progress. This feature is being reworked and is unavailable for now.
-      </p>
-    </Card>
   );
 }
 
@@ -689,6 +670,10 @@ function AttrProjection({ p, delta, plan }: { p: PlayerBio; delta: number; plan:
 // Parked while the rework is in flight (v1.67) — not rendered, but kept whole so
 // the new design has the working implementation to build from. This reference
 // keeps the unused-symbol check quiet without commenting the code out.
+//
+// As of v1.72 these two belong to the Facilities/Staff screen
+// (components/screens/Facilities.tsx), which is where the reworked versions will
+// render. They stay here only as the reference implementation to port from.
 export const PARKED_FOR_REWORK = { FacilitiesTab, StaffDevTab };
 
 function FacilitiesTab() {

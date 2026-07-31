@@ -20,6 +20,7 @@ import {
   incomeUpgradeLevel,
   incomeUpgradeMaxLevel,
   FACILITY_KEYS,
+  INCOME_UPGRADE_GROUPS,
   type BreakdownItem,
   type Facility,
 } from "@/lib/economy";
@@ -454,12 +455,14 @@ function IncomeTab() {
   const maxedCount = rows.filter((r) => r.maxed).length;
   const affordable = rows.filter((r) => r.canAfford).length;
 
-  // Affordable upgrades first, then the rest, maxed tracks last — the page's job
-  // is "what should I buy next", so the answer sorts to the top.
-  const ordered = rows.slice().sort((a, b2) => {
-    const rank = (r: (typeof rows)[number]) => (r.maxed ? 2 : r.canAfford ? 0 : 1);
-    return rank(a) - rank(b2) || (a.nextCost ?? Infinity) - (b2.nextCost ?? Infinity);
-  });
+  // Grouped by what the track actually is (v1.72) rather than sorted by price.
+  // The tier ladder, the event-driven bonuses and the wage deduction are three
+  // different kinds of thing, and reading them as one cost-ordered list hid that.
+  const byKey = new Map(rows.map((r) => [r.key, r]));
+  const groups = INCOME_UPGRADE_GROUPS.map((g) => ({
+    ...g,
+    rows: g.keys.map((k) => byKey.get(k)).filter((r): r is (typeof rows)[number] => !!r),
+  })).filter((g) => g.rows.length > 0);
 
   return (
     <div className="space-y-5">
@@ -494,16 +497,24 @@ function IncomeTab() {
         </div>
       </Card>
 
-      <Section
-        title="Income Upgrades"
-        right={<span className="text-xs text-faint">Best value first · tap an upgrade for detail</span>}
-      >
-        <Card className="divide-y divide-line/50">
-          {ordered.map((f) => (
-            <FacilityRow key={f.key} f={f} onUpgrade={() => upgrade(f.key)} />
-          ))}
-        </Card>
-      </Section>
+      {groups.map((g) => (
+        <Section
+          key={g.id}
+          title={g.title}
+          right={
+            <span className="text-xs text-faint">
+              {g.rows.filter((r) => r.maxed).length}/{g.rows.length} maxed · tap an upgrade for detail
+            </span>
+          }
+        >
+          <p className="mb-2 text-[11px] leading-relaxed text-faint">{g.blurb}</p>
+          <Card className="divide-y divide-line/50">
+            {g.rows.map((f) => (
+              <FacilityRow key={f.key} f={f} onUpgrade={() => upgrade(f.key)} />
+            ))}
+          </Card>
+        </Section>
+      ))}
 
       <p className="text-[11px] leading-relaxed text-faint">
         Each level <em>replaces</em> the one below it rather than adding to it — Low Tier level 2 pays{" "}

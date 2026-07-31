@@ -4,7 +4,8 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useGame } from "@/store/gameStore";
-import type { EuroCupTier, Fixture, TableRow } from "@/lib/types";
+import type { EuroCupTier, Fixture, League, TableRow } from "@/lib/types";
+import { LEAGUE_REP_MAX, leagueRepLabel, leagueReputation } from "@/lib/config/leaguerep";
 import { computeTable, computeForm, type FormResult } from "@/lib/season";
 import { EURO_CUP_DEFS, euroCompetitionId, euroSlotForPosition } from "@/lib/european";
 import { formatDayShort } from "@/lib/calendar";
@@ -441,6 +442,27 @@ function TableCard({
   );
 }
 
+/**
+ * A league's standing in the world game (v1.72), as a compact chip.
+ *
+ * Structural data, not form: it says how much this division is worth on the
+ * global map, which is what makes "top of the Norwegian first tier" and "top of
+ * the Premier Division" legibly different achievements.
+ */
+function LeagueRepBadge({ league }: { league: League }) {
+  const rep = leagueReputation(league);
+  return (
+    <span
+      className="flex items-center gap-1.5 text-xs text-faint"
+      title={`League reputation ${rep}/${LEAGUE_REP_MAX} — ${leagueRepLabel(rep)}`}
+    >
+      <span className="display gold-text tnum font-semibold">{rep}</span>
+      <span className="text-faint">/{LEAGUE_REP_MAX}</span>
+      <span className="text-dim">{leagueRepLabel(rep)}</span>
+    </span>
+  );
+}
+
 function LeagueView({ leagueId }: { leagueId: string }) {
   const game = useGame((s) => s.game)!;
   const viewPlayer = useGame((s) => s.viewPlayer);
@@ -479,12 +501,15 @@ function LeagueView({ leagueId }: { leagueId: string }) {
         <Section
           title="Table"
           right={
-            league.country ? (
-              <span className="flex items-center gap-1.5 text-xs text-faint">
-                <CountryFlag country={league.country} size={14} />
-                {league.country}
-              </span>
-            ) : undefined
+            <span className="flex items-center gap-3">
+              <LeagueRepBadge league={league} />
+              {league.country && (
+                <span className="flex items-center gap-1.5 text-xs text-faint">
+                  <CountryFlag country={league.country} size={14} />
+                  {league.country}
+                </span>
+              )}
+            </span>
           }
         >
           <TableCard
@@ -1040,7 +1065,17 @@ function SimLeagueView({ leagueId }: { leagueId: string }) {
       <div className="xl:col-span-2">
         <Section
           title={`Table — ${result.half === 0 ? "not started" : result.half === 1 ? "in progress" : "final"} (Season ${result.season})`}
-          right={league && <span className="flex items-center gap-1.5 text-xs text-faint"><CountryFlag country={league.country} size={14} />{league.country}</span>}
+          right={
+            league && (
+              <span className="flex items-center gap-3">
+                <LeagueRepBadge league={league} />
+                <span className="flex items-center gap-1.5 text-xs text-faint">
+                  <CountryFlag country={league.country} size={14} />
+                  {league.country}
+                </span>
+              </span>
+            )
+          }
         >
           <TableCard rows={result.table} euroSlot={(pos) => euroSlotForPosition(game, leagueId, pos)} />
         </Section>

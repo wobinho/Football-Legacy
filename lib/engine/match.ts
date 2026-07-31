@@ -17,6 +17,21 @@ import type { TuningConfig } from "../config/tuning";
 import { getArchetype } from "../config/archetypes";
 import { TRAIT_MAP } from "../config/traits";
 import { PHASE_WEIGHTS, positionFit } from "../config/positions";
+import type { AttrKey } from "../config/attributes";
+import {
+  fitDrainMultiplier,
+  fitMultiplier,
+  tacticDemands,
+  type FitDemand,
+  type FitPlayer,
+} from "../config/tacticfit";
+import { derivePersona, type PersonaClass } from "../config/personas";
+import {
+  accumulateClassEffects,
+  tallyClasses,
+  NEUTRAL_CLASS_EFFECTS,
+  type ClassEffects,
+} from "../config/personaclass";
 import { mulberry32, pickWeighted, randPoisson, type RNG } from "../rng";
 
 // Resolved tactic-instruction defaults — a tactic may omit the expanded fields
@@ -54,6 +69,13 @@ export interface EnginePlayer {
    * building an EnginePlayer by hand (the harness) needn't supply it; absent
    * simply means no prospect bias. */
   age?: number;
+  /** The 35 attributes (v1.72), read by the tactical-fit pass: how well this
+   * player suits what his side's instructions are asking of him.
+   *
+   * Optional so a caller building an EnginePlayer by hand needn't supply a full
+   * attribute line — a side whose players carry none simply scores neutral fit
+   * (1.0×) and behaves exactly as it did before tactical fit existed. */
+  attrs?: Record<AttrKey, number>;
 }
 
 export interface LineupEntry {
@@ -98,6 +120,20 @@ interface SideState {
   coachMult: number;
   /** Hidden style×mentality counter edge on ATTACK vs the current opponent (§6). */
   counterAttackMult: number;
+  /** How well this side's players suit its own instructions (v1.72). */
+  fit: TacticFit;
+  /** What the on-pitch personas' classes contribute to this side (§5, v1.73).
+   * Capped fractional deltas, applied as `1 + delta`. */
+  classes: ClassEffects;
+}
+
+/** Per-phase tactical-fit multipliers. `drain` is a fitness-drain multiplier —
+ * below 1 means the side holds its instructions better than average. */
+export interface TacticFit {
+  attack: number;
+  midfield: number;
+  defense: number;
+  drain: number;
 }
 
 export interface MatchState {
@@ -143,7 +179,13 @@ function drainRateMult(side: SideState, cfg: TuningConfig): number {
   return (
     cfg.tempoFitnessDrainMult[resolveTempo(side.tactic)] *
     cfg.pressFitnessDrainMult[resolvePress(side.tactic)] *
-    styleShape(side.tactic, cfg).fitnessDrain
+    styleShape(side.tactic, cfg).fitnessDrain *
+    // v1.72: a squad built for the instructions holds them better. A side told to
+    // press with no stamina fades faster than one that has the legs for it.
+    side.fit.drain *
+    // v1.73: and the personas on the pitch decide who carries that load —
+    // Engines shoulder a high press, Creators wilt under it.
+    (1 + side.classes.fitnessDrain)
   );
 }
 
@@ -165,7 +207,10 @@ function effectiveRating(
     synergyMult(p.archetypeId, side.tactic, cfg) *
     p.form *
     fitnessMult(drained, cfg) *
-    side.coachMult;
+    side.coachMult *
+    // v1.73: style effectiveness earned by the side's personas — a Possession
+    // side full of Creators plays the style better than one that isn't.
+    (1 + side.classes.styleEffect);
   // Width shifts emphasis between wide and central roles (a wide player is worth
   // more in a Wide setup, less in a Narrow one, and vice-versa).
   if (isWide(op.entry.slotPos)) eff *= cfg.widthWideMult[resolveWidth(side.tactic)];
@@ -218,6 +263,16 @@ function phaseStrengths(side: SideState, isHome: boolean, minute: number, cfg: T
   midfield *= shape.midfield;
   defense *= shape.defense;
   attack *= side.counterAttackMult;
+  // Tactical fit (v1.72): the instructions name the attributes they lean on, and
+  // a side that has them plays them better. Bounded to ±TACTIC_FIT_SWING per
+  // phase, so this sharpens a well-matched setup rather than deciding matches.
+  attack *= side.fit.attack;
+  midfield *= side.fit.midfield;
+  defense *= side.fit.defense;
+  // Persona classes (§5, v1.73): Creators given a slow tempo see more of the
+  // ball, Engines sat deep see less; Enforcers behind a deep line defend better.
+  midfield *= 1 + side.classes.midfield;
+  defense *= 1 + side.classes.defense;
   return { attack, midfield, defense, concedeMult };
 }
 
@@ -371,6 +426,14 @@ function makeSub(
     leftMinute: null,
   });
   side.subsUsed++;
+  // The XI has changed, so how well this side suits its own instructions has too
+  // (v1.72) — a like-for-like swap barely moves it, but bringing a runner on for
+  // a passer genuinely changes what the side can do.
+  side.fit = computeFit(side);
+  // Same for the personas on the pitch (v1.73): substituting a Creator for an
+  // Engine changes what the side's instructions are worth, which is exactly the
+  // decision a manager makes when a high press starts to tell late on.
+  side.classes = computeClasses(side, state.cfg);
   state.events.push({
     minute,
     type: "sub",
@@ -538,11 +601,18 @@ function playSegment(state: MatchState) {
   const exposure = (opp: SideState) =>
     cfg.pressOppChanceMult[resolvePress(opp.tactic)] *
     cfg.lineOppChanceMult[resolveLine(opp.tactic)] *
-    styleShape(opp.tactic, cfg).oppChance;
+    styleShape(opp.tactic, cfg).oppChance *
+    // v1.73: Enforcers held behind a high line get turned — the chances that
+    // creates belong to whoever is playing against them.
+    (1 + opp.classes.oppChance);
+
+  // v1.73: Spearheads create in a fast, attacking setup and go missing in a slow,
+  // defensive one — a side's own chance volume, not its opponent's.
+  const spearhead = (own: SideState) => 1 + own.classes.chances;
 
   const perSegBase = cfg.baseChancesPerSegment;
-  const homeLambda = perSegBase * homeShare * mentality(state.home, state.away) * tempoMult(state.home, state.away) * exposure(state.away);
-  const awayLambda = perSegBase * (1 - homeShare) * mentality(state.away, state.home) * tempoMult(state.away, state.home) * exposure(state.home);
+  const homeLambda = perSegBase * homeShare * mentality(state.home, state.away) * tempoMult(state.home, state.away) * exposure(state.away) * spearhead(state.home);
+  const awayLambda = perSegBase * (1 - homeShare) * mentality(state.away, state.home) * tempoMult(state.away, state.home) * exposure(state.home) * spearhead(state.away);
 
   interface PendingChance {
     side: SideState;
@@ -619,7 +689,84 @@ function makeSideState(input: SideInput): SideState {
     tactic: { ...input.tactic },
     coachMult: input.coachMult ?? 1,
     counterAttackMult: 1,
+    fit: NEUTRAL_FIT,
+    classes: NEUTRAL_CLASS_EFFECTS,
   };
+}
+
+/** A side whose tactic asks nothing of it, or whose players carry no attributes
+ * (a hand-built harness side) — every phase neutral. */
+const NEUTRAL_FIT: TacticFit = { attack: 1, midfield: 1, defense: 1, drain: 1 };
+
+/**
+ * How well a side's players suit what its instructions are asking of them
+ * (v1.72), as one multiplier per phase.
+ *
+ * Recomputed whenever the tactic changes rather than per segment: the demands
+ * come from the tactic and the squad, and neither moves within a segment. Only
+ * the players currently on the pitch count, so a side that presses well with its
+ * starters and badly with its bench genuinely fades — which is the point.
+ */
+function computeFit(side: SideState): TacticFit {
+  const players: FitPlayer[] = [];
+  for (const op of side.onPitch) {
+    if (op.leftMinute !== null) continue;
+    const a = op.entry.player.attrs;
+    if (a) players.push({ overall: op.entry.player.overall, attrs: a });
+  }
+  // No attribute data (a harness side) → no fit adjustment at all.
+  if (players.length === 0) return NEUTRAL_FIT;
+  const demands: FitDemand[] = tacticDemands(side.tactic);
+  if (demands.length === 0) return NEUTRAL_FIT;
+  return {
+    attack: fitMultiplier(players, demands, "attack"),
+    midfield: fitMultiplier(players, demands, "midfield"),
+    defense: fitMultiplier(players, demands, "defense"),
+    drain: fitDrainMultiplier(players, demands),
+  };
+}
+
+/**
+ * What the personas currently on the pitch contribute to this side (§5, v1.73).
+ *
+ * Each player's persona is DERIVED from his attributes here rather than read off
+ * a stored field — that is what makes the identity live: a player who has been
+ * retrained since the last match brings his new class into this one, with no
+ * migration and nothing to keep in sync.
+ *
+ * A player with no attributes (a hand-built harness side) contributes no class,
+ * so a side the harness assembles is unaffected — the same escape hatch
+ * `computeFit` uses.
+ */
+function computeClasses(side: SideState, cfg: TuningConfig): ClassEffects {
+  const classes: (PersonaClass | undefined)[] = [];
+  for (const op of side.onPitch) {
+    if (op.leftMinute !== null) continue;
+    const p = op.entry.player;
+    if (!p.attrs) continue;
+    // Derived against the slot he is FILLING, not his listed position: a
+    // midfielder played at full back is judged as the full back he is being
+    // asked to be, which is the same logic `positionFit` already applies.
+    classes.push(derivePersona(p.attrs, op.entry.slotPos)?.cls);
+  }
+  if (classes.length === 0) return NEUTRAL_CLASS_EFFECTS;
+
+  return accumulateClassEffects(
+    tallyClasses(classes),
+    {
+      mentality: side.tactic.mentality,
+      style: side.tactic.style,
+      tempo: resolveTempo(side.tactic),
+      press: resolvePress(side.tactic),
+      line: resolveLine(side.tactic),
+    },
+    {
+      styleStep: cfg.personaStyleStep,
+      boostStep: cfg.personaBoostStep,
+      clashStep: cfg.personaClashStep,
+      cap: cfg.personaClassCap,
+    }
+  );
 }
 
 /**
@@ -639,6 +786,15 @@ function refreshCounters(state: MatchState) {
   };
   state.home.counterAttackMult = edge(state.home, state.away);
   state.away.counterAttackMult = edge(state.away, state.home);
+  // Tactical fit (v1.72) depends only on a side's own tactic and its players, so
+  // it refreshes on the same beat as the counter edge — kickoff, and any change.
+  state.home.fit = computeFit(state.home);
+  state.away.fit = computeFit(state.away);
+  // Persona classes (§5, v1.73) depend on the same two things — a side's own
+  // instructions and who is on the pitch — so they refresh on the same beat. A
+  // halftime switch to a high press re-reads what the XI can carry.
+  state.home.classes = computeClasses(state.home, state.cfg);
+  state.away.classes = computeClasses(state.away, state.cfg);
 }
 
 export function createMatch(home: SideInput, away: SideInput, cfg: TuningConfig, seed: number): MatchState {

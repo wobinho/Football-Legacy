@@ -25,6 +25,25 @@ export const MAX_DIVISION_DEPTH = 4;
  * 38-round league calendar and the fixture generator need no special-casing. */
 export const GENERATED_DIVISION_SIZE = 20;
 
+/**
+ * Below this many clubs, a division is topped up with generated sides (v1.72).
+ *
+ * Several shipped databases author only a token top flight — four or six real
+ * clubs — because that is all the source CSV covers. A four-club league is not a
+ * league: it plays a handful of fixtures, the table is meaningless, and the
+ * transfer market has nowhere to go. Any authored division under this threshold
+ * is filled out to `TOPPED_UP_DIVISION_SIZE` with procedurally generated clubs,
+ * so every country is playable no matter how thin its database is.
+ *
+ * A division at or above the threshold is left exactly as authored — a real
+ * 18-club league is never padded.
+ */
+export const MIN_AUTHORED_DIVISION_SIZE = 10;
+
+/** What a topped-up division is filled out to. Even, and large enough for a
+ * proper double round-robin, without pretending to be a full 20-club league. */
+export const TOPPED_UP_DIVISION_SIZE = 16;
+
 /** Reputation band per tier. Tier 1 clubs sit ~64–90 (authored); each step down
  * drops the band so a third-tier side is a genuine minnow and the ladder reads
  * as a real pyramid. */
@@ -144,4 +163,53 @@ export function generateDivisionClubs(
   }
   // Strongest first, so repForTier's gradient matches the array order.
   return clubs.sort((a, b) => b.rep - a.rep);
+}
+
+/**
+ * Fill a thin authored division out to a playable size (v1.72).
+ *
+ * A database that ships only four or six clubs for a country can't sustain a
+ * season — so the authored clubs are kept exactly as they are and the remainder
+ * of a `TOPPED_UP_DIVISION_SIZE` field is generated around them.
+ *
+ * The generated sides are deliberately the WEAKER half: their reputations are
+ * banded beneath the lowest authored club, so a country's real clubs stay its
+ * genuine elite and the filler reads as the rest of a domestic league rather
+ * than as rivals dropped in from nowhere. Deterministic in
+ * (worldSeed, countryCode, tier), like `generateDivisionClubs`.
+ *
+ * Returns the input untouched when the division is already big enough, so this
+ * is safe to call on every division unconditionally.
+ */
+export function topUpDivisionClubs(
+  worldSeed: number,
+  countryCode: string,
+  tier: number,
+  authored: ClubDef[],
+  exclude: Set<string>,
+  targetSize: number = TOPPED_UP_DIVISION_SIZE
+): ClubDef[] {
+  if (authored.length >= MIN_AUTHORED_DIVISION_SIZE) return authored;
+  const need = targetSize - authored.length;
+  if (need <= 0) return authored;
+
+  const taken = new Set([...exclude, ...authored.map((c) => c.name)]);
+  // Generated at the tier BELOW this one, then squeezed under the authored
+  // clubs: filler in a top flight should look like a promoted side, not like a
+  // peer of the country's champions.
+  const filler = generateDivisionClubs(worldSeed, countryCode, tier + 1, taken, need);
+
+  const authoredFloor = authored.length
+    ? Math.min(...authored.map((c) => c.rep ?? 50))
+    : (TIER_REP_BAND[tier] ?? TIER_REP_BAND[3])[1];
+  // Sit the filler in a band directly beneath the weakest authored club, spread
+  // so the padded half still has its own favourite-to-minnow gradient.
+  const hi = Math.max(2, authoredFloor - 2);
+  const lo = Math.max(1, Math.round(hi * 0.55));
+  const scaled = filler.map((c, i) => ({
+    ...c,
+    rep: Math.round(hi - (hi - lo) * (filler.length <= 1 ? 0.5 : i / (filler.length - 1))),
+  }));
+
+  return [...authored, ...scaled].sort((a, b) => (b.rep ?? 0) - (a.rep ?? 0));
 }

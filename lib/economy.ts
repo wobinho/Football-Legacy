@@ -8,6 +8,7 @@ import { squadWageBill, playerValue, playerWage } from "./value";
 import { leagueWageMult } from "./contracts";
 import { userStaffWages, STAFF_SLOT_MAP } from "./staff";
 import { sponsorWeeklyIncome } from "./sponsors";
+import { TRAINING_PLAN_MAP, type PlanFocus } from "./config/training";
 
 export interface WeeklyBreakdown {
   tvIncome: number;
@@ -310,6 +311,46 @@ export const FACILITY_KEYS: Facility[] = [
   "performanceBonus",
 ];
 
+/**
+ * How the Income page groups the seven tracks (v1.72).
+ *
+ * The page used to sort by "what can I afford next", which answered a shopping
+ * question but hid the structure: the three tier tracks are one ladder, the three
+ * bonuses pay on events, and Contract Accounting isn't income at all — it's a
+ * deduction off the wage bill. Grouping is display-only data; nothing in the
+ * purchase path reads it.
+ */
+export type IncomeUpgradeGroupId = "tiered" | "bonus" | "deduction";
+
+export interface IncomeUpgradeGroup {
+  id: IncomeUpgradeGroupId;
+  title: string;
+  /** One line under the heading explaining what the group pays. */
+  blurb: string;
+  keys: Facility[];
+}
+
+export const INCOME_UPGRADE_GROUPS: IncomeUpgradeGroup[] = [
+  {
+    id: "tiered",
+    title: "Tiered Income",
+    blurb: "The core weekly ladder — each tier pays a flat sum into the finances every week.",
+    keys: ["lowTier", "midTier", "highTier"],
+  },
+  {
+    id: "bonus",
+    title: "Bonus Income",
+    blurb: "Paid on events rather than on the clock: the squad you field, the results you get, the gates you draw.",
+    keys: ["playerBonus", "performanceBonus", "stadiumBonus"],
+  },
+  {
+    id: "deduction",
+    title: "Cost Deduction",
+    blurb: "Not income — a standing cut off what the club already spends.",
+    keys: ["contractAccounting"],
+  },
+];
+
 interface IncomeUpgradeSpec {
   levelKey: keyof Team;
   costKey: keyof TuningConfig;
@@ -597,14 +638,15 @@ const POSITION_CENTRE: Record<Pos, TrainingFacility> = {
   LW: "attackCentre", RW: "attackCentre", ST: "attackCentre",
 };
 
-/** Which plan-centre facility amplifies a given training plan. Plans with no
- * entry (balanced, goalkeeping) get no plan-facility boost. */
-const PLAN_CENTRE: Record<string, TrainingFacility> = {
-  pace: "sportsScience",
-  physical: "sportsScience",
-  playmaking: "techCentre",
-  dribbling: "techCentre",
-  defending: "techCentre",
+/** Which plan-centre facility amplifies a given kind of training work (v1.72).
+ *
+ * Keyed off the plan's authored `focus` rather than its id: with five plans per
+ * position there are 45 of them, and listing every id here would be a table that
+ * silently goes stale the moment a plan is added. A plan with no focus (every
+ * position's Balanced plan) gets no plan-facility boost. */
+const FOCUS_CENTRE: Record<PlanFocus, TrainingFacility> = {
+  athletic: "sportsScience",
+  technical: "techCentre",
   finishing: "finishingCentre",
 };
 
@@ -631,7 +673,8 @@ export function facilityGrowthMult(
     mult *= 1 + trainingLevelOf(state, teamId, posCentre) * cfg.positionFacilityGrowthPerLevel;
   }
 
-  const planCentre = player.trainingPlan ? PLAN_CENTRE[player.trainingPlan] : undefined;
+  const focus = player.trainingPlan ? TRAINING_PLAN_MAP[player.trainingPlan]?.focus : undefined;
+  const planCentre = focus ? FOCUS_CENTRE[focus] : undefined;
   if (planCentre) {
     mult *= 1 + trainingLevelOf(state, teamId, planCentre) * cfg.planFacilityBoostPerLevel;
   }

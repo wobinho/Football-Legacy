@@ -2,9 +2,11 @@
 
 // Tactics (§15.3): formation preset, mentality, style, lineup, synergy hints.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useGame } from "@/store/gameStore";
-import type { DefLine, Focus, Mentality, PlayerBio, Press, Style, TeamAssignments, Tempo, Width } from "@/lib/types";
+import type { DefLine, Focus, Mentality, PlayerBio, Press, Style, Tactic, TeamAssignments, Tempo, Width } from "@/lib/types";
+import { ATTR_META } from "@/lib/config/attributes";
+import { FIT_PHASE_LABEL, fitLabel, tacticDemands, tacticFitReport } from "@/lib/config/tacticfit";
 import { FORMATION_GROUPS, formationGroupOf, getFormation, MENTALITY_OPTIONS, STYLE_OPTIONS, styleLabel } from "@/lib/config/formations";
 import { getArchetype } from "@/lib/config/archetypes";
 import { positionFit } from "@/lib/config/positions";
@@ -1609,6 +1611,12 @@ function SetupPanel() {
               </div>
             )}
           </div>
+          {/* How well the XI's ATTRIBUTES suit the instructions (v1.72). Distinct
+              from the ▲▼ marks below, which read archetype synergy with the
+              style: this is what the setup is asking of the players and whether
+              they can actually do it. */}
+          <TacticFitPanel players={xiPlayers} tactic={tactic} />
+
           <p className="text-[11px] leading-relaxed text-faint">
             ▲▼ marks show each player&apos;s fit with <b className="text-dim">{styleLabel(tactic.style)}</b>.
           </p>
@@ -1739,6 +1747,73 @@ export default function TacticsScreen() {
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+/**
+ * How well the picked XI suits the instructions it's been given (v1.72).
+ *
+ * The tactical-fit system asks each setting what attributes it leans on and
+ * compares that to the players actually on the pitch. This panel is that
+ * comparison made visible: without it, the effect is real but invisible, and a
+ * manager would have no way to learn that their Gegenpress needs legs.
+ *
+ * Only phases the current setup actually makes a demand on appear. A Balanced,
+ * Standard-everything tactic asks nothing and shows nothing — which is honest,
+ * and is also the hint that the safe setup is the one with no requirements.
+ */
+function TacticFitPanel({ players, tactic }: { players: PlayerBio[]; tactic: Tactic }) {
+  const rows = useMemo(() => {
+    if (players.length === 0) return [];
+    const fitPlayers = players.map((p) => ({ overall: p.overall, attrs: p.attrs }));
+    return tacticFitReport(fitPlayers, tacticDemands(tactic));
+  }, [players, tactic]);
+
+  if (players.length === 0 || rows.length === 0) return null;
+
+  return (
+    <div className="rounded-md border border-line px-3 py-2.5">
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <span className="text-[11px] uppercase tracking-widest text-faint">Squad fit</span>
+        <span className="text-[10px] text-faint">What this setup asks of your XI</span>
+      </div>
+      <div className="space-y-1.5">
+        {rows.map((r) => {
+          // score is −1..1; render it as a centred bar so "workable" reads as
+          // neutral rather than as a half-empty gauge.
+          const pct = Math.round(Math.abs(r.score) * 50);
+          const good = r.score >= 0;
+          const color = r.score >= 0.2 ? "var(--color-win)" : r.score > -0.2 ? "#9aa4b2" : "var(--color-loss)";
+          return (
+            <div key={r.phase} className="flex items-center gap-2 text-[11px]">
+              <span className="display w-20 shrink-0 uppercase tracking-wide text-dim">
+                {FIT_PHASE_LABEL[r.phase]}
+              </span>
+              <span className="relative h-1.5 w-24 shrink-0 rounded-full bg-raised">
+                <span className="absolute left-1/2 top-0 h-full w-px bg-line" />
+                <span
+                  className="absolute top-0 h-full rounded-full"
+                  style={{
+                    background: color,
+                    width: `${pct}%`,
+                    left: good ? "50%" : `${50 - pct}%`,
+                  }}
+                />
+              </span>
+              <span className="w-20 shrink-0" style={{ color }}>
+                {fitLabel(r.score)}
+              </span>
+              <span
+                className="min-w-0 truncate text-faint"
+                title={r.attrs.map((k) => ATTR_META[k].name).join(", ")}
+              >
+                {r.attrs.slice(0, 3).map((k) => ATTR_META[k].name).join(" · ")}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
