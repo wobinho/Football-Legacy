@@ -987,13 +987,19 @@ export function ConfirmButton({
   onConfirm: () => void;
   disabled?: boolean;
   className?: string;
-  tone?: "neutral" | "danger";
+  /** `primary` is for the one action a card exists for (the market's Hire). It
+   * carries a gold outline and tint at rest so it reads as the thing to click
+   * without spending the solid gold fill, which stays reserved for the ARMED
+   * state — a button that already looks committed can't then look more so. */
+  tone?: "neutral" | "danger" | "primary";
 }) {
   const [armed, setArmed] = useState(false);
   const idleCls =
     tone === "danger"
       ? "border-line bg-raised text-dim hover:border-loss/50 hover:text-loss"
-      : "border-line bg-raised text-ink hover:border-faint hover:bg-hover";
+      : tone === "primary"
+        ? "border-gold-lo/55 bg-gold-lo/[0.10] text-gold hover:border-gold hover:bg-gold-lo/20 hover:text-gold-hi"
+        : "border-line bg-raised text-ink hover:border-faint hover:bg-hover";
   // Armed danger is a SOLID red fill, not a tint: an armed destructive button
   // has to be unmistakable at a glance, since the next click is irreversible.
   const armedCls =

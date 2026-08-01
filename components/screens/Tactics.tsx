@@ -438,6 +438,25 @@ function InstructionSummary({ xi, tactic, onOpen }: { xi: ReportSlot[]; tactic: 
   );
 }
 
+/**
+ * One dial (v1.84 rework).
+ *
+ * Every version of this control up to v1.83 rendered FIVE things at once: a
+ * label, the selected option's blurb, the buttons, a row of effect tags, a
+ * diverging roles bar, and a paragraph explaining what the dial is. Multiply by
+ * the five advanced dials and the panel became roughly thirty lines of prose
+ * and micro-charts wrapped around fifteen buttons — every line accurate, and
+ * collectively unreadable. Nobody tuning a defensive line needs to be told what
+ * a defensive line is, every time, forever.
+ *
+ * So the dial is now a LABEL AND ITS BUTTONS, and nothing else. Everything that
+ * used to sit underneath still exists and is one click away behind the ⓘ on the
+ * label row — the same information, opened when it is wanted rather than
+ * broadcast when it isn't. The two signals that genuinely belong ON the control
+ * stay inline, because they are how you compare options without opening
+ * anything: the mood dot on each unselected button, and the blurb of whatever
+ * is currently selected.
+ */
 function Instruction<T extends string>({
   label,
   options,
@@ -457,6 +476,7 @@ function Instruction<T extends string>({
   axis?: keyof InstructionPrefs;
   xi?: ReportSlot[];
 }) {
+  const [detail, setDetail] = useState(false);
   // Focus overrides the shared copy for "Wide" (Width uses the same word for a
   // different idea); Style renders presentable names for its camel-case ids.
   const detailFor = (o: string) =>
@@ -465,9 +485,23 @@ function Instruction<T extends string>({
 
   return (
     <div>
-      <div className="mb-1.5 flex items-baseline justify-between gap-2">
+      <div className="mb-1.5 flex items-baseline gap-2">
         <span className="shrink-0 text-[11px] uppercase tracking-widest text-faint">{label}</span>
-        <span className="text-right text-[10px] text-faint">{detailFor(current)}</span>
+        {/* The selected option's own one-liner stays inline: it is the caption
+            to the choice, not an explanation of the dial. */}
+        <span className="min-w-0 flex-1 truncate text-[10px] text-faint" title={detailFor(current)}>
+          {detailFor(current)}
+        </span>
+        <button
+          onClick={() => setDetail((v) => !v)}
+          aria-expanded={detail}
+          title={`What ${label} does, and what your XI makes of it`}
+          className={`display shrink-0 rounded-full border px-1.5 text-[10px] leading-[1.35] transition-colors ${
+            detail ? "border-gold text-gold" : "border-line text-faint hover:border-faint hover:text-dim"
+          }`}
+        >
+          i
+        </button>
       </div>
       {/* Wrap rather than a single row: Style now offers six options, which do
           not fit side by side on a phone. */}
@@ -482,24 +516,33 @@ function Instruction<T extends string>({
             }`}
           >
             {textFor(o)}
-            {/* What the XI makes of the options you HAVEN'T picked — the
-                selected one has the full bar beneath, and a mood dot on a gold
-                button would read as part of the label. */}
+            {/* What the XI makes of the options you HAVEN'T picked. This one
+                signal stays inline at all times: it is what makes the buttons
+                comparable at a glance, which is the whole reason the rest can
+                be folded away. */}
             {axis && xi && current !== o && <OptionMood axis={axis} value={o} xi={xi} />}
           </button>
         ))}
       </div>
-      {/* live numbers for the SELECTED option, straight from TUNING */}
-      <div className="mt-1.5">
-        <EffectTags label={label} option={current} styleFit={styleFit} />
-      </div>
-      {/* and what the ROLES you have picked make of it (v1.78) */}
-      {axis && xi && (
-        <div className="mt-1">
-          <RolesLine axis={axis} value={current} options={options} xi={xi} />
+
+      {detail && (
+        <div className="mt-2 space-y-1.5 rounded-md border border-line/60 bg-raised px-2.5 py-2">
+          <p className="text-[11px] leading-snug text-dim">{INSTRUCTION_INFO[label]}</p>
+          {/* live numbers for the SELECTED option, straight from TUNING, and
+              what the ROLES you have picked make of it (v1.78). Each on its own
+              line: both can render as a bare inline span ("baseline — no
+              modifier", "No one in your XI minds either way"), and side by side
+              those two run together into one nonsense sentence. */}
+          <div>
+            <EffectTags label={label} option={current} styleFit={styleFit} />
+          </div>
+          {axis && xi && (
+            <div>
+              <RolesLine axis={axis} value={current} options={options} xi={xi} />
+            </div>
+          )}
         </div>
       )}
-      <p className="mt-1 text-[11px] leading-snug text-faint">{INSTRUCTION_INFO[label]}</p>
     </div>
   );
 }
@@ -1899,7 +1942,17 @@ function SetupPanel() {
       <Section title="Setup">
         <div className="space-y-4">
           <div>
-            <div className="mb-1.5 text-[11px] uppercase tracking-widest text-faint">Formation</div>
+            <div className="mb-1.5 flex items-baseline gap-2">
+              <span className="shrink-0 text-[11px] uppercase tracking-widest text-faint">Formation</span>
+              {/* Style mastery, promoted out of the Style dial's effect tags to
+                  the top of the panel (v1.84). It was the one genuinely
+                  headline number down there — "does this style suit my squad?"
+                  — and folding the dials' detail away would have buried it. One
+                  copy, always visible, above everything it summarises. */}
+              <span className="flex min-w-0 flex-1 justify-end">
+                <StyleMastery styleFit={styleFit} style={styleLabel(tactic.style)} />
+              </span>
+            </div>
             {/* v1.77: a dropdown sectioned by back line, not a grid of nineteen
                 buttons. The buttons were the largest block on the screen, all of
                 them permanently visible for a choice made once, and they offered
@@ -1940,7 +1993,16 @@ function SetupPanel() {
                 ))}
               </div>
             )}
-            <p className="mt-1.5 text-[11px] leading-snug text-faint">{formation.desc}</p>
+            {/* v1.84: the shape's description was printed here in full AND
+                carried as the Select's own title and per-option hint. One copy
+                is enough, and the dropdown's is the one attached to the choice.
+                What survives is the single line the picker can't show — the
+                variant, once one is chosen. */}
+            {activeGroup && activeGroup.formations.length > 1 && (
+              <p className="mt-1.5 truncate text-[11px] text-faint" title={formation.desc}>
+                {formation.desc}
+              </p>
+            )}
           </div>
           {/* v1.77: the instructions split across two tabs rather than stacking
               two always-open controls above a collapsible block of five. Basic is
@@ -1962,13 +2024,22 @@ function SetupPanel() {
             <div className="space-y-4">
               <Instruction label="Mentality" options={MENTALITIES} current={tactic.mentality} onPick={(v) => setTactic({ mentality: v })} />
               <Instruction label="Style" options={STYLES} current={tactic.style} onPick={(v) => setTactic({ style: v })} styleFit={styleFit} />
-              <p className="text-[10px] leading-snug text-faint">
-                Also playing {tempo.toLowerCase()} tempo · {width.toLowerCase()} · {press.toLowerCase()} press ·{" "}
-                {line.toLowerCase()} line · {focus.toLowerCase()} focus.{" "}
-                <button onClick={() => setSetupTab("advanced")} className="text-dim underline underline-offset-2 hover:text-ink">
-                  Fine-tune
-                </button>
-              </p>
+              {/* v1.84: one line where there were two. The old pair said what
+                  the five advanced dials are set to AND what they're worth, in
+                  separate paragraphs, both of which are answering the same
+                  question — "do I need to open Advanced?". The settings roll up
+                  into the button's own subtitle; the worth stays a sentence,
+                  because it's the half that changes as you pick. */}
+              <button
+                onClick={() => setSetupTab("advanced")}
+                className="flex w-full items-baseline gap-2 rounded-md border border-line/60 px-2.5 py-1.5 text-left transition-colors hover:border-faint hover:bg-hover"
+              >
+                <span className="min-w-0 flex-1 truncate text-[10px] text-faint">
+                  {tempo.toLowerCase()} tempo · {width.toLowerCase()} · {press.toLowerCase()} press ·{" "}
+                  {line.toLowerCase()} line · {focus.toLowerCase()} focus
+                </span>
+                <span className="shrink-0 text-[10px] text-dim">Fine-tune →</span>
+              </button>
               {/* What those five dials are worth to the XI, summed (v1.79).
                   Without it the Advanced tab is a door with nothing written on
                   it — this is the one number that says whether it's worth
@@ -1994,9 +2065,9 @@ function SetupPanel() {
               the players you already have. */}
           <SquadBlueprintPanel tactic={tactic} />
 
-          <p className="text-[11px] leading-relaxed text-faint">
-            ▲▼ marks show each player&apos;s fit with <b className="text-dim">{styleLabel(tactic.style)}</b>.
-          </p>
+          {/* v1.84: the ▲▼ legend was a permanent paragraph explaining two
+              glyphs that already carry the same sentence in their own tooltips.
+              It is gone; the marks are self-describing on hover. */}
         </div>
       </Section>
 
@@ -2207,6 +2278,11 @@ function AssistantReportPanel({ tactic }: { tactic: Tactic }) {
   // lineup changes and a memo keyed on it alone would never recompute.
   const rev = useGame((s) => s.rev);
   const formation = getFormation(tactic.formationId);
+  // Collapsed by default (v1.84), like the blueprint below it. The grade and
+  // the loudest note ride on the header, which is the part that is read every
+  // time; the other three notes and the class key are the part that is read
+  // once. Declared above the empty-XI early return so the hook order holds.
+  const [open, setOpen] = useState(false);
 
   const report = useMemo(() => {
     // Judged against the slot each player is FILLING, exactly as the engine
@@ -2233,59 +2309,87 @@ function AssistantReportPanel({ tactic }: { tactic: Tactic }) {
   }
 
   const color = gradeColor(report.grade);
+  // The loudest note, shown alongside the grade when the panel is shut. A grade
+  // on its own says how good the setup is but never why, and "why" is the only
+  // part a manager can act on — so one sentence of it stays above the fold and
+  // the rest opens. Warnings outrank praise: a B with a problem in it is worth
+  // surfacing the problem, not the compliment.
+  const headline =
+    report.notes.find((n) => n.tone === "warn") ?? report.notes[0];
 
   return (
     <div className="rounded-md border border-line">
-      <div className="flex items-center gap-3 border-b border-line/60 px-3 py-2.5">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-hover"
+      >
         {/* The grade IS the summary — everything else is why. */}
         <span
-          className="display flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-lg font-bold"
+          className="display flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-base font-bold"
           style={{ color, background: `${color}1a`, border: `1px solid ${color}59` }}
         >
           {report.grade}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-[11px] uppercase tracking-widest text-faint">Tactical synergy</span>
-          <span className="block text-[11px] leading-snug text-dim">
-            {report.filled < 11
-              ? `${report.filled}/11 picked — partial read.`
-              : "How well this XI suits your instructions."}
+          <span className="block text-[11px] uppercase tracking-widest text-faint">
+            Tactical synergy
+            {report.filled < 11 && <span className="ml-1.5 normal-case tracking-normal">{report.filled}/11 picked</span>}
+          </span>
+          <span className="block truncate text-[11px] leading-snug text-dim">
+            {headline ? (
+              <>
+                <b className={NOTE_TONE[headline.tone]}>{headline.title}:</b> {headline.body}
+              </>
+            ) : (
+              "Nothing stands out either way — a workable, unremarkable setup."
+            )}
           </span>
         </span>
-      </div>
+        <span className="shrink-0 text-[10px] text-faint" aria-hidden>
+          {open ? "▾" : "▸"}
+        </span>
+      </button>
 
-      <div className="space-y-1.5 px-3 py-2.5">
-        {report.notes.length === 0 ? (
-          <p className="text-[11px] leading-snug text-faint">
-            Nothing stands out either way — this is a workable, unremarkable setup.
-          </p>
-        ) : (
-          report.notes.map((n, i) => (
-            <p key={i} className="flex gap-1.5 text-[11px] leading-snug text-dim" title={n.detail}>
-              <span className="shrink-0" aria-hidden>{NOTE_ICON[n.tone]}</span>
-              <span className="min-w-0">
-                <b className={NOTE_TONE[n.tone]}>{n.title}:</b> {n.body}
+      {open && (
+        <>
+          {/* Every note, including the one already quoted above — the expanded
+              view is the full report, not the remainder of it, so a note doesn't
+              move around depending on whether the panel is shut. */}
+          <div className="space-y-1.5 border-t border-line/60 px-3 py-2.5">
+            {report.notes.length === 0 ? (
+              <p className="text-[11px] leading-snug text-faint">
+                Nothing stands out either way — this is a workable, unremarkable setup.
+              </p>
+            ) : (
+              report.notes.map((n, i) => (
+                <p key={i} className="flex gap-1.5 text-[11px] leading-snug text-dim" title={n.detail}>
+                  <span className="shrink-0" aria-hidden>{NOTE_ICON[n.tone]}</span>
+                  <span className="min-w-0">
+                    <b className={NOTE_TONE[n.tone]}>{n.title}:</b> {n.body}
+                  </span>
+                </p>
+              ))
+            )}
+          </div>
+
+          {/* The class mix, as a one-line key to the coloured rings on the pitch —
+              the counts without the chart the pitch now carries. */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line/60 px-3 py-2">
+            {ARCHETYPE_CLASS_ORDER.map((c) => (
+              <span
+                key={c}
+                className={`flex items-center gap-1.5 text-[10px] ${report.counts[c] > 0 ? "" : "opacity-30"}`}
+                title={ARCHETYPE_CLASS_BLURB[c]}
+              >
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: ARCHETYPE_CLASS_COLOR[c] }} />
+                <span className="text-faint">{c}</span>
+                <span className="tnum font-semibold text-dim">{report.counts[c]}</span>
               </span>
-            </p>
-          ))
-        )}
-      </div>
-
-      {/* The class mix, as a one-line key to the coloured rings on the pitch —
-          the counts without the chart the pitch now carries. */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line/60 px-3 py-2">
-        {ARCHETYPE_CLASS_ORDER.map((c) => (
-          <span
-            key={c}
-            className={`flex items-center gap-1.5 text-[10px] ${report.counts[c] > 0 ? "" : "opacity-30"}`}
-            title={ARCHETYPE_CLASS_BLURB[c]}
-          >
-            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: ARCHETYPE_CLASS_COLOR[c] }} />
-            <span className="text-faint">{c}</span>
-            <span className="tnum font-semibold text-dim">{report.counts[c]}</span>
-          </span>
-        ))}
-      </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

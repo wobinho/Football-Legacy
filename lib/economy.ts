@@ -212,6 +212,10 @@ export interface BreakdownItem {
   amount: number;
   /** The sum's shape, where that's the clearer explanation ("12 × £4k"). */
   detail?: string;
+  /** Nationality, when the row is a PERSON rather than a line of arithmetic —
+   * the wage bills are lists of names, and a name reads faster with its flag
+   * beside it than it does as text alone. Absent on every other kind of row. */
+  nat?: string;
 }
 
 /** The players behind the wage bill, dearest first. */
@@ -222,6 +226,7 @@ export function wageBillItems(state: GameState, teamId: string, cfg: TuningConfi
     .filter(Boolean)
     .map((p) => ({
       label: p.name,
+      nat: p.nationality,
       amount: -(p.contract?.wage ?? playerWage(p.overall, cfg, leagueWageMult(state, team.leagueId, cfg))),
       detail: p.contract
         ? `${p.positions[0]} · ${p.overall} ovr · through S${p.contract.expirySeason}`
@@ -238,6 +243,7 @@ export function academyWageItems(state: GameState, teamId: string, cfg: TuningCo
     .filter((p) => p && !p.retired)
     .map((p) => ({
       label: p.name,
+      nat: p.nationality,
       amount: -academyWageFor(p.overall, cfg),
       detail: `${p.positions[0]} · ${p.overall} ovr · age ${p.age}`,
     }))
@@ -254,10 +260,11 @@ export function staffWageItems(state: GameState): BreakdownItem[] {
     const badge = m.assignedTo && badgeWeightAt(m, m.assignedTo) > 0
       ? ` · ${m.badges.find((b) => b.facility === m.assignedTo)?.tier} badge`
       : "";
-    return { label: m.name, amount: -m.wage, detail: `${where} · ${m.stars}★${badge}` };
+    return { label: m.name, nat: m.nationality, amount: -m.wage, detail: `${where} · ${m.stars}★${badge}` };
   });
   const scouts: BreakdownItem[] = (team.scouts ?? []).map((sc) => ({
     label: sc.name,
+    nat: sc.nationality,
     amount: -sc.wage,
     detail: `Scout · ${sc.experience}★ exp · ${sc.judgement}★ judgement`,
   }));

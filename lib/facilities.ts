@@ -30,18 +30,26 @@ import type {
   Team,
 } from "./types";
 import {
+  BADGE_HIRE_ABSOLUTE_MAX_TIER,
+  BADGE_HIRE_BASE_CHANCE,
+  BADGE_HIRE_EXPERIENCE_CHANCE,
+  BADGE_HIRE_HIGH_TIER_CHANCE,
+  BADGE_HIRE_MAX_TIER,
+  BADGE_HIRE_STAR_CHANCE,
   BADGE_LADDER,
   FACILITY_MAP,
   FACILITY_SPECS,
   STAFF_BADGE_SLOTS,
+  STAFF_HIRE_MAX_AGE,
+  STAFF_HIRE_MIN_AGE,
   STAFF_MARKET_SIZE,
   STAFF_MAX_AGE,
   STAFF_MAX_STARS,
-  STAFF_MIN_AGE,
   STAFF_MIN_STARS,
   STAFF_NATIONALITIES,
   STAFF_STARS_PER_STEP,
   facilityMaxLevel,
+  seasonsForTier,
   staffFeeFor,
   staffWageFor,
   type FacilityChannel,
@@ -535,22 +543,40 @@ function staffName(rng: RNG): { name: string; nationality: string } {
 }
 
 /**
- * Prior-club badges for a generated candidate. Older, better-rated staff are
- * likelier to arrive with a record — which is what makes the market interesting
- * beyond "buy the most stars you can afford": a 3-star with a gold ETC badge
- * out-produces a blank 4-star from day one.
+ * Prior-club badges for a generated candidate — deliberately rare, and rarer
+ * still above silver.
  *
- * A candidate's badge is only ever for a facility that EXISTS, and the tier is
- * capped below `legacy` — the top of the ladder has to be earned at your club.
+ * A badge on the market is a shortcut past the ten seasons the ladder asks for,
+ * so it has to stay an event rather than a shopping option. Two gates do that,
+ * and both live in `config/facilities.ts`:
+ *
+ *   1. A badge at all is roughly a 1-in-20 candidate — `BADGE_HIRE_BASE_CHANCE`
+ *      plus small experience and star terms. The hiring band is now 21–35, so
+ *      the experience term can't do much: nobody on the shortlist has had time
+ *      for a long career elsewhere.
+ *   2. The tier caps at `BADGE_HIRE_MAX_TIER` (silver) unless a second roll at
+ *      `BADGE_HIRE_HIGH_TIER_CHANCE` clears, and even then
+ *      `BADGE_HIRE_ABSOLUTE_MAX_TIER` (diamond) is the hard stop — obsidian and
+ *      legacy are only ever earned at your own club.
+ *
+ * A candidate's badge is only ever for a facility that EXISTS.
  */
 function generateBadges(rng: RNG, stars: number, age: number): StaffBadge[] {
-  const experience = (age - STAFF_MIN_AGE) / (STAFF_MAX_AGE - STAFF_MIN_AGE); // 0..1
-  const chance = 0.15 + experience * 0.45 + (stars - STAFF_MIN_STARS) * 0.05;
+  const span = Math.max(1, STAFF_HIRE_MAX_AGE - STAFF_HIRE_MIN_AGE);
+  const experience = Math.min(1, Math.max(0, (age - STAFF_HIRE_MIN_AGE) / span)); // 0..1
+  const chance =
+    BADGE_HIRE_BASE_CHANCE +
+    experience * BADGE_HIRE_EXPERIENCE_CHANCE +
+    (stars - STAFF_MIN_STARS) * BADGE_HIRE_STAR_CHANCE;
   if (rng() > chance) return [];
   const spec = pick(rng, FACILITY_SPECS);
-  // Cap at `obsidian`'s rung minus a season, so no one is hired at legacy.
-  const maxSeasons = BADGE_LADDER[BADGE_LADDER.length - 1].seasons - 1;
-  const seasons = randInt(rng, 1, Math.max(1, Math.round(maxSeasons * (0.3 + experience * 0.7))));
+  // The tier cap, as a season cap: the ordinary ceiling, or the rare one if the
+  // second roll clears. Never the top of the ladder either way.
+  const capTier = rng() < BADGE_HIRE_HIGH_TIER_CHANCE
+    ? BADGE_HIRE_ABSOLUTE_MAX_TIER
+    : BADGE_HIRE_MAX_TIER;
+  const maxSeasons = Math.max(1, seasonsForTier(capTier));
+  const seasons = randInt(rng, 1, maxSeasons);
   const tier = badgeTierFor(seasons);
   if (!tier) return [];
   return [{ facility: spec.id, seasons, tier }];
@@ -558,7 +584,9 @@ function generateBadges(rng: RNG, stars: number, age: number): StaffBadge[] {
 
 function generateCandidate(rng: RNG): StaffCandidate {
   const stars = randInt(rng, STAFF_MIN_STARS, STAFF_MAX_STARS);
-  const age = randInt(rng, STAFF_MIN_AGE, STAFF_MAX_AGE - 4);
+  // The MARKET's band, not the retirement age: everyone on the shortlist is
+  // somewhere in a career, so a hire has decades of badge-earning ahead.
+  const age = randInt(rng, STAFF_HIRE_MIN_AGE, STAFF_HIRE_MAX_AGE);
   const { name, nationality } = staffName(rng);
   const badges = generateBadges(rng, stars, age);
   return {

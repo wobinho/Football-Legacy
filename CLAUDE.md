@@ -114,6 +114,16 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   A facility may also gate a CAPABILITY rather than a number (`unlockAtLevel`) — used for
   the Scouting Network's brief auto-filter, because on/off is not a number that crosses zero. A staff member has no
   intrinsic effect: unassigned, they contribute exactly nothing but their wage.
+  **Two age numbers, deliberately far apart (v1.83).** `STAFF_HIRE_MIN_AGE`/`STAFF_HIRE_MAX_AGE`
+  (21–35) is the band the MARKET generates in; `STAFF_MAX_AGE` (65) is when a person retires.
+  A hire has decades ahead, which is what makes the ten seasons a legacy badge costs a bet
+  someone can actually take. Don't collapse them back into one constant.
+  **The market barely ever sells a badge.** ~8% of candidates arrive with one, capped at
+  `BADGE_HIRE_MAX_TIER` (silver) unless a `BADGE_HIRE_HIGH_TIER_CHANCE` roll clears, and
+  `BADGE_HIRE_ABSOLUTE_MAX_TIER` (diamond) is the hard stop — obsidian and legacy are only
+  ever earned at your own club. A shortlist you can buy pedigree off makes the ladder
+  pointless; `verify:facilities` asserts the rate, the ceiling, and that gold+ is still
+  reachable at all.
   Four facilities ship, and they are deliberately different KINDS of lever — what a
   channel's number *does* is the consuming function's business, not the table's:
   **Elite Training Center** (ceiling 33%) → `growthMultiplier()`, a plain multiplier on
@@ -161,6 +171,22 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   `TUNING.marketRefreshDays` (10), via `state.marketRefreshDay`; there is deliberately **no
   second refresh constant** in `config/facilities.ts` — the one that used to sit there said
   14 and nothing read it.
+- **A training plan DOES change who a player is — if he has growth left (v1.84).**
+  `archetypeConversionEta` in `lib/development.ts` walks the growth projection forward
+  season by season and reports when the derived archetype flips to the plan's own. Measured
+  over every world-generated U21 with ≥8 headroom (470 players, 1600 convertible
+  player×plan pairs): **17% convert, median 7 seasons, p75 11, max 15**, some in a single
+  season. The horizon is 15 for that reason.
+  The binding constraint is **growth headroom, not the archetype scoring**. Beware the
+  measurement trap this feature was first built on: sweeping one SENIOR squad shows almost
+  no conversions, but the median headroom at the moment of stalling there is **zero** —
+  that sample measures the growth curve running out, not the plan's steering. Always
+  restrict a conversion sweep to players who can still develop.
+  Hence three outcomes, not two: `arriving`, `noGrowth` (the player is out of development —
+  the common dead end, and ordinary football rather than a mistake) and `tooFar` (he grows
+  a whole career and still never earns it — genuinely rare, and the only one worded as a
+  problem). Collapsing the last two into one "never" made a squad of settled 28-year-olds
+  read as a broken training system.
 - Interim implementations pending owner design sessions (marked in-file): transfer market
   AI (§10), trait pool. `emergencyIntake()` in gameloop is a stopgap until the Youth
   Academy ships.

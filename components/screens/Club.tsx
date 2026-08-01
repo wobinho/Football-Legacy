@@ -196,9 +196,19 @@ function LedgerRow({
           <div className="max-h-72 overflow-y-auto">
             {items!.map((it, i) => (
               <div key={`${it.label}-${i}`} className="flex items-baseline justify-between gap-3 py-1 text-[12px]">
-                <span className="min-w-0">
+                {/* A person's row leads with their flag; a row of arithmetic
+                    (a discount, an upgrade payout) carries no `nat` and simply
+                    starts at the label — no reserved gutter, because a ledger
+                    of formulas shouldn't be indented by a column it never
+                    fills. */}
+                <span className="flex min-w-0 items-baseline gap-1.5">
+                  {it.nat && (
+                    <span className="shrink-0 self-center">
+                      <Flag nat={it.nat} size={11} />
+                    </span>
+                  )}
                   <span className="truncate text-dim">{it.label}</span>
-                  {it.detail && <span className="ml-2 text-[10px] text-mute">{it.detail}</span>}
+                  {it.detail && <span className="shrink-0 text-[10px] text-mute">{it.detail}</span>}
                 </span>
                 <span className={`shrink-0 tnum ${it.amount < 0 ? "text-loss" : "text-win"}`}>
                   {formatMoney(Math.abs(it.amount))}

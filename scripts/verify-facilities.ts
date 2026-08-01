@@ -21,11 +21,16 @@
 // Run: npx tsx scripts/verify-facilities.ts
 
 import {
+  BADGE_HIRE_ABSOLUTE_MAX_TIER,
   BADGE_LADDER,
   FACILITY_SPECS,
   STAFF_BADGE_SLOTS,
+  STAFF_HIRE_MAX_AGE,
+  STAFF_HIRE_MIN_AGE,
+  STAFF_MAX_AGE,
   STAFF_MAX_STARS,
   facilityMaxLevel,
+  seasonsForTier,
 } from "../lib/config/facilities";
 import {
   academyFocusSlots,
@@ -34,6 +39,7 @@ import {
   badgeTierFor,
   badgeWeight,
   facilityEffect,
+  generateStaffMarket,
   maxScoutsFromFacility,
   prospectValueMultiplier,
   scoutFilterUnlocked,
@@ -488,6 +494,75 @@ console.log("\nScouting Network — the design brief's worked example");
   eq("unbuilt: max scouts falls back to the baseline", maxScoutsFromFacility(state, 1), 1);
   eq("unbuilt: prospect value multiplier is exactly 1", prospectValueMultiplier(state), 1);
   eq("unbuilt: scout speed multiplier is exactly 1", scoutSpeedMultiplier(state), 1);
+}
+
+// ── The hiring market (v1.83) ─────────────────────────────────────────────
+//
+// Two properties the tables alone can't show, both of which quietly break the
+// badge economy if they regress:
+//
+//   1. Everyone the market generates is inside the HIRING band (21–35), which
+//      is a different and much narrower thing than the retirement age (65). A
+//      hire has to have a career ahead of them, or the ten seasons a legacy
+//      badge costs is a bet nobody can take.
+//   2. A badge on the shortlist is rare, and a gold-or-better one is rarer
+//      still. The market must never sell what the ladder exists to make you
+//      earn — nothing above `BADGE_HIRE_ABSOLUTE_MAX_TIER`, ever.
+{
+  // A big sample across many seeds: these are probabilistic gates, so one
+  // shortlist proves nothing.
+  const all = Array.from({ length: 400 }, (_, i) => generateStaffMarket(1000 + i)).flat();
+  check(`the sample is large enough to mean something (${all.length} candidates)`, all.length >= 2000);
+
+  const outOfBand = all.filter((c) => c.age < STAFF_HIRE_MIN_AGE || c.age > STAFF_HIRE_MAX_AGE);
+  check(
+    `every candidate is ${STAFF_HIRE_MIN_AGE}–${STAFF_HIRE_MAX_AGE}`,
+    outOfBand.length === 0,
+    `${outOfBand.length} outside the band`
+  );
+  check(
+    "the hiring band sits well below the retirement age",
+    STAFF_HIRE_MAX_AGE < STAFF_MAX_AGE - 20,
+    `hire max ${STAFF_HIRE_MAX_AGE} vs retire ${STAFF_MAX_AGE}`
+  );
+  // Both ends of the band are actually reachable — a band nothing generates in
+  // is a band in name only.
+  check("the youngest end of the band is reached", all.some((c) => c.age === STAFF_HIRE_MIN_AGE));
+  check("the oldest end of the band is reached", all.some((c) => c.age === STAFF_HIRE_MAX_AGE));
+
+  const badged = all.filter((c) => c.badges.length > 0);
+  const badgedPct = (badged.length / all.length) * 100;
+  check(
+    `arriving with a badge is rare (${badgedPct.toFixed(1)}% of candidates)`,
+    badgedPct < 12,
+    `${badgedPct.toFixed(1)}% — the market is selling what the ladder should make you earn`
+  );
+
+  // Nothing above the hard ceiling, and gold-or-better is a genuine event.
+  const ceiling = seasonsForTier(BADGE_HIRE_ABSOLUTE_MAX_TIER);
+  const overCeiling = badged.filter((c) => c.badges.some((b) => b.seasons > ceiling));
+  check(
+    `no candidate ever exceeds a ${BADGE_HIRE_ABSOLUTE_MAX_TIER} badge`,
+    overCeiling.length === 0,
+    `${overCeiling.length} above the ceiling`
+  );
+  const goldPlus = seasonsForTier("gold");
+  const gold = all.filter((c) => c.badges.some((b) => b.seasons >= goldPlus));
+  const goldPct = (gold.length / all.length) * 100;
+  check(
+    `a gold-or-better hire is a rare event (${goldPct.toFixed(2)}% of candidates)`,
+    goldPct < 1.5,
+    `${goldPct.toFixed(2)}%`
+  );
+  // …but not impossible: a ceiling nothing ever reaches is dead code.
+  check("a gold-or-better hire does still happen", gold.length > 0);
+
+  // Determinism, same as everything else seeded in this codebase.
+  check(
+    "the same seed produces the same shortlist",
+    JSON.stringify(generateStaffMarket(77).map((c) => [c.name, c.age, c.stars])) ===
+      JSON.stringify(generateStaffMarket(77).map((c) => [c.name, c.age, c.stars]))
+  );
 }
 
 // ── Result ────────────────────────────────────────────────────────────────

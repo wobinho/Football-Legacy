@@ -4,7 +4,7 @@
 
 import type { DevLogEntry, GameState, PlayerBio } from "./types";
 import type { TuningConfig } from "./config/tuning";
-import { profileForAttrs } from "./config/archetype";
+import { ARCHETYPE_BY_PLAN, deriveArchetype, profileForAttrs } from "./config/archetype";
 import {
   ATTR_FAMILIES,
   ATTR_FAMILY_ORDER,
@@ -720,6 +720,160 @@ export function seasonAttrFocus(
     out[k] = Math.max(0, Math.round(share));
   }
   return out;
+}
+
+// ── When will the training plan actually change who he is? (v1.84) ─────────
+//
+// The loop this game runs is `Training Plan → Attributes → Archetype → Tactical
+// effect`, and the third arrow is the slow one. A manager sets a Sniper plan on
+// a Poacher and then has no way at all to know whether the identity is one
+// season away or six — the plan simply sits there, doing something invisible.
+// This answers that question, and it is a rules question rather than a
+// presentation one, so it lives here beside the growth it reads.
+//
+// The method is the honest one: run the projection FORWARD. Each step applies
+// one season's `seasonAttrFocus` to a copy of the attribute line, ages the
+// player, re-derives the archetype the same way the UI does, and stops when it
+// flips. No closed form, because there isn't one — `deriveArchetype` is a
+// ranking with a specialism threshold, so "how far is he from crossing it" is
+// only answerable by walking there.
+//
+// Two things this deliberately does NOT do:
+//   · model potential rising or the plan changing. It answers "if nothing else
+//     changes", which is the only question a projection can answer honestly.
+//   · promise. Every consumer must present the result as an estimate, because
+//     the real path runs through match ratings and minutes this can't know.
+
+/**
+ * How many seasons ahead the projection walks.
+ *
+ * Measured over every world-generated U21 carrying at least 8 points of
+ * headroom — 470 players, 1600 convertible player×plan pairs: 17% convert, at
+ * a median of 7 seasons, p75 11, max 15. Some flip in a single season.
+ *
+ * So the horizon has to be long. At 5 it would have called a dead end on three
+ * quarters of the conversions that genuinely happen. Beyond 15 the player is
+ * out of growth regardless, which the stall check below catches first and
+ * reports far more usefully than a horizon cutoff can.
+ */
+const ARCHETYPE_ETA_MAX_SEASONS = 15;
+
+/** Days in a game season — the calendar runs Jul 1 to Jun 30. Used only to turn
+ * a season count into the days/weeks a manager actually plans in. */
+const DAYS_PER_SEASON = 365;
+
+export interface ArchetypeEta {
+  /** The archetype the current plan is training toward. */
+  targetId: string;
+  /**
+   * `arriving` — the identity flips, in `seasons`.
+   * `noGrowth` — he runs out of growth first. The plan is steering him the
+   *   right way; there simply isn't enough development left in him to finish
+   *   the journey. A fact about the PLAYER, and the overwhelmingly common
+   *   dead end: across a senior squad the median headroom at the moment of
+   *   stalling is zero — those players are already at their potential.
+   * `tooFar` — he keeps growing for the full horizon and still never gets
+   *   there. A fact about the PLAN: this shape is too far from the player he
+   *   is for training alone to close it. Genuinely rare.
+   *
+   * The split matters because the two demand opposite responses. `noGrowth`
+   * says "this was never going to work on a 29-year-old, try it on a
+   * prospect"; `tooFar` says "pick a plan closer to who he already is". A
+   * single "never" collapsed the club's most common situation into the game's
+   * rarest one and read as if the training system didn't work.
+   */
+  outcome: "arriving" | "noGrowth" | "tooFar";
+  /** Whole seasons of growth before the identity flips, 1-based. Meaningless
+   * when `outcome` is `never`. */
+  seasons: number;
+  /** Approximate days from now — the seasons above, less the part of the
+   * current season already served. Never negative. */
+  days: number;
+  /** `days` in whole weeks, for the shorter phrasings. */
+  weeks: number;
+}
+
+/**
+ * How long until this player's derived archetype becomes the one his training
+ * plan aims at.
+ *
+ * Returns null only when the question doesn't apply:
+ *   · he is ALREADY that archetype — the caller's main case, and a screen must
+ *     not print a countdown to where the player already stands;
+ *   · his plan has no archetype, or his position yields none.
+ *
+ * A player who cannot get there is NOT null — he gets `noGrowth` or `tooFar`.
+ * See the note on the field: those are the answers a manager most needs, and
+ * they are different answers. The alternative is leaving a striker on a plan
+ * that will never reshape him and never being told why.
+ *
+ * `seasonDay` is how far into the current season the save is (0 = opening day);
+ * it only refines the day count, and omitting it simply quotes whole seasons.
+ */
+export function archetypeConversionEta(
+  p: PlayerBio,
+  cfg: TuningConfig,
+  facilityMult = 1,
+  eliteRelief = 0,
+  seasonDay = 0
+): ArchetypeEta | null {
+  const pos = p.positions[0];
+  const plan = resolveTrainingPlan(p.trainingPlan, pos);
+  const target = ARCHETYPE_BY_PLAN[plan.id];
+  if (!target) return null;
+  if (deriveArchetype(p.attrs, pos)?.id === target.id) return null;
+
+  const dead = (outcome: "noGrowth" | "tooFar"): ArchetypeEta => ({
+    targetId: target.id,
+    outcome,
+    seasons: 0,
+    days: 0,
+    weeks: 0,
+  });
+
+  // Walk the projection forward on a copy. `sim` is a throwaway view of the
+  // player — only the fields the growth path reads are updated, which is why it
+  // is built by spread rather than by a deep clone: nothing here is written
+  // back, and a partial copy that the type system still accepts is cheaper and
+  // makes the read-only intent obvious.
+  let attrs = { ...p.attrs };
+  let overall = p.overall;
+  let age = p.age;
+
+  for (let season = 1; season <= ARCHETYPE_ETA_MAX_SEASONS; season++) {
+    const sim: PlayerBio = { ...p, attrs, overall, age };
+    const est = seasonGrowthEstimate(sim, cfg, facilityMult, plan, eliteRelief);
+    // Growth has run out. It cannot come back — age only moves the estimate
+    // down and the ceiling never rises — so this is a settled "no", not a
+    // "not yet".
+    if (!est || est.delta <= 0) return dead("noGrowth");
+
+    const gains = seasonAttrFocus(sim, est.delta, plan);
+    const next = { ...attrs };
+    for (const k of ATTR_KEYS) next[k] = Math.min(99, next[k] + gains[k]);
+    attrs = next;
+    overall += est.delta;
+    age += 1;
+
+    if (deriveArchetype(attrs, pos)?.id === target.id) {
+      // The flip lands at that season's rollover, so the wait is the remainder
+      // of the current season plus a full one for each season after it.
+      const days = Math.max(0, season * DAYS_PER_SEASON - seasonDay);
+      return {
+        targetId: target.id,
+        outcome: "arriving",
+        seasons: season,
+        days,
+        weeks: Math.round(days / 7),
+      };
+    }
+  }
+
+  // Still growing after the full horizon without ever flipping — so it isn't
+  // growth that's missing, it's distance. The measured maximum for a real
+  // conversion is 15 seasons, so anything past that is a shape training won't
+  // reach rather than a countdown worth printing.
+  return dead("tooFar");
 }
 
 /**

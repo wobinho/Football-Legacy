@@ -117,16 +117,26 @@ function formatChannel(unit: "percent" | "count", value: number): string {
  * no label, just the octagon waiting. A dashed box with the word "empty" in it
  * competes with the real crests beside it, which is exactly backwards — the
  * earned thing has to be the loud thing.
+ *
+ * `dim` (v1.83) is for the inline rows — a candidate card's three slots, of
+ * which two or three are usually empty. At full strength a row of dashes reads
+ * as missing data or a failed load rather than as a placeholder, so there the
+ * outline drops to a fraction of its opacity and gains a barely-there fill:
+ * enough to say "a shape belongs here", not enough to be read as content. The
+ * big standalone marks (an empty facility slot, where the octagon IS the
+ * subject) keep the full-strength dash.
  */
-function EmptyBadgeMark({ size }: { size: number }) {
+function EmptyBadgeMark({ size, dim = false }: { size: number; dim?: boolean }) {
+  const points = "30,7 70,7 93,30 93,70 70,93 30,93 7,70 7,30";
   return (
     <svg viewBox="0 0 100 100" width={size} height={size} aria-hidden>
+      {dim && <polygon points={points} className="fill-line/20" />}
       <polygon
-        points="30,7 70,7 93,30 93,70 70,93 30,93 7,70 7,30"
+        points={points}
         fill="none"
         stroke="currentColor"
-        strokeWidth="5"
-        className="text-line"
+        strokeWidth={dim ? 4 : 5}
+        className={dim ? "text-line/45" : "text-line"}
         strokeDasharray="9 7"
       />
     </svg>
@@ -146,13 +156,18 @@ function EmptyBadgeMark({ size }: { size: number }) {
 function BadgeRow({
   person,
   size = 60,
+  center = false,
 }: {
   person: StaffPerson | StaffCandidate;
   size?: number;
+  /** Centre the crests instead of letting them sit against the start edge —
+   * what the square person plates want, where the tray is the middle of the
+   * card rather than a right-aligned stat. */
+  center?: boolean;
 }) {
   const empty = Math.max(0, STAFF_BADGE_SLOTS - person.badges.length);
   return (
-    <span className="flex flex-wrap items-center gap-1.5">
+    <span className={`flex flex-wrap items-center gap-1.5 ${center ? "justify-center" : ""}`}>
       {person.badges.map((b) => (
         <BadgeIcon
           key={b.facility}
@@ -174,8 +189,9 @@ function BadgeRow({
           }
         >
           {/* Drawn a touch smaller than a crest of the same box: pure outline
-              with no interior detail reads larger at equal dimensions. */}
-          <EmptyBadgeMark size={Math.round(size * 0.82)} />
+              with no interior detail reads larger at equal dimensions. Dimmed,
+              because in a row these are placeholders — see EmptyBadgeMark. */}
+          <EmptyBadgeMark size={Math.round(size * 0.82)} dim />
         </span>
       ))}
     </span>
@@ -184,10 +200,22 @@ function BadgeRow({
 
 // ── Facilities tab ────────────────────────────────────────────────────────
 
+/**
+ * Two facilities per row (v1.83).
+ *
+ * Four buildings stacked full-width made the page a scroll: the fourth was
+ * three screens below the first, so "which should I put my next coach in?" —
+ * the actual question this tab answers — could never be asked by looking. Two
+ * columns puts a pair side by side at desk widths and keeps the single column
+ * on a phone, where a facility card is already the full width of the world.
+ *
+ * The panel itself is unchanged inside; only the `Section` wrapper moved out to
+ * the grid so the two columns' headers line up.
+ */
 function FacilitiesTab() {
   useGame((s) => s.rev);
   return (
-    <div className="mt-4">
+    <div className="mt-4 grid grid-cols-1 items-start gap-x-5 gap-y-0 xl:grid-cols-2">
       {FACILITY_SPECS.map((spec) => (
         <FacilityPanel key={spec.id} id={spec.id} />
       ))}
@@ -546,17 +574,64 @@ function SlotGrid({ id }: { id: FacilityId }) {
   const maxSlots = spec.slotsByLevel[spec.slotsByLevel.length - 1];
   const shown = Math.min(maxSlots, Math.ceil(open / 3) * 3);
 
+  // Collapsed by default once the facility is STAFFED (v1.84). A slot card is
+  // ~250px tall, so four buildings' worth of grids is most of the page's
+  // height — and once a slot is filled its card is a status the manager only
+  // wants to check occasionally, not the thing they came to the panel for. An
+  // EMPTY facility opens itself: there the grid isn't a status, it's the call
+  // to action, and hiding the button behind a disclosure would bury the one
+  // move worth making. State is local and per-panel, so the manager can leave
+  // the one they're working on open.
+  const [open_, setOpen] = useState(staff.length === 0);
+  const free = open - staff.length;
+
   return (
-    <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-      {Array.from({ length: shown }, (_, i) => {
-        const person = staff[i];
-        if (person) return <AssignedCard key={person.id} person={person} facility={id} />;
-        if (i < open) return <EmptySlot key={`empty${i}`} facility={id} />;
-        // The level at which this slot opens: the first level whose slot count
-        // reaches it. Table lookup, so a re-tuned ladder needs nothing here.
-        const at = spec.slotsByLevel.findIndex((n) => n > i) + 1;
-        return <LockedSlot key={`locked${i}`} level={at} />;
-      })}
+    <div className="mt-4">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open_}
+        className="group flex w-full items-center gap-2 rounded-md border border-line/60 bg-raised px-3 py-2 text-left transition-colors hover:border-gold-lo/50 hover:bg-hover"
+      >
+        <span
+          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-line bg-surface text-[9px] leading-none text-dim transition-all group-hover:border-gold-lo group-hover:text-gold ${
+            open_ ? "rotate-90" : ""
+          }`}
+          aria-hidden
+        >
+          ▶
+        </span>
+        <span className="display text-[11px] uppercase tracking-[0.16em] text-dim group-hover:text-ink">
+          Staff slots
+        </span>
+        {/* The summary the collapsed state has to carry: with the grid shut,
+            "two filled, one free" is the whole reason to open it. */}
+        <span className="tnum ml-auto text-[11px] text-mute">
+          <span className={staff.length > 0 ? "text-ink/85" : undefined}>
+            {staff.length}/{open}
+          </span>{" "}
+          filled
+          {free > 0 && <span className="text-gold"> · {free} free</span>}
+        </span>
+      </button>
+
+      {open_ && (
+        // Three columns is still the shape the round-out above assumes, but the
+        // panel is only half the page from `xl` up (see FacilitiesTab), so the
+        // grid steps back to two there and takes the third column again once
+        // there is genuinely room for it.
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2 2xl:grid-cols-3">
+          {Array.from({ length: shown }, (_, i) => {
+            const person = staff[i];
+            if (person) return <AssignedCard key={person.id} person={person} facility={id} />;
+            if (i < open) return <EmptySlot key={`empty${i}`} facility={id} />;
+            // The level at which this slot opens: the first level whose slot
+            // count reaches it. Table lookup, so a re-tuned ladder needs
+            // nothing here.
+            const at = spec.slotsByLevel.findIndex((n) => n > i) + 1;
+            return <LockedSlot key={`locked${i}`} level={at} />;
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -666,13 +741,15 @@ function AssignPicker({ facility, onClose }: { facility: FacilityId; onClose: ()
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="flex min-w-0 items-center gap-2">
                   <Flag nat={person.nationality} size={11} />
-                  <span className="truncate text-sm font-medium">{person.name}</span>
-                  <span className="text-[11px] text-faint">age {person.age}</span>
+                  <span className="truncate text-sm font-semibold text-ink">{person.name}</span>
+                  <span className="text-[11px] text-mute">age {person.age}</span>
                 </span>
                 <Stars n={person.stars} />
               </div>
               <div className="mt-1.5 flex items-end justify-between gap-3">
-                <span className="text-[11px] text-faint">{formatMoney(person.wage)}/wk</span>
+                <span className="text-[11px] text-mute">
+                  <span className="tnum font-medium text-ink/85">{formatMoney(person.wage)}</span>/wk
+                </span>
                 <BadgeRow person={person} size={46} />
               </div>
               <div className="mt-1 flex items-center gap-1.5 text-[11px]">
@@ -776,7 +853,7 @@ function AssignedCard({ person, facility }: { person: StaffPerson; facility: Fac
             No badge yet
           </div>
         )}
-        <div className="tnum mt-0.5 text-center text-[10px] text-faint">
+        <div className="tnum mt-0.5 text-center text-[10px] text-mute">
           {badge ? (
             <>
               {badge.seasons} season{badge.seasons === 1 ? "" : "s"} served ·{" "}
@@ -792,7 +869,7 @@ function AssignedCard({ person, facility }: { person: StaffPerson; facility: Fac
       <div className="mt-2.5 flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1.5">
           <Flag nat={person.nationality} size={11} />
-          <span className="truncate text-sm font-medium">{person.name}</span>
+          <span className="truncate text-sm font-semibold text-ink">{person.name}</span>
         </span>
         <Stars n={person.stars} />
       </div>
@@ -807,7 +884,9 @@ function AssignedCard({ person, facility }: { person: StaffPerson; facility: Fac
           </>
         )}
       </div>
-      <div className="mb-2.5 mt-1 text-[11px] text-faint">{formatMoney(person.wage)}/wk</div>
+      <div className="mb-2.5 mt-1 text-[11px] text-mute">
+        <span className="tnum font-medium text-ink/85">{formatMoney(person.wage)}</span>/wk
+      </div>
 
       <GhostButton
         onClick={() => assign(person.id, null)}
@@ -821,6 +900,19 @@ function AssignedCard({ person, facility }: { person: StaffPerson; facility: Fac
 }
 
 // ── Backroom tab ──────────────────────────────────────────────────────────
+
+/**
+ * The shape both halves of the Backroom lay out on: up to five square plates
+ * across (v1.84).
+ *
+ * One constant, used by Employed and Available-to-hire alike, because the two
+ * are the same object seen before and after a signature — if the grids ever
+ * drifted apart, comparing a candidate against the man he'd replace would mean
+ * comparing two differently-sized cards. Five is the widest the plate stays
+ * readable at; below `2xl` it steps down rather than shrinking the square.
+ */
+const PERSON_GRID =
+  "grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5";
 
 function StaffTab() {
   useGame((s) => s.rev);
@@ -847,7 +939,7 @@ function StaffTab() {
             </p>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+          <div className={PERSON_GRID}>
             {roster.map((person) => (
               <RosterCard key={person.id} person={person} />
             ))}
@@ -860,10 +952,72 @@ function StaffTab() {
   );
 }
 
+/**
+ * A person card in the Backroom, employed or on the market (v1.84).
+ *
+ * Both sides of this tab describe the same thing — a person, their rating, and
+ * the three badge slots that are their career — so they are now literally the
+ * same component with a different footer. That is what lets five fit across a
+ * row where three used to: the card is a fixed SQUARE plate, so a row of them
+ * is a row of equal tiles rather than a set of boxes each as tall as its own
+ * longest sentence.
+ *
+ * Inside the square, the badge tray is the centre of gravity: all three slots,
+ * always, centred both ways. Drawing the empties is the point — the cap is what
+ * makes a badge a decision, and a career with one crest and two gaps has to
+ * read as two-thirds unspent rather than as "has a badge". The identity sits
+ * above it and the money below, both compact, so the crests own the middle.
+ */
+const PERSON_BADGE_SIZE = 42;
+
+function PersonPlate({
+  person,
+  footer,
+  dashed = false,
+  note,
+}: {
+  person: StaffPerson | StaffCandidate;
+  footer: React.ReactNode;
+  dashed?: boolean;
+  /** One line under the tray — where they work, or what they arrive with. */
+  note?: React.ReactNode;
+}) {
+  return (
+    <Card
+      className={`flex aspect-square flex-col p-3 transition-colors hover:border-gold-lo/40 ${dashed ? "border-dashed" : ""}`}
+    >
+      {/* Who — name over age/stars, so the widest thing on the card gets the
+          full width and truncation is a last resort rather than the norm at
+          five-across. */}
+      <div className="flex min-w-0 items-center gap-1.5">
+        <Flag nat={person.nationality} size={11} />
+        <span className="truncate text-[13px] font-semibold leading-tight text-ink" title={person.name}>
+          {person.name}
+        </span>
+      </div>
+      <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px]">
+        <span className="text-mute">Age {person.age}</span>
+        <span className="text-[11px] leading-none">
+          <Stars n={person.stars} />
+        </span>
+      </div>
+
+      {/* The tray: three slots, centred in whatever height the square leaves. */}
+      <div className="flex min-h-0 flex-1 items-center justify-center py-1.5">
+        <BadgeRow person={person} size={PERSON_BADGE_SIZE} center />
+      </div>
+
+      {note && <div className="mb-1.5 truncate text-center text-[10px] leading-tight">{note}</div>}
+      {footer}
+    </Card>
+  );
+}
+
 function RosterCard({ person }: { person: StaffPerson }) {
   const game = useGame((s) => s.game)!;
   const assign = useGame((s) => s.assignStaff);
   const release = useGame((s) => s.releaseStaff);
+  const [moving, setMoving] = useState(false);
   const team = game.teams[game.userTeamId];
   const where = person.assignedTo ? FACILITY_MAP[person.assignedTo] : undefined;
 
@@ -877,59 +1031,111 @@ function RosterCard({ person }: { person: StaffPerson }) {
   });
 
   return (
-    <Card className={`p-3 ${person.assignedTo ? "" : "border-dashed"}`}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-2">
-          <Flag nat={person.nationality} size={12} />
-          <span className="truncate font-medium">{person.name}</span>
-          <span className="text-xs text-faint">age {person.age}</span>
-        </span>
-        <Stars n={person.stars} />
-      </div>
-
-      {/* Wage left, badges right — the badges sit under the star rating and on
-          the opposite edge to the wage, so the card has one column of what this
-          person COSTS and one of what they have EARNED. */}
-      <div className="mt-2 flex items-end justify-between gap-3">
-        <span className="text-xs text-faint">{formatMoney(person.wage)}/wk</span>
-        <BadgeRow person={person} />
-      </div>
-
-      <div className="mt-2.5 flex flex-wrap items-center gap-2 border-t border-line/60 pt-2.5">
-        <span className="text-xs">
-          {where ? (
+    <>
+      <PersonPlate
+        person={person}
+        dashed={!person.assignedTo}
+        note={
+          where ? (
             <>
-              <span className="text-faint">Working at</span>{" "}
-              <span className="text-gold">{where.name}</span>
+              <span className="text-faint">at</span> <span className="text-gold">{where.name}</span>
             </>
           ) : (
             <span className="text-loss">Unassigned — earning nothing</span>
-          )}
-        </span>
-        <span className="flex-1" />
-        {options.map((spec) => (
-          <GhostButton
-            key={spec.id}
-            onClick={() => assign(person.id, spec.id)}
-            className="!px-2 !py-1 text-xs"
-            title={
-              person.badges.length >= STAFF_BADGE_SLOTS && !person.badges.some((b) => b.facility === spec.id)
-                ? `${person.name} already holds ${STAFF_BADGE_SLOTS} badges and can't earn another`
-                : `Assign to the ${spec.name}`
-            }
-          >
-            → {spec.name}
-          </GhostButton>
-        ))}
-        <ConfirmButton
-          label="Release"
-          confirmLabel={`Release ${person.name}?`}
-          tone="danger"
-          onConfirm={() => release(person.id)}
-          className="!px-2 !py-1 text-xs"
-        />
-      </div>
-    </Card>
+          )
+        }
+        footer={
+          <>
+            <div className="mb-1.5 text-center text-[10px] text-mute">
+              <span className="tnum font-medium text-ink/85">{formatMoney(person.wage)}</span>/wk
+            </div>
+            {/* One button per action rather than one per facility (v1.84): four
+                "→ Elite Training Center" buttons is what made this card three
+                lines tall and unshrinkable. The list of destinations moves into
+                a picker, which is also where it already lives on the facilities
+                tab — same decision, same control. */}
+            <div className="flex gap-1.5">
+              <GhostButton
+                onClick={() => setMoving(true)}
+                disabled={options.length === 0}
+                className="flex-1 !px-1 !py-1 text-[11px]"
+                title={
+                  options.length === 0
+                    ? "No built facility has a free slot"
+                    : `Move ${person.name} to another facility`
+                }
+              >
+                {person.assignedTo ? "Move" : "Assign"}
+              </GhostButton>
+              <ConfirmButton
+                label="Release"
+                confirmLabel="Sure?"
+                tone="danger"
+                onConfirm={() => release(person.id)}
+                className="flex-1 !px-1 !py-1 text-[11px]"
+              />
+            </div>
+          </>
+        }
+      />
+      {moving && (
+        <Modal title={`Assign ${person.name}`} onClose={() => setMoving(false)}>
+          <div className="flex flex-col gap-2">
+            {options.map((spec) => {
+              const capped =
+                person.badges.length >= STAFF_BADGE_SLOTS &&
+                !person.badges.some((b) => b.facility === spec.id);
+              const here = person.badges.find((b) => b.facility === spec.id);
+              return (
+                <button
+                  key={spec.id}
+                  disabled={capped}
+                  onClick={() => {
+                    assign(person.id, spec.id);
+                    setMoving(false);
+                  }}
+                  title={
+                    capped
+                      ? `${person.name} already holds ${STAFF_BADGE_SLOTS} badges and can't earn another`
+                      : `Assign to the ${spec.name}`
+                  }
+                  className={`rounded-md border px-3 py-2.5 text-left text-sm transition-colors ${
+                    capped
+                      ? "cursor-not-allowed border-line bg-raised/40 opacity-50"
+                      : "border-line bg-raised hover:border-gold-lo/60 hover:bg-gold-lo/[0.06]"
+                  }`}
+                >
+                  <span className="font-semibold text-ink">{spec.name}</span>
+                  <span className="mt-0.5 block text-[11px]">
+                    {capped ? (
+                      <span className="text-loss">Badge slots full — would earn nothing here.</span>
+                    ) : here ? (
+                      <span className="text-win">
+                        Served here before — resumes a {here.tier} badge at {here.seasons} season
+                        {here.seasons === 1 ? "" : "s"}.
+                      </span>
+                    ) : (
+                      <span className="text-faint">Starts a new badge here.</span>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
+            {person.assignedTo && (
+              <GhostButton
+                onClick={() => {
+                  assign(person.id, null);
+                  setMoving(false);
+                }}
+                title={`Take ${person.name} off the ${where?.name ?? "facility"} — they keep the badge they've earned`}
+              >
+                Stand down — no facility
+              </GhostButton>
+            )}
+          </div>
+        </Modal>
+      )}
+    </>
   );
 }
 
@@ -964,53 +1170,82 @@ function StaffMarket() {
           No candidates on the market right now — a fresh crop arrives shortly.
         </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {market.map((c) => {
-            const weight = totalBadgeWeight(c);
-            return (
-              <Card key={c.id} className="flex flex-col p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <Flag nat={c.nationality} size={11} />
-                    <span className="truncate text-sm font-medium">{c.name}</span>
-                  </span>
-                  <Stars n={c.stars} />
-                </div>
-                {/* Age left, badges right and under the star rating — the same
-                    two-column reading as the roster card. */}
-                <div className="mt-1 flex items-end justify-between gap-3">
-                  <span className="text-[11px] text-faint">age {c.age}</span>
-                  <BadgeRow person={c} size={52} />
-                </div>
-                {weight > 0 && (
-                  <div className="mt-1.5 text-[11px] text-win">
-                    Arrives with a record — productive from day one at{" "}
-                    {joinList(
-                      c.badges
-                        .map((b) => FACILITY_MAP[b.facility]?.name)
-                        .filter((n): n is string => !!n)
-                    )}
-                    .
-                  </div>
-                )}
-                <div className="mt-2 text-[11px] text-faint">
-                  Fee {formatMoney(c.fee)} · {formatMoney(c.wage)}/wk
-                </div>
-                <div className="mt-auto pt-2.5">
-                  <ConfirmButton
-                    label="Hire"
-                    confirmLabel="Confirm?"
-                    onConfirm={() => hire(c.id)}
-                    className="w-full !px-2 !py-1 text-xs"
-                    disabled={team.budget < c.fee}
-                  />
-                </div>
-              </Card>
-            );
-          })}
+        <div className={PERSON_GRID}>
+          {market.map((c) => (
+            <CandidateCard
+              key={c.id}
+              cand={c}
+              affordable={team.budget >= c.fee}
+              onHire={() => hire(c.id)}
+            />
+          ))}
         </div>
       )}
     </Section>
+  );
+}
+
+/**
+ * One name on the shortlist — the same square plate the Employed section uses
+ * (v1.84), with a fee-and-hire footer where the roster has move-and-release.
+ *
+ * The market shows all three slots too, which reverses v1.83's call. That
+ * version hid the empties here on the grounds that a badge is a ~1-in-13
+ * rarity, so twelve cards in thirteen would draw a band that says "nothing".
+ * True, but the alternative turned out worse: with the tray optional, the two
+ * halves of this tab stopped being the same object, and a candidate's card
+ * couldn't be read against an employee's. Drawing all three makes the one
+ * badged candidate on the page instantly findable — a filled slot in a row of
+ * outlines is far louder than a lone crest among cards with no tray at all.
+ */
+function CandidateCard({
+  cand,
+  affordable,
+  onHire,
+}: {
+  cand: StaffCandidate;
+  affordable: boolean;
+  onHire: () => void;
+}) {
+  const weight = totalBadgeWeight(cand);
+  return (
+    <PersonPlate
+      person={cand}
+      note={
+        weight > 0 ? (
+          <span
+            className="text-win/85"
+            title={`Arrives with a record — productive from day one at ${joinList(
+              cand.badges.map((b) => FACILITY_MAP[b.facility]?.name).filter((n): n is string => !!n)
+            )}.`}
+          >
+            Arrives with a record
+          </span>
+        ) : (
+          <span className="text-dim">No record yet</span>
+        )
+      }
+      footer={
+        <>
+          <div className="mb-1.5 flex items-baseline justify-between gap-1 text-[10px] text-mute">
+            <span>
+              Fee <span className="tnum font-medium text-ink/85">{formatMoney(cand.fee)}</span>
+            </span>
+            <span>
+              <span className="tnum font-medium text-ink/85">{formatMoney(cand.wage)}</span>/wk
+            </span>
+          </div>
+          <ConfirmButton
+            label="Hire"
+            confirmLabel="Confirm?"
+            onConfirm={onHire}
+            tone="primary"
+            className="w-full !px-2 !py-1 text-[11px]"
+            disabled={!affordable}
+          />
+        </>
+      }
+    />
   );
 }
 

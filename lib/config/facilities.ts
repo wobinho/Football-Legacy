@@ -408,9 +408,54 @@ export const STAFF_MARKET_SIZE = 8;
 // `state.marketRefreshDay`. A second constant here would be a number the loop
 // never reads — which is exactly what the deleted STAFF_MARKET_REFRESH_DAYS was.
 
-/** Age band for generated staff. */
-export const STAFF_MIN_AGE = 30;
-export const STAFF_MAX_AGE = 64;
+/**
+ * Age band for staff.
+ *
+ * Two different numbers, and the distinction matters. `STAFF_HIRE_MIN_AGE` …
+ * `STAFF_HIRE_MAX_AGE` is the band the MARKET generates in — everyone on the
+ * shortlist is somewhere in a career, not at the end of one. `STAFF_MAX_AGE` is
+ * when a person RETIRES, which sits far above the hiring band on purpose: a
+ * 24-year-old you hire has forty seasons in them, which is what makes the ten
+ * seasons a legacy badge costs a commitment you can actually plan.
+ */
+export const STAFF_HIRE_MIN_AGE = 21;
+export const STAFF_HIRE_MAX_AGE = 35;
+/** Retirement age — a staff member past this leaves at the season rollover. */
+export const STAFF_MAX_AGE = 65;
+
+/**
+ * How rare a candidate arriving WITH a prior-club badge is.
+ *
+ * The market's job is to sell you stars; badges are what your own club grows.
+ * A shortlist where a third of the names already hold a record makes the ten
+ * seasons a legacy badge costs pointless — you'd just buy one. So the base
+ * chance is small, experience within the (now narrow, 21–35) hiring band moves
+ * it only a little, and the tier is capped hard: see `BADGE_HIRE_MAX_TIER`.
+ */
+export const BADGE_HIRE_BASE_CHANCE = 0.03;
+/** Added across the full hiring age band (21 → 35). */
+export const BADGE_HIRE_EXPERIENCE_CHANCE = 0.05;
+/** Added per star above `STAFF_MIN_STARS`. */
+export const BADGE_HIRE_STAR_CHANCE = 0.01;
+
+/**
+ * The best tier the market will ever offer, and the odds of clearing the bar.
+ *
+ * Silver is the ceiling in the ordinary case — two seasons somewhere else. A
+ * gold-or-better hire exists (it should be a genuine event when one appears),
+ * but it takes a second roll at `BADGE_HIRE_HIGH_TIER_CHANCE`, and even then
+ * `BADGE_HIRE_ABSOLUTE_MAX_TIER` keeps `diamond` the hard ceiling — obsidian
+ * and legacy have to be earned at your club, full stop.
+ */
+export const BADGE_HIRE_MAX_TIER: BadgeTier = "silver";
+export const BADGE_HIRE_HIGH_TIER_CHANCE = 0.08;
+export const BADGE_HIRE_ABSOLUTE_MAX_TIER: BadgeTier = "diamond";
+
+/** Cumulative seasons a tier is worth — the ladder read backwards, used to turn
+ * a tier cap into the season cap that produces it. */
+export function seasonsForTier(tier: BadgeTier): number {
+  return BADGE_LADDER.find((r) => r.tier === tier)?.seasons ?? 1;
+}
 
 /** Nationalities generated staff are drawn from (all render a flag — see
  * lib/config/flags.ts). */
