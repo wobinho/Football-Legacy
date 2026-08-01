@@ -18,7 +18,11 @@ const page = await (await browser.newContext({ viewport: { width: 1440, height: 
 page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 page.on("pageerror", (e) => errors.push(String(e)));
 
-await page.goto("http://localhost:3000", { waitUntil: "networkidle", timeout: 60000 });
+// Next picks the next free port when 3000 is taken, so allow an override rather
+// than failing against whatever else happens to be on 3000 (same convention as
+// ui-test-facilities.mjs).
+const BASE = process.env.UI_TEST_BASE || "http://localhost:3000";
+await page.goto(BASE, { waitUntil: "networkidle", timeout: 60000 });
 // Access gate: unlock with a dev game key if the KeyGate is shown.
 const keyInput = page.locator('input[spellcheck="false"]');
 if (await keyInput.count()) {

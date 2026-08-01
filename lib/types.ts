@@ -2,7 +2,7 @@
 // Single source of truth for all game data shapes. Schema-versioned so the
 // save/export format doubles as the modding format (GAME_DESIGN.md §2, §13).
 
-export const SCHEMA_VERSION = 45;
+export const SCHEMA_VERSION = 47;
 
 export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "LM" | "RM" | "AM" | "LW" | "RW" | "ST";
 
@@ -373,29 +373,101 @@ export interface PlayerCareer {
 
 // ── Clubs & competitions ──────────────────────────────────────────────────
 
-export type StaffSlot =
-  | "headCoach"
-  | "assistantCoach"
-  | "devCoach"
-  | "fitnessCoach"
-  | "gkCoach"
-  | "scout"
-  | "youthCoach"
-  | "physio";
+// ── Facilities & staff (v1.79) ────────────────────────────────────────────
+//
+// A complete rework. The old model — twelve independent facility LEVELS, each
+// with its own hard-coded multiplier, plus eight named staff SLOTS (Head Coach,
+// Physio, …) each buffing a different quantity — is gone. It had no single
+// place where "what does the club invest in?" was answered, and staff and
+// facilities never touched each other.
+//
+// The new model has exactly one shape, and the two halves are one decision:
+//   FACILITIES hold the effects. A facility is unlocked once, then upgraded for
+//   staff slots only — an upgrade never changes the base effect.
+//   STAFF are the conductors. They carry no effect of their own; they are hired
+//   onto the club's roster and ASSIGNED to a facility, where their stars and
+//   their badges amplify that facility's effect.
+//
+// Every facility therefore scales the same three ways, and a new facility is a
+// table row (`FACILITY_SPECS`), never new engine code:
+//   base   — the effect at level 1 with nobody assigned
+//   stars  — +`starEffect` per `STAFF_STARS_PER_STEP` total assigned stars
+//   badges — +`badgeEffect` per `badgeTiersPerStep` badge TIERS a staff member
+//            holds FOR THIS facility (bronze=1 … legacy=6)
+//
+// v1.82: a facility may produce SEVERAL quantities (the Youth Academy governs
+// squad size, focus slots and prospect value), so a spec carries a list of
+// `channels`, each of which runs the three-way scaling above independently.
 
-export interface StaffMember {
-  id: string;
-  name: string;
-  nationality: string; // 3-letter code (v6)
-  slot: StaffSlot;
-  stars: number; // 1-5
-  wage: number; // weekly
+/** Which facility. The system is built as a table so a new one is a row in
+ * `FACILITY_SPECS`, not code — the only thing that lives here is the id.
+ *
+ * `highPerformanceCenter` (v1.81) is the end-game building: it does not make
+ * growth faster the way the ETC does, it makes the ELITE-RESISTANCE BRAKE
+ * weaker, which is the only thing standing between a 90 and a 95. The two are
+ * deliberately not substitutes — see `eliteResistRelief` in lib/facilities.ts.
+ *
+ * `youthAcademy` and `scoutingNetwork` (v1.82) are the Academy screen's old
+ * Upgrades tab, brought into this system. Those were bought-by-the-level
+ * numbers on a tab of their own; now the level buys staff slots and the staff
+ * buy the numbers, like every other facility. Both produce more than one
+ * quantity, which is why a spec carries `channels` rather than a single
+ * base/star/badge triple. */
+export type FacilityId =
+  | "eliteTrainingCenter"
+  | "highPerformanceCenter"
+  | "youthAcademy"
+  | "scoutingNetwork";
+
+/** Badge tiers, best last. A staff member earns the next tier by completing
+ * another qualifying run of seasons assigned to the SAME facility — see
+ * `BADGE_LADDER` in config/facilities.ts for the season costs. The names match
+ * the prospect-tier ladder used by scouting, deliberately: one vocabulary for
+ * "how good is this thing" across the game. */
+export type BadgeTier = "bronze" | "silver" | "gold" | "diamond" | "obsidian" | "legacy";
+
+/** One badge on a staff member's record: which facility earned it and how far
+ * up the ladder it has climbed. `seasons` is the number of completed seasons
+ * served at that facility, and is what `tier` is derived from — it keeps
+ * counting past `legacy` so the record stays truthful. A staff member holds at
+ * most `STAFF_BADGE_SLOTS` (3) of these, one per distinct facility. */
+export interface StaffBadge {
+  facility: FacilityId;
+  /** Completed seasons served at this facility, across all spells. */
+  seasons: number;
+  /** Derived from `seasons` via `badgeTierFor()`; stored so the UI and the
+   * save read the same value without recomputing. */
+  tier: BadgeTier;
 }
 
-/** Where each staff slot is managed in the UI (v6). Business/backroom staff sit
- * on the Club page; coaching on Development; scouting on Academy. Pure display
- * grouping — the engine reads slots, never departments. */
-export type StaffDept = "club" | "development" | "academy";
+/** A member of the club's backroom. Identity (name, age, nationality) plus the
+ * three things that actually matter: what they cost, how good they are, and
+ * what they have earned. They have no job title — a staff member is defined by
+ * where you assign them, not by a slot they were born into. */
+export interface StaffPerson {
+  id: string;
+  name: string;
+  nationality: string; // 3-letter code
+  age: number;
+  /** 1–5. Total assigned stars drive a facility's star bonus. */
+  stars: number;
+  /** Weekly wage, paid while employed whether assigned or not. */
+  wage: number;
+  /** Which facility they currently work at, or absent if unassigned. An
+   * unassigned member costs their wage and contributes nothing — assignment is
+   * the whole point of employing them. */
+  assignedTo?: FacilityId;
+  /** Badges earned, max `STAFF_BADGE_SLOTS`. Progress toward the badge for the
+   * CURRENT assignment lives here too (a fresh assignment adds a 0-season
+   * entry once the first season completes). */
+  badges: StaffBadge[];
+}
+
+/** A club's state for one facility. Absent from the record = never unlocked. */
+export interface FacilityState {
+  /** 1–`maxLevel`. Level only ever buys staff slots. */
+  level: number;
+}
 
 /** EA-FC-style on-pitch responsibilities (v6). Each holds a playerId from the
  * senior squad, or is absent. Captain (with the Leader trait) buffs the side;
@@ -427,7 +499,12 @@ export interface Team {
   stance?: ClubStance;
   stanceSeason?: number;
   tactic: Tactic;
-  staff: Partial<Record<StaffSlot, StaffMember>>;
+  /** Unlocked facilities and their level (v1.79). A missing key means the club
+   * has never unlocked that facility. Only the user's club builds these. */
+  facilities?: Partial<Record<FacilityId, FacilityState>>;
+  /** The backroom roster (v1.79): everyone employed, assigned or not. Replaces
+   * the old eight named staff slots. Only the user's club fills this. */
+  staffRoster?: StaffPerson[];
   /** The club's scouting department (v14): a roster of hired scouts, each with
    * their own experience/judgement ratings. Replaces the old single `scout`
    * staff slot. Only the user's club fills this. Optional for old saves. */
@@ -450,62 +527,12 @@ export interface Team {
   contractAccountingLevel?: number;
   stadiumBonusLevel?: number;
   performanceBonusLevel?: number;
-  /** Training facilities (Player Development, §5). Level 0 = base; each level is
-   * a one-time purchase that speeds/deepens development. Optional for old saves.
-   * trainingLevel  → growth speed toward potential
-   * medicalLevel   → fitness recovery + softer age-related fitness drain
-   * academyLevel   → dormant until the Youth Academy ships ([FUTURE]) */
-  trainingLevel?: number;
-  medicalLevel?: number;
-  academyLevel?: number;
-  /** Gymnasium (v20): a core facility that lifts development speed for the whole
-   * squad regardless of age — the broad conditioning base that complements the
-   * Training Centre (which the dev pass caps to under-25s). Optional (default 0). */
-  gymnasiumLevel?: number;
-  /** Specialist training facilities (v15). Each is an independent one-time
-   * upgrade track that sharpens one part of development rather than raising the
-   * general growth rate:
-   *   gkCentreLevel / defenceCentreLevel / midfieldCentreLevel /
-   *   attackCentreLevel  → growth bonus for players in that position group
-   *   sportsScienceLevel / techCentreLevel / finishingCentreLevel
-   *                      → amplify the matching training plans
-   *   youthDevCentreLevel → growth bonus for players still of academy age
-   * All optional (default 0) for old saves. */
-  gkCentreLevel?: number;
-  defenceCentreLevel?: number;
-  midfieldCentreLevel?: number;
-  attackCentreLevel?: number;
-  sportsScienceLevel?: number;
-  techCentreLevel?: number;
-  finishingCentreLevel?: number;
-  youthDevCentreLevel?: number;
-  /** Scouting Network facility (v5): raises how many scouts can be out on
-   * assignment at once (capacity = base + scoutNetworkLevel). One-time
-   * upgrades in the Scouting Department Upgrades panel, no weekly cost.
-   * Optional for old saves. */
-  scoutNetworkLevel?: number;
-  /** Academy squad-size facility (v7): raises how many prospects the academy can
-   * hold at once (cap = academySquadSizeBase + level*academySquadSizePerLevel).
-   * One-time upgrades in the Scouting Department Upgrades panel. Optional for old
-   * saves (default 0). */
-  academySquadLevel?: number;
-  /** Focus-slots facility (v8): raises how many prospects can be flagged as
-   * focus at once (max = u21FocusBase + level, capped at u21FocusMax). One-time
-   * upgrades in the Academy Upgrades tab. Optional for old saves (default 0). */
-  focusSlotLevel?: number;
-  /** Scout Speed facility (v1.68): shortens the gap between a scout's reports
-   * (cadence × (1 − level*scoutSpeedPerLevel)). Bought from the Academy Upgrades
-   * tab. Optional for old saves (default 0). */
-  scoutSpeedLevel?: number;
-  /** Scout Network facility (v1.68): a one-time purchase that unlocks the scout
-   * brief's auto-filter — while this is 0 a scout files whatever they find and the
-   * filter controls are locked. Optional for old saves (default 0). */
-  scoutFilterLevel?: number;
-  /** Youth PR facility (v1.65): commercial and media work around the academy
-   * that lifts the market value of every prospect on the academy roster
-   * (+youthPrValuePerLevel per level). Bought from the Academy Upgrades tab.
-   * Optional for old saves (default 0). */
-  youthPrLevel?: number;
+  // v1.82: the seven academy/scouting upgrade levels that used to live here —
+  // academyLevel, scoutNetworkLevel, academySquadLevel, focusSlotLevel,
+  // scoutSpeedLevel, scoutFilterLevel and youthPrLevel — are gone. Everything
+  // they governed is now produced by the `youthAcademy` and `scoutingNetwork`
+  // facilities above, so the level lives in `facilities` like every other
+  // building's. Schema v47 drops the fields; see migrateV46toV47.
   /** Academy squad (§18, v4): uncapped, ages 15–21, outside the senior cap.
    * `playerIds` stays senior-only so cap/selection/wage logic is untouched.
    * Only the user's club carries a populated academy roster. */
@@ -824,18 +851,20 @@ export interface TransferNewsItem {
   involvesUser: boolean;
 }
 
+/** Someone available to hire onto the backroom roster (v1.79). Identical to a
+ * `StaffPerson` minus the club-side state — candidates carry no assignment, and
+ * their badges are what they earned at PREVIOUS clubs (a veteran arriving with
+ * a gold badge is worth more than a blank 5-star). */
 export interface StaffCandidate {
   id: string;
   name: string;
-  nationality: string; // 3-letter code (v6)
-  slot: StaffSlot;
+  nationality: string;
+  age: number;
   stars: number;
+  /** One-off signing fee, paid from the budget on hire. */
   fee: number;
   wage: number;
-  /** Day a dismissed slot's replacements become available (v6). Candidates
-   * generated immediately have no delay; dismiss-to-refresh sets this so the
-   * slot reads "vacant" until the new crop arrives (~2 days later). */
-  availableDay?: number;
+  badges: StaffBadge[];
 }
 
 // ── Inbox / news ──────────────────────────────────────────────────────────

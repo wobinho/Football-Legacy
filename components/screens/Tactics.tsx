@@ -24,6 +24,7 @@ import { bestForRole, MAX_SAVED_TACTICS, savedTactics, tacticSummary } from "@/l
 import { deriveArchetype, ARCHETYPE_CLASS_BLURB, ARCHETYPE_CLASS_COLOR, ARCHETYPE_CLASS_ORDER } from "@/lib/config/archetype";
 import { assistantReport, instructionViewOf, squadBlueprint, type BlueprintSlot, type NoteTone, type ReportSlot, type SlotGrade } from "@/lib/assistant";
 import { ConfirmButton, displayFullName, Flag, GhostButton, GoldButton, Modal, Ovr, ArchetypeIcon, ArchetypeLabel, PlayerSelect, PosBadge, Section, Select, Tabs, useIsMobile, type SelectOption } from "../ui";
+import TacticsHelp from "./TacticsHelp";
 
 const MENTALITIES = MENTALITY_OPTIONS;
 const STYLES = STYLE_OPTIONS;
@@ -881,6 +882,8 @@ function MobileLineup({
   useGame((s) => s.rev);
   const dropFromMatchday = useGame((s) => s.dropFromMatchday);
   const autoBench = useGame((s) => s.autoBench);
+  const clearBench = useGame((s) => s.clearBench);
+  const clearLineup = useGame((s) => s.clearLineup);
   const bump = useGame((s) => s.bump);
 
   const team = game.teams[game.userTeamId];
@@ -928,6 +931,16 @@ function MobileLineup({
             <GhostButton onClick={autoPick} className="!px-3 !py-1 text-xs">
               Auto-pick
             </GhostButton>
+            {/* Emptying the XI is a two-tap decision (v1.80) — eleven picks are
+                too much work to lose to a stray tap, and there is no undo. */}
+            <ConfirmButton
+              label="Clear"
+              confirmLabel="Sure?"
+              tone="danger"
+              onConfirm={clearLineup}
+              disabled={filled === 0}
+              className="!px-3 !py-1 !text-xs"
+            />
           </div>
         }
       >
@@ -1054,6 +1067,14 @@ function MobileLineup({
             <GhostButton onClick={autoBench} className="!px-2.5 !py-1 text-[11px]">
               Auto-pick
             </GhostButton>
+            <ConfirmButton
+              label="Clear"
+              confirmLabel="Sure?"
+              tone="danger"
+              onConfirm={clearBench}
+              disabled={benched.length === 0}
+              className="!px-2.5 !py-1 !text-[11px]"
+            />
           </div>
         }
       >
@@ -1140,6 +1161,8 @@ function MatchdayBoard({
   const moveBench = useGame((s) => s.moveBench);
   const dropFromMatchday = useGame((s) => s.dropFromMatchday);
   const autoBench = useGame((s) => s.autoBench);
+  const clearBench = useGame((s) => s.clearBench);
+  const clearLineup = useGame((s) => s.clearLineup);
   const bump = useGame((s) => s.bump);
 
   const team = game.teams[game.userTeamId];
@@ -1249,6 +1272,17 @@ function MatchdayBoard({
                 <GhostButton onClick={autoPick} className="!px-3 !py-1 text-xs">
                   Auto-pick
                 </GhostButton>
+                {/* Two-step, like every other irreversible control on the page
+                    (v1.80): the XI is the most expensive thing on this screen to
+                    rebuild by hand and nothing here can be undone. */}
+                <ConfirmButton
+                  label="Clear"
+                  confirmLabel="Sure?"
+                  tone="danger"
+                  onConfirm={clearLineup}
+                  disabled={filled === 0}
+                  className="!px-3 !py-1 !text-xs"
+                />
               </div>
             }
           >
@@ -1498,6 +1532,14 @@ function MatchdayBoard({
                 <GhostButton onClick={autoBench} className="!px-2.5 !py-1 text-[11px]">
                   Auto-pick
                 </GhostButton>
+                <ConfirmButton
+                  label="Clear"
+                  confirmLabel="Sure?"
+                  tone="danger"
+                  onConfirm={clearBench}
+                  disabled={benched.length === 0}
+                  className="!px-2.5 !py-1 !text-[11px]"
+                />
               </div>
             }
           >
@@ -1988,12 +2030,17 @@ function SetupPanel() {
   );
 }
 
+/** The page's two halves (v1.80): the side you're picking, and the manual for
+ * how any of it works. */
+type TacticsTab = "team" | "help";
+
 export default function TacticsScreen() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const setLineupSlot = useGame((s) => s.setLineupSlot);
   const viewPlayer = useGame((s) => s.viewPlayer);
   const [pickSlot, setPickSlot] = useState<string | null>(null);
+  const [tab, setTab] = useState<TacticsTab>("team");
   // Phones get the tap-driven lineup instead of the drag-and-drop board.
   const isMobile = useIsMobile();
 
@@ -2018,7 +2065,23 @@ export default function TacticsScreen() {
           Mobile keeps the stacked, tap-driven flow — see MobileLineup — because
           three columns of anything is not a phone layout; the grid simply
           collapses to one column below `xl`. */}
-      {isMobile ? (
+      {/* v1.80: a Help tab beside the team. The identity system is the deepest
+          thing in the game and was entirely undocumented in-game — the screen
+          showed a manager his grade without ever telling him where it came
+          from. It is a sibling tab rather than a modal because it is a reference
+          you read alongside the setup, not a dialogue you dismiss. */}
+      <Tabs
+        tabs={[
+          { id: "team", label: "Team" },
+          { id: "help", label: "Help" },
+        ]}
+        active={tab}
+        onChange={setTab}
+      />
+
+      {tab === "help" ? (
+        <TacticsHelp />
+      ) : isMobile ? (
         <>
           <MobileLineup onPickSlot={setPickSlot} onOpenPlayer={viewPlayer} />
           <SetupPanel />

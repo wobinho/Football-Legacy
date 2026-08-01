@@ -25,7 +25,7 @@ import { Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, GhostBu
 import ReleaseClauseField from "./ReleaseClauseField";
 import { LoanOfferModal, SellPlayerModal } from "./SquadMoveModals";
 
-type Tab = "search" | "offers" | "listed" | "shortlist" | "free" | "news" | "bigmoney";
+type Tab = "search" | "offers" | "listed" | "shortlist" | "free" | "news";
 
 export default function TransfersScreen() {
   const game = useGame((s) => s.game)!;
@@ -53,7 +53,6 @@ export default function TransfersScreen() {
           { id: "shortlist", label: "Shortlist", badge: shortlistCount },
           { id: "free", label: "Free Agents" },
           { id: "news", label: "Transfer News" },
-          { id: "bigmoney", label: "Big Money" },
         ]}
         active={tab}
         onChange={setTab}
@@ -64,14 +63,8 @@ export default function TransfersScreen() {
       {tab === "shortlist" && <ShortlistTab />}
       {tab === "free" && <FreeAgentsTab />}
       {tab === "news" && <TransferNewsTab />}
-      {tab === "bigmoney" && <BigMoneyTab />}
     </div>
   );
-}
-
-function useScouted() {
-  const game = useGame((s) => s.game)!;
-  return (game.teams[game.userTeamId].staff.scout?.stars ?? 0) >= 1;
 }
 
 /**
@@ -130,6 +123,14 @@ function PlayerRowButton({
   const game = useGame((s) => s.game)!;
   const club = p.clubId ? game.teams[p.clubId] : null;
   const isMobile = useIsMobile();
+  const clubCell = club ? (
+    <span className="flex min-w-0 items-center gap-1 truncate text-dim">
+      <Crest colors={club.colors} short={club.short} size={13} />
+      <span className="truncate">{club.name}</span>
+    </span>
+  ) : (
+    <span className="truncate text-win">Free agent</span>
+  );
   const row = (
     <>
       <PosBadge pos={p.positions[0]} />
@@ -141,19 +142,19 @@ function PlayerRowButton({
           <span className="truncate">{displayFullName(p)}</span>
           <span className="ml-1 shrink-0 text-[11px] text-faint">{p.age}y</span>
         </div>
-        <div className="flex items-center gap-1.5 truncate text-[11px] text-faint">
+        {/* v1.74: on a phone the archetype and the club stay stacked under the
+            name — there is no room for columns. From md up they become columns
+            of their own (below), which halves the height of every market row. */}
+        <div className="flex items-center gap-1.5 truncate text-[11px] text-faint md:hidden">
           <ArchetypeLabel p={p} iconSize={14} />
           <span>·</span>
-          {club ? (
-            <span className="flex items-center gap-1 truncate text-dim">
-              <Crest colors={club.colors} short={club.short} size={13} />
-              <span className="truncate">{club.name}</span>
-            </span>
-          ) : (
-            <span className="text-win">Free agent</span>
-          )}
+          {clubCell}
         </div>
       </div>
+      <span className="hidden min-w-0 shrink-0 basis-32 truncate text-[11px] text-faint md:block">
+        <ArchetypeLabel p={p} iconSize={14} />
+      </span>
+      <span className="hidden min-w-0 shrink-0 basis-40 truncate text-[11px] md:block">{clubCell}</span>
       <Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />
       {right}
     </>
@@ -323,7 +324,32 @@ function SearchTab() {
   const [target, setTarget] = useState<PlayerBio | null>(null);
   const [signed, setSigned] = useState<SignedDeal | null>(null);
   const [view, setView] = usePlayerView("transfers");
-  const scouted = useScouted();
+
+  // Eight controls can narrow this market, and undoing them one at a time is the
+  // most common thing a user does on this screen. `filtersActive` is the same
+  // predicate the button resets, written once, so the two can't disagree about
+  // what "no filters" means. The view toggle is deliberately not included — it
+  // is a display preference, not a filter.
+  const filtersActive =
+    pos !== "ALL" ||
+    maxValue !== 0 ||
+    archetype !== "ALL" ||
+    trait !== "ALL" ||
+    leagueId !== "ALL" ||
+    clubId !== "ALL" ||
+    nat !== "ALL" ||
+    query !== "";
+
+  const clearFilters = () => {
+    setPos("ALL");
+    setMaxValue(0);
+    setArchetype("ALL");
+    setTrait("ALL");
+    setLeagueId("ALL");
+    setClubId("ALL");
+    setNat("ALL");
+    setQuery("");
+  };
 
   // Consume the handoff once the first render is committed, so returning to this
   // tab later starts from a clean market rather than a filter the user has no
@@ -491,7 +517,18 @@ function SearchTab() {
             <option key={n} value={n}>{nameForNat(n)}</option>
           ))}
         </select>
-        {!scouted && <span className="text-[11px] text-faint">Hire a Scout for tighter potential reads on young players.</span>}
+        {/* v1.80: one button to put the market back to "everyone" (replacing the
+            scout hint, which said the same thing on every visit and belongs on
+            the Staff page). Disabled while nothing is set, so it never looks
+            like a control that does nothing. */}
+        <GhostButton
+          onClick={clearFilters}
+          disabled={!filtersActive}
+          title={filtersActive ? "Reset every filter and the search box" : "No filters are set"}
+          className="!px-3 !py-1.5 text-xs"
+        >
+          Clear filters
+        </GhostButton>
         <span className="ml-auto">
           <ViewToggle view={view} onChange={setView} />
         </span>
@@ -526,6 +563,8 @@ function SearchTab() {
               than a second valuation. */}
           <div className="flex items-center gap-3 border-b border-line px-3 py-1.5 text-[10px] uppercase tracking-widest text-faint">
             <span className="flex-1">Player</span>
+            <span className="hidden shrink-0 basis-32 md:block">Archetype</span>
+            <span className="hidden shrink-0 basis-40 md:block">Club</span>
             <span className="w-9 shrink-0 text-center">Ovr</span>
             <span className="w-24 shrink-0 text-right">Value</span>
             <span className="w-24 shrink-0 text-right">Wage demand</span>
@@ -1537,6 +1576,8 @@ function FreeAgentsTab() {
         <Card>
           <div className="flex items-center gap-3 border-b border-line px-3 py-1.5 text-[10px] uppercase tracking-widest text-faint">
             <span className="flex-1">Player</span>
+            <span className="hidden shrink-0 basis-32 md:block">Archetype</span>
+            <span className="hidden shrink-0 basis-40 md:block">Club</span>
             <span className="w-9 shrink-0 text-center">Ovr</span>
             <span className="w-16 shrink-0 text-right">Fee</span>
             <span className="w-24 shrink-0 text-right">Wage demand</span>
@@ -1572,7 +1613,11 @@ function FreeAgentsTab() {
 // flags anything that isn't a straight cash transfer (free, release clause,
 // loan). The user's own business is tinted gold so it stands out of the flow.
 
-type NewsFilter = "all" | "league" | "mine";
+// v1.74: Big Money folded in here rather than owning a tab of its own. It reads
+// the SAME feed — only the sort and the scoping differ — so it belongs as a
+// fourth setting of the wire's own filter strip, which is one less top-level tab
+// and no duplicated header furniture.
+type NewsFilter = "all" | "league" | "mine" | "big";
 
 /** Visual treatment per deal kind — a compact badge in the game's accent
  * vocabulary. A plain cash transfer carries no badge (the fee says it all). */
@@ -1588,6 +1633,13 @@ function TransferNewsTab() {
   const game = useGame((s) => s.game)!;
   const viewPlayer = useGame((s) => s.viewPlayer);
   const [filter, setFilter] = useState<NewsFilter>("all");
+  // Big Money's window scope. Defaults to whichever window is open right now;
+  // out of window, the manager is most likely looking back at the season just
+  // played.
+  const liveWindow = transferWindowState(game.currentDay, game.schedule);
+  const [scope, setScope] = useState<WindowScope>(
+    liveWindow.open ? (windowOf(game.currentDay, game.schedule) ?? "season") : "season"
+  );
 
   const feed = game.transferNews ?? [];
 
@@ -1612,6 +1664,24 @@ function TransferNewsTab() {
     return feed;
   }, [feed, filter, inUserLeague]);
 
+  // Big Money's own rows: the same feed ranked by fee within a window scope.
+  const bigRows = useMemo(() => {
+    // Only paid deals rank — a free transfer has no fee to compare, and loans
+    // aren't a sale. Everything else is sorted by fee, biggest first.
+    const paid = feed.filter((n) => n.fee > 0 && n.kind !== "loan");
+    const scoped =
+      scope === "all"
+        ? paid
+        : paid.filter((n) => {
+            if (n.season !== game.season) return false;
+            if (scope === "season") return true;
+            return windowOf(n.day, game.schedule) === scope;
+          });
+    return [...scoped].sort((a, b) => b.fee - a.fee).slice(0, 50);
+  }, [feed, scope, game.season, game.schedule]);
+
+  const bigTotal = useMemo(() => bigRows.reduce((sum, n) => sum + n.fee, 0), [bigRows]);
+
   // Group by the season the deal happened in, so a long save reads as chapters
   // rather than one endless column. Newest season first (the feed is already
   // newest-first, so first-seen order preserves that).
@@ -1633,40 +1703,107 @@ function TransferNewsTab() {
     { id: "all", label: "ALL CLUBS" },
     { id: "league", label: "LEAGUE", count: leagueCount },
     { id: "mine", label: "MY CLUB", count: mineCount },
+    { id: "big", label: "BIG MONEY" },
   ];
+
+  const SCOPES: { id: WindowScope; label: string }[] = [
+    { id: "summer", label: "SUMMER" },
+    { id: "winter", label: "WINTER" },
+    { id: "season", label: "THIS SEASON" },
+    { id: "all", label: "ALL TIME" },
+  ];
+
+  const isBig = filter === "big";
 
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="display text-sm font-semibold">Market Wire</div>
+          <div className="display text-sm font-semibold">{isBig ? "Big Money" : "Market Wire"}</div>
           <div className="text-[11px] text-faint">
-            {rows.length} deal{rows.length === 1 ? "" : "s"}
-            {filter === "all"
-              ? " across the world"
-              : filter === "league"
-                ? ` in ${userLeagueName ?? "your league"}`
-                : " involving your club"}{" "}
-            · newest first
+            {isBig ? (
+              <>
+                {bigRows.length === 0
+                  ? "No paid deals yet"
+                  : `Top ${bigRows.length} fee${bigRows.length === 1 ? "" : "s"} · ${formatMoney(bigTotal)} spent`}
+                {scope === "all" ? " · all seasons" : ` · ${seasonYearLabel(game.season)} season`}
+              </>
+            ) : (
+              <>
+                {rows.length} deal{rows.length === 1 ? "" : "s"}
+                {filter === "all"
+                  ? " across the world"
+                  : filter === "league"
+                    ? ` in ${userLeagueName ?? "your league"}`
+                    : " involving your club"}{" "}
+                · newest first
+              </>
+            )}
           </div>
         </div>
-        <div className="flex overflow-hidden rounded-md border border-line">
-          {FILTERS.map((f) => (
-            <button
-              key={f.id}
-              onClick={() => setFilter(f.id)}
-              className={`display px-3 py-1 text-[11px] font-semibold transition-colors ${
-                filter === f.id ? "gold-grad text-black" : "text-faint hover:text-dim"
-              }`}
-            >
-              {f.label}
-              {f.count ? ` (${f.count})` : ""}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {/* The window scopes only mean anything to the ranking, so they appear
+              beside the filter strip only while Big Money is the view. */}
+          {isBig && (
+            <div className="flex overflow-hidden rounded-md border border-line">
+              {SCOPES.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => setScope(s.id)}
+                  className={`display px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                    scope === s.id ? "gold-grad text-black" : "text-faint hover:text-dim"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex overflow-hidden rounded-md border border-line">
+            {FILTERS.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => setFilter(f.id)}
+                className={`display px-3 py-1 text-[11px] font-semibold transition-colors ${
+                  filter === f.id ? "gold-grad text-black" : "text-faint hover:text-dim"
+                }`}
+              >
+                {f.label}
+                {f.count ? ` (${f.count})` : ""}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {rows.length === 0 ? (
+      {isBig ? (
+        bigRows.length === 0 ? (
+          <Card className="p-8 text-center text-sm text-faint">
+            <div className="display mb-2 text-lg text-dim">NO DEALS YET</div>
+            {scope === "all"
+              ? "No club has paid a fee for anyone yet. The biggest signings in the world land here."
+              : "No fees paid in this window yet. When clubs start spending, the record signings rank here."}
+          </Card>
+        ) : (
+          <Card className="divide-y divide-line/50">
+            {bigRows.map((n, i) => (
+              <div key={n.id} className="flex items-center gap-2">
+                {/* Rank — the top three carry the gold, the rest stay quiet. */}
+                <span
+                  className={`display w-9 shrink-0 pl-3 text-right text-xs font-bold tnum ${
+                    i < 3 ? "gold-text" : "text-faint"
+                  }`}
+                >
+                  {i + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <TransferNewsRow n={n} onView={() => n.playerId && viewPlayer(n.playerId)} />
+                </div>
+              </div>
+            ))}
+          </Card>
+        )
+      ) : rows.length === 0 ? (
         <Card className="p-8 text-center text-sm text-faint">
           <div className="display mb-2 text-lg text-dim">THE WIRE IS QUIET</div>
           {filter === "mine"
@@ -1788,9 +1925,10 @@ function TransferNewsRow({
 /** Helper alias so the row can type its item without importing the array type. */
 type GameStateTransferNews = import("@/lib/types").GameState["transferNews"];
 
-// ── Big Money (v1.67): the window's record signings ─────────────────────────
-// The wire answers "what happened"; this answers "what was it worth". Same feed,
-// ranked by fee instead of recency, scoped to one transfer window.
+// ── Big Money (v1.67, folded into the wire in v1.74) ────────────────────────
+// The wire answers "what happened"; Big Money answers "what was it worth". Same
+// feed, ranked by fee instead of recency and scoped to one transfer window — so
+// it is a setting of `TransferNewsTab` rather than a screen of its own.
 
 type WindowScope = "summer" | "winter" | "season" | "all";
 
@@ -1803,95 +1941,3 @@ function windowOf(day: number, sched: SeasonSchedule): "summer" | "winter" | nul
   return null;
 }
 
-function BigMoneyTab() {
-  const game = useGame((s) => s.game)!;
-  const viewPlayer = useGame((s) => s.viewPlayer);
-  // Default to whichever window is open right now; out of window, the manager is
-  // most likely looking back at the season just played.
-  const live = transferWindowState(game.currentDay, game.schedule);
-  const [scope, setScope] = useState<WindowScope>(
-    live.open ? (windowOf(game.currentDay, game.schedule) ?? "season") : "season"
-  );
-
-  const feed = game.transferNews ?? [];
-
-  const rows = useMemo(() => {
-    // Only paid deals rank — a free transfer has no fee to compare, and loans
-    // aren't a sale. Everything else is sorted by fee, biggest first.
-    const paid = feed.filter((n) => n.fee > 0 && n.kind !== "loan");
-    const scoped =
-      scope === "all"
-        ? paid
-        : paid.filter((n) => {
-            if (n.season !== game.season) return false;
-            if (scope === "season") return true;
-            return windowOf(n.day, game.schedule) === scope;
-          });
-    return [...scoped].sort((a, b) => b.fee - a.fee).slice(0, 50);
-  }, [feed, scope, game.season, game.schedule]);
-
-  const total = useMemo(() => rows.reduce((sum, n) => sum + n.fee, 0), [rows]);
-
-  const SCOPES: { id: WindowScope; label: string }[] = [
-    { id: "summer", label: "SUMMER" },
-    { id: "winter", label: "WINTER" },
-    { id: "season", label: "THIS SEASON" },
-    { id: "all", label: "ALL TIME" },
-  ];
-
-  return (
-    <div>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="display text-sm font-semibold">Big Money</div>
-          <div className="text-[11px] text-faint">
-            {rows.length === 0
-              ? "No paid deals yet"
-              : `Top ${rows.length} fee${rows.length === 1 ? "" : "s"} · ${formatMoney(total)} spent`}
-            {scope === "all" ? " · all seasons" : ` · ${seasonYearLabel(game.season)} season`}
-          </div>
-        </div>
-        <div className="flex overflow-hidden rounded-md border border-line">
-          {SCOPES.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => setScope(s.id)}
-              className={`display px-3 py-1 text-[11px] font-semibold transition-colors ${
-                scope === s.id ? "gold-grad text-black" : "text-faint hover:text-dim"
-              }`}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {rows.length === 0 ? (
-        <Card className="p-8 text-center text-sm text-faint">
-          <div className="display mb-2 text-lg text-dim">NO DEALS YET</div>
-          {scope === "all"
-            ? "No club has paid a fee for anyone yet. The biggest signings in the world land here."
-            : "No fees paid in this window yet. When clubs start spending, the record signings rank here."}
-        </Card>
-      ) : (
-        <Card className="divide-y divide-line/50">
-          {rows.map((n, i) => (
-            <div key={n.id} className="flex items-center gap-2">
-              {/* Rank — the top three carry the gold, the rest stay quiet. */}
-              <span
-                className={`display w-9 shrink-0 pl-3 text-right text-xs font-bold tnum ${
-                  i < 3 ? "gold-text" : "text-faint"
-                }`}
-              >
-                {i + 1}
-              </span>
-              <div className="min-w-0 flex-1">
-                <TransferNewsRow n={n} onView={() => n.playerId && viewPlayer(n.playerId)} />
-              </div>
-            </div>
-          ))}
-        </Card>
-      )}
-    </div>
-  );
-}

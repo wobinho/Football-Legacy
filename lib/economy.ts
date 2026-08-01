@@ -1,14 +1,22 @@
 // Economy (§8): one budget number per club, updated weekly.
 // income (division + league position + gate) − expenses (wages + staff).
 
-import type { GameState, PlayerBio, Pos, Team } from "./types";
+import type { GameState, PlayerBio, Team } from "./types";
 import type { TuningConfig } from "./config/tuning";
 import { computeTable } from "./season";
 import { squadWageBill, playerValue, playerWage } from "./value";
 import { leagueWageMult } from "./contracts";
-import { userStaffWages, STAFF_SLOT_MAP } from "./staff";
+import {
+  academySquadSize,
+  facilityLevel,
+  growthMultiplier,
+  prospectValueMultiplier,
+  staffWageBill,
+  rosterOf,
+  badgeWeightAt,
+} from "./facilities";
+import { FACILITY_MAP } from "./config/facilities";
 import { sponsorWeeklyIncome } from "./sponsors";
-import { TRAINING_PLAN_MAP, type PlanFocus } from "./config/training";
 
 export interface WeeklyBreakdown {
   tvIncome: number;
@@ -156,8 +164,11 @@ export function weeklyBreakdown(state: GameState, teamId: string, cfg: TuningCon
   const grossWageBill = squadWageBill(players, cfg, leagueWageMult(state, team.leagueId, cfg));
   const wageDiscount = Math.round(grossWageBill * wageDiscountRate(state, teamId, cfg));
   const wageBill = grossWageBill - wageDiscount;
-  const staffWages = teamId === state.userTeamId ? userStaffWages(state) : 0;
-  const academyUpkeep = (team.academyLevel ?? 0) * cfg.academyUpkeepPerLevel;
+  const staffWages = teamId === state.userTeamId ? staffWageBill(state) : 0;
+  // The Youth Academy building's running cost (v1.82 — was the old standalone
+  // `academyLevel`). A club that hasn't built it pays nothing, which is right:
+  // there is no building to run.
+  const academyUpkeep = facilityLevel(team, "youthAcademy") * cfg.academyUpkeepPerLevel;
   // Youth scholarship wages (v25). Only the user runs a visible academy roster,
   // so AI clubs' academy wage bill is zero — their youth costs are abstracted.
   const academyWages = teamId === state.userTeamId ? academyWageBill(state, teamId, cfg) : 0;
@@ -233,16 +244,18 @@ export function academyWageItems(state: GameState, teamId: string, cfg: TuningCo
     .sort((a, b) => a.amount - b.amount);
 }
 
-/** Every wage `userStaffWages` sums: the appointed staff and the scout roster. */
+/** Every wage `staffWageBill` sums: the backroom roster and the scout roster.
+ * An unassigned staff member still appears — they are still being paid, and the
+ * line should say so plainly rather than hide an avoidable cost. */
 export function staffWageItems(state: GameState): BreakdownItem[] {
   const team = state.teams[state.userTeamId];
-  const appointments: BreakdownItem[] = Object.values(team.staff ?? {})
-    .filter((m): m is NonNullable<typeof m> => !!m)
-    .map((m) => ({
-      label: m.name,
-      amount: -m.wage,
-      detail: `${STAFF_SLOT_MAP[m.slot]?.title ?? m.slot} · ${m.stars}★`,
-    }));
+  const appointments: BreakdownItem[] = rosterOf(team).map((m) => {
+    const where = m.assignedTo ? FACILITY_MAP[m.assignedTo]?.name ?? m.assignedTo : "Unassigned";
+    const badge = m.assignedTo && badgeWeightAt(m, m.assignedTo) > 0
+      ? ` · ${m.badges.find((b) => b.facility === m.assignedTo)?.tier} badge`
+      : "";
+    return { label: m.name, amount: -m.wage, detail: `${where} · ${m.stars}★${badge}` };
+  });
   const scouts: BreakdownItem[] = (team.scouts ?? []).map((sc) => ({
     label: sc.name,
     amount: -sc.wage,
@@ -543,159 +556,51 @@ export function matchUpgradeIncome(
   return total;
 }
 
-// ── Training facilities (Player Development, §5) ────────────────────────────
-// These carry no weekly income; they speed development / recovery. Kept next to
-// the income facilities so all facility upgrades share one purchase pattern.
+// ── Academy & scouting upgrades — REMOVED (v1.82) ───────────────────────────
+//
+// The seven-row `TRAINING_FACILITY_SPEC` table (academy, scoutNetwork,
+// academySquad, focusSlot, youthPr, scoutSpeed, scoutFilter) and its
+// buy-a-level purchase path are gone, along with the Academy screen's Upgrades
+// tab that drove them. Everything they governed is now produced by the
+// `youthAcademy` and `scoutingNetwork` facilities — read it through the named
+// accessors in lib/facilities.ts, never off a Team field.
+//
+// This was the last surviving "pay money, a number goes up" track outside the
+// income upgrades. It is deliberately NOT converted or refunded, on the same
+// reasoning migrateV45toV46 gives: the two systems measure different things.
 
-export type TrainingFacility =
-  | "training"
-  | "medical"
-  | "academy"
-  | "gymnasium"
-  | "scoutNetwork"
-  | "academySquad"
-  | "focusSlot"
-  | "youthPr"
-  | "scoutSpeed"
-  | "scoutFilter"
-  // specialist facilities (v15)
-  | "gkCentre"
-  | "defenceCentre"
-  | "midfieldCentre"
-  | "attackCentre"
-  | "sportsScience"
-  | "techCentre"
-  | "finishingCentre"
-  | "youthDevCentre";
-
-/** One row per facility: where its level lives on the Team, which tuning array
- * holds its per-level costs, and which tuning key caps it. Table-driven so
- * adding a facility is a data change, never a new branch in the purchase path. */
-const TRAINING_FACILITY_SPEC: Record<
-  TrainingFacility,
-  { levelKey: keyof Team; costKey: keyof TuningConfig; maxKey: keyof TuningConfig }
-> = {
-  training: { levelKey: "trainingLevel", costKey: "trainingUpgradeCost", maxKey: "trainingFacilityMaxLevel" },
-  medical: { levelKey: "medicalLevel", costKey: "medicalUpgradeCost", maxKey: "trainingFacilityMaxLevel" },
-  gymnasium: { levelKey: "gymnasiumLevel", costKey: "gymnasiumUpgradeCost", maxKey: "trainingFacilityMaxLevel" },
-  academy: { levelKey: "academyLevel", costKey: "academyUpgradeCost", maxKey: "academyMaxLevel" },
-  scoutNetwork: { levelKey: "scoutNetworkLevel", costKey: "scoutNetworkUpgradeCost", maxKey: "scoutNetworkMaxLevel" },
-  academySquad: { levelKey: "academySquadLevel", costKey: "academySquadUpgradeCost", maxKey: "academySquadMaxLevel" },
-  focusSlot: { levelKey: "focusSlotLevel", costKey: "focusSlotUpgradeCost", maxKey: "focusSlotMaxLevel" },
-  youthPr: { levelKey: "youthPrLevel", costKey: "youthPrUpgradeCost", maxKey: "youthPrMaxLevel" },
-  scoutSpeed: { levelKey: "scoutSpeedLevel", costKey: "scoutSpeedUpgradeCost", maxKey: "scoutSpeedMaxLevel" },
-  scoutFilter: { levelKey: "scoutFilterLevel", costKey: "scoutFilterUpgradeCost", maxKey: "scoutFilterMaxLevel" },
-  gkCentre: { levelKey: "gkCentreLevel", costKey: "gkCentreUpgradeCost", maxKey: "positionFacilityMaxLevel" },
-  defenceCentre: { levelKey: "defenceCentreLevel", costKey: "defenceCentreUpgradeCost", maxKey: "positionFacilityMaxLevel" },
-  midfieldCentre: { levelKey: "midfieldCentreLevel", costKey: "midfieldCentreUpgradeCost", maxKey: "positionFacilityMaxLevel" },
-  attackCentre: { levelKey: "attackCentreLevel", costKey: "attackCentreUpgradeCost", maxKey: "positionFacilityMaxLevel" },
-  sportsScience: { levelKey: "sportsScienceLevel", costKey: "sportsScienceUpgradeCost", maxKey: "planFacilityMaxLevel" },
-  techCentre: { levelKey: "techCentreLevel", costKey: "techCentreUpgradeCost", maxKey: "planFacilityMaxLevel" },
-  finishingCentre: { levelKey: "finishingCentreLevel", costKey: "finishingCentreUpgradeCost", maxKey: "planFacilityMaxLevel" },
-  youthDevCentre: { levelKey: "youthDevCentreLevel", costKey: "youthDevCentreUpgradeCost", maxKey: "planFacilityMaxLevel" },
-};
-
-export function trainingLevelOf(state: GameState, teamId: string, facility: TrainingFacility): number {
-  const team = state.teams[teamId];
-  return (team[TRAINING_FACILITY_SPEC[facility].levelKey] as number | undefined) ?? 0;
-}
-
-function trainingMaxLevel(facility: TrainingFacility, cfg: TuningConfig): number {
-  return cfg[TRAINING_FACILITY_SPEC[facility].maxKey] as number;
-}
-
-/** Cost to buy the next level of a training facility, or null if already maxed. */
-export function trainingNextCost(state: GameState, teamId: string, facility: TrainingFacility, cfg: TuningConfig): number | null {
-  const level = trainingLevelOf(state, teamId, facility);
-  if (level >= trainingMaxLevel(facility, cfg)) return null;
-  const costs = cfg[TRAINING_FACILITY_SPEC[facility].costKey] as number[];
-  return costs[level] ?? null;
-}
-
-/** Purchase the next training-facility level. Returns an error string, or null on success. */
-export function upgradeTrainingFacility(state: GameState, facility: TrainingFacility, cfg: TuningConfig): string | null {
-  const team = state.teams[state.userTeamId];
-  const cost = trainingNextCost(state, state.userTeamId, facility, cfg);
-  if (cost === null) return "Already at maximum level.";
-  if (team.budget < cost) return "Not enough budget for this upgrade.";
-  team.budget -= cost;
-  const key = TRAINING_FACILITY_SPEC[facility].levelKey;
-  (team[key] as number) = trainingLevelOf(state, state.userTeamId, facility) + 1;
-  return null;
-}
-
-// ── Specialist facility effects (v15) ─────────────────────────────────────
-// The general Training Centre raises everyone's growth. The specialist centres
-// each help a *subset*: a position group, a training-plan family, or the
-// academy age range. All are table lookups keyed off the player's position and
-// plan id — the development pass never special-cases a facility by name.
-
-/** Which position-centre facility serves a given primary position. */
-const POSITION_CENTRE: Record<Pos, TrainingFacility> = {
-  GK: "gkCentre",
-  CB: "defenceCentre", LB: "defenceCentre", RB: "defenceCentre",
-  DM: "midfieldCentre", CM: "midfieldCentre", LM: "midfieldCentre", RM: "midfieldCentre", AM: "midfieldCentre",
-  LW: "attackCentre", RW: "attackCentre", ST: "attackCentre",
-};
-
-/** Which plan-centre facility amplifies a given kind of training work (v1.72).
+/**
+ * The growth multiplier a club's facilities give a player (1 = no effect).
  *
- * Keyed off the plan's authored `focus` rather than its id: with five plans per
- * position there are 45 of them, and listing every id here would be a table that
- * silently goes stale the moment a plan is added. A plan with no focus (every
- * position's Balanced plan) gets no plan-facility boost. */
-const FOCUS_CENTRE: Record<PlanFocus, TrainingFacility> = {
-  athletic: "sportsScience",
-  technical: "techCentre",
-  finishing: "finishingCentre",
-};
-
-/**
- * The combined growth multiplier a club's facilities give one player, over and
- * above the general Training Centre (which the development pass already applies
- * via `trainingLevel`). Returns 1 when the club has bought nothing relevant.
+ * v1.79: this used to compose a gymnasium level, a position centre, a
+ * training-plan centre and a youth centre — four independent multipliers, each
+ * with its own tuning key, none of which the player could see the arithmetic
+ * of. All four are gone. The Elite Training Center is now the single facility
+ * that governs growth, and its value is the base/star/badge sum computed by
+ * `facilityEffect` — one number, derived from one building, whose every term
+ * the Facilities screen shows.
+ *
+ * It stays a per-player function because facilities that scale by position or
+ * age are a natural future row in `FACILITY_SPECS`, and callers shouldn't have
+ * to change shape when one lands.
  */
-export function facilityGrowthMult(
-  state: GameState,
-  teamId: string,
-  player: { positions: Pos[]; age: number; trainingPlan?: string },
-  cfg: TuningConfig
-): number {
-  const team = state.teams[teamId];
-  if (!team) return 1;
-  let mult = 1;
-
-  // Gymnasium lifts every player's growth regardless of age or position.
-  mult *= 1 + trainingLevelOf(state, teamId, "gymnasium") * cfg.gymnasiumGrowthPerLevel;
-
-  const posCentre = POSITION_CENTRE[player.positions[0]];
-  if (posCentre) {
-    mult *= 1 + trainingLevelOf(state, teamId, posCentre) * cfg.positionFacilityGrowthPerLevel;
-  }
-
-  const focus = player.trainingPlan ? TRAINING_PLAN_MAP[player.trainingPlan]?.focus : undefined;
-  const planCentre = focus ? FOCUS_CENTRE[focus] : undefined;
-  if (planCentre) {
-    mult *= 1 + trainingLevelOf(state, teamId, planCentre) * cfg.planFacilityBoostPerLevel;
-  }
-
-  if (player.age <= cfg.academyMaxAge) {
-    mult *= 1 + trainingLevelOf(state, teamId, "youthDevCentre") * cfg.youthDevCentreGrowthPerLevel;
-  }
-
-  return mult;
+export function facilityGrowthMult(state: GameState, teamId: string): number {
+  return growthMultiplier(state, teamId);
 }
 
 /**
- * The Youth PR multiplier on an academy prospect's market value (v1.65).
+ * The multiplier on an academy prospect's market value (v1.65; the Youth
+ * Academy facility's `prospectValue` channel since v1.82).
  *
  * Media days, showcase friendlies and a club that talks its kids up: the effect
  * is on what the market thinks a prospect is worth, not on the player himself,
- * so it multiplies value and touches nothing else. Returns 1 at level 0 and for
- * any club that isn't the user's — only the user runs a visible academy.
+ * so it multiplies value and touches nothing else. Returns 1 for a club that
+ * hasn't built the facility, and for any club that isn't the user's — only the
+ * user runs a visible academy.
  */
-export function youthPrValueMult(state: GameState, teamId: string, cfg: TuningConfig): number {
-  return 1 + trainingLevelOf(state, teamId, "youthPr") * cfg.youthPrValuePerLevel;
+export function youthPrValueMult(state: GameState, teamId: string, _cfg: TuningConfig): number {
+  if (teamId !== state.userTeamId) return 1;
+  return prospectValueMultiplier(state);
 }
 
 /**
@@ -715,10 +620,12 @@ export function valueWithYouthPr(
   return Math.round((base * youthPrValueMult(state, team.id, cfg)) / 1000) * 1000;
 }
 
-/** The academy's current prospect-slot cap (facility-driven, v7). */
+/** The academy's current prospect-slot cap — the Youth Academy facility's
+ * `squadSize` channel (v1.82). A club that hasn't built it still runs an
+ * academy at `academySquadSizeBase`; the facility is what makes it a big one. */
 export function academySquadCap(state: GameState, teamId: string, cfg: TuningConfig): number {
-  const level = state.teams[teamId].academySquadLevel ?? 0;
-  return cfg.academySquadSizeBase + level * cfg.academySquadSizePerLevel;
+  if (teamId !== state.userTeamId) return cfg.academySquadSizeBase;
+  return academySquadSize(state, cfg.academySquadSizeBase);
 }
 
 /** Runs every Monday for all playable clubs (AI clubs need budgets to trade).

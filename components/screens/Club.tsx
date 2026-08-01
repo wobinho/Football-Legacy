@@ -19,11 +19,13 @@ import {
   incomeUpgradeInfo,
   incomeUpgradeLevel,
   incomeUpgradeMaxLevel,
+  qualifyingPlayerCount,
   FACILITY_KEYS,
   INCOME_UPGRADE_GROUPS,
   type BreakdownItem,
   type Facility,
 } from "@/lib/economy";
+import { facilityLevel } from "@/lib/facilities";
 import { clubAllTimeRecords, clubPlayerHistory } from "@/lib/recordbook";
 import { academyGraduates } from "@/lib/academy";
 import {
@@ -439,7 +441,7 @@ function FinancesTab() {
           {
             label: "Academy upkeep",
             amount: -b.academyUpkeep,
-            note: `Level ${team.academyLevel ?? 0} academy × ${formatMoney(TUNING.academyUpkeepPerLevel)}/level — the facility running cost.`,
+            note: `Level ${facilityLevel(team, "youthAcademy")} Youth Academy × ${formatMoney(TUNING.academyUpkeepPerLevel)}/level — the facility running cost.`,
           },
         ]
       : []),
@@ -557,6 +559,24 @@ function IncomeTab() {
   const team = game.teams[game.userTeamId];
   const b = weeklyBreakdown(game, game.userTeamId, TUNING);
 
+  // Player Bonus is the one track whose payout the spec CAN'T state on its own:
+  // "+£5k/wk per 70+ rated player" is a rate, not an amount, and what it is
+  // worth depends entirely on the squad standing in the dressing room today
+  // (v1.80). So every level is priced against the actual roster here — the level
+  // owned, the level next, and each rung of the ladder in the drawer — using the
+  // same `qualifyingPlayerCount` the weekly tick pays on, so the page and the
+  // finances can never quote different numbers.
+  const playerBonusMax = incomeUpgradeMaxLevel("playerBonus", TUNING);
+  const playerBonusLadder = Array.from({ length: playerBonusMax }, (_, i) => {
+    const threshold = TUNING.playerBonusThreshold[i] ?? Infinity;
+    const qualifying = qualifyingPlayerCount(game, game.userTeamId, threshold);
+    return {
+      threshold,
+      qualifying,
+      weekly: (TUNING.playerBonusPayout[i] ?? 0) * qualifying,
+    };
+  });
+
   const rows = FACILITY_KEYS.map((key) => {
     const level = incomeUpgradeLevel(game, game.userTeamId, key);
     const nextCost = facilityNextCost(game, game.userTeamId, key, TUNING);
@@ -573,6 +593,9 @@ function IncomeTab() {
       current: describeIncomeLevel(key, level, TUNING),
       next: describeIncomeLevel(key, level + 1, TUNING),
       canAfford: nextCost !== null && team.budget >= nextCost,
+      // Squad-derived actuals, Player Bonus only. `undefined` everywhere else is
+      // what tells FacilityRow there is nothing extra to say.
+      squadLadder: key === "playerBonus" ? playerBonusLadder : undefined,
     };
   });
 
@@ -680,10 +703,17 @@ function FacilityRow({
     current: string;
     next: string;
     canAfford: boolean;
+    /** Per-level actuals for a track whose payout depends on the squad (Player
+     * Bonus). Indexed level-1. Absent on every rate-only track. */
+    squadLadder?: { threshold: number; qualifying: number; weekly: number }[];
   };
   onUpgrade: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  // The squad-derived figures for the level owned and the level next, when the
+  // track has them. Level 0 has no rung, and `maxLevel` has no "next".
+  const ownedActual = f.squadLadder?.[f.level - 1];
+  const nextActual = f.squadLadder?.[f.level];
 
   return (
     <div>
@@ -728,6 +758,18 @@ function FacilityRow({
             <div className="display text-[13px] font-semibold tnum text-win">
               {f.level > 0 ? f.current : <span className="text-faint">Not bought</span>}
             </div>
+            {/* The rate above is the rule; this is what the rule is worth to THIS
+                squad this week. Shown even at level 0, where it answers the only
+                question that matters before buying: is it worth anything yet? */}
+            {ownedActual ? (
+              <div className="mt-0.5 text-[10px] tnum text-faint">
+                = {formatMoney(ownedActual.weekly)}/wk · {ownedActual.qualifying} qualify
+              </div>
+            ) : nextActual ? (
+              <div className="mt-0.5 text-[10px] tnum text-faint">
+                {nextActual.qualifying} at {nextActual.threshold}+ today
+              </div>
+            ) : null}
           </div>
           <div className="w-24">
             <div className="text-[10px] uppercase tracking-widest text-faint">{f.maxed ? "Status" : "Next level"}</div>
@@ -754,8 +796,30 @@ function FacilityRow({
             {f.maxed
               ? "Fully upgraded — this track is paying everything it can."
               : `Level ${f.level + 1} would pay ${f.next} for ${formatMoney(f.nextCost!)}.` +
+                (nextActual
+                  ? ` On the current squad that is ${nextActual.qualifying} player${
+                      nextActual.qualifying === 1 ? "" : "s"
+                    } at ${nextActual.threshold}+, worth ${formatMoney(nextActual.weekly)}/wk` +
+                    (ownedActual
+                      ? ` — ${
+                          nextActual.weekly > ownedActual.weekly
+                            ? `+${formatMoney(nextActual.weekly - ownedActual.weekly)}/wk on what you earn now.`
+                            : nextActual.weekly === ownedActual.weekly
+                              ? ", the same as you earn now."
+                              : `, ${formatMoney(ownedActual.weekly - nextActual.weekly)}/wk LESS than you earn now — the higher rating bar costs you more than the bigger rate pays.`
+                        }`
+                      : ".")
+                  : "") +
                 (f.canAfford ? "" : " Not enough budget yet — sell players or climb the table.")}
           </p>
+          {/* Squad-derived tracks get the honest warning the rate alone hides: a
+              level whose threshold nobody clears pays nothing at all. */}
+          {nextActual && nextActual.qualifying === 0 && (
+            <p className="mt-1 text-[11px] text-loss">
+              Nobody in the squad is rated {nextActual.threshold}+ — this level would pay £0/wk until
+              someone is.
+            </p>
+          )}
           {/* The whole ladder, so the buy order can be planned rather than
               discovered one level at a time. */}
           <ol className="mt-2 grid gap-x-4 gap-y-0.5 text-[11px] sm:grid-cols-2">
@@ -763,6 +827,7 @@ function FacilityRow({
               const lvl = i + 1;
               const bought = lvl <= f.level;
               const isNext = lvl === f.level + 1;
+              const actual = f.squadLadder?.[i];
               return (
                 <li
                   key={lvl}
@@ -772,6 +837,15 @@ function FacilityRow({
                 >
                   <span className="truncate">
                     <span className="text-faint">L{lvl}</span> {describeIncomeLevel(f.key, lvl, TUNING)}
+                    {/* What each rung would ACTUALLY pay this squad — which is
+                        what makes the ladder plannable, since the best level to
+                        buy is not always the highest one you can afford. */}
+                    {actual && (
+                      <span className={actual.weekly > 0 ? "text-win" : "text-faint"}>
+                        {" "}
+                        = {formatMoney(actual.weekly)}/wk
+                      </span>
+                    )}
                   </span>
                   <span className="shrink-0">
                     {bought ? "✓" : formatMoney(incomeUpgradeCost(f.key, lvl, TUNING))}

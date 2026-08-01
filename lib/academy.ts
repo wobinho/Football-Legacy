@@ -32,6 +32,12 @@ import { regionNats } from "./config/scouting";
 import { ARCHETYPE_MAP, positionsOfArchetype } from "./config/archetype";
 import { applyContract, grantDefaultContract } from "./contracts";
 import { academySquadCap } from "./economy";
+import {
+  academyFocusSlots,
+  facilityLevel,
+  scoutFilterUnlocked,
+  scoutSpeedMultiplier,
+} from "./facilities";
 import { pushInboxItem } from "./inbox";
 import { assignKitNumber, clearKitNumber } from "./kitnumbers";
 import { purgePlayerFromTactics } from "./tactics";
@@ -129,8 +135,13 @@ function userTeam(state: GameState): Team {
   return state.teams[state.userTeamId];
 }
 
-function youthCoachStars(state: GameState): number {
-  return userTeam(state).staff.youthCoach?.stars ?? 0;
+/** v1.79: the Youth Coach appointment went with the old staff system, and the
+ * facilities rework deliberately left the academy pipeline alone rather than
+ * half-rebuilding it. Until a facility owns youth coaching, the academy runs at
+ * its uncoached baseline — this stays a function (rather than the constant
+ * being inlined at four call sites) so that facility has one place to land. */
+function youthCoachStars(_state: GameState): number {
+  return 0;
 }
 
 /** The department's sharpest judge of a player (v14). Judgement — not
@@ -353,7 +364,9 @@ function rollIntakeProspect(
   opts: { golden: boolean }
 ): PlayerBio {
   const team = userTeam(state);
-  const level = team.academyLevel ?? 0;
+  // The Youth Academy facility's level stands in for the old `academyLevel`
+  // (v1.82) — a better-built academy turns up better prospects.
+  const level = facilityLevel(team, "youthAcademy");
   const age = randInt(rng, cfg.intakeAgeMin, cfg.intakeAgeMax);
 
   // Tiered ratings (v15): an intake prospect is rolled into the same Bronze →
@@ -412,7 +425,7 @@ export function runIntakeDay(state: GameState, cfg: TuningConfig) {
   const team = userTeam(state);
   const rng = mulberry32(deriveSeed(state.seed, `intake:${state.season}:user`));
   const golden = rng() < cfg.goldenGenChance;
-  const level = team.academyLevel ?? 0;
+  const level = facilityLevel(team, "youthAcademy");
   let size = Math.max(2, Math.round(cfg.intakeClassBase + level * cfg.intakeClassPerLevel + randRange(rng, -0.4, 1.2)));
   if (golden) size += cfg.goldenGenExtra;
   // Never overflow the academy squad-size cap (§18 v7): the intake fills whatever
@@ -911,11 +924,11 @@ export function toggleU21Squad(state: GameState, playerId: string): string | nul
   return null;
 }
 
-/** How many focus prospects the user may flag: base slots + the Focus Slots
- * facility level, capped at the absolute u21FocusMax. */
+/** How many focus prospects the user may flag — the Youth Academy facility's
+ * `focusSlots` channel (v1.82), still capped at the absolute u21FocusMax. A
+ * club without the facility gets the unbuilt baseline. */
 export function focusSlots(state: GameState, cfg: TuningConfig): number {
-  const level = userTeam(state).focusSlotLevel ?? 0;
-  return Math.min(cfg.u21FocusMax, cfg.u21FocusBase + level);
+  return Math.min(cfg.u21FocusMax, academyFocusSlots(state, cfg.u21FocusBase));
 }
 
 /** Flag/unflag a focus prospect (up to focusSlots): guaranteed U21 starts + coach attention. */
@@ -1139,20 +1152,17 @@ export function reportCadence(state: GameState, cfg: TuningConfig, scout?: Scout
   return Math.max(1, Math.round(base * scoutSpeedMult(state, cfg)));
 }
 
-/** The fraction of the normal report wait a fully-upgraded Scout Speed leaves —
- * 1 at level 0, down to 0.5 at max (each level takes scoutSpeedPerLevel off).
- * Exported so the UI states the effect off the same number the engine uses. */
-export function scoutSpeedMult(state: GameState, cfg: TuningConfig): number {
-  const level = state.teams[state.userTeamId]?.scoutSpeedLevel ?? 0;
-  return Math.max(0.1, 1 - Math.min(level, cfg.scoutSpeedMaxLevel) * cfg.scoutSpeedPerLevel);
+/** The fraction of the normal report wait the Scouting Network's speed boost
+ * leaves — 1 unbuilt, less as stars and badges accrue there (v1.82). Re-exported
+ * so the UI states the effect off the same number the engine uses. */
+export function scoutSpeedMult(state: GameState, _cfg: TuningConfig): number {
+  return scoutSpeedMultiplier(state);
 }
 
-/** Whether the club has bought the Scout Network (v1.68) — the one-time upgrade
- * that unlocks the brief auto-filter. Until it is owned, no assignment may carry
- * a filter and the controls are locked in the send-scout flow. */
-export function scoutFilterUnlocked(state: GameState): boolean {
-  return (state.teams[state.userTeamId]?.scoutFilterLevel ?? 0) > 0;
-}
+/** Whether the Scouting Network has reached the level that unlocks the brief
+ * auto-filter (v1.82). Until then no assignment may carry a filter and the
+ * controls are locked in the send-scout flow. */
+export { scoutFilterUnlocked };
 
 /** Add a new scout assignment if there's spare capacity. The full brief (region,
  * position group, and optional archetype focus) is locked in at send time (§18 v7)

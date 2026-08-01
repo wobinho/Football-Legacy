@@ -7,7 +7,7 @@ import type { Fixture, GameState, MatchResult } from "./types";
 import { TUNING } from "./config/tuning";
 import { hashString, mulberry32, deriveSeed, uid } from "./rng";
 import { isMonday, formatDayShort, buildSeasonSchedule, seasonYearLabel } from "./calendar";
-import { buildSideInput, pickLineup, headCoachMult } from "./selection";
+import { buildSideInput, pickLineup } from "./selection";
 import { simulateMatch } from "./engine/match";
 import { generateLeagueFixtures, drawCupRound, applyPromotionRelegation, initCup } from "./season";
 import { regenFromRetiree } from "./worldgen";
@@ -33,7 +33,6 @@ import {
   applySeasonPrizes,
   applyAiSeasonSubsidy,
   applyAiSurplusReinvestment,
-  facilityGrowthMult,
   matchUpgradeIncome,
 } from "./economy";
 import { gcnWeeklyTick } from "./gcn";
@@ -53,7 +52,15 @@ import { resolveSimLeagues } from "./simresolver";
 import { buildSeasonSummary, trackBiggestWin } from "./recordbook";
 import { ACCOLADE_META, runSeasonAwardsCeremony } from "./accolades";
 import { trackUserMatch, trackRollover, syncProgress, userPlayerAwardsIn, achievementTitles } from "./achievements";
-import { generateStaffMarket, staffMarketTick, refreshStaffMarket } from "./staff";
+import {
+  generateStaffMarket,
+  refreshStaffMarket,
+  accrueBadgeSeasons,
+  ageStaff,
+  growthMultiplier,
+  eliteResistRelief,
+} from "./facilities";
+import { FACILITY_MAP } from "./config/facilities";
 import { scoutMarketTick, refreshScoutMarketFull } from "./scouts";
 import {
   refreshAiCommercial,
@@ -196,10 +203,10 @@ function sideInputFor(
   const t = state.teams[teamId];
   // players out on loan (§18) are away and can't be fielded by their owner
   const players = t.playerIds.map((id) => state.players[id]).filter((p) => p && !p.retired && !p.loan);
-  // Only the user hires staff, so only the user gets the coaching match-day edge.
-  // The Assistant Coach's stars stack at half weight with the Head Coach's.
-  const coachStars = (t.staff.headCoach?.stars ?? 0) + (t.staff.assistantCoach?.stars ?? 0) * 0.5;
-  const coachMult = teamId === state.userTeamId ? headCoachMult(coachStars, cfg) : 1;
+  // v1.79: the Head/Assistant Coach match-day edge went with the old staff
+  // system. Match-day rating has no facility yet, so every side plays on its
+  // merits until one is designed to own it.
+  const coachMult = 1;
   // Only the user sets assignments (captain + set-piece takers); AI sides field none.
   const assignments = teamId === state.userTeamId ? t.assignments : undefined;
   // Only the user picks a bench (v25); AI sides auto-derive theirs.
@@ -254,8 +261,7 @@ export function applyMatchResult(state: GameState, fixture: Fixture, result: Mat
     if (!p || mins <= 0) continue;
     p.stats.apps += 1;
     p.stats.minutes += mins;
-    const medicalLevel = p.clubId === state.userTeamId ? state.teams[state.userTeamId].medicalLevel ?? 0 : 0;
-    applyMatchFatigue(p, mins, cfg, medicalLevel);
+    applyMatchFatigue(p, mins, cfg);
     const rating = result.ratings[pid] ?? 6.5;
     p.stats.ratingSum += rating;
     nudgeForm(p, rating, cfg);
@@ -470,7 +476,8 @@ function advanceDay(state: GameState): StopReason | null {
       state,
       cfg,
       mulberry32(deriveSeed(state.seed, `progress:${state.season}:${day}`)),
-      (p) => facilityGrowthMult(state, state.userTeamId, p, cfg)
+      () => growthMultiplier(state, state.userTeamId),
+      () => eliteResistRelief(state, state.userTeamId)
     );
     // Expectation decay (v1.66): players who aren't getting minutes, and free
     // agents, accrue inactivity — which gradually widens how far down the pyramid
@@ -510,14 +517,12 @@ function advanceDay(state: GameState): StopReason | null {
     loanMidseasonReports(state);
   }
 
-  // Staff market: dismissed slots refill after a couple of days (v6).
-  staffMarketTick(state);
   // Scouting department shortlist tops itself back up the same way (v14).
   scoutMarketTick(state, cfg);
   // Periodic full turnover of both for-hire pools (v20): every marketRefreshDays
   // the shortlists cycle so they never go stale between hires.
   if (state.marketRefreshDay !== undefined && day >= state.marketRefreshDay) {
-    refreshStaffMarket(state);
+    refreshStaffMarket(state, deriveSeed(state.seed, `staffmkt:${day}`));
     refreshScoutMarketFull(state, cfg);
     state.marketRefreshDay = day + cfg.marketRefreshDays;
   }
@@ -814,15 +819,16 @@ export function runSeasonRollover(state: GameState) {
   const academyBonuses = academyPreDevRollover(state, cfg);
 
   // aging + retirement for every player in the world (bulk, same function).
-  // The user's development coach + training facility accelerate their own youth;
-  // academy players train under the youth coach + academy facility instead (§18).
+  // v1.79: the user's club develops its players faster by exactly one thing —
+  // the Elite Training Center, staff and badges included. It covers the senior
+  // squad and the academy roster alike, since it is the club's training ground.
   const devRng = mulberry32(deriveSeed(state.seed, `dev:${state.season}`));
   const userTeam = state.teams[state.userTeamId];
-  const userDevCoachStars = userTeam.staff.devCoach?.stars ?? 0;
-  const userGkCoachStars = userTeam.staff.gkCoach?.stars ?? 0;
-  const userTrainingLevel = userTeam.trainingLevel ?? 0;
-  const userYouthCoachStars = userTeam.staff.youthCoach?.stars ?? 0;
-  const userAcademyLevel = userTeam.academyLevel ?? 0;
+  const userFacilityMult = growthMultiplier(state, state.userTeamId);
+  // v1.81: the second facility lever, and a different kind of one — the High
+  // Performance Center doesn't multiply growth, it cuts the elite-resistance
+  // penalty, which is the only thing that moves a player who is already at 88.
+  const userEliteRelief = eliteResistRelief(state, state.userTeamId);
   const academySet = new Set(userTeam.academyPlayerIds ?? []);
   // Tagging a prospect into the U21 matchday squad earns them a small extra
   // growth bump on top of their minutes (§18) when he didn't actually feature —
@@ -842,10 +848,8 @@ export function runSeasonRollover(state: GameState) {
   for (const p of activePlayers(state)) {
     const isUser = p.clubId === state.userTeamId;
     const inAcademy = academySet.has(p.id);
-    // Keepers get the Goalkeeping Coach's attention on top of the base coach.
-    const gkBonus = (isUser || inAcademy) && p.positions[0] === "GK" ? userGkCoachStars : 0;
-    const devCoachStars = (inAcademy ? userYouthCoachStars : isUser ? userDevCoachStars : 0) + gkBonus;
-    const trainingLevel = inAcademy ? userAcademyLevel : isUser ? userTrainingLevel : 0;
+    const facilityMult = isUser || inAcademy ? userFacilityMult : 1;
+    const eliteRelief = isUser || inAcademy ? userEliteRelief : 0;
     // Academy development boosts (v1.55): loan (base + per-appearance), U21-league
     // participation (with team + individual performance), and focus, all computed
     // in academyPreDevRollover while loans/youth stats were still present. Focus
@@ -855,14 +859,10 @@ export function runSeasonRollover(state: GameState) {
     // gets the small squad-attention nudge he always did.
     if (inAcademy && !academyBonuses[p.id] && u21SquadSet.has(p.id)) extraGrowth *= 1 + cfg.u21SquadGrowthBonus;
     if ((isUser || inAcademy) && p.age <= cfg.growthEndAge) extraGrowth *= 1 + userMentorBonus;
-    // Specialist training facilities (v15): position centres, plan centres and
-    // the youth development centre each help a subset of the squad, on top of
-    // the general Training Centre already folded into `trainingLevel`.
-    if (isUser || inAcademy) extraGrowth *= facilityGrowthMult(state, state.userTeamId, p, cfg);
     const wasOverall = p.overall;
     // training plans steer only the user's own senior + academy players
     const applyPlan = isUser || inAcademy;
-    const out = applySeasonDevelopment(state, p, cfg, devRng, devCoachStars, trainingLevel, extraGrowth, applyPlan);
+    const out = applySeasonDevelopment(state, p, cfg, devRng, facilityMult, extraGrowth, applyPlan, eliteRelief);
     if (out.retired && wasOverall >= 78) retiredNotable.push(`${p.name} (${wasOverall})`);
     // A good enough player leaves a regen behind: a raw teenager carrying his
     // profile and peak ceiling, born a free agent for the market to place.
@@ -881,6 +881,32 @@ export function runSeasonRollover(state: GameState) {
   for (const r of regens) state.players[r.id] = r;
   if (retiredNotable.length) {
     pushInbox(state, "news", "End of an era", `Retiring this summer: ${retiredNotable.slice(0, 6).join(", ")}.`);
+  }
+
+  // ── Backroom: a season of service (v1.79) ───────────────────────────────
+  // Credit the season to every assigned staff member and promote the badges
+  // that have come due. This runs AFTER the development pass on purpose: the
+  // season just played was worked at the badge level the staff held going into
+  // it, so a badge earned this summer pays from next season on, not
+  // retroactively.
+  const promotions = accrueBadgeSeasons(state);
+  for (const promo of promotions) {
+    const facilityName = FACILITY_MAP[promo.facility]?.name ?? promo.facility;
+    pushInbox(
+      state,
+      "board",
+      `${promo.staffName} earns a ${promo.tier} badge`,
+      `After another season at the ${facilityName}, ${promo.staffName} has been awarded a ${promo.tier} ${facilityName} badge. Their experience now counts for more wherever they work in that building.`
+    );
+  }
+  const retiredStaff = ageStaff(state);
+  if (retiredStaff.length) {
+    pushInbox(
+      state,
+      "board",
+      "Backroom retirements",
+      `${retiredStaff.map((s) => s.name).join(", ")} ${retiredStaff.length === 1 ? "has" : "have"} retired from the game. Their facility slots are now free.`
+    );
   }
 
   // Long-save housekeeping (§13, v21). Runs after the season summary, this

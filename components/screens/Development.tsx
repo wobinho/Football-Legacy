@@ -26,6 +26,7 @@ import { useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { Attributes, PlayerBio, Pos } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
+import { eliteResistRelief, growthMultiplier } from "@/lib/facilities";
 import { devPhase, seasonGrowth, seasonGrowthEstimate, seasonFamilyFocus } from "@/lib/development";
 import { ATTR_FAMILY_LABELS, ATTR_FAMILY_ORDER, ATTR_META, GK_FAMILY_LABELS } from "@/lib/config/attributes";
 import { academyGrowthSummary, prospectGrowth, type ProspectGrowth } from "@/lib/academy";
@@ -488,7 +489,7 @@ function TrainingPlansTab() {
           // Potential is hidden from the manager. Everything shown here is a
           // one-season-ahead estimate — no ceilings, no multi-season horizon.
           const phase = devPhase(p, TUNING);
-          const season = seasonGrowthEstimate(p, TUNING, ctx.devCoachStars, ctx.trainingLevel, plan);
+          const season = seasonGrowthEstimate(p, TUNING, ctx.facilityMult, plan, ctx.eliteRelief);
           const last = p.devLog && p.devLog.length ? p.devLog[p.devLog.length - 1] : null;
           // The archetype is the far end of the loop this screen drives: the plan
           // shapes attributes, and the attributes earn the identity. Showing it
@@ -518,20 +519,24 @@ function TrainingPlansTab() {
                     screen drives: the plan shapes attributes, and the attributes
                     earn the identity — so it sits beside the focus that produced
                     it rather than tucked under the name. */}
+                {/* v1.80: name and class on ONE line. Stacking them made every
+                    row two lines tall for a word the colour already encodes —
+                    the class now trails the name in small caps and the row keeps
+                    a single line's height. */}
                 <span className="hidden min-w-0 sm:block">
                   {archetype ? (
-                    <span className="flex min-w-0 items-center gap-1.5 text-[12px]" title={archetype.desc}>
-                      <ArchetypeIcon archetype={archetype} size={18} />
-                      <span className="min-w-0">
-                        <span
-                          className="block truncate leading-tight"
-                          style={{ color: ARCHETYPE_CLASS_COLOR[archetype.cls] }}
-                        >
-                          {archetype.name}
-                        </span>
-                        <span className="block truncate text-[10px] uppercase tracking-widest text-faint">
-                          {archetype.cls}
-                        </span>
+                    <span
+                      className="flex min-w-0 items-baseline gap-1.5 text-[12px]"
+                      title={`${archetype.name} · ${archetype.cls} — ${archetype.desc}`}
+                    >
+                      <span className="shrink-0 self-center">
+                        <ArchetypeIcon archetype={archetype} size={18} />
+                      </span>
+                      <span className="truncate" style={{ color: ARCHETYPE_CLASS_COLOR[archetype.cls] }}>
+                        {archetype.name}
+                      </span>
+                      <span className="shrink-0 text-[10px] uppercase tracking-widest text-faint">
+                        {archetype.cls}
                       </span>
                     </span>
                   ) : (
@@ -919,12 +924,18 @@ function GrowthTab() {
 }
 
 // ── how much dev help the club currently provides ──
+// v1.79: this used to gather three numbers from two systems (a dev coach's
+// stars, a training level, a medical level). It is now one — the club's
+// facilities multiplier — because there is one thing that makes players
+// develop faster: the Elite Training Center and the staff working in it.
+// v1.81 adds the second: the High Performance Center's elite-resistance relief.
+// It is a second NUMBER, not a second system — both come out of `facilityEffect`,
+// and a projection that omitted the relief would under-quote every elite player's
+// coming season, which is precisely the group the building is bought for.
 function devContext(game: ReturnType<typeof useGame.getState>["game"]) {
-  const team = game!.teams[game!.userTeamId];
   return {
-    devCoachStars: team.staff.devCoach?.stars ?? 0,
-    trainingLevel: team.trainingLevel ?? 0,
-    medicalLevel: team.medicalLevel ?? 0,
+    facilityMult: growthMultiplier(game!, game!.userTeamId),
+    eliteRelief: eliteResistRelief(game!, game!.userTeamId),
   };
 }
 

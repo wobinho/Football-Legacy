@@ -450,6 +450,27 @@ export const CLASS_FAVORED_STYLES: Record<ArchetypeClass, Style[]> = lookup(
   ])
 ) as Record<ArchetypeClass, Style[]>;
 
+/**
+ * The class×style table as a lookup, for the Tactics Help guide (v1.80).
+ *
+ * The guide teaches this system, and a guide that restated the numbers in JSX
+ * would be a second copy of the balance table free to drift from the one the
+ * engine reads — the exact failure `CLASS_FAVORED_STYLES` exists to document.
+ * Exposing the authored row instead means the page is a VIEW of the rule.
+ *
+ * The value is the percentage swing the class earns under that style, i.e. what
+ * `styleSynergy` becomes before the engine's `synergyCap` clamp (nothing here is
+ * near the cap — see the band note above).
+ */
+export function classStyleBonus(cls: ArchetypeClass, style: Style): number {
+  const i = STYLE_ORDER.indexOf(style);
+  return i < 0 ? 0 : CLASS_STYLE_ROW[cls][i];
+}
+
+/** The six styles in the order the balance table is authored in — so the Help
+ * guide's columns and the table's columns are the same list, not two. */
+export const STYLE_TABLE_ORDER: readonly Style[] = STYLE_ORDER;
+
 // ── Instruction preferences: the ARCHETYPE half of the loop (v1.78) ────────
 //
 // The table above says what KIND of footballer suits a STYLE. This says what
@@ -550,6 +571,12 @@ const CLASS_INSTRUCTIONS: Record<ArchetypeClass, InstructionPrefs> = {
     focus: { likes: ["Wide"], dislikes: ["Central"] },
   },
 };
+
+/** The class's default dial preferences, for the Help guide (v1.80). Read-only
+ * view of the table above — see the note on `classStyleBonus`. */
+export function classInstructionPrefs(cls: ArchetypeClass): InstructionPrefs {
+  return CLASS_INSTRUCTIONS[cls];
+}
 
 /**
  * The per-archetype rows.

@@ -23,18 +23,26 @@ import { cloudOwner } from "@/lib/cloud";
 import { forgetKey, rememberLastSave, lastSave, clearLastSave } from "@/lib/auth";
 import { userBid, respondToOffer, releasePlayer, sellToClub, signedThisSeason, type BidOutcome, type OfferResponse } from "@/lib/transfers";
 import { markAvailable, clearAvailable } from "@/lib/consent";
-import { hireStaff, dismissCandidate, fireStaff } from "@/lib/staff";
+import {
+  hireStaff,
+  releaseStaff,
+  assignStaff,
+  unlockFacility,
+  upgradeFacility,
+} from "@/lib/facilities";
+import { FACILITY_MAP } from "@/lib/config/facilities";
 import { hireScout, fireScout, dismissScoutCandidate } from "@/lib/scouts";
 import { acceptSponsor, buyoutSponsor, declineSponsor, type SponsorPayoutChoice } from "@/lib/sponsors";
 import {
-  upgradeFacility,
-  upgradeTrainingFacility,
+  // Aliased: `upgradeFacility` is the v1.79 facilities system's (imported
+  // above). This one buys a level of an INCOME upgrade — a different system
+  // that happens to have shared the word "facility" since v43.
+  upgradeFacility as upgradeIncomeFacility,
   valueWithYouthPr,
   describeIncomeLevel,
   incomeUpgradeLevel,
   FACILITY_TITLE,
   type Facility,
-  type TrainingFacility,
 } from "@/lib/economy";
 import {
   depositToFunds,
@@ -67,7 +75,7 @@ import { syncProgress, achievementTitles } from "@/lib/achievements";
 import { saveTactic, loadSavedTactic, deleteSavedTactic, renameSavedTactic, autoAssignRoles } from "@/lib/tactics";
 import { deleteInboxItem, clearInbox } from "@/lib/inbox";
 import { optimalTrainingPlan } from "@/lib/config/training";
-import type { StaffSlot, TeamAssignments } from "@/lib/types";
+import type { FacilityId, TeamAssignments } from "@/lib/types";
 import {
   promoteToSenior,
   demoteToAcademy,
@@ -197,6 +205,10 @@ interface GameStore {
    * subs not already in the XI — a keeper first, then by overall — mirroring the
    * engine's own empty-bench fallback. Replaces the current bench outright. */
   autoBench: () => void;
+  /** Empty the user's chosen bench (v1.80). Not the same as having no bench: an
+   * empty `userBench` is what hands substitutions back to the engine's own
+   * best-of-the-rest fallback, which is exactly what "clear" should mean here. */
+  clearBench: () => void;
   /** Drag-and-drop lineup edit (v1.5): put `playerId` in `slotId`, swapping with
    * whoever holds it. Unlike `setLineupSlot` — which evicts the incumbent to the
    * squad — dragging one starter onto another exchanges their two slots, which is
@@ -222,11 +234,18 @@ interface GameStore {
    * honour roll shown on the Achievements screen; toggling an enshrined player
    * removes him. */
   toggleHallOfFame: (playerId: string) => void;
+  // ── Facilities & backroom staff (v1.79) ──
+  /** Hire a candidate from the market onto the club's backroom roster. */
   hire: (candidateId: string) => void;
-  dismissStaff: (candidateId: string) => void;
-  fireStaff: (slot: StaffSlot) => void;
+  /** Let an employed staff member go. Their badges leave with them. */
+  releaseStaff: (staffId: string) => void;
+  /** Post a staff member to a facility, or pass null to stand them down. */
+  assignStaff: (staffId: string, facility: FacilityId | null) => void;
+  /** Build a facility for the first time. */
+  unlockFacility: (facility: FacilityId) => void;
+  /** Take a built facility up a level — which buys staff slots, nothing else. */
+  upgradeFacility: (facility: FacilityId) => void;
   upgrade: (facility: Facility) => void;
-  upgradeTraining: (facility: TrainingFacility) => void;
   markRead: (inboxId: string) => void;
   markAllRead: () => void;
   deleteMail: (inboxId: string) => void;
@@ -429,6 +448,23 @@ if (typeof window !== "undefined") {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") flushSave(true);
   });
+}
+
+/**
+ * Re-price the academy after a Youth Academy change (v1.82).
+ *
+ * The facility's `prospectValue` channel is a VALUATION effect, not a
+ * development one — nothing in the weekly tick recomputes a prospect's value
+ * off it, so without this the new premium wouldn't show until the next time
+ * something else happened to touch the player. A no-op for every other
+ * facility, so callers don't have to check which one they changed.
+ */
+function repriceAcademy(g: GameState, facility: FacilityId) {
+  if (facility !== "youthAcademy") return;
+  for (const id of g.teams[g.userTeamId].academyPlayerIds ?? []) {
+    const p = g.players[id];
+    if (p && !p.retired) p.value = valueWithYouthPr(g, p, TUNING);
+  }
 }
 
 export const useGame = create<GameStore>((set, get) => ({
@@ -880,6 +916,13 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
+  clearBench: () => {
+    const g = get().game;
+    if (!g) return;
+    g.userBench = [];
+    get().bump(true);
+  },
+
   bid: (playerId, fee, terms) => {
     const g = get().game;
     if (!g) return { kind: "error", reason: "No game." } as BidOutcome;
@@ -1022,20 +1065,54 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
-  dismissStaff: (candidateId) => {
+  releaseStaff: (staffId) => {
     const g = get().game;
     if (!g) return;
-    const err = dismissCandidate(g, candidateId);
+    const name = (g.teams[g.userTeamId].staffRoster ?? []).find((s) => s.id === staffId)?.name;
+    const err = releaseStaff(g, staffId);
     if (err) get().showToast(err);
+    else get().showToast(`${name ?? "Staff member"} has left the club.`);
     get().bump(true);
   },
 
-  fireStaff: (slot) => {
+  assignStaff: (staffId, facility) => {
     const g = get().game;
     if (!g) return;
-    const err = fireStaff(g, slot);
+    const err = assignStaff(g, staffId, facility);
     if (err) get().showToast(err);
-    else get().showToast("Staff member let go — the position is now vacant.");
+    else if (facility) {
+      repriceAcademy(g, facility);
+      get().showToast(`Assigned to the ${FACILITY_MAP[facility].name}.`);
+    } else {
+      // Standing someone down can lower the Youth Academy's prospect-value
+      // channel just as assigning them raises it, so re-price either way.
+      repriceAcademy(g, "youthAcademy");
+      get().showToast("Stood down — they'll earn no badge progress while unassigned.");
+    }
+    get().bump(true);
+  },
+
+  unlockFacility: (facility) => {
+    const g = get().game;
+    if (!g) return;
+    const err = unlockFacility(g, facility);
+    if (err) get().showToast(err);
+    else {
+      repriceAcademy(g, facility);
+      get().showToast(`${FACILITY_MAP[facility].name} built — assign staff to get more out of it.`);
+    }
+    get().bump(true);
+  },
+
+  upgradeFacility: (facility) => {
+    const g = get().game;
+    if (!g) return;
+    const err = upgradeFacility(g, facility);
+    if (err) get().showToast(err);
+    else {
+      repriceAcademy(g, facility);
+      get().showToast(`${FACILITY_MAP[facility].name} upgraded — another staff slot is open.`);
+    }
     get().bump(true);
   },
 
@@ -1096,7 +1173,7 @@ export const useGame = create<GameStore>((set, get) => ({
   upgrade: (facility) => {
     const g = get().game;
     if (!g) return;
-    const err = upgradeFacility(g, facility, TUNING);
+    const err = upgradeIncomeFacility(g, facility, TUNING);
     if (err) get().showToast(err);
     else {
       // The tracks don't all pay weekly (v43) — two are per-match and one is a
@@ -1106,46 +1183,6 @@ export const useGame = create<GameStore>((set, get) => ({
       get().showToast(
         `${FACILITY_TITLE[facility]} level ${level} — now ${describeIncomeLevel(facility, level, TUNING)}.`
       );
-    }
-    get().bump(true);
-  },
-
-  upgradeTraining: (facility) => {
-    const g = get().game;
-    if (!g) return;
-    const err = upgradeTrainingFacility(g, facility, TUNING);
-    if (err) get().showToast(err);
-    else {
-      const msg: Record<TrainingFacility, string> = {
-        training: "Training Centre upgraded — players develop faster.",
-        medical: "Medical Centre upgraded — quicker recovery.",
-        gymnasium: "Gymnasium upgraded — the whole squad develops faster.",
-        academy: "Youth Academy upgraded — bigger, better intake classes.",
-        scoutNetwork: "Max Scouts increased — send more scouts abroad.",
-        academySquad: "Academy Squad Size increased — room for more prospects.",
-        focusSlot: "Focus Slots increased — flag more prospects for focus.",
-        youthPr: "Youth PR upgraded — your prospects are worth more on the market.",
-        scoutSpeed: "Scout Speed upgraded — reports come in sooner.",
-        scoutFilter: "Scout Network unlocked — set an auto-filter on every scouting brief.",
-        gkCentre: "Goalkeeping Centre upgraded — keepers develop faster.",
-        defenceCentre: "Defensive Unit upgraded — defenders develop faster.",
-        midfieldCentre: "Midfield Hub upgraded — midfielders develop faster.",
-        attackCentre: "Attacking Centre upgraded — forwards develop faster.",
-        sportsScience: "Sports Science Lab upgraded — physical training plans go further.",
-        techCentre: "Technical Centre upgraded — technical training plans go further.",
-        finishingCentre: "Finishing School upgraded — finishing plans go further.",
-        youthDevCentre: "Youth Development Centre upgraded — under-21s develop faster.",
-      };
-      // Youth PR is a valuation change, not a development one: re-price the
-      // academy now so the new premium shows the moment it's bought rather than
-      // waiting for the next weekly tick.
-      if (facility === "youthPr") {
-        for (const id of g.teams[g.userTeamId].academyPlayerIds ?? []) {
-          const p = g.players[id];
-          if (p && !p.retired) p.value = valueWithYouthPr(g, p, TUNING);
-        }
-      }
-      get().showToast(msg[facility]);
     }
     get().bump(true);
   },

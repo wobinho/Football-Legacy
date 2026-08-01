@@ -178,11 +178,6 @@ export function buildSideInput(
   };
 }
 
-/** Head-coach match-day edge: effective-rating multiplier. Data-driven from tuning. */
-export function headCoachMult(stars: number, cfg: TuningConfig): number {
-  return 1 + stars * cfg.headCoachMatchdayPerStar;
-}
-
 /** Aggregate strength used by the sim resolver and AI decisions. */
 export function teamStrength(players: PlayerBio[], cfg: TuningConfig): number {
   const formation = getFormation("433");

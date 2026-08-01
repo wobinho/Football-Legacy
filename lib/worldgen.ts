@@ -24,7 +24,7 @@ import { mulberry32, deriveSeed, pick, randInt, randNormal, randRange, shuffle, 
 import { playerValue } from "./value";
 import { buildSeasonSchedule } from "./calendar";
 import { generateLeagueFixtures, initCup } from "./season";
-import { generateStaffMarket } from "./staff";
+import { generateStaffMarket } from "./facilities";
 import { generateScoutMarket } from "./scouts";
 import { resolveSimLeagues } from "./simresolver";
 import { refreshSponsorOffers, seedAiSponsorBooks } from "./sponsors";
@@ -876,7 +876,11 @@ export function generateWorld(opts: NewGameOptions): GameState {
         budget: club.budget !== undefined ? Math.max(0, Math.round(club.budget)) : clubBudget(club.rep),
         playerIds,
         tactic: randomTactic(rng),
-        staff: {},
+        // Every club starts with nothing built and nobody employed (v1.79).
+        // Only the user's club ever fills these in — an AI club's development
+        // runs on the neutral curve, exactly as it did before the rework.
+        facilities: {},
+        staffRoster: [],
         stadium: club.stadium,
         academyPlayerIds: [],
         assignments: {},

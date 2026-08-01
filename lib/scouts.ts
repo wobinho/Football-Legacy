@@ -15,6 +15,7 @@ import type { GameState, ProspectTier, Scout, ScoutCandidate, Team } from "./typ
 import type { TuningConfig } from "./config/tuning";
 import { mulberry32, pick, pickWeighted, randInt, randRange, uid, type RNG } from "./rng";
 import { NAME_POOLS } from "./config/names";
+import { maxScoutsFromFacility } from "./facilities";
 
 const SCOUT_NATS = ["ENG", "ESP", "ITA", "GER", "FRA", "NED", "POR", "BRA", "ARG", "SCO", "IRL", "BEL", "SWE", "SUI"];
 
@@ -49,13 +50,15 @@ export function scoutWageBill(state: GameState): number {
 }
 
 // ── Employment cap ────────────────────────────────────────────────────────
-// The Max Scouts facility is now what it says on the tin: how many scouts the
-// club may EMPLOY. Assignments are then capped by headcount, so buying the
-// upgrade without hiring anyone changes nothing.
+// How many scouts the club may EMPLOY. Assignments are then capped by
+// headcount, so raising the cap without hiring anyone changes nothing.
+//
+// v1.82: this is the Scouting Network facility's `maxScouts` channel — stars
+// assigned to that building are what widen the department. A club that hasn't
+// built it still runs a small scouting team at `scoutNetworkBase`.
 
 export function maxScouts(state: GameState, cfg: TuningConfig): number {
-  const level = state.teams[state.userTeamId]?.scoutNetworkLevel ?? 0;
-  return Math.min(cfg.scoutMaxHireable, cfg.scoutNetworkBase + level);
+  return Math.min(cfg.scoutMaxHireable, maxScoutsFromFacility(state, cfg.scoutNetworkBase));
 }
 
 // ── Hiring market ─────────────────────────────────────────────────────────
@@ -102,7 +105,7 @@ export function hireScout(state: GameState, candidateId: string, cfg: TuningConf
   if (cand.availableDay !== undefined && cand.availableDay > state.currentDay) return "This scout hasn't arrived yet.";
   const roster = (team.scouts ??= []);
   if (roster.length >= maxScouts(state, cfg)) {
-    return `You can only employ ${maxScouts(state, cfg)} scouts — upgrade Max Scouts to expand the department.`;
+    return `You can only employ ${maxScouts(state, cfg)} scouts — assign more staff to the Scouting Network to expand the department.`;
   }
   if (team.budget < cand.fee) return "Not enough budget for the signing fee.";
   team.budget -= cand.fee;

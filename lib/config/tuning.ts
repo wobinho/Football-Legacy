@@ -193,12 +193,8 @@ export interface TuningConfig {
   fitnessDrainPerMatch: number; // full 90 at age 27
   fitnessDrainAgeFactor: number; // extra drain per year over 30
   fitnessRecoveryPerDay: number;
-  fitnessCoachRecoveryPerStar: number;
-  physioRecoveryPerStar: number; // Head Physio adds to daily recovery (v5)
   minFitnessToStart: number; // AI won't start players below this
 
-  // Staff match-day effect
-  headCoachMatchdayPerStar: number; // effective-rating bonus per head-coach star
 
   // Form
   formNudgePerRatingPoint: number; // form drift after each match
@@ -335,10 +331,6 @@ export interface TuningConfig {
   potentialPerfPivot: number; // avg rating at which perf is "neutral"
   potentialMinutesFloor: number; // performance barely counts below this minutes share
   potentialAbsoluteCap: number; // no potential can exceed this
-  // Training facility (Player Development) — growth-speed bonus per level.
-  trainingFacilityGrowthPerLevel: number; // ×(1 + level*this) on youth growth
-  medicalFacilityRecoveryPerLevel: number; // +fitness/day per level
-  medicalFacilityAgeDrainReductionPerLevel: number; // softens over-30 drain (0..)
 
   // Economy (§8) — money in £
   /** Weekly central (TV) income by tier. Index = tier-1; MUST cover every tier
@@ -592,41 +584,6 @@ export interface TuningConfig {
    * negotiates their book, the AI simply accepts what lands. */
   aiSponsorValueMult: number;
 
-  // Training facilities (Player Development). One-time upgrade cost per level;
-  // no weekly income — they speed development / recovery instead. Costs are a
-  // major-infrastructure decision (v15): a training centre competes with a
-  // marquee signing, not with a squad-player fee.
-  trainingFacilityMaxLevel: number;
-  trainingUpgradeCost: number[];
-  medicalUpgradeCost: number[];
-  /** Gymnasium (v20): a core facility lifting development speed for the whole
-   * squad, every age — a pure multiplier read by the development pass. */
-  gymnasiumUpgradeCost: number[];
-  gymnasiumGrowthPerLevel: number; // ×(1 + level*this) on every player's growth
-
-  // ── Specialist training facilities (v15) ──
-  // Beyond the general Training Centre, a club can invest in facilities that
-  // sharpen a specific part of development. Each is the same one-time-purchase
-  // pattern; all are pure multipliers read by the development pass, so the
-  // engine never special-cases a facility by name.
-  /** Position-focused centres: growth bonus for players whose primary position
-   * sits in the named group. Keyed by the same groups the training plans use. */
-  positionFacilityMaxLevel: number;
-  positionFacilityGrowthPerLevel: number;
-  gkCentreUpgradeCost: number[];
-  defenceCentreUpgradeCost: number[];
-  midfieldCentreUpgradeCost: number[];
-  attackCentreUpgradeCost: number[];
-  /** Plan-focused facilities: amplify the effect of a training plan, so a squad
-   * training a focus with the matching facility develops that focus faster. */
-  planFacilityMaxLevel: number;
-  planFacilityBoostPerLevel: number; // added to a matching plan's growthMult −1
-  sportsScienceUpgradeCost: number[]; // physical/pace plans
-  techCentreUpgradeCost: number[]; // technical plans (playmaking, ball control)
-  finishingCentreUpgradeCost: number[]; // finishing plans
-  /** Youth-specific: lifts growth for players still in the academy age range. */
-  youthDevCentreUpgradeCost: number[];
-  youthDevCentreGrowthPerLevel: number;
 
   // Contracts (§10, v5 — individual wages + length + expiry)
   /** Weekly wage ≈ base * exp(exponent*overall). Same curve as the old
@@ -677,48 +634,18 @@ export interface TuningConfig {
   /** The multiple of value the UI proposes when a clause is switched on. */
   releaseClauseSuggestedMult: number;
 
-  // Scouting network facility (v5): raises concurrent scout assignments. Bought
-  // from the Scouting Department Upgrades panel (Academy → Scouting).
-  scoutNetworkMaxLevel: number; // capacity = scoutNetworkBase + level
-  scoutNetworkBase: number; // assignments available at level 0 (with a scout hired)
-  scoutNetworkUpgradeCost: number[]; // one-time cost to reach each level
-
-  // Academy squad-size facility (v7): raises how many prospects the academy can
-  // hold at once. Bought from the Academy Upgrades tab. Cap =
-  // academySquadSizeBase + level*academySquadSizePerLevel.
-  academySquadSizeBase: number; // prospects the academy holds at level 0
-  academySquadSizePerLevel: number; // + per upgrade level
-  academySquadMaxLevel: number;
-  academySquadUpgradeCost: number[]; // one-time cost to reach each level
-
-  // Focus-slots facility (v8): raises how many prospects can be flagged as focus
-  // at once. Bought from the Academy Upgrades tab. Slots = u21FocusBase + level,
-  // never exceeding u21FocusMax (the absolute cap).
-  focusSlotMaxLevel: number; // levels available; each level is +1 focus slot
-  focusSlotUpgradeCost: number[]; // one-time cost to reach each level
-
-  // Scout Speed facility (v1.68): logistics, retainers and a travel budget that
-  // shorten the gap between a scout's reports. Bought from the Academy Upgrades
-  // tab. The cadence is scaled by (1 − level*scoutSpeedPerLevel), so each level
-  // takes 5% off the wait and a fully-built department reports in half the time —
-  // a 14-day cycle becomes 7.
-  scoutSpeedMaxLevel: number;
-  scoutSpeedPerLevel: number; // fraction of the wait removed per level (0.05 = 5% faster)
-  scoutSpeedUpgradeCost: number[];
-
-  // Scout Network facility (v1.68): a ONE-TIME purchase that unlocks the brief
-  // auto-filter — until it is bought, a scout files whatever they find and the
-  // filter controls are locked. Level is 0 or 1; there is nothing to scale.
-  scoutFilterMaxLevel: number;
-  scoutFilterUpgradeCost: number[];
-
-  // Youth PR facility (v1.65): media and commercial work around the academy that
-  // raises what the market thinks your prospects are worth. Bought from the
-  // Academy Upgrades tab. Value multiplier = 1 + level*youthPrValuePerLevel,
-  // applied to academy prospects only.
-  youthPrMaxLevel: number;
-  youthPrValuePerLevel: number; // +fraction of value per level (0.03 = +3%)
-  youthPrUpgradeCost: number[]; // one-time cost to reach each level
+  // The academy and scouting BASELINES — what a club that has not built the
+  // Youth Academy / Scouting Network facility runs on (v1.82). Everything above
+  // these baselines is produced by those two facilities and lives in
+  // `config/facilities.ts`, not here.
+  //
+  // The per-level ladders that used to sit alongside them (scoutNetworkMaxLevel,
+  // academySquadMaxLevel/SizePerLevel, focusSlotMaxLevel, scoutSpeed*,
+  // scoutFilter*, youthPr*, and all seven UpgradeCost arrays) are deleted: the
+  // upgrade tracks they priced no longer exist, and a tuning number nothing
+  // reads is the trap this file's own header warns about.
+  scoutNetworkBase: number; // scouts employable with no Scouting Network built
+  academySquadSizeBase: number; // prospects the academy holds with no facility built
 
   // Transfers (§10 — interim rules pending design session)
   valueCurve: { base: number; exponent: number }; // value ≈ base * exp(exponent*overall)
@@ -902,9 +829,11 @@ export interface TuningConfig {
   // ── Youth Academy (§18) ──
   academyMaxAge: number; // last age a player may spend in the academy (age-out at +1)
   academyPromoteMinAge: number; // youngest age a prospect may be promoted to the senior team
-  academyMaxLevel: number;
-  academyUpgradeCost: number[]; // one-time cost to reach each level
-  academyUpkeepPerLevel: number; // weekly cost per academy level
+  // Weekly running cost per LEVEL of the Youth Academy facility (v1.82 — the
+  // level now lives in `team.facilities`, and the build/upgrade prices with it
+  // in config/facilities.ts, which is why the old academyUpgradeCost ladder and
+  // its academyMaxLevel cap are gone from here).
+  academyUpkeepPerLevel: number;
   // Academy player wages (v25). Prospects are on youth terms — a small weekly
   // scholarship rather than a full professional contract — so each one draws a
   // wage inside this band, scaled by his current ability between the two ends.
@@ -946,8 +875,8 @@ export interface TuningConfig {
 
   // U21 league (12 teams, double round-robin, statistical)
   u21MinutesWeight: number; // youth minute worth vs a senior minute (development)
-  u21FocusBase: number; // focus slots at focusSlotLevel 0
-  u21FocusMax: number; // absolute cap on focus slots (fully upgraded)
+  u21FocusBase: number; // focus slots with no Youth Academy built (v1.82)
+  u21FocusMax: number; // absolute cap on focus slots, whatever the facility says
   u21FocusGrowthBonus: number; // extra growth multiplier for focus prospects
   u21SquadGrowthBonus: number; // extra growth multiplier for players tagged into the U21 squad
   u21GoalsPerMatch: number; // youth football is looser than the senior game
@@ -1320,11 +1249,8 @@ export const TUNING: TuningConfig = {
   fitnessDrainPerMatch: 22,
   fitnessDrainAgeFactor: 0.8,
   fitnessRecoveryPerDay: 3.5,
-  fitnessCoachRecoveryPerStar: 0.35,
-  physioRecoveryPerStar: 0.25,
   minFitnessToStart: 55,
 
-  headCoachMatchdayPerStar: 0.01,
 
   formNudgePerRatingPoint: 0.012,
 
@@ -1466,9 +1392,6 @@ export const TUNING: TuningConfig = {
   potentialPerfPivot: 6.9,
   potentialMinutesFloor: 0.25,
   potentialAbsoluteCap: 97,
-  trainingFacilityGrowthPerLevel: 0.12,
-  medicalFacilityRecoveryPerLevel: 0.5,
-  medicalFacilityAgeDrainReductionPerLevel: 0.12,
 
   // ── Club income by tier (rebalanced v1.67) ────────────────────────────────
   // Every income line now has an entry for all four tiers the pyramid can run,
@@ -1722,34 +1645,6 @@ export const TUNING: TuningConfig = {
   // and transfer affordability would silently inflate.
   aiSponsorValueMult: 0.34,
 
-  // 10× the old costs (v15). Training infrastructure is now a genuine
-  // long-horizon investment weighed against the transfer market, not a cheap
-  // early-game formality bought in the first season.
-  trainingFacilityMaxLevel: 5,
-  trainingUpgradeCost: [35_000_000, 80_000_000, 160_000_000, 280_000_000, 480_000_000],
-  medicalUpgradeCost: [25_000_000, 60_000_000, 120_000_000, 220_000_000, 380_000_000],
-  // Gymnasium: broad, whole-squad conditioning. Deliberately a touch weaker
-  // per level than the Training Centre (which only helps youth), but it lifts
-  // everyone — priced alongside the other core facilities.
-  gymnasiumUpgradeCost: [28_000_000, 68_000_000, 140_000_000, 250_000_000, 430_000_000],
-  gymnasiumGrowthPerLevel: 0.05,
-
-  // Specialist facilities. Position centres are the cheapest (each helps only a
-  // quarter of the squad); plan centres cost more (they compound with the plans
-  // the user is already setting); the youth centre sits between the two.
-  positionFacilityMaxLevel: 3,
-  positionFacilityGrowthPerLevel: 0.09,
-  gkCentreUpgradeCost: [12_000_000, 30_000_000, 65_000_000],
-  defenceCentreUpgradeCost: [18_000_000, 42_000_000, 90_000_000],
-  midfieldCentreUpgradeCost: [18_000_000, 42_000_000, 90_000_000],
-  attackCentreUpgradeCost: [20_000_000, 48_000_000, 100_000_000],
-  planFacilityMaxLevel: 3,
-  planFacilityBoostPerLevel: 0.04,
-  sportsScienceUpgradeCost: [26_000_000, 60_000_000, 125_000_000],
-  techCentreUpgradeCost: [28_000_000, 65_000_000, 135_000_000],
-  finishingCentreUpgradeCost: [24_000_000, 56_000_000, 118_000_000],
-  youthDevCentreUpgradeCost: [22_000_000, 52_000_000, 110_000_000],
-  youthDevCentreGrowthPerLevel: 0.11,
 
   contractWageCurve: { base: 160, exponent: 0.082 },
   contractLengthMin: 1,
@@ -1783,51 +1678,15 @@ export const TUNING: TuningConfig = {
   releaseClauseMaxWageDiscount: 0.12,
   releaseClauseSuggestedMult: 2.5,
 
-  // v1.68: base 3 + 7 levels → up to 10 scouts employed.
-  scoutNetworkMaxLevel: 7,
-  scoutNetworkBase: 3,
-  // v1.44: Academy Upgrade costs raised 8× across all three upgrades.
-  scoutNetworkUpgradeCost: [
-    28_000_000, 56_000_000, 96_000_000, 144_000_000, 200_000_000, 260_000_000, 330_000_000,
-  ],
-
-  // v1.68: base 15 + 10 levels × 3 → up to 45 prospects.
+  // The unbuilt baselines (v1.82). Both are what a club runs on with no
+  // facility; the Scouting Network takes scouts to 7 and the Youth Academy takes
+  // the academy to 48, and those ceilings live in config/facilities.ts.
+  //
+  // 2 and 15 are the design brief's own base effects, restated here so the
+  // "never built it" path and the facility's level-1 row agree by construction —
+  // building the facility must not be what gives a club its first scout.
+  scoutNetworkBase: 2,
   academySquadSizeBase: 15,
-  academySquadSizePerLevel: 3,
-  academySquadMaxLevel: 10,
-  // flat 15M steps, starting at 20M.
-  academySquadUpgradeCost: [
-    20_000_000, 35_000_000, 50_000_000, 65_000_000, 80_000_000,
-    95_000_000, 110_000_000, 125_000_000, 140_000_000, 155_000_000,
-  ],
-
-  // v1.68: base 5 + 10 levels → up to 15 focus slots.
-  focusSlotMaxLevel: 10,
-  // flat 10M steps, starting at 10M.
-  focusSlotUpgradeCost: [
-    10_000_000, 20_000_000, 30_000_000, 40_000_000, 50_000_000,
-    60_000_000, 70_000_000, 80_000_000, 90_000_000, 100_000_000,
-  ],
-
-  // v1.68: 10 levels × 5% → reports arrive 50% sooner at max.
-  scoutSpeedMaxLevel: 10,
-  scoutSpeedPerLevel: 0.05,
-  scoutSpeedUpgradeCost: [
-    12_000_000, 24_000_000, 36_000_000, 48_000_000, 60_000_000,
-    72_000_000, 84_000_000, 96_000_000, 108_000_000, 120_000_000,
-  ],
-
-  // v1.68: one £100M purchase unlocks the brief auto-filter for good.
-  scoutFilterMaxLevel: 1,
-  scoutFilterUpgradeCost: [100_000_000],
-
-  youthPrMaxLevel: 10, // 10 levels × 3% → +30% prospect value at max
-  youthPrValuePerLevel: 0.03,
-  // £25M for the first level, +£15M for each one after it.
-  youthPrUpgradeCost: [
-    25_000_000, 40_000_000, 55_000_000, 70_000_000, 85_000_000,
-    100_000_000, 115_000_000, 130_000_000, 145_000_000, 160_000_000,
-  ],
 
   valueCurve: { base: 9_600, exponent: 0.104 }, // v1.42: −20% across the board to unstick the transfer market
   youthPotentialValueBoost: 1.8,
@@ -1983,8 +1842,6 @@ export const TUNING: TuningConfig = {
 
   academyMaxAge: 21,
   academyPromoteMinAge: 16,
-  academyMaxLevel: 5,
-  academyUpgradeCost: [2_000_000, 5_000_000, 10_000_000, 18_000_000, 32_000_000],
   academyUpkeepPerLevel: 20_000,
   // Youth scholarship wages: a raw ~50-overall kid earns £1k/wk, a senior-ready
   // ~72-overall prospect £5k/wk, scaled linearly between and clamped to the band.
@@ -2027,8 +1884,11 @@ export const TUNING: TuningConfig = {
   starScalePerHalf: 5,
 
   u21MinutesWeight: 0.6,
-  u21FocusBase: 5, // v1.68: 5 slots before any upgrade
-  u21FocusMax: 15, // v1.68: base 5 + 10 upgrade levels
+  // v1.82: 3 unbuilt — the Youth Academy's own base effect, so the "never built
+  // it" path and the facility's level-1 row agree. The cap sits above what the
+  // facility can reach (8 at max), so it never silently clips the building.
+  u21FocusBase: 3,
+  u21FocusMax: 15,
   u21FocusGrowthBonus: 0.1,
   u21SquadGrowthBonus: 0.06,
   u21GoalsPerMatch: 3.2,

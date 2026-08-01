@@ -451,95 +451,6 @@ export default function PlayerProfileModal() {
             </Section>
           )}
 
-          {/* Hall of Fame (v1.55) — enshrine a player in the club's honour roll.
-              A permanent, hand-curated tribute; collected on the Achievements
-              screen. Available for any real player, living or retired. */}
-          {canHallOfFame && (
-            <Section title="Hall of Fame">
-              <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
-                <div className="min-w-0 flex-1">
-                  <div className="display font-semibold text-ink">
-                    Club Hall of Fame
-                    {inHallOfFame && <span className="ml-2 text-[10px] font-normal text-gold">ENSHRINED</span>}
-                  </div>
-                  <div className="text-[12px] leading-relaxed text-faint">
-                    {inHallOfFame
-                      ? "He's in your club's Hall of Fame — see the full honour roll under Achievements → Hall of Fame."
-                      : "Enshrine him among your club's legends. A permanent tribute collected under Achievements → Hall of Fame."}
-                  </div>
-                </div>
-                <GhostButton onClick={() => toggleHallOfFame(p.id)} className="shrink-0 !py-1.5 text-xs">
-                  {inHallOfFame ? "REMOVE FROM HALL OF FAME" : "ADD TO HALL OF FAME"}
-                </GhostButton>
-              </Card>
-            </Section>
-          )}
-
-          {/* Shirt number (v15) — re-assignable, swapping with the incumbent */}
-          {isUserOwned && <KitNumberPanel playerId={p.id} />}
-
-          {/* Training plan (§5 v8) — a development focus for the user's own players */}
-          {isUserOwned && (
-            <Section title="Training Plan">
-              <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
-                {(() => {
-                  const plan = resolveTrainingPlan(p.trainingPlan, p.positions[0]);
-                  const best = optimalTrainingPlan(p);
-                  const isOptimal = plan.id === best.id;
-                  return (
-                    <>
-                      <div className="min-w-0 flex-1">
-                        <div className="display flex items-center gap-2 font-semibold text-ink">
-                          {plan.name}
-                          {isOptimal && (
-                            <span className="display rounded-sm border border-win/40 px-1.5 py-0.5 text-[10px] font-semibold text-win">
-                              OPTIMAL
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[12px] leading-relaxed text-faint">
-                          {plan.blurb}
-                          {!isOptimal && (
-                            <>
-                              {" "}
-                              <span className="text-gold">Recommended: {best.name}.</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <select
-                          value={plan.id}
-                          onChange={(e) => setTrainingPlan(p.id, e.target.value)}
-                          className="rounded-md border border-line bg-raised px-2 py-1.5 text-sm text-ink focus:border-gold focus:outline-none"
-                        >
-                          {plansForPosition(p.positions[0]).map((o) => (
-                            <option key={o.id} value={o.id}>
-                              {o.name}
-                            </option>
-                          ))}
-                        </select>
-                        <GhostButton
-                          onClick={() => autoAssignPlan(p.id)}
-                          disabled={isOptimal}
-                          className="!py-1.5 text-xs"
-                        >
-                          AUTO
-                        </GhostButton>
-                      </div>
-                      {/* What the plan actually trains (v1.72). The three tiers
-                          are the whole system, so the picker shows them rather
-                          than leaving the player to infer them from the name. */}
-                      <div className="w-full border-t border-line/50 pt-3">
-                        <PlanTiers plan={plan} />
-                      </div>
-                    </>
-                  );
-                })()}
-              </Card>
-            </Section>
-          )}
-
           {/* A senior pro out on loan (v1.54): his only squad action here is to
               recall him. He's still on the Squad page tagged "on loan"; the other
               moves reappear once he's back. */}
@@ -668,6 +579,95 @@ export default function PlayerProfileModal() {
               </Card>
             </Section>
           )}
+
+          {/* Training plan (§5 v8) — a development focus for the user's own players */}
+          {isUserOwned && (
+            <Section title="Training Plan">
+              <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+                {(() => {
+                  const plan = resolveTrainingPlan(p.trainingPlan, p.positions[0]);
+                  const best = optimalTrainingPlan(p);
+                  const isOptimal = plan.id === best.id;
+                  return (
+                    <>
+                      <div className="min-w-0 flex-1">
+                        <div className="display flex items-center gap-2 font-semibold text-ink">
+                          {plan.name}
+                          {isOptimal && (
+                            <span className="display rounded-sm border border-win/40 px-1.5 py-0.5 text-[10px] font-semibold text-win">
+                              OPTIMAL
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[12px] leading-relaxed text-faint">
+                          {plan.blurb}
+                          {!isOptimal && (
+                            <>
+                              {" "}
+                              <span className="text-gold">Recommended: {best.name}.</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <select
+                          value={plan.id}
+                          onChange={(e) => setTrainingPlan(p.id, e.target.value)}
+                          className="rounded-md border border-line bg-raised px-2 py-1.5 text-sm text-ink focus:border-gold focus:outline-none"
+                        >
+                          {plansForPosition(p.positions[0]).map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {o.name}
+                            </option>
+                          ))}
+                        </select>
+                        <GhostButton
+                          onClick={() => autoAssignPlan(p.id)}
+                          disabled={isOptimal}
+                          className="!py-1.5 text-xs"
+                        >
+                          AUTO
+                        </GhostButton>
+                      </div>
+                      {/* What the plan actually trains (v1.72). The three tiers
+                          are the whole system, so the picker shows them rather
+                          than leaving the player to infer them from the name. */}
+                      <div className="w-full border-t border-line/50 pt-3">
+                        <PlanTiers plan={plan} />
+                      </div>
+                    </>
+                  );
+                })()}
+              </Card>
+            </Section>
+          )}
+
+          {/* Hall of Fame (v1.55) — enshrine a player in the club's honour roll.
+              A permanent, hand-curated tribute; collected on the Achievements
+              screen. Available for any real player, living or retired. */}
+          {canHallOfFame && (
+            <Section title="Hall of Fame">
+              <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+                <div className="min-w-0 flex-1">
+                  <div className="display font-semibold text-ink">
+                    Club Hall of Fame
+                    {inHallOfFame && <span className="ml-2 text-[10px] font-normal text-gold">ENSHRINED</span>}
+                  </div>
+                  <div className="text-[12px] leading-relaxed text-faint">
+                    {inHallOfFame
+                      ? "He's in your club's Hall of Fame — see the full honour roll under Achievements → Hall of Fame."
+                      : "Enshrine him among your club's legends. A permanent tribute collected under Achievements → Hall of Fame."}
+                  </div>
+                </div>
+                <GhostButton onClick={() => toggleHallOfFame(p.id)} className="shrink-0 !py-1.5 text-xs">
+                  {inHallOfFame ? "REMOVE FROM HALL OF FAME" : "ADD TO HALL OF FAME"}
+                </GhostButton>
+              </Card>
+            </Section>
+          )}
+
+          {/* Shirt number (v15) — re-assignable, swapping with the incumbent */}
+          {isUserOwned && <KitNumberPanel playerId={p.id} />}
 
           {/* Nothing to manage — he isn't yours and isn't a target. Said plainly
               rather than left as an empty tab. */}

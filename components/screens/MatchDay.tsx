@@ -24,7 +24,7 @@ import {
   type OnPitch,
 } from "@/lib/engine/match";
 import { MENTALITY_OPTIONS, STYLE_OPTIONS, styleLabel } from "@/lib/config/formations";
-import { buildSideInput, headCoachMult } from "@/lib/selection";
+import { buildSideInput } from "@/lib/selection";
 import { rotationContextFor, rotationMultiplier } from "@/lib/rotation";
 import { ensureUserLineup, matchSeed } from "@/lib/gameloop";
 import { Card, Crest, GhostButton, GoldButton, Modal, Ovr, PosBadge, Section } from "../ui";
@@ -117,7 +117,11 @@ export default function MatchDayScreen() {
     const mk = (teamId: string) => {
       const t = game.teams[teamId];
       const players = t.playerIds.map((id) => game.players[id]).filter((p) => p && !p.retired && !p.loan);
-      const coach = teamId === game.userTeamId ? headCoachMult(t.staff.headCoach?.stars ?? 0, TUNING) : 1;
+      // v1.79: the head-coach match-day edge went with the old staff system,
+      // so both sides play on their merits. Kept as a named constant because
+      // `buildSideInput` still takes the multiplier — a future facility that
+      // owns match-day rating plugs in here.
+      const coach = 1;
       const assignments = teamId === game.userTeamId ? t.assignments : undefined;
       const bench = teamId === game.userTeamId ? game.userBench : undefined;
       if (teamId === game.userTeamId) {

@@ -114,13 +114,25 @@ export function catchupMult(overall: number, cfg: TuningConfig): number {
  *
  * Applied to the youth AND prime branches, and to both in-season ticks, so there
  * is no path around it.
+ *
+ * @param relief (v1.81) The High Performance Center's relief fraction, 0..1 —
+ * the ONE thing in the game that weakens this brake. It scales the PENALTY, not
+ * the multiplier: `m' = 1 - (1 - m) × (1 - relief)`. Two consequences that make
+ * it the end-game building rather than a second training centre: a player below
+ * `growthEliteAbove` has no penalty, so relief does nothing for him; and the
+ * relief is worth more the deeper into the curve he is, which is exactly where
+ * every other lever has stopped mattering. See `eliteResistRelief` in
+ * lib/facilities.ts.
  */
-export function eliteResistMult(overall: number, cfg: TuningConfig): number {
+export function eliteResistMult(overall: number, cfg: TuningConfig, relief = 0): number {
   if (overall <= cfg.growthEliteAbove) return 1;
   const span = Math.max(1, cfg.growthEliteCeiling - cfg.growthEliteAbove);
   const t = Math.min(1, (overall - cfg.growthEliteAbove) / span);
   const decay = Math.pow(t, cfg.growthEliteCurve);
-  return Math.max(cfg.growthEliteMultFloor, 1 - (1 - cfg.growthEliteMultFloor) * decay);
+  const m = Math.max(cfg.growthEliteMultFloor, 1 - (1 - cfg.growthEliteMultFloor) * decay);
+  // The floor is a floor on the UNRELIEVED curve; relief is allowed to lift a
+  // player back off it, which is the whole purchase.
+  return 1 - (1 - m) * (1 - Math.max(0, Math.min(1, relief)));
 }
 
 /**
@@ -226,14 +238,26 @@ function recalcPotential(p: PlayerBio, cfg: TuningConfig, rng: RNG): number {
   return Math.round(Math.max(p.overall, Math.min(cfg.potentialAbsoluteCap, next)));
 }
 
+/**
+ * @param facilityMult The club's facilities multiplier (1 = none). v1.79: this
+ * replaces the old `devCoachStars` + `trainingLevel` pair. Growth used to be
+ * accelerated by two separate levers — a coach's stars at 8% each and a
+ * training-facility level — which meant the same question ("how fast does my
+ * squad improve?") had two answers in two systems. There is now one: the Elite
+ * Training Center's effect, staff included, computed by `facilityEffect`.
+ *
+ * @param eliteRelief The High Performance Center's relief fraction (0 = none).
+ * The second facility lever, and deliberately a different KIND of one: it does
+ * not multiply growth, it weakens `eliteResistMult`. See that function.
+ */
 export function developPlayer(
   p: PlayerBio,
   cfg: TuningConfig,
   rng: RNG,
-  devCoachStars = 0,
-  trainingLevel = 0,
+  facilityMult = 1,
   extraGrowthMult = 1, // e.g. focus-prospect attention (§18)
-  planGrowthMult = 1 // training-plan growth-rate nudge (§5 v8)
+  planGrowthMult = 1, // training-plan growth-rate nudge (§5 v8)
+  eliteRelief = 0 // High Performance Center (v1.81)
 ): DevelopmentOutcome {
   const arch = profileForAttrs(p.attrs, p.positions[0]);
   const minutesFactor = Math.min(1, p.stats.minutes / FULL_SEASON_MINUTES);
@@ -256,18 +280,17 @@ export function developPlayer(
 
   if (p.age <= cfg.growthEndAge) {
     phase = "growth";
-    // Growth: accelerated by minutes, coach and training facility; capped by headroom
+    // Growth: accelerated by minutes and the club's facilities; capped by headroom
     const headroom = newPotential - p.overall;
     const ageBoost = ageGrowthMult(p.age, cfg);
-    const coach = 1 + devCoachStars * 0.08;
-    const facility = 1 + trainingLevel * cfg.trainingFacilityGrowthPerLevel;
+    const facility = facilityMult;
     const catchup = catchupMult(p.overall, cfg);
     // v1.66: the whole multiplier stack is damped by how good he already is.
-    const elite = eliteResistMult(p.overall, cfg);
+    // v1.81: unless the club has built the HPC, which cuts that damping.
+    const elite = eliteResistMult(p.overall, cfg, eliteRelief);
     const base =
       cfg.growthPerSeasonMax *
       (0.35 + 0.65 * minutesFactor) *
-      coach *
       facility *
       extraGrowthMult *
       planGrowthMult *
@@ -301,15 +324,16 @@ export function developPlayer(
         Math.min(1, primePerf) *
         (0.4 + 0.6 * minutesFactor) *
         randRange(rng, 0.7, 1.1) *
-        // A coached, well-drilled squad develops its established pros too — the
-        // same levers that accelerate youth apply here at their full weight.
-        (1 + devCoachStars * 0.08) *
-        (1 + trainingLevel * cfg.trainingFacilityGrowthPerLevel) *
+        // A well-equipped club develops its established pros too — the same
+        // lever that accelerates youth applies here at its full weight.
+        facilityMult *
         extraGrowthMult *
         planGrowthMult *
         // v1.66: same top-end damping the youth branch gets, so a 27-year-old
         // 88 can't sidestep the curve by having aged out of the growth phase.
-        eliteResistMult(p.overall, cfg);
+        // This is the branch the HPC exists for — an elite player is usually
+        // past growthEndAge, so the prime branch is where his last points live.
+        eliteResistMult(p.overall, cfg, eliteRelief);
       delta = Math.min(headroom, earned);
     } else if (primePerf < -cfg.primeDeclineTolerance) {
       // A genuinely poor season — well below the pivot, not merely average — and
@@ -411,17 +435,17 @@ export function applySeasonDevelopment(
   p: PlayerBio,
   cfg: TuningConfig,
   rng: RNG,
-  devCoachStars = 0,
-  trainingLevel = 0,
+  facilityMult = 1,
   extraGrowthMult = 1,
-  applyPlan = false // training plans only steer the user's own squad (§5 v8)
+  applyPlan = false, // training plans only steer the user's own squad (§5 v8)
+  eliteRelief = 0 // High Performance Center (v1.81)
 ): DevelopmentOutcome {
   const fromOverall = p.overall;
   const fromPotential = p.potential;
   // A training plan biases where growth flows and nudges its rate — only for the
   // user's players (applyPlan). AI squads develop on the neutral curve.
   const plan = applyPlan ? resolveTrainingPlan(p.trainingPlan, p.positions[0]) : undefined;
-  const out = developPlayer(p, cfg, rng, devCoachStars, trainingLevel, extraGrowthMult, plan?.growthMult ?? 1);
+  const out = developPlayer(p, cfg, rng, facilityMult, extraGrowthMult, plan?.growthMult ?? 1, eliteRelief);
   p.potential = fromPotential + out.potentialDelta;
   p.age += 1;
   const newOverall = Math.round(Math.max(35, Math.min(p.age <= cfg.growthEndAge ? p.potential : 99, p.overall + out.delta)));
@@ -499,9 +523,8 @@ export function applyWeeklyProgress(
   p: PlayerBio,
   cfg: TuningConfig,
   rng: RNG,
-  devCoachStars = 0,
-  trainingLevel = 0,
-  facilityMult = 1
+  facilityMult = 1,
+  eliteRelief = 0 // High Performance Center (v1.81)
 ): number {
   if (p.retired) return 0;
   // Needs match evidence — a player who hasn't featured doesn't move.
@@ -519,16 +542,14 @@ export function applyWeeklyProgress(
     const seasonCap = Math.min(headroom, Math.max(1, cfg.growthPerSeasonMax * IN_SEASON_GROWTH_SHARE));
     if (movedThisSeason >= seasonCap) return 0;
     // Weekly rate: a season's worth of growth spread over ~38 weeks, scaled by
-    // the same coach/facility/age factors the rollover uses. Performance gates
-    // it — playing badly stalls a prospect rather than advancing him.
-    const coach = 1 + devCoachStars * 0.08;
-    const facility = (1 + trainingLevel * cfg.trainingFacilityGrowthPerLevel) * facilityMult;
+    // the same facility/age factors the rollover uses. Performance gates it —
+    // playing badly stalls a prospect rather than advancing him.
+    const facility = facilityMult;
     const rate =
       (cfg.growthPerSeasonMax * IN_SEASON_GROWTH_SHARE / 38) *
       ageGrowthMult(p.age, cfg) *
       catchupMult(p.overall, cfg) *
-      eliteResistMult(p.overall, cfg) *
-      coach *
+      eliteResistMult(p.overall, cfg, eliteRelief) *
       facility *
       Math.max(0, 0.35 + perf);
     // Fractional rate accumulated as a probability of a whole point, so a rating
@@ -560,14 +581,11 @@ export function applyWeeklyProgress(
     // rating above the prime pivot, scaled by how far he has cleared it.
     const primePerf = (avgRating - cfg.primeGrowthPerfPivot) / 1.2;
     if (primePerf <= 0) return 0;
-    const coach = 1 + devCoachStars * 0.08;
-    const facility = (1 + trainingLevel * cfg.trainingFacilityGrowthPerLevel) * facilityMult;
     const rate =
       ((cfg.primeGrowthPerSeasonMax * cfg.primeInSeasonShare) / 38) *
       Math.min(1, primePerf) *
-      eliteResistMult(p.overall, cfg) *
-      coach *
-      facility;
+      eliteResistMult(p.overall, cfg, eliteRelief) *
+      facilityMult;
     if (rng() < rate) return 1;
     return 0;
   }
@@ -585,28 +603,24 @@ export function applyWeeklyProgress(
  * Weekly in-season progression for the whole world. Applied on the same Monday
  * tick as the economy, so ratings visibly move across a season.
  *
- * The user's club gets its coaching and facility multipliers; AI squads develop
- * on the neutral curve, exactly as they do at the rollover.
+ * The user's club gets its facilities multiplier; AI squads develop on the
+ * neutral curve, exactly as they do at the rollover.
  */
 export function weeklyProgressTick(
   state: GameState,
   cfg: TuningConfig,
   rng: RNG,
-  facilityMultFor: (p: PlayerBio) => number = () => 1
+  facilityMultFor: (p: PlayerBio) => number = () => 1,
+  eliteReliefFor: (p: PlayerBio) => number = () => 0
 ) {
-  const userTeam = state.teams[state.userTeamId];
-  const devCoachStars = userTeam?.staff.devCoach?.stars ?? 0;
-  const trainingLevel = userTeam?.trainingLevel ?? 0;
-
   for (const p of activePlayers(state)) {
     const isUser = p.clubId === state.userTeamId;
     const delta = applyWeeklyProgress(
       p,
       cfg,
       rng,
-      isUser ? devCoachStars : 0,
-      isUser ? trainingLevel : 0,
-      isUser ? facilityMultFor(p) : 1
+      isUser ? facilityMultFor(p) : 1,
+      isUser ? eliteReliefFor(p) : 0
     );
     if (!delta) continue;
     const next = Math.max(35, Math.min(p.age <= cfg.growthEndAge ? p.potential : 99, p.overall + delta));
@@ -630,7 +644,7 @@ export function devPhase(p: PlayerBio, cfg: TuningConfig): DevPhase {
 
 /**
  * Estimated overall growth for the COMING SEASON only, at a given development
- * environment (coach stars + training level) and training plan. Mirrors
+ * environment (the club's facilities multiplier) and training plan. Mirrors
  * developPlayer's growth branch at expected values (full-ish minutes). Bounded by
  * the player's hidden headroom, but never exposes the ceiling itself — the UI
  * only ever shows the one-season delta. Returns null once the player has aged out
@@ -639,9 +653,9 @@ export function devPhase(p: PlayerBio, cfg: TuningConfig): DevPhase {
 export function seasonGrowthEstimate(
   p: PlayerBio,
   cfg: TuningConfig,
-  devCoachStars = 0,
-  trainingLevel = 0,
-  plan?: TrainingPlanDef
+  facilityMult = 1,
+  plan?: TrainingPlanDef,
+  eliteRelief = 0 // High Performance Center (v1.81)
 ): { delta: number } | null {
   // Prime players (v1.51): they develop now, so they get a projection too. Same
   // shape as developPlayer's prime branch at a good-but-not-exceptional season.
@@ -649,29 +663,24 @@ export function seasonGrowthEstimate(
     if (devPhase(p, cfg) !== "prime") return null;
     const headroom = primeHeadroom(p.overall, p.potential, cfg);
     if (headroom <= 0) return { delta: 0 };
-    const coach = 1 + devCoachStars * 0.08;
-    const facility = 1 + trainingLevel * cfg.trainingFacilityGrowthPerLevel;
     // Assumes a solid campaign: rating ~0.3 over the pivot, near-full minutes.
     const earned =
       cfg.primeGrowthPerSeasonMax *
       Math.min(1, 0.3 / 1.2) *
       0.91 *
-      coach *
-      facility *
+      facilityMult *
       (plan?.growthMult ?? 1) *
-      eliteResistMult(p.overall, cfg);
+      eliteResistMult(p.overall, cfg, eliteRelief);
     return { delta: Math.max(0, Math.min(headroom, Math.round(earned))) };
   }
   const headroom = p.potential - p.overall; // hidden — used to bound, never shown
   if (headroom <= 0) return { delta: 0 };
   const minutesFactor = 0.85;
   const ageBoost = ageGrowthMult(p.age, cfg);
-  const coach = 1 + devCoachStars * 0.08;
-  const facility = 1 + trainingLevel * cfg.trainingFacilityGrowthPerLevel;
   const planMult = plan?.growthMult ?? 1;
   const catchup = catchupMult(p.overall, cfg);
-  const elite = eliteResistMult(p.overall, cfg);
-  const base = cfg.growthPerSeasonMax * (0.35 + 0.65 * minutesFactor) * coach * facility * planMult * catchup * elite;
+  const elite = eliteResistMult(p.overall, cfg, eliteRelief);
+  const base = cfg.growthPerSeasonMax * (0.35 + 0.65 * minutesFactor) * facilityMult * planMult * catchup * elite;
   // same 0.85 mid-point and 0.55 shape factor developPlayer applies
   const raw = base * ageBoost * 0.85 * 0.55;
   const delta = Math.max(0, Math.min(headroom, Math.round(raw)));
@@ -748,29 +757,31 @@ export function seasonFamilyFocus(
 
 // ── Fitness (§5: the one condition stat) ──────────────────────────────────
 
-export function applyMatchFatigue(p: PlayerBio, minutes: number, cfg: TuningConfig, medicalLevel = 0) {
+/** v1.79: the Medical Centre level that used to soften a veteran's extra drain
+ * went with the old facilities system, so age tells the same on every club. */
+export function applyMatchFatigue(p: PlayerBio, minutes: number, cfg: TuningConfig) {
   let drainMult = 1;
   for (const t of p.traits) drainMult *= TRAIT_MAP[t]?.effects.fitnessDrainMult ?? 1;
   if (p.age > 30) {
-    // a good medical department softens the extra drain veterans take
-    const ageDrain = (p.age - 30) * (cfg.fitnessDrainAgeFactor / 10);
-    const relief = Math.min(1, medicalLevel * cfg.medicalFacilityAgeDrainReductionPerLevel);
-    drainMult *= 1 + ageDrain * (1 - relief);
+    drainMult *= 1 + (p.age - 30) * (cfg.fitnessDrainAgeFactor / 10);
   }
   const drain = (minutes / 90) * cfg.fitnessDrainPerMatch * drainMult;
   p.fitness = Math.max(5, Math.round(p.fitness - drain));
 }
 
+/**
+ * Daily fitness recovery for the whole world.
+ *
+ * v1.79: the user's club used to recover faster via a Fitness Coach, a Physio
+ * and a Medical Centre level — three levers from two systems, all removed in
+ * the facilities rework. Recovery now runs at the same baseline for every club
+ * until a facility is designed to own it, at which point this is where its
+ * multiplier lands.
+ */
 export function dailyRecovery(state: GameState, cfg: TuningConfig) {
-  const userTeam = state.teams[state.userTeamId];
-  const coachBonus = (userTeam.staff.fitnessCoach?.stars ?? 0) * cfg.fitnessCoachRecoveryPerStar;
-  const physioBonus = (userTeam.staff.physio?.stars ?? 0) * cfg.physioRecoveryPerStar;
-  const medicalBonus = (userTeam.medicalLevel ?? 0) * cfg.medicalFacilityRecoveryPerLevel;
-  const userBonus = coachBonus + physioBonus + medicalBonus;
   for (const p of activePlayers(state)) {
     if (p.fitness >= 100) continue;
-    const bonus = p.clubId === state.userTeamId ? userBonus : 0;
-    p.fitness = Math.min(100, p.fitness + cfg.fitnessRecoveryPerDay + bonus);
+    p.fitness = Math.min(100, p.fitness + cfg.fitnessRecoveryPerDay);
   }
 }
 

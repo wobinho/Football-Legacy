@@ -13,6 +13,8 @@ design session before changing, `[FUTURE]` must not be built but must not be blo
 - `npm run verify:overall` — check the FC 26 overall model against OVERALL_FORMULA.md's worked examples
 - `npm run verify:archetypes` — check the 45 archetypes against the plan table, the icon folder and the class split
 - `npm run verify:formations` — structural check on `config/formations.ts` (11 slots, one GK, label==pos, picker coverage) + the AI formation mix
+- `npm run verify:facilities` — facility-table invariants, the badge ladder, and the ETC's worked example (the 33% ceiling)
+- `npm run smoke:facilities [seasons]` — end-to-end drive of build → hire → assign → badge accrual through real rollovers
 - `npx tsx scripts/verify-db.ts` — validate every shipped country DB and build a real world from it
 - `node scripts/ui-test-db.mjs` — end-to-end drive of the default-database + editor-import flow (dev server must be running)
 - `npm run calibrate [n]` — match-engine calibration harness (targets: ~2.7 goals/match, ~45% home wins)
@@ -33,7 +35,7 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
 - `lib/fl26/` — build-time only: CSV reader + the conversion that turns `fl26-*.csv` into country-database JSON. Never imported by the client bundle.
 - `lib/engine/match.ts` — pure seeded match engine, 6×15-min segments; `simulateMatch()` one-shot, or `createMatch/playFirstHalf/applyHalftimeTactic/playSecondHalf/finalizeResult` for the live view
 - `lib/gameloop.ts` — Continue-button orchestrator (`advanceUntilEvent`), season rollover
-- `lib/worldgen.ts`, `lib/season.ts`, `lib/simresolver.ts`, `lib/development.ts`, `lib/economy.ts`, `lib/transfers.ts`, `lib/staff.ts`, `lib/recordbook.ts`, `lib/save.ts` (IndexedDB), `lib/selection.ts` (XI picking), `lib/value.ts`, `lib/calendar.ts`, `lib/rng.ts` (mulberry32, derived seeds)
+- `lib/worldgen.ts`, `lib/season.ts`, `lib/simresolver.ts`, `lib/development.ts`, `lib/economy.ts`, `lib/transfers.ts`, `lib/recordbook.ts`, `lib/save.ts` (IndexedDB), `lib/selection.ts` (XI picking), `lib/value.ts`, `lib/calendar.ts`, `lib/rng.ts` (mulberry32, derived seeds)
 - `lib/archive.ts` — long-save maintenance: `activePlayers()` (living-world iteration for the hot passes) and the rollover's `pruneRetired()` compaction. Full-world passes should use `activePlayers()`, never `Object.values(state.players)`, unless they genuinely need retirees.
 - `lib/gcn.ts` — Global Club Network (§19, v34, end-game): funds/unlock, treasury, found/buy clubs (sim leagues only), inter-club moves & feeder loans, Operations upgrades. Rules only — the store calls in.
 - `lib/assistant.ts` — everything the Tactics screen *says*: `assistantReport()` (the grade
@@ -97,11 +99,71 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   only which shapes worldgen randomly seeds AI clubs into — every formation stays available to
   the manager. Adding attacking shapes at weight 1 pushes goals/match off target, so re-run
   `npm run calibrate` after touching the table.
+- **Facilities & staff are ONE system (v1.79).** A facility holds an effect; the staff
+  assigned to it amplify that effect. Nothing else does. Every facility scales the same
+  three ways — `base`, `+starEffect` per `STAFF_STARS_PER_STEP` (6) assigned stars, and
+  `+badgeEffect` per `badgeTiersPerStep` badge tiers held *for that facility* — so a new
+  facility is a row in `FACILITY_SPECS` (`config/facilities.ts`), never new engine code.
+  `lib/facilities.ts` holds the rules and must never name a facility in a conditional.
+  A facility may produce SEVERAL quantities (v1.82): a spec carries `channels`, each
+  running that identical three-way scaling, with `unit: "percent" | "count"` so a
+  headcount is never printed as a rate. That is not a fourth channel — it is the same
+  arithmetic applied N times. Engine code reads a quantity by name via
+  `facilityChannelValue`, never by reaching into a spec, and every named accessor takes
+  its UNBUILT fallback as an argument so "no facility" never means "no academy".
+  A facility may also gate a CAPABILITY rather than a number (`unlockAtLevel`) — used for
+  the Scouting Network's brief auto-filter, because on/off is not a number that crosses zero. A staff member has no
+  intrinsic effect: unassigned, they contribute exactly nothing but their wage.
+  Four facilities ship, and they are deliberately different KINDS of lever — what a
+  channel's number *does* is the consuming function's business, not the table's:
+  **Elite Training Center** (ceiling 33%) → `growthMultiplier()`, a plain multiplier on
+  how fast players approach their potential.
+  **High Performance Center** (v1.81, ceiling 61%) → `eliteResistRelief()`, a cut to the
+  elite-resistance *penalty*: `m' = 1 - (1 - m) × (1 - relief)` inside `eliteResistMult`.
+  It is the only thing in the game that weakens that brake, which is what makes 90→95 a
+  reachable arc. Because it scales a penalty that is *zero* below `growthEliteAbove`, it
+  does nothing for a prospect — the ETC stays strictly necessary and the two never
+  collapse into "buy the growth building twice". Don't re-express it as a growth
+  multiplier; 61% off a penalty and +61% growth are not the same quantity.
+  **Youth Academy** (v1.82) → three channels: `squadSize` (15→48 places),
+  `focusSlots` (3→8, still clipped by `u21FocusMax`) and `prospectValue` (0→+33%, the old
+  Youth PR). Its facility LEVEL is also what `academyUpkeepPerLevel` bills and what biases
+  intake quality.
+  **Scouting Network** (v1.82) → `maxScouts` (2→7, stars only — headcount deliberately has
+  no badge track) and `scoutSpeed` (0→+43% faster reports), plus the level-5 capability
+  unlock for the brief auto-filter.
+  Both pay their badge track per TWO tiers (`badgeTiersPerStep: 2`) because their channels
+  are integer capacities — at the ETC's per-tier rate one legacy badge would hand out six
+  squad places and swamp the star track. `verify:facilities` asserts a single bronze badge
+  is worth nothing there; that check is what catches a per-tier regression.
+  These two replaced the Academy screen's Upgrades tab, deleted outright (schema v47 drops
+  `academyLevel`, `scoutNetworkLevel`, `academySquadLevel`, `focusSlotLevel`,
+  `scoutSpeedLevel`, `scoutFilterLevel`, `youthPrLevel` and their tuning ladders; no refund,
+  no conversion). **Don't reintroduce a bought-by-the-level track** — that shape is what
+  both this rework and v1.79's exist to remove. Badges are
+  earned by serving whole seasons at one facility (1/2/3/5/7/10 cumulative → bronze…legacy)
+  and cap at `STAFF_BADGE_SLOTS` (3) distinct facilities per person. `facilityEffect()`
+  returns every channel's base/stars/badges terms separately so the screen can show the
+  arithmetic, and it is the same function the engine consumes — the UI can never quote a
+  number the simulation won't use. Run `npm run verify:facilities` after touching the tables.
+  The predecessor — twelve independent facility LEVELS plus eight named staff SLOTS — was
+  deleted outright in this rework (schema v46 drops the fields; no refund, no conversion).
+  Three of its effects have no facility yet and deliberately run at BASELINE until one is
+  designed to own them: **match-day rating** (`sideInputFor` in gameloop), **fitness
+  recovery** (`dailyRecovery` in development), and **youth coaching** (`youthCoachStars` in
+  academy). Each is a named seam with a comment — put the new lever there, don't reintroduce
+  a second channel.
+  The **slot grid is the assignment control** (v1.80): an empty slot opens the picker in
+  place, so filling a facility never sends the manager to another tab. It is fixed at three
+  columns and always renders the level-5 slot count rounded up to a multiple of three —
+  slots a future level unlocks show as padlocks, which is what makes an upgrade legible
+  before it is bought. The staff shortlist cycles on the loop's own clock,
+  `TUNING.marketRefreshDays` (10), via `state.marketRefreshDay`; there is deliberately **no
+  second refresh constant** in `config/facilities.ts` — the one that used to sit there said
+  14 and nothing read it.
 - Interim implementations pending owner design sessions (marked in-file): transfer market
   AI (§10), trait pool. `emergencyIntake()` in gameloop is a stopgap until the Youth
-  Academy ships. **Parked UIs** (kept whole and unreferenced, not deleted — the underlying
-  systems still run): `FacilitiesPanel.tsx` and `StaffPanel.tsx`, both awaiting a joint
-  redesign; the Facilities/Staff page shows placeholders for both.
+  Academy ships.
 
 ## Design language
 

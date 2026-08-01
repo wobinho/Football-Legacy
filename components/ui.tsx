@@ -5,7 +5,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatMoney, groupDigits, parseMoney } from "@/lib/value";
-import type { Attributes, GameState, PlayerBio, Pos } from "@/lib/types";
+import type { Attributes, BadgeTier, FacilityId, GameState, PlayerBio, Pos } from "@/lib/types";
+import { BADGE_COLOR, badgeIconSrc, facilityHeaderSrc } from "@/lib/config/facilities";
 import { keyAttrsFor, overallFromAttrs, posColors, resolvePos } from "@/lib/config/positions";
 import { shapeAttrsToArchetype } from "@/lib/config/archetype";
 import {
@@ -541,6 +542,142 @@ export function ArchetypeIcon({
   );
 }
 
+// ── Facility art (v1.81) ──────────────────────────────────────────────────
+
+/**
+ * A staff badge as the crest it is.
+ *
+ * The art carries two facts at once — the building's mark in the middle, the
+ * tier in the ring — so at the sizes used here (18px in a list, 56px on the
+ * card for the badge being BUILT) it stays legible as "a gold ETC badge"
+ * without a word of text beside it.
+ *
+ * A facility with no art falls back to the tinted pip this replaced rather than
+ * a broken image: the crest set and the facility table are maintained
+ * separately, and a missing PNG must degrade to something that still names the
+ * tier. Same `onError` contract as `ArchetypeIcon`, and a bare `img` for the
+ * same reason — small fixed assets from our own public folder.
+ */
+export function BadgeIcon({
+  facility,
+  tier,
+  size = 18,
+  className = "",
+  title,
+}: {
+  facility: FacilityId;
+  tier: BadgeTier;
+  size?: number;
+  className?: string;
+  title?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  const src = badgeIconSrc(facility, tier);
+  const color = BADGE_COLOR[tier];
+  const label = title ?? tier;
+
+  if (!src || failed) {
+    return (
+      <span
+        className={`inline-flex shrink-0 items-center justify-center rounded-full border align-middle text-[9px] font-semibold uppercase ${className}`}
+        style={{
+          width: size,
+          height: size,
+          borderColor: `${color}66`,
+          color,
+          backgroundColor: `${color}14`,
+        }}
+        title={label}
+      >
+        {tier[0]}
+      </span>
+    );
+  }
+
+  return (
+    /* eslint-disable-next-line @next/next/no-img-element */
+    <img
+      src={src}
+      alt=""
+      width={size}
+      height={size}
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+      title={label}
+      className={`inline-block shrink-0 align-middle ${className}`}
+      style={{ width: size, height: size, objectFit: "contain" }}
+    />
+  );
+}
+
+/**
+ * The facility's establishing shot, as the banner behind a card's masthead.
+ *
+ * The photo is atmosphere, not information, so it is treated as such: darkened
+ * under a scrim that runs to near-opaque at the bottom edge, which is what lets
+ * the headline number sit ON the image and still hit contrast. `children` are
+ * rendered above the scrim.
+ *
+ * With no art the scrim alone remains — a dark gold-washed panel that still
+ * frames the masthead, so an art-less facility loses the photograph and nothing
+ * else.
+ */
+export function FacilityBanner({
+  facility,
+  height = 168,
+  children,
+}: {
+  facility: FacilityId;
+  height?: number;
+  children?: React.ReactNode;
+}) {
+  const [failed, setFailed] = useState(false);
+  const src = facilityHeaderSrc(facility);
+  const showArt = src !== null && !failed;
+
+  return (
+    <div className="relative overflow-hidden" style={{ minHeight: height }}>
+      {showArt && (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          src={src}
+          alt=""
+          aria-hidden
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
+          className="absolute inset-0 h-full w-full object-cover"
+          /* Anchored high: the buildings and pitches live in the top two-thirds
+             of the frame, and the bottom is where the scrim is heaviest. */
+          style={{ objectPosition: "50% 38%" }}
+        />
+      )}
+      {/* Two scrims. The vertical one guarantees legibility at the bottom edge
+          where the masthead sits; the horizontal one keeps the left column —
+          where every line of text starts — darker than the open pitch behind it. */}
+      <div
+        className="absolute inset-0"
+        style={{
+          background: showArt
+            ? "linear-gradient(180deg, rgba(11,12,15,0.10) 0%, rgba(11,12,15,0.26) 42%, rgba(11,12,15,0.88) 88%, rgba(11,12,15,0.97) 100%)"
+            : "linear-gradient(180deg, rgba(168,127,46,0.10) 0%, rgba(11,12,15,0.75) 100%)",
+        }}
+      />
+      {showArt && (
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(90deg, rgba(11,12,15,0.72) 0%, rgba(11,12,15,0.22) 46%, rgba(11,12,15,0) 100%)",
+          }}
+        />
+      )}
+      <div className="relative flex h-full flex-col justify-end">{children}</div>
+    </div>
+  );
+}
+
 /**
  * A class dot — the one-glyph form of a archetype's class (v1.74).
  *
@@ -1071,8 +1208,13 @@ export function Select<T extends string>({
 
   useEffect(() => {
     if (!open) return;
+    // The menu is portalled to the body, so it is NOT a descendant of the
+    // trigger — both refs have to count as "inside" or a mousedown on a row
+    // closes the menu before the row's own click can commit it.
     const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (rootRef.current?.contains(t) || listRef.current?.contains(t)) return;
+      setOpen(false);
     };
     // Any scroll detaches the menu from its trigger — close rather than let it
     // float somewhere it doesn't belong.

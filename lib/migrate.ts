@@ -23,6 +23,7 @@ import {
   resolveTrainingPlan,
 } from "./config/training";
 import { assignAllKitNumbers } from "./kitnumbers";
+import { pushInboxItem } from "./inbox";
 import { trackBiggestWin } from "./recordbook";
 import { ensureProgress, syncProgress, userPlayerAwardsIn } from "./achievements";
 import { deriveSeed, hashString, mulberry32, pickWeighted, randNormal, uid } from "./rng";
@@ -73,10 +74,9 @@ function migrateV2toV3(state: GameState): void {
     t.press ??= "Medium";
     t.line ??= "Standard";
     t.focus ??= "Mixed";
-    // training facilities start at base level; medical inherits nothing new
-    team.trainingLevel ??= 0;
-    team.medicalLevel ??= 0;
-    team.academyLevel ??= 0;
+    // The training/medical levels this step used to seed are gone from the
+    // schema (v46 removed them, v47 the academy's own), so there is nothing
+    // left for it to default — migrateV46toV47 deletes any that survive.
   }
 }
 
@@ -104,9 +104,8 @@ function migrateV3toV4(state: GameState): void {
  * rollover) surfaces candidates for the new roles.
  */
 function migrateV4toV5(state: GameState): void {
-  for (const team of Object.values(state.teams)) {
-    team.scoutNetworkLevel ??= 0;
-  }
+  // The Scouting Network level this step seeded left the schema in v47 — the
+  // scouting department is a facility now, and migrateV46toV47 clears the field.
   const ac = state.academy;
   if (ac) {
     ac.assignments ??= [];
@@ -135,7 +134,6 @@ function migrateV4toV5(state: GameState): void {
  * empty assignment/sponsor containers, and drop in opening sponsor offers.
  */
 function migrateV5toV6(state: GameState): void {
-  const STAFF_NATS = ["ENG", "ESP", "ITA", "GER", "FRA", "NED", "POR", "BRA", "ARG", "SCO"];
   for (const team of Object.values(state.teams)) {
     // media/hospitality/retail levels were opened here too; they are gone from
     // the schema as of v43, which refunds and removes them, so there is nothing
@@ -143,22 +141,9 @@ function migrateV5toV6(state: GameState): void {
     team.assignments ??= {};
     team.sponsors ??= [];
     team.sponsorOffers ??= [];
-    // existing staff predate nationalities — assign a stable one per member id
-    for (const member of Object.values(team.staff)) {
-      if (member && !member.nationality) {
-        let h = 0;
-        for (let i = 0; i < member.id.length; i++) h = (h * 31 + member.id.charCodeAt(i)) >>> 0;
-        member.nationality = STAFF_NATS[h % STAFF_NATS.length];
-      }
-    }
-  }
-  // staff-market candidates gain a nationality too (same stable hash)
-  for (const c of state.staffMarket) {
-    if (!c.nationality) {
-      let h = 0;
-      for (let i = 0; i < c.id.length; i++) h = (h * 31 + c.id.charCodeAt(i)) >>> 0;
-      c.nationality = STAFF_NATS[h % STAFF_NATS.length];
-    }
+    // The v6 step that back-filled staff nationalities is gone: the appointed-staff
+    // shape it edited was removed in v1.79, and `migrateToV179` drops the whole
+    // legacy staff record anyway. Nothing left for this step to do.
   }
   // seed opening sponsorship offers for the user's empty slots
   refreshSponsorOffers(state, TUNING);
@@ -316,7 +301,10 @@ function migrateV13toV14(state: GameState, cfg: TuningConfig): void {
   if (!team) return;
   team.scouts ??= [];
 
-  const legacy = team.staff.scout;
+  // Reads the pre-v1.79 staff record, which is no longer in the schema — an old
+  // save still carries it on disk, so this step reaches for it structurally.
+  const legacyStaff = (team as unknown as { staff?: Record<string, { id: string; name: string; nationality: string; stars: number; wage: number } | undefined> }).staff;
+  const legacy = legacyStaff?.scout;
   if (legacy && team.scouts.length === 0) {
     team.scouts.push({
       id: legacy.id,
@@ -328,8 +316,10 @@ function migrateV13toV14(state: GameState, cfg: TuningConfig): void {
     });
   }
   // The slot itself no longer exists — clear it so it can't be read back.
-  team.staff.scout = undefined;
-  state.staffMarket = (state.staffMarket ?? []).filter((c) => c.slot !== "scout");
+  if (legacyStaff) legacyStaff.scout = undefined;
+  state.staffMarket = (state.staffMarket ?? []).filter(
+    (c) => (c as unknown as { slot?: string }).slot !== "scout"
+  );
 
   const first = team.scouts[0];
   const ac = state.academy;
@@ -374,16 +364,9 @@ function migrateV14toV15(state: GameState): void {
   // Number every roster in the world; existing numbers (none, at v14) are kept.
   assignAllKitNumbers(state);
 
-  for (const team of Object.values(state.teams)) {
-    team.gkCentreLevel ??= 0;
-    team.defenceCentreLevel ??= 0;
-    team.midfieldCentreLevel ??= 0;
-    team.attackCentreLevel ??= 0;
-    team.sportsScienceLevel ??= 0;
-    team.techCentreLevel ??= 0;
-    team.finishingCentreLevel ??= 0;
-    team.youthDevCentreLevel ??= 0;
-  }
+  // The eight specialist-centre levels this step opened are gone from the schema
+  // as of v46 — the facilities rework removed them, so there is nothing left to
+  // seed here.
 }
 
 /** Upgrade a save in place to the current schema. Returns the same object. */
@@ -563,6 +546,14 @@ export function migrateSave(state: GameState): GameState {
   if (state.schemaVersion < 45) {
     migrateV44toV45(state);
     state.schemaVersion = 45;
+  }
+  if (state.schemaVersion < 46) {
+    migrateV45toV46(state);
+    state.schemaVersion = 46;
+  }
+  if (state.schemaVersion < 47) {
+    migrateV46toV47(state);
+    state.schemaVersion = 47;
   }
   // future migrations chain here
   state.schemaVersion = SCHEMA_VERSION;
@@ -752,13 +743,9 @@ function migrateV18toV19(state: GameState, cfg: TuningConfig): void {
  * nobody agreed to one — and `askPrice` only consults the field when it's set.
  */
 function migrateV19toV20(state: GameState): void {
-  for (const team of Object.values(state.teams)) {
-    // The membership/events/academy-partner levels this step opened are gone from
-    // the schema as of v43 (refunded and removed), so only the gymnasium remains.
-    // Gymnasium — a new core training facility (whole-squad growth). Starts at
-    // level 0, exactly as a new save would.
-    team.gymnasiumLevel ??= 0;
-  }
+  // Every facility level this step opened is gone from the schema: the
+  // membership/events/academy-partner levels at v43, and the gymnasium at v46.
+  // Nothing left to seed.
   // Periodic for-hire market turnover: schedule the first cycle from today.
   state.marketRefreshDay ??= state.currentDay + TUNING.marketRefreshDays;
 }
@@ -1472,6 +1459,146 @@ function migrateV44toV45(state: GameState): void {
     const current = p.trainingPlan ? TRAINING_PLAN_MAP[p.trainingPlan] : undefined;
     if (current && current.planPos === defaultPlanFor(p.positions[0]).planPos) continue;
     p.trainingPlan = optimalTrainingPlan(p).id;
+  }
+}
+
+/**
+ * v45 → v46: facilities and staff are rebuilt from scratch (v1.79).
+ *
+ * The old model was two unrelated systems: twelve independent facility LEVELS,
+ * each with its own multiplier, and eight named staff SLOTS each buffing a
+ * different quantity. Neither could see the other, and no screen could show you
+ * what your investment was actually worth. Both are removed here.
+ *
+ * The replacement is one system with one shape — a facility holds an effect,
+ * and the staff you assign to it amplify that effect through their stars and
+ * the badges they earn there. Today it has one member, the Elite Training
+ * Center.
+ *
+ * This migration deliberately does NOT refund or convert. The old levels are
+ * dropped and every club starts the new system unbuilt, with an empty backroom.
+ * Converting spend across two systems that measure different things would be a
+ * guess dressed up as continuity; a clean start is honest, and the inbox note
+ * below tells the player exactly what happened rather than letting them notice
+ * a silent change in how fast their squad improves.
+ *
+ * The academy pipeline was untouched by this step, deliberately — `academyLevel`
+ * and the scouting upgrades were the Academy screen's own. They were folded into
+ * the facilities system one version later; see migrateV46toV47.
+ */
+function migrateV45toV46(state: GameState): void {
+  /** Every removed Team field, cleared so a stale value can never be read back
+   * through a structural cast. `academyLevel` and the scout/academy upgrade
+   * levels are absent from this list on purpose — they survive. */
+  const REMOVED_TEAM_KEYS = [
+    "trainingLevel",
+    "medicalLevel",
+    "gymnasiumLevel",
+    "gkCentreLevel",
+    "defenceCentreLevel",
+    "midfieldCentreLevel",
+    "attackCentreLevel",
+    "sportsScienceLevel",
+    "techCentreLevel",
+    "finishingCentreLevel",
+    "youthDevCentreLevel",
+    "staff", // the eight named appointment slots
+  ] as const;
+
+  let hadInvestment = false;
+  for (const team of Object.values(state.teams ?? {})) {
+    if (!team) continue;
+    const legacy = team as unknown as Record<string, unknown>;
+    for (const key of REMOVED_TEAM_KEYS) {
+      if (key === "staff") {
+        const staff = legacy.staff as Record<string, unknown> | undefined;
+        if (staff && Object.values(staff).some(Boolean)) hadInvestment = true;
+      } else if (typeof legacy[key] === "number" && (legacy[key] as number) > 0) {
+        hadInvestment = true;
+      }
+      delete legacy[key];
+    }
+    // Start the new system clean. Both are optional in the schema, so an AI club
+    // simply carries neither — only the user's club ever builds or hires.
+    team.facilities = {};
+    team.staffRoster = [];
+  }
+
+  // The old market held candidates for named slots, a shape the new market has
+  // no equivalent of. Drop it; `advanceUntilEvent` refills it on the next tick.
+  state.staffMarket = [];
+
+  if (hadInvestment) {
+    pushInboxItem(
+      state,
+      "board",
+      "Facilities and backroom rebuilt",
+      "The club's facilities and coaching structure have been reorganised from the ground up. The old training-ground upgrades and staff appointments no longer exist — in their place is a single set of facilities you build, staff, and grow a backroom reputation at. Head to the Facilities screen to start with the Elite Training Center."
+    );
+  }
+}
+
+/**
+ * v46 → v47: the Academy screen's Upgrades tab becomes two facilities (v1.82).
+ *
+ * Seven bought-by-the-level tracks lived on the Team — academyLevel,
+ * scoutNetworkLevel, academySquadLevel, focusSlotLevel, scoutSpeedLevel,
+ * scoutFilterLevel and youthPrLevel. Each was money spent to make a number go
+ * up, on a tab nothing else on the screen touched: the exact shape v1.79's
+ * facilities rework existed to replace, left standing only because that pass
+ * scoped itself to the training ground.
+ *
+ * They are now the `youthAcademy` and `scoutingNetwork` facilities, where the
+ * level buys staff slots and the STAFF produce the numbers.
+ *
+ * Like migrateV45toV46, this deliberately does not convert or refund. A club
+ * that had bought every academy upgrade doesn't get an equivalently-built
+ * facility, because there is no honest exchange rate between "level 6 of a
+ * track" and "six staff who have served four seasons". Both new buildings start
+ * unbuilt and the inbox note says so.
+ *
+ * What this DOES do is make the loss visible in the one place it would
+ * otherwise bite silently: the academy squad cap falls back to
+ * `academySquadSizeBase`, so a save carrying more prospects than that keeps
+ * them (nothing is deleted) and simply takes no intake until it is back under
+ * the cap. `runIntakeDay` already handles a full academy that way.
+ */
+function migrateV46toV47(state: GameState): void {
+  const REMOVED_TEAM_KEYS = [
+    "academyLevel",
+    "scoutNetworkLevel",
+    "academySquadLevel",
+    "focusSlotLevel",
+    "scoutSpeedLevel",
+    "scoutFilterLevel",
+    "youthPrLevel",
+  ] as const;
+
+  let hadInvestment = false;
+  for (const team of Object.values(state.teams ?? {})) {
+    if (!team) continue;
+    const legacy = team as unknown as Record<string, unknown>;
+    for (const key of REMOVED_TEAM_KEYS) {
+      if (typeof legacy[key] === "number" && (legacy[key] as number) > 0) hadInvestment = true;
+      delete legacy[key];
+    }
+  }
+
+  // Focus flags survive, but the unbuilt baseline is smaller than a built-out
+  // Focus Slots track was — trim to what the club can now actually hold so the
+  // Academy screen never renders more focus prospects than its own cap allows.
+  const cap = Math.min(TUNING.u21FocusMax, TUNING.u21FocusBase);
+  if (state.academy?.focusIds && state.academy.focusIds.length > cap) {
+    state.academy.focusIds = state.academy.focusIds.slice(0, cap);
+  }
+
+  if (hadInvestment) {
+    pushInboxItem(
+      state,
+      "board",
+      "The academy and scouting department move into the facilities system",
+      "The Academy screen's upgrades are gone. In their place are two new buildings on the Facilities screen — the Youth Academy and the Scouting Network — which work like every other facility: you build them, you staff them, and the people you assign are what raise the numbers. Squad size, focus slots, prospect value, how many scouts you may employ and how fast they file all come from those two buildings now. Both start unbuilt."
+    );
   }
 }
 
