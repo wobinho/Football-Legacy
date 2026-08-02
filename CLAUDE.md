@@ -12,6 +12,7 @@ design session before changing, `[FUTURE]` must not be built but must not be blo
 - `npm run build:names` — rebuild `lib/config/namepool.generated.ts` (generated-player name pool) from `fl_namepool.csv`
 - `npm run verify:overall` — check the FC 26 overall model against OVERALL_FORMULA.md's worked examples
 - `npm run verify:archetypes` — check the 45 archetypes against the plan table, the icon folder and the class split
+- `npm run verify:conversion` — measure that a training plan actually converts a player's derived archetype (youth steers, settled squads don't)
 - `npm run verify:formations` — structural check on `config/formations.ts` (11 slots, one GK, label==pos, picker coverage) + the AI formation mix
 - `npm run verify:facilities` — facility-table invariants, the badge ladder, and the ETC's worked example (the 33% ceiling)
 - `npm run smoke:facilities [seasons]` — end-to-end drive of build → hire → assign → badge accrual through real rollovers
@@ -104,6 +105,9 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   three ways — `base`, `+starEffect` per `STAFF_STARS_PER_STEP` (6) assigned stars, and
   `+badgeEffect` per `badgeTiersPerStep` badge tiers held *for that facility* — so a new
   facility is a row in `FACILITY_SPECS` (`config/facilities.ts`), never new engine code.
+  A fourth term, `levelEffect` (v1.85), adds per facility level above 1. It defaults to 0
+  and **only the Scouting Network declares it** — see that facility below for why, and
+  don't reach for it: a channel that grows by the level is the shape this system replaced.
   `lib/facilities.ts` holds the rules and must never name a facility in a conditional.
   A facility may produce SEVERAL quantities (v1.82): a spec carries `channels`, each
   running that identical three-way scaling, with `unit: "percent" | "count"` so a
@@ -139,13 +143,23 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   `focusSlots` (3→8, still clipped by `u21FocusMax`) and `prospectValue` (0→+33%, the old
   Youth PR). Its facility LEVEL is also what `academyUpkeepPerLevel` bills and what biases
   intake quality.
-  **Scouting Network** (v1.82) → `maxScouts` (2→7, stars only — headcount deliberately has
-  no badge track) and `scoutSpeed` (0→+43% faster reports), plus the level-5 capability
-  unlock for the brief auto-filter.
-  Both pay their badge track per TWO tiers (`badgeTiersPerStep: 2`) because their channels
-  are integer capacities — at the ETC's per-tier rate one legacy badge would hand out six
-  squad places and swamp the star track. `verify:facilities` asserts a single bronze badge
-  is worth nothing there; that check is what catches a per-tier regression.
+  **Scouting Network** (v1.85) → `maxScouts` (unbuilt 2, then 3 at unlock rising +1 per
+  level to 7) and `scoutSpeed` (+5% at unlock, +5%/level, +3% per 6 stars, +0.75% per badge
+  tier → +67% at the ceiling), plus the level-5 capability unlock for the brief auto-filter.
+  It is the **only** facility whose channels carry a `levelEffect` — the term that lets a
+  channel grow with the BUILDING rather than with the staff in it. That is deliberate and
+  narrow: this facility is a department, and a department gets bigger and further-reaching
+  by being built bigger. Headcount is level-only (a 5-star director doesn't conjure a job);
+  speed still takes 42 of its 67 points from people, so you can buy a big department but
+  not a fast one. `verify:facilities` asserts no other facility ever gains a level term —
+  a bought-by-the-level track is exactly what v1.79 and v1.82 exist to remove, and this
+  exception must not become a habit.
+  The **Youth Academy** pays its badge track per TWO tiers (`badgeTiersPerStep: 2`) because
+  its channels are integer capacities — at the ETC's per-tier rate one legacy badge would
+  hand out six squad places and swamp the star track. `verify:facilities` asserts a single
+  bronze badge is worth nothing there; that check is what catches a per-tier regression.
+  The Scouting Network's speed channel deliberately pays per SINGLE tier: a rate has no
+  rounding problem a capacity does, and 0.75%/tier is already small.
   These two replaced the Academy screen's Upgrades tab, deleted outright (schema v47 drops
   `academyLevel`, `scoutNetworkLevel`, `academySquadLevel`, `focusSlotLevel`,
   `scoutSpeedLevel`, `scoutFilterLevel`, `youthPrLevel` and their tuning ladders; no refund,
@@ -171,22 +185,55 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   `TUNING.marketRefreshDays` (10), via `state.marketRefreshDay`; there is deliberately **no
   second refresh constant** in `config/facilities.ts` — the one that used to sit there said
   14 and nothing read it.
-- **A training plan DOES change who a player is — if he has growth left (v1.84).**
+- **A training plan DOES change who a player is (v1.84; actually made true in v1.85).**
   `archetypeConversionEta` in `lib/development.ts` walks the growth projection forward
-  season by season and reports when the derived archetype flips to the plan's own. Measured
-  over every world-generated U21 with ≥8 headroom (470 players, 1600 convertible
-  player×plan pairs): **17% convert, median 7 seasons, p75 11, max 15**, some in a single
-  season. The horizon is 15 for that reason.
-  The binding constraint is **growth headroom, not the archetype scoring**. Beware the
-  measurement trap this feature was first built on: sweeping one SENIOR squad shows almost
-  no conversions, but the median headroom at the moment of stalling there is **zero** —
-  that sample measures the growth curve running out, not the plan's steering. Always
-  restrict a conversion sweep to players who can still develop.
-  Hence three outcomes, not two: `arriving`, `noGrowth` (the player is out of development —
-  the common dead end, and ordinary football rather than a mistake) and `tooFar` (he grows
-  a whole career and still never earns it — genuinely rare, and the only one worded as a
-  problem). Collapsing the last two into one "never" made a squad of settled 28-year-olds
-  read as a broken training system.
+  season by season and reports when the derived archetype flips to the plan's own.
+  Current measured behaviour (`npm run verify:conversion`, 1000 player×plan pairs per band):
+  **16–18 converts 41%, 19–21 27%, 22–24 17%, 29–33 2%**, median 6–8 seasons, max 15. The
+  horizon is 15 for that reason.
+  **The binding constraint was never growth headroom** — v1.84 said it was, and that was
+  wrong twice over. Both causes were invisible in the tables and only showed up in a
+  measured sweep; if conversion ever looks broken again, measure before theorising:
+  1. `fitAttrsToOverall` settled the line along the **position's** overall weights, and that
+     step moved ~4× as many attribute points as the training plan's own shares (46 vs 12 in
+     a traced season). Position weight rewards what the player is already good at, so the
+     settle fed his existing identity straight back to him — a 17-year-old Sniper on a
+     Speedster plan gained *finishing +9* and grew 20 overall across 13 seasons without ever
+     reading as a Speedster. The residual is now tilted toward the plan (`FIT_PLAN_TILT`,
+     `config/positions.ts`, swept: the curve knees at ~10, 6 keeps the fit recognisably
+     position-shaped). **`bias` is opt-in — every generation path must keep omitting it**,
+     or "make a striker who rates 72" stops producing a generic striker.
+  2. `seasonGrowthEstimate` **rounded** its delta. A prime season earns 0.46 of a point at 75
+     overall and 0.16 at 88, so every player at 75+ projected as growing exactly zero from
+     the day he turned 27, forever — and the conversion walk stops at the first zero. That
+     single `Math.round` is why a whole squad reported "no growth left" on every plan (66%
+     of *teenagers* did, at 27 points of median headroom). The rollover never rounded, so
+     this was not a conservative estimate, it was a different answer than the simulation's.
+     `delta` is now exact and `shown` is the rounded display value; **anything that
+     accumulates seasons must use `delta`.**
+  Three outcomes, not two: `arriving`, `noGrowth` (out of development — ordinary football
+  rather than a mistake) and `tooFar` (grows a whole career and still never earns it).
+  Collapsing the last two into one "never" made a squad of settled 28-year-olds read as a
+  broken training system. Run `npm run verify:conversion` after touching growth, the fit, or
+  the archetype thresholds — it asserts the shape (training steers, youth steers most, a
+  settled squad is told the honest thing), never exact rates.
+- **The academy costs money (v1.85).** Three prices, all keyed on the prospect-tier ladder or
+  the scouting tree, all pure tuning:
+  **Sending a scout** — `scoutTripCost` by `ScoutTravelBand` (home/region/continent/overseas,
+  resolved against `state.playableCountry` by `scoutTravelBandFor`, which walks `SCOUT_WORLD`
+  so a new country prices itself). A fixed-duration brief pays its whole retainer at send
+  time; an open-ended one pays the upfront and then bills `weeklyCost` every week until
+  recalled — that stored field, not a re-derivation, is the record of which deal was taken.
+  A broad target (a continent, Worldwide) is priced at the **dearest** band it can reach, so
+  "Worldwide" can't be both the widest net and the cheapest.
+  **Signing a find** — `prospectSignFeeByTier`, £1M bronze → £10M legacy. Youth signings were
+  free from v11, which made a shortlist something to empty rather than choose from.
+  **Youth wages** — `academyWageByTier`, £500/wk bronze → £5k/wk legacy. Priced on the badge,
+  not on overall: two 15-year-olds rate the same however far apart their ceilings are, so the
+  old overall-scaled band made the rarest prospects the cheapest thing in the game to hoard.
+- Interim implementations pending owner design sessions (marked in-file): transfer market
+  AI (§10), trait pool. `emergencyIntake()` in gameloop is a stopgap until the Youth
+  Academy ships.
 - Interim implementations pending owner design sessions (marked in-file): transfer market
   AI (§10), trait pool. `emergencyIntake()` in gameloop is a stopgap until the Youth
   Academy ships.

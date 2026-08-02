@@ -9,9 +9,15 @@
 //   a FACILITY holds an effect; STAFF assigned to it amplify that effect via
 //   their stars and the badges they have earned there.
 //
-// Three channels, no fourth. A staff member has no intrinsic effect — move them
-// out of a facility and they contribute exactly nothing. That is deliberate: it
-// keeps "what does this hire do for me?" answerable by pointing at one building.
+// A staff member has no intrinsic effect — move them out of a facility and they
+// contribute exactly nothing. That is deliberate: it keeps "what does this hire
+// do for me?" answerable by pointing at one building.
+//
+// v1.85 adds a LEVEL term (`levelEffect`) alongside base/stars/badges. It is not
+// a second channel and not a way to buy an effect by the level: it defaults to 0
+// and exactly one channel in the whole table declares it — the Scouting
+// Network's `maxScouts`, where "how many people may I employ" is a property of
+// the department's size rather than of who works there. See that spec's comment.
 //
 // v1.82: a facility may produce several QUANTITIES (the Youth Academy governs
 // squad size, focus slots and prospect value at once). That is not a fourth
@@ -159,12 +165,16 @@ export interface ChannelEffect {
   label: string;
   unit: "percent" | "count";
   base: number;
+  /** From the facility's own LEVEL, above level 1 (v1.85). Zero for every
+   * channel that doesn't declare a `levelEffect` — i.e. almost all of them. */
+  levels: number;
   /** From total assigned stars, in whole `STAFF_STARS_PER_STEP` steps. */
   stars: number;
   /** From badges held FOR THIS facility by the staff assigned to it. */
   badges: number;
-  /** base + stars + badges. Floored for `count` channels — half a squad place
-   * is not a thing, and the engine must consume the same integer the UI shows. */
+  /** base + levels + stars + badges. Floored for `count` channels — half a
+   * squad place is not a thing, and the engine must consume the same integer
+   * the UI shows. */
   total: number;
   /** Completed badge steps behind the `badges` term, and what one costs. */
   badgeSteps: number;
@@ -177,6 +187,7 @@ export interface FacilityEffect {
   /** The headline channel's terms, lifted to the top level so the one-channel
    * facilities (and every caller written before v1.82) read unchanged. */
   base: number;
+  levels: number;
   stars: number;
   badges: number;
   total: number;
@@ -192,23 +203,33 @@ export interface FacilityEffect {
 }
 
 const EMPTY_EFFECT: FacilityEffect = {
-  channels: [], base: 0, stars: 0, badges: 0, total: 0,
+  channels: [], base: 0, levels: 0, stars: 0, badges: 0, total: 0,
   totalStars: 0, starSteps: 0, starsToNextStep: STAFF_STARS_PER_STEP,
   totalBadgeWeight: 0, slotsUsed: 0, slots: 0,
 };
 
-/** One channel, given the star steps and badge weight already assigned. */
-function channelEffect(ch: FacilityChannel, starSteps: number, badgeWeightHere: number): ChannelEffect {
+/** One channel, given the facility's level and the star steps and badge weight
+ * already assigned. */
+function channelEffect(
+  ch: FacilityChannel,
+  level: number,
+  starSteps: number,
+  badgeWeightHere: number
+): ChannelEffect {
   const badgeSteps = Math.floor(badgeWeightHere / ch.badgeTiersPerStep);
   const base = ch.base;
+  // Levels ABOVE the first: `base` is already the level-1 value, so a fresh
+  // build must not be paid the level term as well.
+  const levels = Math.max(0, level - 1) * (ch.levelEffect ?? 0);
   const stars = starSteps * ch.starEffect;
   const badges = badgeSteps * ch.badgeEffect;
-  const raw = base + stars + badges;
+  const raw = base + levels + stars + badges;
   return {
     id: ch.id,
     label: ch.label,
     unit: ch.unit,
     base,
+    levels,
     stars,
     badges,
     total: ch.unit === "count" ? Math.floor(raw) : raw,
@@ -232,12 +253,14 @@ export function facilityEffect(team: Team, id: FacilityId): FacilityEffect {
   const starSteps = Math.floor(totalStars / STAFF_STARS_PER_STEP);
   const weight = staff.reduce((s, m) => s + badgeWeightAt(m, id), 0);
 
-  const channels = spec.channels.map((ch) => channelEffect(ch, starSteps, weight));
+  const level = facilityLevel(team, id);
+  const channels = spec.channels.map((ch) => channelEffect(ch, level, starSteps, weight));
   const head = channels[0];
 
   return {
     channels,
     base: head.base,
+    levels: head.levels,
     stars: head.stars,
     badges: head.badges,
     total: head.total,

@@ -16,6 +16,7 @@ import {
   badgeWeightAt,
 } from "./facilities";
 import { FACILITY_MAP } from "./config/facilities";
+import { migrateProspectTier, TIER_LABEL } from "./scouts";
 import { sponsorWeeklyIncome } from "./sponsors";
 
 export interface WeeklyBreakdown {
@@ -41,16 +42,28 @@ export interface WeeklyBreakdown {
   staffWages: number;
   academyUpkeep: number; // §18 — facility running cost
   academyWages: number; // §18 (v25) — the youth scholarship wage bill
+  /** Retainers on open-ended scouting trips (v1.85). A fixed-duration brief paid
+   * up front and never appears here. */
+  scoutTrips: number;
   net: number;
 }
 
-/** A single academy prospect's weekly scholarship wage (v25). Scaled linearly
- * from `academyWageMin` at `academyWageOverallLo` to `academyWageMax` at
- * `academyWageOverallHi`, clamped to the band so it always sits in ~£1–5k. */
-export function academyWageFor(overall: number, cfg: TuningConfig): number {
-  const { academyWageMin: lo, academyWageMax: hi, academyWageOverallLo: oLo, academyWageOverallHi: oHi } = cfg;
-  const t = Math.max(0, Math.min(1, (overall - oLo) / Math.max(1, oHi - oLo)));
-  return Math.round((lo + (hi - lo) * t) / 100) * 100;
+/**
+ * A single academy prospect's weekly scholarship wage (v25; tier-based v1.85).
+ *
+ * Priced off the prospect's BADGE, not his current overall. Two 15-year-olds
+ * rate almost identically today however far apart their ceilings are, so the
+ * old overall-scaled band charged a Legacy find and a Bronze one the same
+ * scholarship — which made the rarest prospects the cheapest thing in the game
+ * to sit on. The badge is the club's own read on what a kid is worth, so it is
+ * what the wage follows. Table lookup; a new rung in the ladder prices itself.
+ *
+ * A prospect with no badge at all falls back to the bottom rung — `ensureProspectTier`
+ * means that should not happen, but a wage must never come back NaN.
+ */
+export function academyWageFor(p: Pick<PlayerBio, "u21Tier" | "academyTier">, cfg: TuningConfig): number {
+  const tier = migrateProspectTier(p.u21Tier) ?? migrateProspectTier(p.academyTier);
+  return cfg.academyWageByTier[tier ?? cfg.prospectTierOrder[0]] ?? cfg.academyWageByTier.bronze;
 }
 
 /** The user club's total weekly academy wage bill (v25) — the sum of every
@@ -61,7 +74,19 @@ export function academyWageBill(state: GameState, teamId: string, cfg: TuningCon
   return (team.academyPlayerIds ?? [])
     .map((id) => state.players[id])
     .filter((p) => p && !p.retired)
-    .reduce((n, p) => n + academyWageFor(p.overall, cfg), 0);
+    .reduce((n, p) => n + academyWageFor(p, cfg), 0);
+}
+
+/** The weekly retainer owed on scouting trips currently out (v1.85).
+ *
+ * Only OPEN-ENDED briefs bill weekly — a fixed-duration trip paid its whole
+ * retainer at send time, so charging it again here would double-bill. That is
+ * why the running cost is read off the assignment's own `weeklyCost` rather than
+ * re-derived from the region: the stored field is the record of which of the two
+ * deals the manager actually took. */
+export function scoutTripBill(state: GameState, teamId: string): number {
+  if (teamId !== state.userTeamId) return 0;
+  return (state.academy?.assignments ?? []).reduce((n, a) => n + (a.weeklyCost ?? 0), 0);
 }
 
 /** Weekly income from a club's income upgrades (v43) — the three flat tiers plus
@@ -172,6 +197,8 @@ export function weeklyBreakdown(state: GameState, teamId: string, cfg: TuningCon
   // Youth scholarship wages (v25). Only the user runs a visible academy roster,
   // so AI clubs' academy wage bill is zero — their youth costs are abstracted.
   const academyWages = teamId === state.userTeamId ? academyWageBill(state, teamId, cfg) : 0;
+  // Scouts out on open-ended briefs (v1.85). AI clubs don't run visible briefs.
+  const scoutTrips = scoutTripBill(state, teamId);
   const solidarityIncome = drawsAiSubsidy(state, teamId) ? cfg.aiWeeklySubsidy : 0;
   // Non-wage running costs (v1.67). Charged to AI clubs only: the user pays their
   // own version of this explicitly through facility upkeep and the staff they
@@ -194,9 +221,10 @@ export function weeklyBreakdown(state: GameState, teamId: string, cfg: TuningCon
     staffWages,
     academyUpkeep,
     academyWages,
+    scoutTrips,
     net:
       tvIncome + positionBonus + gateIncome + facilities + sponsorIncome + solidarityIncome
-      - wageBill - staffWages - academyUpkeep - academyWages - operatingCost,
+      - wageBill - staffWages - academyUpkeep - academyWages - scoutTrips - operatingCost,
   };
 }
 
@@ -244,8 +272,10 @@ export function academyWageItems(state: GameState, teamId: string, cfg: TuningCo
     .map((p) => ({
       label: p.name,
       nat: p.nationality,
-      amount: -academyWageFor(p.overall, cfg),
-      detail: `${p.positions[0]} · ${p.overall} ovr · age ${p.age}`,
+      amount: -academyWageFor(p, cfg),
+      detail: `${p.positions[0]} · ${p.overall} ovr · age ${p.age} · ${
+        TIER_LABEL[migrateProspectTier(p.u21Tier) ?? migrateProspectTier(p.academyTier) ?? "bronze"]
+      }`,
     }))
     .sort((a, b) => a.amount - b.amount);
 }

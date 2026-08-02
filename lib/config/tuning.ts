@@ -2,7 +2,7 @@
 // Every balance number lives here. Tuning never means editing engine code.
 // Adjust only via the calibration harness (npm run calibrate).
 
-import type { Mentality, ProspectTier, Style } from "../types";
+import type { Mentality, ProspectTier, ScoutTravelBand, Style } from "../types";
 
 /** How far a club went in a European cup — the axis the continental prize table
  * is keyed on. Every qualifier banks at least the `groupStage` figure. */
@@ -834,13 +834,22 @@ export interface TuningConfig {
   // in config/facilities.ts, which is why the old academyUpgradeCost ladder and
   // its academyMaxLevel cap are gone from here).
   academyUpkeepPerLevel: number;
-  // Academy player wages (v25). Prospects are on youth terms — a small weekly
-  // scholarship rather than a full professional contract — so each one draws a
-  // wage inside this band, scaled by his current ability between the two ends.
-  academyWageMin: number; // weekly wage of the rawest prospect
-  academyWageMax: number; // weekly wage of a senior-ready prospect
-  academyWageOverallLo: number; // overall mapped to academyWageMin
-  academyWageOverallHi: number; // overall mapped to academyWageMax
+  // Academy player wages (v25; re-based on the tier ladder in v1.85). Prospects
+  // are on youth terms — a small weekly scholarship, not a professional contract.
+  //
+  // The scholarship is priced off the prospect's BADGE rather than his current
+  // overall. A 15-year-old Legacy find and a 15-year-old Bronze have almost the
+  // same overall today and wildly different futures, so an overall-scaled wage
+  // charged the same for both and quietly made the rarest prospects the cheapest
+  // thing in the game to hoard. The badge is the club's own read on what a kid is
+  // worth, which is the number a wage should follow.
+  academyWageByTier: Record<ProspectTier, number>; // weekly, per prospect
+  // What it costs to sign a scouted prospect into the academy (v1.85), by badge.
+  // Youth signings used to be free, which made a scout's shortlist a list of
+  // things to take rather than a list of things to choose between. The scouting
+  // pipeline still undercuts the transfer market heavily — this is a fraction of
+  // what an equivalent senior player costs — but it is no longer nothing.
+  prospectSignFeeByTier: Record<ProspectTier, number>;
 
   // Intake day (mid-March, once per season)
   intakeClassBase: number; // class size at level 0
@@ -947,6 +956,29 @@ export interface TuningConfig {
   /** Days between reports at 1★ experience, and days shaved per experience star.
    * An experienced scout files more often as well as more fully. */
   scoutMaxHireable: number; // absolute ceiling on employed scouts (base + Max Scouts levels)
+
+  /**
+   * What it costs to put a scout on the road (v1.85), by how far from home the
+   * brief sends him.
+   *
+   * Sending a scout used to be free — the only cost was his weekly wage, which he
+   * drew whether he travelled or not — so there was never a reason to point a
+   * brief anywhere but Worldwide. Distance now has a price, in two parts: a
+   * one-off `upfront` when the brief is issued (flights, visas, getting set up)
+   * and a `weekly` retainer for as long as he is out there. A fixed-duration trip
+   * bills the whole retainer at send time, so the total is knowable before the
+   * manager commits; an open-ended brief bills the retainer weekly instead.
+   *
+   * The four bands are relative to the country the manager MANAGES in, not to the
+   * scout's own nationality — it is the club paying, and the club is where the
+   * trip starts from. `scoutTravelBandFor` in lib/scouts.ts resolves a target to a
+   * band off SCOUT_WORLD, so a new country in that tree prices itself.
+   */
+  scoutTripCost: Record<ScoutTravelBand, { upfront: number; weekly: number }>;
+  /** Weeks a scouting "month" bills as (v1.85). The assignment duration picker is
+   * in months, and the retainer is quoted weekly, so a month bills as this many
+   * weeks of it. */
+  scoutTripWeeksPerMonth: number;
 
   // Loans (out only)
   loanMaxAge: number;
@@ -1508,7 +1540,16 @@ export const TUNING: TuningConfig = {
   // went from ~£200M to ~£647M in testing. 5,200 × 1.88 / 6.0 ≈ 1,630 puts the
   // TOP of the new ladder exactly where the top of the old one sat, so the
   // ladder became the spec's without the commercial economy moving.
-  sponsorBaseWeeklyByReputation: 1_630,
+  //
+  // v1.85: doubled, 1,630 → 3,260. This is the base every investment offer is
+  // built from — it sits BEFORE the slot share, the division ladder, the tier
+  // roll, the marketability multiplier and the noise, so doubling it here is
+  // exactly "every offer amount is worth twice what it was" and nothing else in
+  // the commercial model has to move. Deliberately done at the base rather than
+  // at any of the multipliers: a multiplier is a statement about a club's
+  // standing, and inflating one would have changed what the Investments page's
+  // own "offer multiplier" means.
+  sponsorBaseWeeklyByReputation: 3_260,
   // Per-slot share of the front-of-shirt baseline. The majors sit at the top;
   // the minor partnerships are deliberately small individually — their appeal is
   // that you can hold several at once (v19).
@@ -1845,10 +1886,24 @@ export const TUNING: TuningConfig = {
   academyUpkeepPerLevel: 20_000,
   // Youth scholarship wages: a raw ~50-overall kid earns £1k/wk, a senior-ready
   // ~72-overall prospect £5k/wk, scaled linearly between and clamped to the band.
-  academyWageMin: 1_000,
-  academyWageMax: 5_000,
-  academyWageOverallLo: 50,
-  academyWageOverallHi: 72,
+  academyWageByTier: {
+    bronze: 500,
+    silver: 1_000,
+    gold: 1_500,
+    diamond: 2_000,
+    obsidian: 3_000,
+    legacy: 5_000,
+    platinum: 2_000, // pre-v1.53 alias — priced as what it migrates to (diamond)
+  },
+  prospectSignFeeByTier: {
+    bronze: 1_000_000,
+    silver: 2_000_000,
+    gold: 3_000_000,
+    diamond: 5_000_000,
+    obsidian: 7_000_000,
+    legacy: 10_000_000,
+    platinum: 5_000_000, // pre-v1.53 alias — priced as diamond
+  },
 
   intakeClassBase: 3,
   intakeClassPerLevel: 0.5,
@@ -1993,6 +2048,14 @@ export const TUNING: TuningConfig = {
   scoutWagePerStar: 1_600,
   scoutFeePerStar: 55_000,
   scoutMaxHireable: 10, // v1.68: scoutNetworkBase 3 + 7 upgrade levels
+
+  scoutTripCost: {
+    home: { upfront: 100_000, weekly: 50_000 },
+    region: { upfront: 150_000, weekly: 50_000 },
+    continent: { upfront: 200_000, weekly: 75_000 },
+    overseas: { upfront: 250_000, weekly: 100_000 },
+  },
+  scoutTripWeeksPerMonth: 4,
 
   loanMaxAge: 21,
   loanWeeklyChance: 0.35,

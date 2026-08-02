@@ -364,3 +364,116 @@ export function clubAllTimeRecords(state: GameState, teamId: string) {
     cleanSheets: rows.filter((r) => r.cleanSheets > 0).sort((a, b) => b.cleanSheets - a.cleanSheets).slice(0, 10),
   };
 }
+
+// ── One player's whole career, in one line (v1.86) ────────────────────────
+
+/** A player's career rolled up across every season row he has. */
+export interface CareerSummary {
+  /** Seasons with at least one appearance recorded. */
+  seasons: number;
+  apps: number;
+  goals: number;
+  assists: number;
+  cleanSheets: number;
+  /** Appearance-weighted mean of the per-season averages — a mean of means
+   * would over-weight a two-game cameo against a full campaign. Zero when he
+   * has never played. */
+  avgRating: number;
+  /** Every award won, most recent first, de-duplicated with a count. */
+  awards: { name: string; count: number }[];
+  /** Distinct clubs he played for, in the order he played for them. */
+  clubs: { id?: string; name: string }[];
+  /** First and last season he appears in, or null if he has no rows yet. */
+  span: { from: number; to: number } | null;
+  /** His best recorded overall — the peak of the career, not today's rating.
+   * Read from the stored per-season start overalls and his live rating, so a
+   * declining veteran is still remembered at his height. */
+  peakOverall: number;
+}
+
+/**
+ * Roll one player's stored career rows into totals.
+ *
+ * Lives here rather than in a component because it is a fact about the save's
+ * cold data, and more than one surface wants it — the Hall of Fame's summary
+ * and, eventually, the profile's own header. `includeCurrent` folds in the
+ * running season stats that haven't been compressed into a row yet, which is
+ * what a living player's card should show; a retiree simply has none.
+ */
+export function careerSummary(
+  state: GameState,
+  playerId: string,
+  includeCurrent = true
+): CareerSummary {
+  const rows = state.careers[playerId]?.seasons ?? [];
+  const p = state.players[playerId];
+
+  let apps = 0;
+  let goals = 0;
+  let assists = 0;
+  let cleanSheets = 0;
+  let ratingWeight = 0;
+  let ratingSum = 0;
+  let peakOverall = p?.overall ?? 0;
+  const awardCounts = new Map<string, number>();
+  const clubs: { id?: string; name: string }[] = [];
+  const seenSeasons = new Set<number>();
+
+  for (const row of rows) {
+    apps += row.apps;
+    goals += row.goals;
+    assists += row.assists;
+    cleanSheets += row.cleanSheets ?? 0;
+    if (row.avgRating > 0 && row.apps > 0) {
+      ratingSum += row.avgRating * row.apps;
+      ratingWeight += row.apps;
+    }
+    if (typeof row.startOverall === "number" && row.startOverall > peakOverall) {
+      peakOverall = row.startOverall;
+    }
+    for (const award of row.awards ?? []) {
+      awardCounts.set(award, (awardCounts.get(award) ?? 0) + 1);
+    }
+    // A season can hold several competition rows; only the club spell and the
+    // season count should collapse across them.
+    if (row.apps > 0) seenSeasons.add(row.season);
+    if (clubs[clubs.length - 1]?.name !== row.clubName) {
+      clubs.push({ id: row.clubId, name: row.clubName });
+    }
+  }
+
+  if (includeCurrent && p && !p.retired) {
+    apps += p.stats.apps;
+    goals += p.stats.goals;
+    assists += p.stats.assists;
+    cleanSheets += p.stats.cleanSheets ?? 0;
+    if (p.stats.apps > 0) {
+      seenSeasons.add(state.season);
+      const rating = p.stats.apps > 0 ? p.stats.ratingSum / p.stats.apps : 0;
+      if (rating > 0) {
+        ratingSum += rating * p.stats.apps;
+        ratingWeight += p.stats.apps;
+      }
+    }
+    const club = p.clubId ? state.teams[p.clubId] : undefined;
+    if (club && clubs[clubs.length - 1]?.name !== club.name) {
+      clubs.push({ id: club.id, name: club.name });
+    }
+  }
+
+  const seasonNumbers = rows.map((r) => r.season);
+  return {
+    seasons: seenSeasons.size,
+    apps,
+    goals,
+    assists,
+    cleanSheets,
+    avgRating: ratingWeight > 0 ? ratingSum / ratingWeight : 0,
+    awards: [...awardCounts.entries()].map(([name, count]) => ({ name, count })),
+    clubs,
+    span: seasonNumbers.length
+      ? { from: Math.min(...seasonNumbers), to: Math.max(...seasonNumbers) }
+      : null,
+    peakOverall,
+  };
+}

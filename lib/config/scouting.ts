@@ -439,6 +439,34 @@ export function locateTarget(id: ScoutRegion): { continent: string; region: stri
   return null;
 }
 
+/** Which continent a COUNTRY code sits in, or null if the tree doesn't carry it.
+ * Used to price a scouting trip against the manager's own country (v1.85). */
+export function continentOfCountry(nat: string): string | null {
+  for (const continent of SCOUT_WORLD) {
+    for (const region of continent.regions) {
+      if (region.countries.some((c) => c.id === nat)) return continent.id;
+    }
+  }
+  return null;
+}
+
+/** Whether `id` names a whole continent in the tree (as opposed to a country or
+ * a sub-region). Broad targets are priced at their dearest reachable band. */
+export function isContinentTarget(id: ScoutRegion): boolean {
+  return SCOUT_WORLD.some((c) => c.id === id);
+}
+
+/** The sub-region a target names, or null when it names something else (a
+ * country, a continent, or Worldwide). */
+export function subRegionOf(id: ScoutRegion): { continent: string; region: string } | null {
+  for (const continent of SCOUT_WORLD) {
+    for (const region of continent.regions) {
+      if (region.id === id) return { continent: continent.id, region: region.id };
+    }
+  }
+  return null;
+}
+
 /** Migration helper. Covers both the original three-value ScoutRegion
  * ("Britain"/"Europe"/"World") and the v5–v16 country-name targets, which used
  * full names ("England", "Spain") where the tree now keys on nationality codes. */

@@ -235,36 +235,97 @@ export function overallFromAttrs(attrs: Attributes, primaryPos: Pos): number {
  *
  * Clamping at 1/99 means an extreme target may not be reachable exactly, so a
  * few corrective passes run over whatever still has room.
+ *
+ * ── `bias`: whose shape the residual takes (v1.85) ────────────────────────
+ * The distribution above is the right default for GENERATION — "make a striker
+ * who rates 72" should produce a generic striker. It is the wrong one for
+ * GROWTH, and that turned out to be why a training plan could never change who a
+ * player was.
+ *
+ * Measured on a 17-year-old Sniper put on a Speedster plan: one season's growth
+ * moved 12 attribute points through the plan and then **46 points through this
+ * function** — 79% of all movement — distributed along the position's overall
+ * weights. Because those weights reward whatever the position rewards, and the
+ * player was already shaped that way, the fit poured its points straight back
+ * into his existing identity: finishing +9 on a plan whose signature attributes
+ * are acceleration and sprint speed. He grew 20 overall across 13 seasons on
+ * that plan and never once read as a Speedster.
+ *
+ * So the residual now takes an optional shape. Passing a `bias` row (a training
+ * plan's weights) distributes the gap in proportion to `positionWeight × bias`
+ * instead of `positionWeight` alone: still concentrated where the position
+ * actually rewards movement — a striker's rating must come from striker
+ * attributes, and an unweighted attribute is still never touched — but tilted
+ * toward what the plan trains. The rating the caller asked for is still hit
+ * exactly; only its INTERNAL composition changes.
+ *
+ * Omitting `bias` keeps the old behaviour byte for byte, which is what every
+ * generation path wants and what `verify:overall` checks.
  */
-export function fitAttrsToOverall(attrs: Attributes, primaryPos: Pos, target: number): Attributes {
+/**
+ * How hard a biased fit leans toward the training plan (v1.85).
+ *
+ * The plan's signature attributes are moved `1 + this` times as hard as the ones
+ * it ignores. Swept over 600 world-generated players × every plan valid at their
+ * position, counting how many convert their derived archetype inside a 15-season
+ * career:
+ *
+ *   tilt   0    1    3    6   10   16   24
+ *   16-18 22%  29%  34%  40%  42%  44%  44%
+ *   19-21 18%  22%  26%  30%  33%  34%  35%
+ *
+ * The curve is a knee, not a line: past ~10 the fit is already pulling as hard as
+ * the position row allows and more tilt buys nothing. 6 takes most of the
+ * available gain — it roughly doubles the old rate — while leaving the residual
+ * recognisably position-shaped, which matters because this same function is what
+ * keeps a striker's rating made of striker attributes. Going higher trades that
+ * realism for a couple of points of conversion rate.
+ */
+const FIT_PLAN_TILT = 6;
+
+export function fitAttrsToOverall(
+  attrs: Attributes,
+  primaryPos: Pos,
+  target: number,
+  bias?: Partial<Record<AttrKey, number>>
+): Attributes {
   const w = ATTR_WEIGHTS[primaryPos] ?? ATTR_WEIGHTS.CM;
   const out = { ...attrs };
 
-  // Σ(weight²) over the positively-weighted attributes: the rating change
-  // produced by a proportional shift of one unit.
-  let sumSq = 0;
+  // The effective weight each attribute is moved by. Without a bias this is the
+  // position row itself (generation's behaviour); with one it is the position
+  // row tilted toward what the plan trains. The bias never introduces an
+  // attribute the position doesn't reward — multiplying by the position weight
+  // keeps a goalkeeping stat off a striker no matter what the plan says.
+  const eff = {} as Record<string, number>;
+  let maxBias = 0;
+  if (bias) for (const k of ATTR_KEYS) maxBias = Math.max(maxBias, bias[k] ?? 0);
   for (const k in w) {
-    const weight = w[k as AttrKey] ?? 0;
-    if (weight > 1e-6) sumSq += weight * weight;
+    const key = k as AttrKey;
+    const weight = w[key] ?? 0;
+    if (weight <= 1e-6) continue;
+    // A signature attribute of the plan is pulled `1 + FIT_PLAN_TILT` times as
+    // hard as one the plan ignores. See that constant for how the number was
+    // chosen; `npm run verify:conversion` is what holds it honest.
+    const tilt = bias && maxBias > 0 ? 1 + FIT_PLAN_TILT * ((bias[key] ?? 0) / maxBias) : 1;
+    eff[key] = weight * tilt;
   }
-  if (sumSq <= 0) return out;
 
-  // Normalise so the LARGEST weight moves by roughly the full overall gap; this
-  // keeps the shift on a sane scale regardless of how a row is distributed.
-  let maxW = 0;
-  for (const k in w) maxW = Math.max(maxW, w[k as AttrKey] ?? 0);
-  if (maxW <= 0) return out;
+  // Σ(positionWeight × effectiveWeight): the rating change produced by shifting
+  // every attribute one unit of `scale`. It pairs the two rows because the MOVE
+  // is `scale × eff` while the RATING responds by `positionWeight ×` that.
+  let sumSq = 0;
+  for (const k in eff) sumSq += (w[k as AttrKey] ?? 0) * eff[k];
+  if (sumSq <= 0) return out;
 
   for (let pass = 0; pass < 4; pass++) {
     const gap = target - overallFromAttrs(out, primaryPos);
     if (gap === 0) break;
     const scale = gap / sumSq;
     let moved = false;
-    for (const k in w) {
+    for (const k in eff) {
       const key = k as AttrKey;
-      const weight = w[key];
-      if (!weight || weight <= 1e-6) continue;
-      const next = Math.max(1, Math.min(99, Math.round(out[key] + scale * weight)));
+      const next = Math.max(1, Math.min(99, Math.round(out[key] + scale * eff[key])));
       if (next !== out[key]) moved = true;
       out[key] = next;
     }

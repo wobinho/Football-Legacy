@@ -592,8 +592,8 @@ function TrainingPlansTab() {
                 </span>
                 <span className="hidden justify-center sm:flex">{phaseChip(phase)}</span>
                 <span className="hidden justify-center text-center sm:flex">
-                  {season && season.delta > 0 ? (
-                    <span className="tnum text-sm font-semibold text-win">+{season.delta}</span>
+                  {season && season.shown > 0 ? (
+                    <span className="tnum text-sm font-semibold text-win">+{season.shown}</span>
                   ) : last && last.toOverall !== last.fromOverall ? (
                     <span
                       className={`text-[11px] tnum ${last.toOverall > last.fromOverall ? "text-win" : "text-loss"}`}
@@ -665,10 +665,10 @@ function TrainingPlansTab() {
                       <div className="mb-2 flex items-center gap-2 text-[10px] uppercase tracking-widest text-faint">
                         This season {phaseChip(phase)}
                       </div>
-                      {season && season.delta > 0 ? (
+                      {season && season.shown > 0 ? (
                         <div className="space-y-1 text-sm">
-                          <Row k="Projected OVR" v={`${p.overall} → ${p.overall + season.delta}`} good />
-                          <Row k="Est. growth this season" v={`≈ +${season.delta}`} />
+                          <Row k="Projected OVR" v={`${p.overall} → ${p.overall + season.shown}`} good />
+                          <Row k="Est. growth this season" v={`≈ +${season.shown}`} />
                           <p className="pt-1 text-[11px] leading-snug text-faint">
                             An estimate for the coming season only, at full minutes with your current coach &amp; facilities.
                             More game time, a better Development Coach, or a higher Training Centre all lift it.
@@ -794,7 +794,11 @@ const GROWTH_SORTS: { key: GrowthSort; label: string }[] = [
 // hard numbers beside it, and on a phone it ate a full row per player. Total /
 // Season / Per-yr carry the same story in a form you can actually compare down
 // the column.
-const GROWTH_GRID = "md:grid-cols-[2.25rem_1fr_2.5rem_3.5rem_4.5rem_4.5rem_4.5rem]";
+// The seasons-on-record line used to sit UNDER the name as a second line inside
+// the player button (v1.85 moves it out). Two lines of text in one cell set the
+// height of every row in the table, for a fact that is a single small number —
+// so it is a column of its own now, and a row is one line tall.
+const GROWTH_GRID = "md:grid-cols-[2.25rem_1fr_3.5rem_2.5rem_3.5rem_4.5rem_4.5rem_4.5rem]";
 
 function GrowthTab() {
   const game = useGame((s) => s.game)!;
@@ -915,6 +919,9 @@ function GrowthTab() {
         >
           <span>Pos</span>
           <span>Player</span>
+          <span className="text-center" title="Completed seasons on record for this player">
+            Seasons
+          </span>
           <span className="text-center">Age</span>
           <span className="text-center">OVR</span>
           <span className="text-center" title="Overall gained since he was first recorded">
@@ -938,10 +945,15 @@ function GrowthTab() {
                     <Flag nat={p.nationality} size={11} />
                     <span className="truncate font-medium transition-colors group-hover:text-gold">{displayFullName(p)}</span>
                   </span>
-                  <span className="text-[11px] text-faint">
-                    {g.seasons > 0 ? `${g.seasons} season${g.seasons === 1 ? "" : "s"} on record` : "First season"}
-                  </span>
                 </button>
+                {/* Its own column from `md` up; on a phone, where the grid is a
+                    stack rather than a table, it stays the caption it was. */}
+                <span
+                  className="shrink-0 text-center tnum text-sm text-dim"
+                  title={g.seasons > 0 ? `${g.seasons} completed season${g.seasons === 1 ? "" : "s"} on record` : "First season on record"}
+                >
+                  {g.seasons > 0 ? g.seasons : <span className="text-faint">—</span>}
+                </span>
                 <span className="shrink-0 text-center tnum text-sm text-dim">
                   {p.age}
                   <span className="md:hidden">y</span>

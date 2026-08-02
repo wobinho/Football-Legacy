@@ -426,7 +426,16 @@ function distributeAttrs(p: PlayerBio, attrDelta: number, targetOverall: number,
   }
 
   // Settle onto the rating the curve intended.
-  p.attrs = fitAttrsToOverall(p.attrs, pos, target);
+  //
+  // v1.85: the settle is biased by the training plan when there IS one. This is
+  // the step that used to undo the plan's work — it moved roughly four times as
+  // many attribute points as the shares above, distributed along the position's
+  // overall weights, which meant it reliably fed the identity the player already
+  // had. Growth was never the constraint on converting a player; this was. On
+  // GROWTH the plan steers; on DECLINE it deliberately does not, because a
+  // player losing points should lose them the way his position says, not have
+  // his training plan quietly reshape him on the way down.
+  p.attrs = fitAttrsToOverall(p.attrs, pos, target, plan && attrDelta > 0 ? profile : undefined);
 }
 
 /** Applied at season rollover to every player in the world (bulk, §4). */
@@ -643,6 +652,23 @@ export function devPhase(p: PlayerBio, cfg: TuningConfig): DevPhase {
 }
 
 /**
+ * One season's projected growth, in two forms (v1.85).
+ *
+ * `delta` is EXACT and usually fractional — a prime season at 88 overall earns
+ * about 0.16 of a point. Anything that accumulates seasons (the conversion walk)
+ * must use it, because rounding each step to a whole number is what previously
+ * turned a slow-but-real climb into a permanent stall at age 27.
+ *
+ * `shown` is that same number rounded for DISPLAY, so a card can print "+1"
+ * without every caller re-deciding how to round. It is deliberately not the
+ * value any projection does arithmetic on.
+ */
+export interface SeasonGrowthEstimate {
+  delta: number;
+  shown: number;
+}
+
+/**
  * Estimated overall growth for the COMING SEASON only, at a given development
  * environment (the club's facilities multiplier) and training plan. Mirrors
  * developPlayer's growth branch at expected values (full-ish minutes). Bounded by
@@ -656,13 +682,13 @@ export function seasonGrowthEstimate(
   facilityMult = 1,
   plan?: TrainingPlanDef,
   eliteRelief = 0 // High Performance Center (v1.81)
-): { delta: number } | null {
+): SeasonGrowthEstimate | null {
   // Prime players (v1.51): they develop now, so they get a projection too. Same
   // shape as developPlayer's prime branch at a good-but-not-exceptional season.
   if (p.age > cfg.growthEndAge) {
     if (devPhase(p, cfg) !== "prime") return null;
     const headroom = primeHeadroom(p.overall, p.potential, cfg);
-    if (headroom <= 0) return { delta: 0 };
+    if (headroom <= 0) return { delta: 0, shown: 0 };
     // Assumes a solid campaign: rating ~0.3 over the pivot, near-full minutes.
     const earned =
       cfg.primeGrowthPerSeasonMax *
@@ -671,10 +697,20 @@ export function seasonGrowthEstimate(
       facilityMult *
       (plan?.growthMult ?? 1) *
       eliteResistMult(p.overall, cfg, eliteRelief);
-    return { delta: Math.max(0, Math.min(headroom, Math.round(earned))) };
+    // NOT rounded (v1.85). A prime season earns well under a point at any decent
+    // rating — 0.46 at 75 overall, 0.16 at 88 — so rounding here reported every
+    // player at 75+ as growing exactly ZERO from the day he turned 27, forever.
+    // The rollover has never rounded (it accumulates the fraction and settles the
+    // attribute line on the running total), so this wasn't a conservative
+    // estimate, it was a different answer than the simulation's. It is also what
+    // made a settled squad read as "no growth left" on every training plan: the
+    // conversion walk stalls the first time it sees a zero, and past 27 it always
+    // saw one. Callers that want whole points round at the point of DISPLAY.
+    const delta = Math.max(0, Math.min(headroom, earned));
+    return { delta, shown: Math.round(delta) };
   }
   const headroom = p.potential - p.overall; // hidden — used to bound, never shown
-  if (headroom <= 0) return { delta: 0 };
+  if (headroom <= 0) return { delta: 0, shown: 0 };
   const minutesFactor = 0.85;
   const ageBoost = ageGrowthMult(p.age, cfg);
   const planMult = plan?.growthMult ?? 1;
@@ -683,8 +719,11 @@ export function seasonGrowthEstimate(
   const base = cfg.growthPerSeasonMax * (0.35 + 0.65 * minutesFactor) * facilityMult * planMult * catchup * elite;
   // same 0.85 mid-point and 0.55 shape factor developPlayer applies
   const raw = base * ageBoost * 0.85 * 0.55;
-  const delta = Math.max(0, Math.min(headroom, Math.round(raw)));
-  return { delta };
+  // Unrounded, for the same reason as the prime branch above: an elite youngster's
+  // season is a fraction of a point, and rounding it to zero told the conversion
+  // walk he had stopped developing when the rollover would have moved him.
+  const delta = Math.max(0, Math.min(headroom, raw));
+  return { delta, shown: Math.round(delta) };
 }
 
 /**
@@ -851,9 +890,14 @@ export function archetypeConversionEta(
     const gains = seasonAttrFocus(sim, est.delta, plan);
     const next = { ...attrs };
     for (const k of ATTR_KEYS) next[k] = Math.min(99, next[k] + gains[k]);
-    attrs = next;
     overall += est.delta;
     age += 1;
+    // Mirror the rollover's settle, plan bias included (v1.85). Without this the
+    // projection walked a line the simulation never actually produces — it
+    // applied the focus gains raw and skipped the step that decides most of the
+    // movement, so the ETA was answering a different question than the one the
+    // manager's save would go on to resolve.
+    attrs = fitAttrsToOverall(next, pos, Math.round(overall), plan.weights);
 
     if (deriveArchetype(attrs, pos)?.id === target.id) {
       // The flip lands at that season's rollover, so the wait is the remainder

@@ -223,6 +223,33 @@ function FacilitiesTab() {
   );
 }
 
+/**
+ * The height every facility card starts at, built or not (v1.85).
+ *
+ * Four buildings side by side in a two-column grid used to be four different
+ * heights: an unbuilt card is a pitch and a price, a built one is two or three
+ * channels of arithmetic plus a star bar plus a slot summary. The result was a
+ * ragged grid where the amount of card told you nothing except how much text
+ * that particular row happened to carry — and worse, a facility LOOKED cheaper
+ * or smaller than its neighbour purely because it hadn't been built.
+ *
+ * So both states share this floor and both push their action bar to the bottom.
+ * The number is MEASURED rather than judged by eye. With the floor removed, the
+ * heights at 1440px wide are:
+ *
+ *   locked, all four            326–370px
+ *   built + grid collapsed      326px (Youth Academy) … 556px (Scouting Network)
+ *
+ * The Scouting Network is the tall one and sets the floor: two channel rows,
+ * each with its own label and four terms, plus the capability line the other
+ * three don't have. 560 clears it with a little slack for a longer channel label
+ * wrapping.
+ *
+ * Nothing that OPENS is constrained by it: a card with its slot grid expanded
+ * grows past the floor freely. It just never starts below it.
+ */
+const CARD_MIN_H = "min-h-[560px]";
+
 function FacilityPanel({ id }: { id: FacilityId }) {
   const game = useGame((s) => s.game)!;
   const unlock = useGame((s) => s.unlockFacility);
@@ -243,7 +270,7 @@ function FacilityPanel({ id }: { id: FacilityId }) {
     const short = spec.unlockCost - team.budget;
     return (
       <Section title={spec.name}>
-        <Card className="overflow-hidden border-dashed p-0">
+        <Card className={`flex flex-col overflow-hidden border-dashed p-0 ${CARD_MIN_H}`}>
           <FacilityBanner facility={id} height={150}>
             <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 px-5 pb-4 pt-10">
               <div>
@@ -262,7 +289,7 @@ function FacilityPanel({ id }: { id: FacilityId }) {
             </div>
           </FacilityBanner>
 
-          <div className="p-5">
+          <div className="flex flex-1 flex-col p-5">
             <p className="max-w-2xl text-sm leading-relaxed text-faint">{spec.blurb}</p>
             {/* Every channel the building would produce, at its unbuilt base —
                 the pitch has to name all of them, or a three-channel facility
@@ -283,7 +310,12 @@ function FacilityPanel({ id }: { id: FacilityId }) {
                 At level {spec.unlockAtLevel.level}: {spec.unlockAtLevel.label} — {spec.unlockAtLevel.blurb}
               </p>
             )}
-            <div className="mt-5 flex flex-wrap items-center gap-3">
+            {/* The build button sits on the card's floor, not directly under
+                whatever the blurb happened to end at — so a short pitch and a
+                long one still put their one action in the same place. Spacer
+                rather than `mt-auto`, for the reason given on the built card. */}
+            <div className="mt-5 flex-1" aria-hidden />
+            <div className="flex flex-wrap items-center gap-3">
               <GoldButton
                 onClick={() => unlock(id)}
                 disabled={team.budget < spec.unlockCost}
@@ -312,7 +344,7 @@ function FacilityPanel({ id }: { id: FacilityId }) {
       title={spec.name}
       right={<span className="text-xs text-faint">Level {level} of {maxLevel}</span>}
     >
-      <Card className="overflow-hidden border-gold p-0">
+      <Card className={`flex flex-col overflow-hidden border-gold p-0 ${CARD_MIN_H}`}>
         {/* The masthead: the building itself, with the one number it produces
             sitting on it. Everything below this line is the arithmetic behind
             that number — the screen's rule made into its layout. */}
@@ -344,7 +376,7 @@ function FacilityPanel({ id }: { id: FacilityId }) {
           </div>
         </FacilityBanner>
 
-        <div className="p-5">
+        <div className="flex flex-1 flex-col p-5">
           {/* The sum that produced the headline, on its own plinth directly
               under it. Never a total without its arithmetic. */}
           {/* One sum per channel. A multi-channel facility gets a labelled row
@@ -362,6 +394,21 @@ function FacilityPanel({ id }: { id: FacilityId }) {
                     </span>
                   )}
                   <Term label="Base" value={formatChannel(ch.unit, ch.base)} muted={ch.base === 0} />
+                  {/* The level term only appears for a channel that HAS one —
+                      one channel in the table does (v1.85), and printing a
+                      permanent "+0" on every other facility would advertise a
+                      lever that isn't there. */}
+                  {source.levelEffect ? (
+                    <>
+                      <span className="text-faint">+</span>
+                      <Term
+                        label={`Level (${level})`}
+                        value={formatChannel(ch.unit, ch.levels)}
+                        muted={ch.levels === 0}
+                        title={`${level - 1} level${level - 1 === 1 ? "" : "s"} above the first, each worth ${formatChannel(ch.unit, source.levelEffect)} ${ch.label}`}
+                      />
+                    </>
+                  ) : null}
                   <span className="text-faint">+</span>
                   <Term
                     label={`Stars (${eff.totalStars})`}
@@ -438,7 +485,14 @@ function FacilityPanel({ id }: { id: FacilityId }) {
               wraps to a second row instead of squeezing six cards into one. */}
           <SlotGrid id={id} />
 
-          <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-line/60 pt-4">
+          {/* The flexible gap, as its own element rather than `mt-auto` on the
+              bar below: a card grown past CARD_MIN_H (an open slot grid) has no
+              slack left, and an auto margin would collapse to zero and butt the
+              bar straight against the grid. A spacer with a minimum keeps the
+              breathing room in both cases. */}
+          <div className="mt-5 flex-1" aria-hidden />
+
+          <div className="flex flex-wrap items-center gap-3 border-t border-line/60 pt-4">
             {cost !== null ? (
               <>
                 <GoldButton
@@ -461,8 +515,15 @@ function FacilityPanel({ id }: { id: FacilityId }) {
                   </span>
                 ) : (
                   <span className="text-xs text-faint">
-                    Buys one more staff slot ({slotCount(team, id)} → {spec.slotsByLevel[level]}). The base
-                    effect doesn&apos;t change — staff are what raise it.
+                    Buys one more staff slot ({slotCount(team, id)} → {spec.slotsByLevel[level]})
+                    {describeLevelStep(spec) ? (
+                      <>
+                        {" "}and {describeLevelStep(spec)}
+                      </>
+                    ) : null}
+                    . {describeLevelStep(spec)
+                      ? "Everything else comes from who works in them."
+                      : "The base effect doesn't change — staff are what raise it."}
                   </span>
                 )}
               </>
@@ -1264,6 +1325,18 @@ function describeStarStep(spec: FacilitySpec): string {
     spec.channels
       .filter((ch) => ch.starEffect > 0)
       .map((ch) => `${formatChannel(ch.unit, ch.starEffect)} ${ch.label}`)
+  );
+}
+
+/** What one LEVEL buys on its own, across every channel that declares a
+ * `levelEffect` — empty for every facility that doesn't (v1.85), which is what
+ * lets the upgrade copy keep saying "staff are what raise it" where that is
+ * still the whole truth. */
+function describeLevelStep(spec: FacilitySpec): string {
+  return joinList(
+    spec.channels
+      .filter((ch) => (ch.levelEffect ?? 0) > 0)
+      .map((ch) => `${formatChannel(ch.unit, ch.levelEffect!)} ${ch.label}`)
   );
 }
 

@@ -90,13 +90,13 @@ for (const spec of FACILITY_SPECS) {
     // allowed is a channel that scales by nothing at all, or one that scales
     // negatively — a facility must never make you worse.
     check(
-      `${spec.name}/${ch.id}: scales with staff`,
-      ch.starEffect > 0 || ch.badgeEffect > 0,
-      "neither stars nor badges move it"
+      `${spec.name}/${ch.id}: grows with something`,
+      ch.starEffect > 0 || ch.badgeEffect > 0 || (ch.levelEffect ?? 0) > 0,
+      "neither levels, stars nor badges move it"
     );
     check(
       `${spec.name}/${ch.id}: no negative terms`,
-      ch.base >= 0 && ch.starEffect >= 0 && ch.badgeEffect >= 0
+      ch.base >= 0 && ch.starEffect >= 0 && ch.badgeEffect >= 0 && (ch.levelEffect ?? 0) >= 0
     );
     check(`${spec.name}/${ch.id}: badgeTiersPerStep is a positive integer`, Number.isInteger(ch.badgeTiersPerStep) && ch.badgeTiersPerStep >= 1);
   }
@@ -117,6 +117,33 @@ check(
   "facility ids are unique",
   new Set(FACILITY_SPECS.map((f) => f.id)).size === FACILITY_SPECS.length
 );
+
+// The level lever is an EXCEPTION, and this is what keeps it one (v1.85).
+//
+// `levelEffect` lets a channel grow with the building rather than with the
+// people in it — which is the shape the whole facilities rework exists to
+// replace. One facility is allowed it, because one facility is genuinely a
+// DEPARTMENT you build bigger rather than an effect you staff: the Scouting
+// Network's headcount and the reach that comes with it. If a channel on any
+// other facility ever grows this way, that should be a decision someone argues
+// for in a diff, not a habit that creeps back one row at a time.
+{
+  const SANCTIONED = ["scoutingNetwork/maxScouts", "scoutingNetwork/scoutSpeed"];
+  const withLevels = FACILITY_SPECS.flatMap((spec) =>
+    spec.channels.filter((ch) => (ch.levelEffect ?? 0) > 0).map((ch) => `${spec.id}/${ch.id}`)
+  );
+  check(
+    `only the sanctioned channels grow by LEVEL (${SANCTIONED.join(", ")})`,
+    withLevels.length === SANCTIONED.length && withLevels.every((k) => SANCTIONED.includes(k)),
+    `got ${withLevels.join(", ") || "none"}`
+  );
+  // And no facility other than the Scouting Network gets one at all — the check
+  // above would pass a re-homing that kept the count the same.
+  check(
+    "no facility but the Scouting Network has a level term",
+    withLevels.every((k) => k.startsWith("scoutingNetwork/"))
+  );
+}
 
 console.log("\nBadge ladder");
 check(
@@ -384,6 +411,13 @@ function chan(team: Team, id: Parameters<typeof facilityEffect>[1], channelId: s
   return ch;
 }
 
+/** Staff slots a facility's table offers at a given level — read off the spec
+ * rather than through a Team, so a ladder can be asserted without building one. */
+function spec_slots(id: string, level: number): number {
+  const spec = FACILITY_SPECS.find((f) => f.id === id)!;
+  return spec.slotsByLevel[level - 1];
+}
+
 /** A facility at max level staffed by six legacy-badged 5-stars — the ceiling
  * every facility's worked example is stated at. */
 function maxedTeam(id: "youthAcademy" | "scoutingNetwork"): Team {
@@ -444,27 +478,84 @@ console.log("\nYouth Academy — the design brief's worked example");
   eq("maxed: prospect value (0 + 3×5 + 1×18)", chan(team, "youthAcademy", "prospectValue").total, 33);
 }
 
-console.log("\nScouting Network — the design brief's worked example");
+console.log("\nScouting Network — the design brief's worked example (v1.85)");
 {
+  // Unlocking is worth +1 scout over the unbuilt baseline and +5% speed. The
+  // baseline itself is `scoutNetworkBase`, checked in the fallbacks section
+  // below — this asserts the facility's own level-1 value.
   const team = makeTeam();
   team.facilities = { scoutingNetwork: { level: 1 } };
-  eq("base: max scouts", chan(team, "scoutingNetwork", "maxScouts").total, 2);
-  eq("base: scouting speed", chan(team, "scoutingNetwork", "scoutSpeed").total, 0);
+  eq("unlock: max scouts", chan(team, "scoutingNetwork", "maxScouts").total, 3);
+  eq("unlock: scouting speed", chan(team, "scoutingNetwork", "scoutSpeed").total, 5);
+  check(
+    "unlocking is worth exactly one more scout than not building it",
+    chan(team, "scoutingNetwork", "maxScouts").total === TUNING.scoutNetworkBase + 1,
+    `facility says ${chan(team, "scoutingNetwork", "maxScouts").total}, baseline is ${TUNING.scoutNetworkBase}`
+  );
 }
 {
+  // The level ladder, rung by rung, with nobody assigned — the building alone.
+  const expected: [number, number, number][] = [
+    // level, max scouts, speed
+    [1, 3, 5],
+    [2, 4, 10],
+    [3, 5, 15],
+    [4, 6, 20],
+    [5, 7, 25],
+  ];
+  for (const [level, scouts, speed] of expected) {
+    const team = makeTeam();
+    team.facilities = { scoutingNetwork: { level } };
+    eq(`level ${level}, unstaffed: max scouts`, chan(team, "scoutingNetwork", "maxScouts").total, scouts);
+    eq(`level ${level}, unstaffed: scouting speed`, chan(team, "scoutingNetwork", "scoutSpeed").total, speed);
+    eq(`level ${level}: staff slots`, spec_slots("scoutingNetwork", level), level + 1);
+  }
+}
+{
+  // Stars move speed and NOTHING else. A star step is +3%; the headcount must
+  // not budge, because a better scout is not an extra job.
   const team = makeTeam();
   team.facilities = { scoutingNetwork: { level: 2 } };
   team.staffRoster = [
     { ...staff(1, 4), assignedTo: "scoutingNetwork" as const, badges: [] },
     { ...staff(2, 2), assignedTo: "scoutingNetwork" as const, badges: [] },
   ];
-  eq("one 6-star step: max scouts", chan(team, "scoutingNetwork", "maxScouts").total, 3);
-  eq("one 6-star step: scouting speed", chan(team, "scoutingNetwork", "scoutSpeed").total, 5);
+  eq("one 6-star step: scouting speed (10 + 3)", chan(team, "scoutingNetwork", "scoutSpeed").total, 13);
+  eq("one 6-star step: max scouts is unmoved by stars", chan(team, "scoutingNetwork", "maxScouts").total, 4);
 }
 {
+  // The badge track pays per SINGLE tier here (0.75%/tier), unlike the Youth
+  // Academy's two-tier divisor — so one bronze badge IS worth something. That
+  // asymmetry is deliberate (a rate has no rounding problem a capacity does),
+  // and this is the check that would catch it being "fixed" back.
+  const team = makeTeam();
+  team.facilities = { scoutingNetwork: { level: 1 } };
+  team.staffRoster = [
+    {
+      ...staff(1, 1),
+      assignedTo: "scoutingNetwork" as const,
+      badges: [{ facility: "scoutingNetwork" as const, seasons: 1, tier: "bronze" as const }],
+    },
+  ];
+  eq("one bronze badge (1 tier) is worth 0.75%", chan(team, "scoutingNetwork", "scoutSpeed").total, 5.75);
+  eq("...and buys no extra scout", chan(team, "scoutingNetwork", "maxScouts").total, 3);
+}
+{
+  // The ceiling the brief states: level 5, six legacy-badged 5-stars.
+  //   scouts  3 + 1×4 levels = 7
+  //   speed   5 + 5×4 levels + 3×5 star steps + 0.75×36 tiers = 25 + 15 + 27 = 67
   const team = maxedTeam("scoutingNetwork");
-  eq("maxed: max scouts (2 + 1×5, stars only)", chan(team, "scoutingNetwork", "maxScouts").total, 7);
-  eq("maxed: scouting speed (0 + 5×5 + 1×18)", chan(team, "scoutingNetwork", "scoutSpeed").total, 43);
+  eq("maxed: max scouts (3 + 1×4 levels)", chan(team, "scoutingNetwork", "maxScouts").total, 7);
+  eq("maxed: scouting speed (25 levels + 15 stars + 27 badges)", chan(team, "scoutingNetwork", "scoutSpeed").total, 67);
+
+  const eff = chan(team, "scoutingNetwork", "scoutSpeed");
+  eq("maxed: the level term alone", eff.base + eff.levels, 25);
+  eq("maxed: the star term alone", eff.stars, 15);
+  eq("maxed: the badge term alone", eff.badges, 27);
+
+  // And the ceiling has to survive the trip through the consuming function —
+  // the engine reads a multiplier, not a percentage.
+  eq("maxed: scout speed multiplier is 0.33", scoutSpeedMultiplier(makeState(team)), 0.33);
 }
 {
   // The capability gate: the brief's auto-filter arrives at level 5 and not before.

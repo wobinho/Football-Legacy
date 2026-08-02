@@ -28,6 +28,7 @@ import {
 import { facilityLevel } from "@/lib/facilities";
 import { clubAllTimeRecords, clubPlayerHistory } from "@/lib/recordbook";
 import { academyGraduates } from "@/lib/academy";
+import { TIER_LABEL, TRAVEL_BAND_LABEL } from "@/lib/scouts";
 import {
   SPONSOR_SLOTS,
   activeMajorCount,
@@ -442,7 +443,11 @@ function FinancesTab() {
             label: "Academy wages",
             amount: -b.academyWages,
             items: academyWageBreakdown,
-            note: `Youth scholarships — each prospect earns ${formatMoney(TUNING.academyWageMin)}–${formatMoney(TUNING.academyWageMax)}/wk on youth terms, scaled by ability.`,
+            note: `Youth scholarships — a prospect's badge sets his terms, from ${formatMoney(
+              TUNING.academyWageByTier[TUNING.prospectTierOrder[0]]
+            )}/wk at ${TIER_LABEL[TUNING.prospectTierOrder[0]]} up to ${formatMoney(
+              TUNING.academyWageByTier[TUNING.prospectTierOrder[TUNING.prospectTierOrder.length - 1]]
+            )}/wk at ${TIER_LABEL[TUNING.prospectTierOrder[TUNING.prospectTierOrder.length - 1]]}.`,
           },
         ]
       : []),
@@ -452,6 +457,25 @@ function FinancesTab() {
             label: "Academy upkeep",
             amount: -b.academyUpkeep,
             note: `Level ${facilityLevel(team, "youthAcademy")} Youth Academy × ${formatMoney(TUNING.academyUpkeepPerLevel)}/level — the facility running cost.`,
+          },
+        ]
+      : []),
+    // Retainers on scouts out on open-ended briefs (v1.85). A fixed-duration
+    // trip paid in full at send time and never shows here, which is exactly the
+    // distinction this line has to make legible.
+    ...(b.scoutTrips > 0
+      ? [
+          {
+            label: "Scouting trips",
+            amount: -b.scoutTrips,
+            items: game.academy.assignments
+              .filter((a) => (a.weeklyCost ?? 0) > 0)
+              .map((a) => ({
+                label: game.teams[game.userTeamId].scouts?.find((s) => s.id === a.scoutId)?.name ?? "Scout",
+                amount: -(a.weeklyCost ?? 0),
+                detail: `${a.region} · ${a.travelBand ? TRAVEL_BAND_LABEL[a.travelBand] : "assignment"} · until recalled`,
+              })),
+            note: "Open-ended assignments bill weekly. A fixed-length trip pays its retainer up front and doesn't appear here — recall a scout to stop the meter.",
           },
         ]
       : []),

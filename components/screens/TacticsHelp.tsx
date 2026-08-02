@@ -40,8 +40,10 @@ import {
   type ArchetypeClass,
   type InstructionPrefs,
 } from "@/lib/config/archetype";
+import { ATTR_META, type AttrKey } from "@/lib/config/attributes";
 import { styleLabel } from "@/lib/config/formations";
 import { POS_ORDER } from "@/lib/config/positions";
+import { TRAINING_PLAN_MAP } from "@/lib/config/training";
 import { TUNING } from "@/lib/config/tuning";
 import { ArchetypeIcon, Card, ClassDot, Section } from "../ui";
 
@@ -525,6 +527,45 @@ function Instructions() {
 
 // ── Chapter: the archetype browser ─────────────────────────────────────────
 
+/**
+ * The attributes that DERIVE an archetype.
+ *
+ * Read straight off the archetype's training plan, because that is literally
+ * what `deriveArchetype` scores against: `distinctiveScore` weights every
+ * attribute by how much more this plan wants it than its four siblings do, and
+ * the tiers a plan authors are its four primaries (share 1.0) and four
+ * secondaries (0.6). Everything else sits at the flat `OTHER_SHARE` baseline and
+ * carries no signal about which archetype a player is, so it is correctly absent
+ * here. Restating a hand-written attribute list per archetype would be 45 more
+ * chances to disagree with the engine — see this file's header rule.
+ */
+function DerivedFrom({ planId }: { planId: string }) {
+  const plan = TRAINING_PLAN_MAP[planId];
+  if (!plan) return null;
+
+  const chip = (k: AttrKey, core: boolean) => (
+    <span
+      key={k}
+      title={`${ATTR_META[k].name} — ${core ? "core" : "supporting"}`}
+      className={`rounded px-1.5 py-0.5 text-[10px] font-medium tracking-wide ${
+        core
+          ? "border border-gold-lo/45 bg-gold-lo/10 text-gold"
+          : "border border-line bg-raised text-dim"
+      }`}
+    >
+      {ATTR_META[k].short}
+    </span>
+  );
+
+  return (
+    <span className="mt-1.5 flex flex-wrap items-center gap-1">
+      <span className="mr-0.5 text-[9.5px] uppercase tracking-widest text-faint">Derived from</span>
+      {plan.primary.map((k) => chip(k, true))}
+      {plan.secondary.map((k) => chip(k, false))}
+    </span>
+  );
+}
+
 function Roster() {
   const [pos, setPos] = useState<"ALL" | (typeof POS_ORDER)[number]>("ALL");
   const [cls, setCls] = useState<"ALL" | ArchetypeClass>("ALL");
@@ -543,7 +584,16 @@ function Roster() {
     <div className="space-y-3">
       <p className="text-[12px] leading-relaxed text-dim">
         All 45 roles, and what each one wants from the dials. Filter by the position you are trying
-        to fill, or by the class you are trying to stack.
+        to fill, or by the class you are trying to stack. The right-hand column names two real
+        footballers each role is recognisably modelled on — illustration only, nothing in the
+        simulation reads them.
+      </p>
+      <p className="text-[12px] leading-relaxed text-dim">
+        <b className="text-ink">Derived from</b> lists the attributes that decide whether a player
+        reads as this role — <span className="text-gold">gold</span> are its four core attributes,
+        grey the four supporting ones. An archetype is never stored: it is scored off these against
+        the four rival roles at the same position, so a player earns the one whose attributes stand
+        out most against his own average. Every other attribute is neutral for this purpose.
       </p>
 
       <div className="flex flex-wrap items-center gap-1.5">
@@ -577,7 +627,7 @@ function Roster() {
 
       <Card className="divide-y divide-line/50">
         {list.map((a) => (
-          <div key={a.id} className="flex gap-3 px-3 py-2.5">
+          <div key={a.id} className="flex flex-wrap gap-x-3 gap-y-1.5 px-3 py-2.5 sm:flex-nowrap">
             <span className="mt-0.5 shrink-0">
               <ArchetypeIcon archetype={a} size={26} />
             </span>
@@ -592,9 +642,21 @@ function Roster() {
                 </span>
               </span>
               <span className="mt-0.5 block text-[11.5px] leading-snug text-dim">{a.desc}</span>
+              <DerivedFrom planId={a.planId} />
               <span className="mt-1.5 block">
                 <PrefChips prefs={ARCHETYPE_PROFILE[a.id].instructionPrefs} />
               </span>
+            </span>
+            {/* The "plays like" column. On a phone there is no room for a second
+                column, so it drops beneath the guide text rather than squeezing
+                both — the names are the supporting detail, the dials are not. */}
+            <span className="w-full shrink-0 border-t border-line/40 pt-1.5 sm:w-[168px] sm:border-l sm:border-t-0 sm:pl-3 sm:pt-0">
+              <span className="block text-[9.5px] uppercase tracking-widest text-faint">Plays like</span>
+              {a.examples.map((name) => (
+                <span key={name} className="mt-0.5 block truncate text-[11.5px] leading-snug text-dim" title={name}>
+                  {name}
+                </span>
+              ))}
             </span>
           </div>
         ))}

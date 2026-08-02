@@ -26,7 +26,7 @@ import type {
 import type { TuningConfig } from "./config/tuning";
 import { mulberry32, deriveSeed, pick, pickWeighted, randInt, randRange, randPoisson, shuffle, uid, type RNG } from "./rng";
 import { generatePlayer } from "./worldgen";
-import { playerValue } from "./value";
+import { formatMoney, playerValue } from "./value";
 import { transferWindowState } from "./calendar";
 import { regionNats } from "./config/scouting";
 import { ARCHETYPE_MAP, positionsOfArchetype } from "./config/archetype";
@@ -51,10 +51,12 @@ import {
   rollReportSize,
   rollTierQuality,
   scoutById,
+  scoutTripQuote,
   tierChance,
   tierRank,
   userScouts,
   TIER_LABEL,
+  TRAVEL_BAND_LABEL,
 } from "./scouts";
 
 /** What each position brief may return. Broad groups roll across their whole
@@ -1193,6 +1195,19 @@ export function addScoutAssignment(
   // reports until the window closes, then comes home automatically. 0/undefined
   // means open-ended — the scout stays out until recalled.
   const months = durationMonths && durationMonths > 0 ? Math.round(durationMonths) : undefined;
+
+  // Sending him costs money (v1.85), priced on how far from home the brief goes.
+  // A fixed-duration trip is paid in full at send time so the manager commits to
+  // a known number; an open-ended one pays the upfront now and the retainer
+  // weekly, which is what makes "until recalled" a running cost rather than a
+  // free option. The budget check happens before anything is mutated.
+  const quote = scoutTripQuote(state, cfg, region, months);
+  const team = userTeam(state);
+  if (team.budget < quote.total) {
+    return `Not enough budget — this ${TRAVEL_BAND_LABEL[quote.band].toLowerCase()} assignment costs ${formatMoney(quote.total)} up front.`;
+  }
+  team.budget -= quote.total;
+
   ac.assignments.push({
     id: uid("asg"),
     scoutId: scout.id,
@@ -1201,6 +1216,10 @@ export function addScoutAssignment(
     archetypes: archetypes.length ? [...archetypes] : undefined,
     nextReportDay: state.currentDay + 7 + Math.round(reportCadence(state, cfg, scout) * 0.4),
     durationMonths: months,
+    travelBand: quote.band,
+    // Only an open-ended brief carries a running cost; a fixed trip has already
+    // paid its retainer in full above.
+    weeklyCost: quote.openEnded ? quote.weekly : undefined,
     endsDay: months ? state.currentDay + months * DAYS_PER_MONTH : undefined,
     // The auto-filter is the Scout Network's to give (v1.68): a club that hasn't
     // bought it sends unfiltered briefs, whatever the caller passes.
@@ -1574,7 +1593,10 @@ export function dailyScoutTick(state: GameState, cfg: TuningConfig) {
       .map(
         (r) =>
           `${r.player.name} — ${r.player.positions[0]}, age ${r.player.age}, ${r.player.nationality}` +
-          `${r.tier ? ` [${tierName(r)}]` : ""}, potential ${starRangeLabel(state, r.player, cfg)}`
+          `${r.tier ? ` [${tierName(r)}]` : ""}, potential ${starRangeLabel(state, r.player, cfg)}` +
+          // The badge sets the fee (v1.85), so the fee belongs on the same line
+          // as the badge — a shortlist is a spending decision now.
+          `, ${formatMoney(prospectSignFee(cfg, r.tier))}`
       )
       .join("\n\n");
     // The rarest find in the batch leads the headline — a once-a-career prospect
@@ -1602,14 +1624,28 @@ export function dailyScoutTick(state: GameState, cfg: TuningConfig) {
       state,
       "scout",
       title,
-      `${intro}${lines}\n\nNo fee — they'd join the academy on youth terms. ` +
-        `The trail goes cold in ${cfg.scoutReportExpiryDays} days. Sign them from the Academy screen.`,
+      `${intro}${lines}\n\nThey'd join on youth terms — the fee above is the whole cost, ` +
+        `and it is set by the badge. The trail goes cold in ${cfg.scoutReportExpiryDays} days. ` +
+        `Sign them from the Academy screen.`,
       found[0].id
     );
     if (best) {
       state.news.unshift(`${scout.name} has found something special in ${regionLabel}: ${best.player.name}, ${best.player.age}.`);
     }
   }
+}
+
+/**
+ * What signing a find of this badge costs (v1.85).
+ *
+ * The single source of the number: the report card, the inbox line and
+ * `signProspect` itself all call this, so the screen can never quote a price the
+ * signing then doesn't charge. An unbadged report (a pre-v1.85 save's stored
+ * report) prices at the bottom rung rather than free.
+ */
+export function prospectSignFee(cfg: TuningConfig, tier: ProspectTier | undefined): number {
+  const t = migrateProspectTier(tier) ?? cfg.prospectTierOrder[0];
+  return cfg.prospectSignFeeByTier[t] ?? 0;
 }
 
 /** Sign a scouted prospect into the academy. Youth signings are deliberately
@@ -1622,11 +1658,23 @@ export function signProspect(state: GameState, reportId: string, cfg: TuningConf
   if ((team.academyPlayerIds?.length ?? 0) >= academySquadCap(state, team.id, cfg)) {
     return "Academy is full — release a prospect or upgrade Academy Squad Size to sign more.";
   }
-  // Academy prospects are free to sign (v11). Scouting is its own investment —
-  // the scout wage, the network facility, and the academy squad cap are the
-  // gates. Charging a fee on top made the whole pipeline feel like a worse
-  // transfer market. The squad cap above is now the only limit.
+  // A youth signing costs money again (v1.85), priced off the find's BADGE.
+  //
+  // v11 made these free on the reasoning that the scout's wage was already the
+  // investment; what that produced in practice was a shortlist the manager
+  // simply emptied, because there was never a reason not to take a name. The fee
+  // restores the choice, and pricing it on the tier is what makes it a choice
+  // worth thinking about: a Legacy find costs ten times a Bronze one, so the
+  // question is which prospects are worth the money rather than how many will
+  // fit. It stays far below what an equivalent senior player would cost — the
+  // academy is still the cheap road to a squad, just no longer the free one.
   const p = report.player;
+  const signTier = migrateProspectTier(report.tier) ?? migrateProspectTier(p.u21Tier);
+  const fee = prospectSignFee(cfg, signTier);
+  if (team.budget < fee) {
+    return `Not enough budget — signing a ${TIER_LABEL[signTier ?? "bronze"]} prospect costs ${formatMoney(fee)}.`;
+  }
+  team.budget -= fee;
   p.clubId = team.id;
   p.academyClubId = team.id;
   // Carry the scout's prospect tier onto the player as its academy rarity badge,
@@ -1654,11 +1702,13 @@ export function signProspect(state: GameState, reportId: string, cfg: TuningConf
     day: state.currentDay,
     from: "Youth football",
     to: `${team.name} Youth Academy`,
-    fee: 0,
+    fee,
     toId: team.id,
   });
   ac.reports = ac.reports.filter((r) => r.id !== reportId);
-  state.news.unshift(`${team.name} sign ${p.age}-year-old ${p.name} for the academy.`);
+  state.news.unshift(
+    `${team.name} sign ${p.age}-year-old ${p.name} for the academy${fee > 0 ? ` for ${formatMoney(fee)}` : ""}.`
+  );
   return null;
 }
 

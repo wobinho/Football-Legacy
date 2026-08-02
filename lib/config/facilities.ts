@@ -5,11 +5,17 @@
 // must never name a facility in a conditional — a new facility is a row in
 // `FACILITY_SPECS`, not a branch.
 //
-// The three-channel shape every facility shares, applied per CHANNEL (v1.82 —
-// a facility may produce more than one quantity; see `FacilityChannel`):
+// The shape every facility shares, applied per CHANNEL (v1.82 — a facility may
+// produce more than one quantity; see `FacilityChannel`):
 //
-//   effect = base + starEffect × floor(totalStars / STAFF_STARS_PER_STEP)
+//   effect = base + levelEffect × (level - 1)
+//                 + starEffect × floor(totalStars / STAFF_STARS_PER_STEP)
 //                 + badgeEffect × floor(badgeTiersHere / badgeTiersPerStep)
+//
+// `levelEffect` (v1.85) defaults to 0, which is the original three-term shape and
+// what every facility but the Scouting Network still uses. It exists because ONE
+// building's headline quantity is genuinely bought by the building rather than by
+// who works in it — see that row for why the exception is deliberate and narrow.
 //
 // Worked example (the design brief's own, and asserted by verify:facilities):
 // ETC at level 5, six 5-star staff (30 stars), every one holding a legacy ETC
@@ -76,6 +82,17 @@ export interface FacilityChannel {
   unit: "percent" | "count";
   /** Value at level 1 with nobody assigned. */
   base: number;
+  /**
+   * Added per facility LEVEL above 1 (v1.85). Optional, and 0 for almost
+   * everything: the system's thesis is that a level buys staff slots and the
+   * staff buy the numbers, so a channel that grows on its own is the exception.
+   *
+   * The Scouting Network is that exception, and only for `maxScouts`. How many
+   * people the club may employ is a property of the department's size, not of
+   * how good the people in it are — a 5-star scout doesn't create a job. Every
+   * other quantity on every other facility stays on stars and badges alone.
+   */
+  levelEffect?: number;
   /** Added per completed `STAFF_STARS_PER_STEP` of assigned stars. */
   starEffect: number;
   /** Added per `badgeTiersPerStep` badge tiers held FOR THIS facility. */
@@ -277,9 +294,44 @@ export const FACILITY_SPECS: FacilitySpec[] = [
    * hangs off `unlockAtLevel` instead — reach level 5 and the brief's filter
    * controls come alive.
    *
+   * The one facility that is bought by the BUILDING as well as staffed (v1.85).
+   *
+   * Both channels carry a `levelEffect`, which nothing else in this table does.
+   * The reason is specific rather than a loosening of the rule: this facility is
+   * a DEPARTMENT, and a department genuinely gets bigger and further-reaching by
+   * being built bigger. How many people you may employ is its size; how fast
+   * reports come back is partly its reach — regional offices and travel budgets,
+   * which are bought, not coached.
+   *
+   * The split between the two is still the system's thesis, though, and it is
+   * worth reading off the numbers: `maxScouts` is level ONLY (stars and badges
+   * add no headcount, because a 5-star scouting director does not conjure a job
+   * that didn't exist), while `scoutSpeed` takes only 25 of its 67 points from
+   * levels and the other 42 from the people. You can buy a big department; you
+   * cannot buy a fast one.
+   *
+   * A club that never builds this still employs `scoutNetworkBase` (2) scouts,
+   * which is what makes level 1 read as "+1 scout" rather than as permission to
+   * scout at all. The base below is 3 for exactly that reason: the facility's
+   * level-1 value must be one MORE than the unbuilt fallback the accessor takes.
+   *
+   * The ladder, level by level (slots, then what the level itself is worth):
+   *   L1 (unlock)  2 slots   3 scouts   +5% speed
+   *   L2           3 slots   4 scouts  +10%
+   *   L3           4 slots   5 scouts  +15%
+   *   L4           5 slots   6 scouts  +20%
+   *   L5           6 slots   7 scouts  +25%
+   *
    * Ceiling at level 5 with six legacy-badged 5-stars:
-   *   scouts  2 + 1×5 = 7 (badges deliberately don't add headcount — see below)
-   *   speed   0% + 5×5 + 1×18 = +43% faster reports
+   *   scouts  3 + 1×4 levels = 7 (badges deliberately don't add headcount)
+   *   speed   5% + 5%×4 levels + 3%×5 star steps + 0.75%×36 tiers
+   *         = 25 + 15 + 27 = +67% faster reports
+   *
+   * The speed channel pays per SINGLE badge tier, unlike the Youth Academy's.
+   * The two-tier divisor exists there because those channels are integer
+   * capacities that a per-tier rate would swamp; a percentage has no such
+   * problem, and 0.75%/tier is already the small number the divisor was
+   * protecting against.
    */
   {
     id: "scoutingNetwork",
@@ -295,22 +347,26 @@ export const FACILITY_SPECS: FacilitySpec[] = [
         id: "maxScouts",
         label: "max scouts",
         unit: "count",
-        base: 2,
-        starEffect: 1,
-        // Headcount comes from stars only. A badge track on top would push the
-        // department past any sane size, and "how many people may I employ" is
-        // the one number the design wants pinned to the building's staffing.
+        // One more than the unbuilt baseline, so building the facility is worth
+        // exactly the +1 scout the ladder above promises.
+        base: 3,
+        levelEffect: 1,
+        // Headcount comes from the BUILDING alone. Neither stars nor badges add
+        // a job: how good your scouts are is not how many of them you employ,
+        // and a badge track on top would push the department past any sane size.
+        starEffect: 0,
         badgeEffect: 0,
-        badgeTiersPerStep: 2,
+        badgeTiersPerStep: 1,
       },
       {
         id: "scoutSpeed",
         label: "scouting speed",
         unit: "percent",
-        base: 0,
-        starEffect: 5,
-        badgeEffect: 1,
-        badgeTiersPerStep: 2,
+        base: 5,
+        levelEffect: 5,
+        starEffect: 3,
+        badgeEffect: 0.75,
+        badgeTiersPerStep: 1,
       },
     ],
     unlockAtLevel: {

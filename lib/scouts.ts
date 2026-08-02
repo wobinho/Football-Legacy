@@ -11,10 +11,24 @@
 // samples a tuning table indexed by star rating — the engine never branches on
 // a rating's value (§ engine rule: table lookups only).
 
-import type { GameState, ProspectTier, Scout, ScoutCandidate, Team } from "./types";
+import type {
+  GameState,
+  ProspectTier,
+  Scout,
+  ScoutCandidate,
+  ScoutRegion,
+  ScoutTravelBand,
+  Team,
+} from "./types";
 import type { TuningConfig } from "./config/tuning";
 import { mulberry32, pick, pickWeighted, randInt, randRange, uid, type RNG } from "./rng";
 import { NAME_POOLS } from "./config/names";
+import {
+  continentOfCountry,
+  isContinentTarget,
+  locateTarget,
+  subRegionOf,
+} from "./config/scouting";
 import { maxScoutsFromFacility } from "./facilities";
 
 const SCOUT_NATS = ["ENG", "ESP", "ITA", "GER", "FRA", "NED", "POR", "BRA", "ARG", "SCO", "IRL", "BEL", "SWE", "SUI"];
@@ -48,6 +62,92 @@ export function scoutById(state: GameState, scoutId: string | undefined): Scout 
 export function scoutWageBill(state: GameState): number {
   return userScouts(state).reduce((sum, s) => sum + s.wage, 0);
 }
+
+// ── What a trip costs (v1.85) ─────────────────────────────────────────────
+// Distance from the club is the price axis. Everything here reads the
+// SCOUT_WORLD tree and the tuning table — no function below names a country, a
+// region or a price, so adding either prices itself.
+
+/**
+ * How far a target sits from the country the manager works in.
+ *
+ * A BROAD target (a whole continent, or Worldwide) is deliberately priced at the
+ * dearest band it can reach rather than an average: the brief genuinely may send
+ * the scout to the far end of it, and a manager who wants the cheap band can say
+ * so by naming the country. That also stops "Worldwide" from being both the
+ * widest net and the cheapest one, which is what made every other target
+ * pointless before trips cost anything.
+ */
+export function scoutTravelBandFor(home: string, target: ScoutRegion): ScoutTravelBand {
+  // Worldwide, or anything the tree doesn't recognise, can land anywhere.
+  if (!home) return "overseas";
+  const homeContinent = continentOfCountry(home);
+  const homeRegion = locateTarget(home);
+
+  // A whole continent: overseas unless it is the manager's own, where the
+  // dearest thing inside it is another sub-region.
+  if (isContinentTarget(target)) {
+    return target === homeContinent ? "continent" : "overseas";
+  }
+
+  // A sub-region: same continent means `continent`, unless it is the manager's
+  // OWN sub-region, where the dearest reachable country is a neighbour.
+  const sub = subRegionOf(target);
+  if (sub) {
+    if (sub.continent !== homeContinent) return "overseas";
+    return sub.region === homeRegion?.region ? "region" : "continent";
+  }
+
+  // A single country — the precise case.
+  if (target === home) return "home";
+  const targetHome = locateTarget(target);
+  if (!targetHome || !homeRegion) return "overseas";
+  if (targetHome.continent !== homeRegion.continent) return "overseas";
+  return targetHome.region === homeRegion.region ? "region" : "continent";
+}
+
+/** What a brief to `region` for `durationMonths` will cost. `durationMonths` of
+ * 0/undefined is an open-ended trip: only the upfront is charged now, and the
+ * retainer is billed weekly for as long as the scout stays out. */
+export interface ScoutTripQuote {
+  band: ScoutTravelBand;
+  upfront: number;
+  weekly: number;
+  /** Retainer billed at send time — the whole trip for a fixed duration, 0 when
+   * open-ended. */
+  retainer: number;
+  /** What leaves the budget the moment the scout is sent. */
+  total: number;
+  openEnded: boolean;
+}
+
+export function scoutTripQuote(
+  state: GameState,
+  cfg: TuningConfig,
+  region: ScoutRegion,
+  durationMonths?: number
+): ScoutTripQuote {
+  const band = scoutTravelBandFor(state.playableCountry, region);
+  const row = cfg.scoutTripCost[band] ?? cfg.scoutTripCost.overseas;
+  const months = durationMonths && durationMonths > 0 ? Math.round(durationMonths) : 0;
+  const retainer = months * cfg.scoutTripWeeksPerMonth * row.weekly;
+  return {
+    band,
+    upfront: row.upfront,
+    weekly: row.weekly,
+    retainer,
+    total: row.upfront + retainer,
+    openEnded: months === 0,
+  };
+}
+
+/** Player-facing label for a band, for the send-scout screen. */
+export const TRAVEL_BAND_LABEL: Record<ScoutTravelBand, string> = {
+  home: "Domestic",
+  region: "Same region",
+  continent: "Same continent",
+  overseas: "Overseas",
+};
 
 // ── Employment cap ────────────────────────────────────────────────────────
 // How many scouts the club may EMPLOY. Assignments are then capped by

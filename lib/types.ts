@@ -1147,6 +1147,25 @@ export type ScoutPosGroup = "GK" | "DEF" | "MID" | "ATT" | "ANY" | Pos;
  * Unknown ids resolve to Worldwide rather than throwing. */
 export type ScoutRegion = string;
 
+/**
+ * How far from home a scouting brief sends someone (v1.85) — the axis trip costs
+ * are priced on.
+ *
+ * Measured against the country the manager MANAGES in (`state.playableCountry`),
+ * walking the same SCOUT_WORLD tree the targets themselves come from:
+ *
+ *   home      — the manager's own country
+ *   region    — a different country in the same sub-region (England → Scotland)
+ *   continent — same continent, different sub-region (England → Spain)
+ *   overseas  — a different continent entirely
+ *
+ * A broad target (a whole continent, or Worldwide) is priced at the DEAREST band
+ * it can reach, since that is where the scout may end up. See
+ * `scoutTravelBandFor` in lib/scouts.ts — nothing outside that function decides a
+ * band, so the tree stays the single source of truth.
+ */
+export type ScoutTravelBand = "home" | "region" | "continent" | "overseas";
+
 /** A scout on the club's books (v14). Scouts are no longer a single staff slot
  * with one star rating — the club employs a roster of them, and each carries two
  * independent 1–5★ ratings:
@@ -1228,6 +1247,15 @@ export interface ScoutAssignment {
   /** The duration the user chose, in months (v25). Stored for display so the
    * assignment card can show "3 months" rather than only a raw end day. */
   durationMonths?: number;
+  /** The travel band this brief was priced at (v1.85), stamped at send time.
+   * Stored rather than re-derived because the manager may change clubs — and
+   * therefore countries — mid-trip, and a scout already in the air was booked at
+   * the old price. Absent on pre-v1.85 saves, which ran their trips for free. */
+  travelBand?: ScoutTravelBand;
+  /** Weekly retainer still owed on an OPEN-ENDED brief (v1.85). A fixed-duration
+   * trip pays its whole retainer upfront and leaves this unset; an open-ended one
+   * is billed this much each week until the scout is recalled. */
+  weeklyCost?: number;
   /** Auto-filter on what the scout is allowed to file (v1.67). A find that fails
    * any set clause is discarded rather than reported, so the board only ever
    * holds prospects worth the manager's attention. Absent = file everything,

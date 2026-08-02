@@ -20,6 +20,7 @@ import {
   ensureProgress,
   type AchievementDef,
 } from "@/lib/achievements";
+import { careerSummary } from "@/lib/recordbook";
 import type { PlayerBio, TransferRecord, UserAccolades } from "@/lib/types";
 import { formatMoney } from "@/lib/value";
 import { POS_LABELS } from "@/lib/config/positions";
@@ -61,6 +62,161 @@ export default function AchievementsScreen() {
 
 // ── Hall of Fame ───────────────────────────────────────────────────────────
 
+/** One number in the inductee's career strip. */
+function CareerStat({ label, value, gold = false }: { label: string; value: string; gold?: boolean }) {
+  return (
+    <div className="rounded border border-line/60 bg-raised/50 px-2.5 py-1.5">
+      <div className="text-[9.5px] uppercase tracking-widest text-faint">{label}</div>
+      <div className={`display mt-0.5 text-base font-bold tnum ${gold ? "gold-text" : "text-ink"}`}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One enshrined legend (v1.86).
+ *
+ * The point of the Hall of Fame is remembering a player, so the row expands into
+ * the case for him: who he was, and what he actually did in the shirt. The
+ * summary is `careerSummary` from `lib/recordbook.ts` — the same rollup over the
+ * save's stored career rows, never re-totalled here — and the header still opens
+ * the full profile modal, which is the deeper read this is a preview of.
+ *
+ * Collapsed by default: a cabinet of twenty legends should open as a list of
+ * names, and unfold only the one being remembered.
+ */
+function Inductee({ p }: { p: PlayerBio }) {
+  const game = useGame((s) => s.game)!;
+  const viewPlayer = useGame((s) => s.viewPlayer);
+  const toggleHallOfFame = useGame((s) => s.toggleHallOfFame);
+  const [open, setOpen] = useState(false);
+
+  const sum = useMemo(() => careerSummary(game, p.id), [game, p.id]);
+  const club = p.clubId ? game.teams[p.clubId] : null;
+  const perGame = sum.apps > 0 ? ((sum.goals + sum.assists) / sum.apps).toFixed(2) : "—";
+  const isGk = p.positions[0] === "GK";
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4">
+        <button
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="shrink-0 rounded px-1 py-1 text-[10px] text-faint transition-colors hover:text-ink"
+          title={open ? "Collapse" : "Expand career"}
+        >
+          <span className={`inline-block transition-transform ${open ? "rotate-90" : ""}`}>▶</span>
+        </button>
+        <button
+          onClick={() => viewPlayer(p.id)}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left transition-colors hover:opacity-80"
+          title="View profile"
+        >
+          <Ovr value={p.overall} />
+          <div className="min-w-0 flex-1">
+            <div className="display flex items-center gap-2 font-semibold text-ink">
+              <Flag nat={p.nationality} size={16} />
+              <span className="truncate">{p.name}</span>
+              {p.retired && <span className="text-[10px] font-normal text-faint">RETIRED</span>}
+            </div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[12px] text-faint">
+              <PosBadge pos={p.positions[0]} />
+              <span>{POS_LABELS[p.positions[0]]}</span>
+              <span>·</span>
+              <span>{p.age}y</span>
+              {club && (
+                <>
+                  <span>·</span>
+                  <span className="flex items-center gap-1.5">
+                    <Crest colors={club.colors} short={club.short} size={16} />
+                    {club.name}
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        </button>
+        <GhostButton onClick={() => toggleHallOfFame(p.id)} className="shrink-0 !py-1 text-[11px]">
+          REMOVE
+        </GhostButton>
+      </div>
+
+      {open && (
+        <div className="border-t border-line/40 bg-raised/20 px-4 py-3">
+          {sum.apps === 0 ? (
+            <div className="text-[12px] text-faint">
+              No completed season yet — his record is written when the season ends.
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+                <CareerStat label="Seasons" value={String(sum.seasons)} />
+                <CareerStat label="Apps" value={String(sum.apps)} />
+                {isGk ? (
+                  <CareerStat label="Clean Sheets" value={String(sum.cleanSheets)} gold />
+                ) : (
+                  <CareerStat label="Goals" value={String(sum.goals)} gold />
+                )}
+                <CareerStat label="Assists" value={String(sum.assists)} />
+                <CareerStat
+                  label="Avg Rating"
+                  value={sum.avgRating > 0 ? sum.avgRating.toFixed(2) : "—"}
+                  gold={sum.avgRating >= 7.2}
+                />
+                <CareerStat label="Peak OVR" value={String(sum.peakOverall)} gold />
+              </div>
+
+              <div className="mt-3 space-y-1.5 text-[12px] leading-snug text-dim">
+                {sum.span && (
+                  <div>
+                    <span className="text-faint">Career </span>
+                    Season {sum.span.from} – {sum.span.to}
+                    {!isGk && sum.apps > 0 && (
+                      <>
+                        <span className="text-faint"> · </span>
+                        {perGame} goal contributions per appearance
+                      </>
+                    )}
+                  </div>
+                )}
+                {sum.clubs.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="text-faint">Clubs</span>
+                    {sum.clubs.map((c, i) => {
+                      const t = c.id ? game.teams[c.id] : undefined;
+                      return (
+                        <span key={`${c.name}-${i}`} className="flex items-center gap-1.5">
+                          {t && <Crest colors={t.colors} short={t.short} size={14} />}
+                          {c.name}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                {sum.awards.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-faint">Honours</span>
+                    {sum.awards.map((aw) => (
+                      <span
+                        key={aw.name}
+                        className="rounded border border-gold-lo/40 bg-gold-lo/10 px-1.5 py-0.5 text-[10.5px] text-gold"
+                      >
+                        {aw.name}
+                        {aw.count > 1 && <span className="tnum"> ×{aw.count}</span>}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** The club's hand-curated honour roll. Players are enshrined from a player's
  * profile (Actions → Hall of Fame); this reads `game.hallOfFame` and renders
  * each, with a way to open the profile or remove the induction. Ids whose player
@@ -68,8 +224,6 @@ export default function AchievementsScreen() {
 function HallOfFameTab() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
-  const viewPlayer = useGame((s) => s.viewPlayer);
-  const toggleHallOfFame = useGame((s) => s.toggleHallOfFame);
 
   const inductees = (game.hallOfFame ?? [])
     .map((id) => game.players[id])
@@ -88,46 +242,14 @@ function HallOfFameTab() {
 
   return (
     <Section title={`Hall of Fame (${inductees.length})`}>
+      <p className="mb-2 text-[12px] leading-relaxed text-dim">
+        The players this club remembers. Expand one for his career in your colours; open him for the
+        full profile.
+      </p>
       <Card className="divide-y divide-line/50">
-        {inductees.map((p) => {
-          const club = p.clubId ? game.teams[p.clubId] : null;
-          return (
-            <div key={p.id} className="flex items-center gap-3 px-4 py-3">
-              <button
-                onClick={() => viewPlayer(p.id)}
-                className="flex min-w-0 flex-1 items-center gap-3 text-left transition-colors hover:opacity-80"
-                title="View profile"
-              >
-                <Ovr value={p.overall} />
-                <div className="min-w-0 flex-1">
-                  <div className="display flex items-center gap-2 font-semibold text-ink">
-                    <Flag nat={p.nationality} size={16} />
-                    <span className="truncate">{p.name}</span>
-                    {p.retired && <span className="text-[10px] font-normal text-faint">RETIRED</span>}
-                  </div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[12px] text-faint">
-                    <PosBadge pos={p.positions[0]} />
-                    <span>{POS_LABELS[p.positions[0]]}</span>
-                    <span className="text-faint">·</span>
-                    <span>{p.age}y</span>
-                    {club && (
-                      <>
-                        <span className="text-faint">·</span>
-                        <span className="flex items-center gap-1.5">
-                          <Crest colors={club.colors} short={club.short} size={16} />
-                          {club.name}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </button>
-              <GhostButton onClick={() => toggleHallOfFame(p.id)} className="shrink-0 !py-1 text-[11px]">
-                REMOVE
-              </GhostButton>
-            </div>
-          );
-        })}
+        {inductees.map((p) => (
+          <Inductee key={p.id} p={p} />
+        ))}
       </Card>
     </Section>
   );
@@ -471,6 +593,19 @@ function progressLabel(cur: number, target: number): string {
   return money ? `${formatMoney(shown)} / ${formatMoney(target)}` : `${shown} / ${target}`;
 }
 
+/** The fill for a progress bar, by how close the chase is (v1.86).
+ *
+ * Colour carries the same information the number does, so a wall of locked cards
+ * sorts itself at a glance: what is nearly done glows gold, what has barely
+ * started reads cold. The gold band is deliberately the last quarter only —
+ * gold is the design language's "the important thing" accent, and spending it on
+ * a bar at 30% would make every card shout. */
+function progressFill(pct: number): string {
+  if (pct >= 75) return "gold-grad";
+  if (pct >= 25) return "bg-amber-500/80";
+  return "bg-rose-500/70";
+}
+
 function AchievementCard({
   def,
   earnedSeason,
@@ -487,11 +622,29 @@ function AchievementCard({
   const pct = prog && prog[1] > 0 ? Math.min(100, Math.round((prog[0] / prog[1]) * 100)) : 0;
 
   return (
-    <Card className={`p-3.5 ${earned ? "border-gold-lo/50 bg-hover/40" : ""}`}>
-      <div className="flex items-start gap-3">
+    // Locked cards recede (dimmer surface, no accent) so the earned ones and the
+    // ones being actively chased are what the eye lands on first. An earned card
+    // gets the gold border plus a soft gold bloom — the reward for finishing it.
+    <Card
+      className={`relative overflow-hidden p-3.5 ${
+        earned ? "border-gold-lo/60 bg-hover/50 shadow-[0_0_18px_-6px_var(--color-gold-lo)]" : "bg-surface/60"
+      }`}
+    >
+      {earned && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-[0.07]"
+          style={{
+            background: "radial-gradient(110% 130% at 0% 0%, var(--color-gold-hi), transparent 62%)",
+          }}
+        />
+      )}
+      {/* Cards with no progress bar centre their contents instead of leaving a
+          gap where the bar would be, so a mixed row still reads as one row. */}
+      <div className={`relative flex gap-3 ${prog ? "items-start" : "items-center"}`}>
         <div
           className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-xl ${
-            earned ? "bg-gold/15" : "bg-raised grayscale opacity-50"
+            earned ? "bg-gold/15" : "bg-raised/80 opacity-60 grayscale"
           }`}
         >
           {def.emoji}
@@ -506,17 +659,25 @@ function AchievementCard({
                 ✓ S{earnedSeason}
               </span>
             ) : (
-              <span className="shrink-0 text-[10px] uppercase tracking-widest text-faint">Locked</span>
+              // A padlock rather than the word "LOCKED": the old grey-on-grey
+              // label was both the lowest-contrast text on the screen and the
+              // least informative thing on the card.
+              <span className="shrink-0 text-[12px] leading-none text-dim" title="Locked" aria-label="Locked">
+                🔒
+              </span>
             )}
           </div>
-          <div className="mt-0.5 text-[12px] leading-snug text-faint">{def.blurb}</div>
+          <div className="mt-0.5 text-[12px] leading-snug text-dim">{def.blurb}</div>
           {prog && (
             <div className="mt-2">
-              <div className="h-1.5 overflow-hidden rounded-full bg-line">
-                <div className="gold-grad h-full rounded-full" style={{ width: `${pct}%` }} />
+              <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.09]">
+                <div className={`${progressFill(pct)} h-full rounded-full`} style={{ width: `${pct}%` }} />
               </div>
-              <div className="mt-1 text-right text-[10px] tnum text-faint">
-                {progressLabel(prog[0], prog[1])}
+              <div className="mt-1 flex items-baseline justify-between gap-2">
+                <span className="text-[11px] tnum text-faint">{pct}%</span>
+                <span className="text-[11.5px] font-medium tnum text-dim">
+                  {progressLabel(prog[0], prog[1])}
+                </span>
               </div>
             </div>
           )}
@@ -535,21 +696,33 @@ function AchievementsTab({
 }) {
   const game = useGame((s) => s.game)!;
   // Group the catalogue for display; within a group, earned achievements float
-  // to the top, then locked ones ordered by how close they are to unlocking.
+  // to the top, then locked ones ordered by how close they are to unlocking —
+  // which is what makes the redesigned bar colours worth scanning, since the
+  // nearly-there cards cluster.
   const grouped = useMemo(() => {
+    const nearness = (d: AchievementDef) => {
+      if (!d.progress) return -1;
+      const [cur, target] = d.progress(game, a);
+      return target > 0 ? Math.min(1, cur / target) : -1;
+    };
     return ACHIEVEMENT_GROUPS.map((g) => {
       const defs = ACHIEVEMENT_DEFS.filter((d) => d.group === g.id).sort((x, y) => {
         const ex = earned[x.id] ? 1 : 0;
         const ey = earned[y.id] ? 1 : 0;
         if (ex !== ey) return ey - ex;
-        return 0;
+        if (ex === 1) return 0;
+        return nearness(y) - nearness(x);
       });
       return { ...g, defs };
     }).filter((g) => g.defs.length > 0);
-  }, [earned]);
+    // `game` is mutated in place and identified by `rev`, which the screen
+    // already subscribes to — the parent re-renders and this recomputes with it.
+  }, [earned, game, a]);
 
   return (
-    <div className="space-y-6">
+    // Categories are separated by a full row of breathing room rather than the
+    // stock gap, so a header always reads as belonging to the cards below it.
+    <div className="space-y-10">
       {grouped.map((g) => (
         <Section key={g.id} title={g.label}>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

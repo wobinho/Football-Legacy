@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
-import type { Pos, PlayerBio, ProspectTier, ScoutPosGroup, ScoutRegion, U21Opponent } from "@/lib/types";
+import type { Pos, PlayerBio, ProspectReport, ProspectTier, ScoutPosGroup, ScoutRegion, U21Opponent } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
 import { ARCHETYPE_MAP, archetypesForPositions, positionsOfArchetype } from "@/lib/config/archetype";
 import {
@@ -24,6 +24,7 @@ import {
   filterIsActive,
   filterPassRate,
   normalizeFilter,
+  prospectSignFee,
   scoutCapacity,
   scoutFilterUnlocked,
   u21Eligible,
@@ -53,9 +54,11 @@ import {
   idleScouts,
   maxScouts,
   scoutById,
+  scoutTripQuote,
   tierChance,
   TIER_COLOR,
   TIER_LABEL,
+  TRAVEL_BAND_LABEL,
 } from "@/lib/scouts";
 import { transferWindowState, formatDayShort } from "@/lib/calendar";
 import { formatMoney } from "@/lib/value";
@@ -1162,15 +1165,15 @@ function AcademyDevelopmentTab() {
                         <div className="mb-2 flex items-center gap-2 text-[10px] uppercase tracking-widest text-faint">
                           This season {academyDevPhaseChip(phase)}
                         </div>
-                        {season && season.delta > 0 ? (
+                        {season && season.shown > 0 ? (
                           <div className="space-y-1 text-sm">
                             <div className="flex items-center justify-between">
                               <span className="text-faint">Projected OVR</span>
-                              <span className="tnum font-semibold text-win">{p.overall} → {p.overall + season.delta}</span>
+                              <span className="tnum font-semibold text-win">{p.overall} → {p.overall + season.shown}</span>
                             </div>
                             <div className="flex items-center justify-between">
                               <span className="text-faint">Est. growth this season</span>
-                              <span className="tnum">≈ +{season.delta}</span>
+                              <span className="tnum">≈ +{season.shown}</span>
                             </div>
                             <p className="pt-1 text-[11px] leading-snug text-faint">
                               An estimate for the coming season only, at academy game time with your current youth coach
@@ -1260,7 +1263,10 @@ const GROWTH_SORTS: { key: GrowthSort; label: string }[] = [
 ];
 
 // No sparkline column (v1.63) — see the matching note on the senior Growth tab.
-const GROWTH_GRID = "md:grid-cols-[2.25rem_1fr_2.5rem_3.5rem_4.5rem_4.5rem_4.5rem]";
+// Seasons-on-record is a column rather than a second line under the name
+// (v1.85) — see the matching note on the senior Growth tab. Two lines of text in
+// one cell set the height of every row in the table, for one small number.
+const GROWTH_GRID = "md:grid-cols-[2.25rem_1fr_3.5rem_2.5rem_3.5rem_4.5rem_4.5rem_4.5rem]";
 
 function AcademyGrowthTab() {
   const game = useGame((s) => s.game)!;
@@ -1371,6 +1377,9 @@ function AcademyGrowthTab() {
         >
           <span>Pos</span>
           <span>Prospect</span>
+          <span className="text-center" title="Completed seasons on record for this prospect">
+            Seasons
+          </span>
           <span className="text-center">Age</span>
           <span className="text-center">OVR</span>
           <span className="text-center" title="Overall gained since he was first recorded">
@@ -1395,10 +1404,15 @@ function AcademyGrowthTab() {
                     <span className="truncate font-medium transition-colors group-hover:text-gold">{displayFullName(p)}</span>
                     <TierTag tier={p.u21Tier} />
                   </span>
-                  <span className="text-[11px] text-faint">
-                    {g.seasons > 0 ? `${g.seasons} season${g.seasons === 1 ? "" : "s"} on record` : "First season"}
-                  </span>
                 </button>
+                {/* Its own column from `md` up; on a phone, where the grid is a
+                    stack rather than a table, it stays the caption it was. */}
+                <span
+                  className="shrink-0 text-center tnum text-sm text-dim"
+                  title={g.seasons > 0 ? `${g.seasons} completed season${g.seasons === 1 ? "" : "s"} on record` : "First season on record"}
+                >
+                  {g.seasons > 0 ? g.seasons : <span className="text-faint">—</span>}
+                </span>
                 <span className="shrink-0 text-center tnum text-sm text-dim">
                   {p.age}
                   <span className="md:hidden">y</span>
@@ -2214,6 +2228,10 @@ function ScoutOperationsPane() {
   const reports = game.academy.reports.filter((r) => r.expiresDay > game.currentDay);
   const team = game.teams[game.userTeamId];
   const academyFull = (team.academyPlayerIds?.length ?? 0) >= academySquadCap(game, team.id, TUNING);
+  // A find now carries a fee set by its badge (v1.85), so the board has to say
+  // which ones the club can actually pay for — a SIGN button that fails on click
+  // would be the worst version of this.
+  const affordable = (r: ProspectReport) => team.budget >= prospectSignFee(TUNING, r.tier);
   // Reports accumulate across a scout's trips (v12), so order them newest-batch
   // first and keep each batch together — otherwise a big 5★ shortlist and the
   // previous trip's leftovers read as one undifferentiated pile.
@@ -2463,11 +2481,22 @@ function ScoutOperationsPane() {
                   </div>
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-line/60 pt-3">
                     <span className="flex flex-wrap items-center gap-3 text-xs text-faint">
+                      {/* The fee is the badge's (v1.85), so it sits beside the
+                          badge's own language rather than reading as a market
+                          valuation — this is a scholarship, not a transfer. */}
                       <span>
-                        <span className="display text-sm font-semibold text-win">Free</span> · youth terms
+                        <span
+                          className={`display text-sm font-semibold ${
+                            affordable(r) ? "text-gold" : "text-loss"
+                          }`}
+                        >
+                          {formatMoney(prospectSignFee(TUNING, r.tier))}
+                        </span>{" "}
+                        · youth terms
                       </span>
                       <TrailTimer daysLeft={r.expiresDay - game.currentDay} />
                       {academyFull && <span className="text-loss">Academy full</span>}
+                      {!academyFull && !affordable(r) && <span className="text-loss">Can't afford</span>}
                     </span>
                     <span className="flex flex-wrap items-center justify-end gap-2">
                       <GhostButton onClick={() => viewProspect(p)} className="!px-3 !py-1 text-xs">
@@ -2485,7 +2514,7 @@ function ScoutOperationsPane() {
                       </button>
                       <GoldButton
                         onClick={() => sign(r.id)}
-                        disabled={academyFull}
+                        disabled={academyFull || !affordable(r)}
                         className="!px-4 !py-1 text-xs"
                       >
                         SIGN
@@ -2661,6 +2690,11 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
   const toggleTier = (t: ProspectTier) =>
     setTiers((cur) => (cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t]));
 
+  // What this trip costs (v1.85). Quoted from the same function that charges it,
+  // so the modal can never advertise a price the engine then doesn't take.
+  const quote = scoutTripQuote(game, TUNING, region, durationMonths);
+  const affordable = game.teams[game.userTeamId].budget >= quote.total;
+
   const confirm = () => {
     addScout(region, positions, selected, scoutId || undefined, durationMonths, filter);
     onClose();
@@ -2751,6 +2785,34 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
               ? "The scout stays out until you recall them."
               : `The scout files reports for ${durationMonths} month${durationMonths === 1 ? "" : "s"}, then returns automatically.`}
           </p>
+        </div>
+
+        {/* What the trip costs (v1.85). The band is shown alongside the money
+            because the band is the thing the manager can actually change — the
+            price follows from how far the brief sends him. */}
+        <div className="rounded-md border border-line bg-raised/50 p-3">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-[10px] uppercase tracking-widest text-faint">
+              Travel · {TRAVEL_BAND_LABEL[quote.band]}
+            </span>
+            <span className={`display tnum text-[15px] font-bold ${affordable ? "text-gold" : "text-loss"}`}>
+              {formatMoney(quote.total)}
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] leading-snug text-dim">
+            {formatMoney(quote.upfront)} up front
+            {quote.openEnded
+              ? `, then ${formatMoney(quote.weekly)}/wk for as long as they stay out.`
+              : ` plus ${formatMoney(quote.retainer)} for ${durationMonths} month${
+                  durationMonths === 1 ? "" : "s"
+                } at ${formatMoney(quote.weekly)}/wk — paid in full now.`}
+          </p>
+          {!affordable && (
+            <p className="mt-1 text-[11px] leading-snug text-loss">
+              Your budget is {formatMoney(game.teams[game.userTeamId].budget)}. Shorten the trip, or
+              send them somewhere closer to home.
+            </p>
+          )}
         </div>
 
         {/* Auto-filter (v1.67): acceptance criteria on the brief itself. The scout
@@ -2981,8 +3043,8 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
             <GhostButton onClick={onClose} className="!px-3 !py-1.5 text-xs">
               Cancel
             </GhostButton>
-            <GoldButton onClick={confirm} className="!px-5 !py-1.5 text-xs">
-              SEND SCOUT
+            <GoldButton onClick={confirm} disabled={!affordable} className="!px-5 !py-1.5 text-xs">
+              SEND · {formatMoney(quote.total)}
             </GoldButton>
           </span>
         </div>
