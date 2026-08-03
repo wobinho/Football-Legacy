@@ -21,6 +21,7 @@ import {
   gcnClubFinance,
   gcnClubStatus,
   gcnDealsWeekly,
+  gcnEmpire,
   gcnLevelOf,
   gcnNextCost,
   gcnOverview,
@@ -30,8 +31,11 @@ import {
   isHomeCountryClub,
   isRingFenced,
   networkClubIds,
+  networkMoveError,
+  networkTransferFee,
   seasonsUntilSellable,
   totalAutoFunding,
+  type GcnAlert,
   type GcnClubFinance,
 } from "@/lib/gcn";
 import type { GcnFacility, PlayerBio } from "@/lib/types";
@@ -100,9 +104,10 @@ export default function GcnScreen() {
 /** The Headquarters actions (v1.62). Everything the network *does* lives behind
  * one of these cards — expansion, funding and player movement alike — rather
  * than expansion sitting in a header while the transfer console floated below. */
-type HqAction = "found" | "buy" | "sell" | "move" | "fund" | "auto";
+type HqAction = "treasury" | "found" | "buy" | "sell" | "move" | "fund" | "auto";
 
 const HQ_ACTIONS: { id: HqAction; icon: string; label: string; blurb: string }[] = [
+  { id: "treasury", icon: "🏦", label: "Treasury", blurb: "Move money between your own club's budget and the network's treasury." },
   { id: "found", icon: "🏗️", label: "Found a Club", blurb: "Build a new club from nothing in a league's lowest division." },
   { id: "buy", icon: "🤝", label: "Buy a Club", blurb: "Take over an existing side outright and fly the network's flag." },
   { id: "sell", icon: "🏷️", label: "Sell a Club", blurb: "Cash an owned club out of the network at its current worth." },
@@ -111,10 +116,18 @@ const HQ_ACTIONS: { id: HqAction; icon: string; label: string; blurb: string }[]
   { id: "auto", icon: "🔄", label: "Automate Funding", blurb: "Set a weekly standing order from the treasury to each owned club." },
 ];
 
+/** What each kind of alert looks like at a glance (v1.88). */
+const ALERT_ICON: Record<GcnAlert["kind"], string> = {
+  insolvent: "🔻",
+  thin: "👥",
+  sliding: "📉",
+};
+
 function HeadquartersTab() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const ov = gcnOverview(game, TUNING);
+  const empire = gcnEmpire(game, TUNING);
   const [action, setAction] = useState<HqAction | null>(null);
   const atCap = ov.clubCount >= ov.clubCap;
   // The treasury's weekly balance (v1.63): Brand Deals in, standing funding
@@ -132,6 +145,46 @@ function HeadquartersTab() {
           <Stat label="Players" value={String(ov.totalPlayers)} />
           <Stat label="Club budgets" value={formatMoney(ov.totalClubBudgets)} />
         </div>
+        {/* The empire's own numbers (v1.88): reach, weekly balance, what it owns
+            in players, and what it's winning. The four totals above say how big
+            the network is; these say how it's doing. */}
+        {ov.clubCount > 0 && (
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat label="Countries" value={String(empire.countries.length)} />
+            <Card className="p-3 text-center">
+              <div className="text-[10px] uppercase tracking-widest text-faint">Empire net / wk</div>
+              <div
+                className={`display tnum mt-0.5 text-xl font-bold ${
+                  empire.totalNet >= 0 ? "text-win" : "text-loss"
+                }`}
+              >
+                {empire.totalNet >= 0 ? "+" : "−"}
+                {formatMoney(Math.abs(empire.totalNet))}
+              </div>
+            </Card>
+            <Stat label="Squad value" value={formatMoney(empire.squadValue)} />
+            <Stat
+              label="Leading its league"
+              value={`${empire.leadingLeagues} / ${ov.clubCount}`}
+            />
+          </div>
+        )}
+        {ov.clubCount > 0 && (
+          <p className="mt-2 text-[11px] text-faint">
+            Clubs{" "}
+            <span className={`tnum ${empire.clubsNet >= 0 ? "text-win" : "text-loss"}`}>
+              {empire.clubsNet >= 0 ? "+" : "−"}
+              {formatMoney(Math.abs(empire.clubsNet))}
+            </span>{" "}
+            · treasury{" "}
+            <span className={`tnum ${empire.treasuryNet >= 0 ? "text-win" : "text-loss"}`}>
+              {empire.treasuryNet >= 0 ? "+" : "−"}
+              {formatMoney(Math.abs(empire.treasuryNet))}
+            </span>
+            {empire.avgOverall > 0 && <> · squads average {empire.avgOverall} OVR</>}
+            {empire.countries.length > 0 && <> · {empire.countries.join(", ")}</>}
+          </p>
+        )}
         {(brandIn > 0 || autoOut > 0) && (
           <p className="mt-2 text-[11px] text-faint">
             Treasury this week:{" "}
@@ -161,6 +214,25 @@ function HeadquartersTab() {
         )}
       </Section>
 
+      {/* Needs attention (v1.88). An empire of a dozen clubs is too big to audit
+          club by club, so the clubs in trouble come to the manager instead. */}
+      {empire.alerts.length > 0 && (
+        <Section title="Needs attention">
+          <div className="space-y-1.5">
+            {empire.alerts.map((a) => (
+              <div
+                key={`${a.clubId}:${a.kind}`}
+                className="flex items-center gap-2.5 rounded border border-line bg-raised px-3 py-2"
+              >
+                <span className="text-base leading-none">{ALERT_ICON[a.kind]}</span>
+                <span className="display min-w-0 flex-1 truncate text-sm font-semibold">{a.name}</span>
+                <span className="truncate text-[11px] text-faint">{a.detail}</span>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
       <Section title="Actions">
         <div className="grid gap-2 sm:grid-cols-2">
           {HQ_ACTIONS.map((a) => (
@@ -180,6 +252,7 @@ function HeadquartersTab() {
         </div>
       </Section>
 
+      {action === "treasury" && <TreasuryModal onClose={() => setAction(null)} />}
       {action === "found" && <FoundClubModal onClose={() => setAction(null)} />}
       {action === "buy" && <BuyClubModal onClose={() => setAction(null)} />}
       {action === "sell" && <SellClubModal onClose={() => setAction(null)} />}
@@ -354,16 +427,33 @@ function MovePlayerModal({ onClose }: { onClose: () => void }) {
     .map((id) => game.players[id])
     .filter((p): p is PlayerBio => !!p && !p.loan)
     .sort((a, b) => b.overall - a.overall);
-  // A permanent transfer can land anywhere in the network, the main club
-  // included — pulling a prospect up is as valid as sending one down. A feeder
-  // loan still only points at an owned club (your own club isn't a feeder).
-  const allDestinations = netIds.filter((id) => id !== fromClub);
+  // A permanent transfer can land anywhere the ring-fence rules allow (v1.88) —
+  // including between two domestic holdings, which v1.64 forbade outright. The
+  // legality question is `networkMoveError`'s, never this component's: React
+  // must not re-implement a rule the engine owns.
+  const allDestinations = netIds.filter(
+    (id) => id !== fromClub && !networkMoveError(game, fromClub, id, TUNING)
+  );
+  // A feeder loan still only points at an owned club (your own club isn't a
+  // feeder), and never at a ring-fenced one — sending YOUR players into your own
+  // pyramid is precisely the lever the fence exists to stop.
   const destinations =
-    mode === "feeder" ? allDestinations.filter((id) => id !== game.userTeamId) : allDestinations;
+    mode === "feeder"
+      ? allDestinations.filter((id) => id !== game.userTeamId && !isRingFenced(game, id))
+      : allDestinations;
   const feederAllowed = fromClub === game.userTeamId; // only your own players can be sent to feeders
 
   // Switching source or mode can strip the chosen destination out of the list.
   const toValid = toClub && destinations.includes(toClub) ? toClub : null;
+  // A domestic move inside the network is paid at market value between the two
+  // clubs (v1.88) — quoted before the manager commits, from the same function
+  // that charges it.
+  const fee =
+    mode === "transfer" && playerId && toValid
+      ? networkTransferFee(game, playerId, fromClub, toValid, TUNING)
+      : 0;
+  const buyerBudget = toValid ? game.teams[toValid]?.budget ?? 0 : 0;
+  const affordable = fee === 0 || buyerBudget >= fee;
 
   const commit = () => {
     if (!playerId || !toValid) return;
@@ -431,17 +521,149 @@ function MovePlayerModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <p className="text-[11px] leading-relaxed text-faint">
-          {mode === "feeder"
-            ? "A feeder loan sends the player to an owned club that guarantees his minutes — reliable development you don't get loaning to a stranger."
-            : "A permanent transfer between your own clubs is free — no money leaves the network. Your own club can be either end of the move."}
+          {mode === "feeder" ? (
+            "A feeder loan sends the player to an owned club that guarantees his minutes — reliable development you don't get loaning to a stranger."
+          ) : fee > 0 ? (
+            <>
+              Both clubs are in your own country, so this move is priced at market value:{" "}
+              <span className="tnum text-ink">{formatMoney(fee)}</span> moves from{" "}
+              {game.teams[toValid!]?.name} to {fromTeam?.name}. Domestic holdings deal at arm&apos;s
+              length — free transfers between them would be the fixing the ring fence exists to stop.
+            </>
+          ) : (
+            "A permanent transfer between your own clubs abroad is free — no money leaves the network. Your own club can be either end of the move."
+          )}
         </p>
 
-        <div className="flex justify-end gap-2 border-t border-line/60 pt-3">
-          <GhostButton onClick={onClose}>Cancel</GhostButton>
-          <GoldButton disabled={!playerId || !toValid} onClick={commit}>
-            {mode === "feeder" ? "Send on feeder loan" : "Transfer within network"}
-          </GoldButton>
+        <div className="flex items-center justify-between gap-2 border-t border-line/60 pt-3">
+          <span className="text-[11px] text-faint">
+            {fee > 0 && (
+              <>
+                Buyer&apos;s funds{" "}
+                <span className={`tnum ${affordable ? "text-ink" : "text-loss"}`}>
+                  {formatMoney(buyerBudget)}
+                </span>
+              </>
+            )}
+          </span>
+          <div className="flex gap-2">
+            <GhostButton onClick={onClose}>Cancel</GhostButton>
+            <GoldButton disabled={!playerId || !toValid || !affordable} onClick={commit}>
+              {mode === "feeder"
+                ? "Send on feeder loan"
+                : fee > 0
+                  ? `Transfer for ${formatMoney(fee)}`
+                  : "Transfer within network"}
+            </GoldButton>
+          </div>
         </div>
+        {fee > 0 && !affordable && (
+          <p className="text-[11px] text-loss">
+            {game.teams[toValid!]?.name} can&apos;t afford this fee — fund the club first.
+          </p>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+/** Treasury (v1.88): the two-way pipe between the manager's own club and the
+ * network's war chest. Depositing used to live only on the unlock screen, which
+ * meant that once the network was live there was no way to top it up from the
+ * page that spends it — the treasury could only ever go down. Both directions
+ * sit here, on one dialog, because they are the same decision seen from two
+ * sides: how much of the empire's money should sit at the club you actually
+ * manage. */
+function TreasuryModal({ onClose }: { onClose: () => void }) {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const deposit = useGame((s) => s.gcnDeposit);
+  const withdraw = useGame((s) => s.gcnWithdraw);
+  const [dir, setDir] = useState<"in" | "out">("in");
+  const [amount, setAmount] = useState(0);
+
+  const treasury = game.gcn?.treasury ?? 0;
+  const clubBudget = game.teams[game.userTeamId]?.budget ?? 0;
+  // The pot the move draws FROM — the cap on the amount, and what the quick
+  // fractions are a share of.
+  const source = dir === "in" ? clubBudget : treasury;
+  const valid = amount > 0 && amount <= source;
+
+  const commit = () => {
+    if (!valid) return;
+    if (dir === "in") deposit(amount);
+    else withdraw(amount);
+    onClose();
+  };
+
+  return (
+    <Modal title="Treasury" onClose={onClose}>
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-2">
+          <Stat label="GCN treasury" value={formatMoney(treasury)} gold />
+          <Stat label={game.teams[game.userTeamId]?.name ?? "Your club"} value={formatMoney(clubBudget)} />
+        </div>
+
+        <div className="flex gap-2">
+          {([
+            { id: "in", label: "Club → Treasury" },
+            { id: "out", label: "Treasury → Club" },
+          ] as const).map((o) => (
+            <button
+              key={o.id}
+              onClick={() => { setDir(o.id); setAmount(0); }}
+              className={`flex-1 rounded px-3 py-2 text-sm ${
+                dir === o.id ? "gold-grad text-[#14120a]" : "border border-line text-dim hover:text-ink"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="space-y-1">
+          <label className="block text-[11px] uppercase tracking-widest text-faint">Amount</label>
+          <MoneyInput
+            value={amount}
+            onChange={(n) => setAmount(Math.max(0, n))}
+            showCurrency
+            className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm tnum outline-none focus:border-gold"
+          />
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {[0.1, 0.25, 0.5, 1].map((frac) => (
+              <button
+                key={frac}
+                onClick={() => setAmount(Math.floor(source * frac))}
+                className="rounded border border-line px-2 py-1 text-[11px] text-dim transition-colors hover:border-gold/50 hover:text-ink"
+              >
+                {frac === 1 ? "All" : `${frac * 100}%`}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <p className="text-[11px] leading-relaxed text-faint">
+          {dir === "in"
+            ? "Money moved into the treasury pays for everything the network does — buying clubs, founding them, Operations upgrades and standing orders. It leaves your own transfer budget to do it."
+            : "Money moved back out lands in your own club's transfer and wage budget. The network's commitments still have to be met from what's left."}
+        </p>
+
+        <div className="flex items-center justify-between border-t border-line/60 pt-3">
+          <span className="text-sm text-dim">
+            Available <span className="display tnum font-bold text-ink">{formatMoney(source)}</span>
+          </span>
+          <div className="flex gap-2">
+            <GhostButton onClick={onClose}>Cancel</GhostButton>
+            <GoldButton disabled={!valid} onClick={commit}>
+              {dir === "in" ? "Deposit" : "Withdraw"}
+            </GoldButton>
+          </div>
+        </div>
+        {amount > source && (
+          <p className="text-[11px] text-loss">
+            {dir === "in" ? "Your club can't afford that deposit." : "The treasury doesn't hold that much."}
+          </p>
+        )}
       </div>
     </Modal>
   );
@@ -651,7 +873,10 @@ function RingFenceBadge({ title }: { title?: string } = {}) {
   return (
     <span
       className="display shrink-0 rounded-sm border border-line px-1.5 py-0.5 text-[10px] font-semibold text-dim"
-      title={title ?? "Home country — ring-fenced: no network funding, players or feeder loans."}
+      title={
+        title ??
+        "Home country — ring-fenced: no network funding and no feeder loans, and its squad never mixes with your own. It may still trade with other network clubs in its country, at market value."
+      }
     >
       RING-FENCED
     </span>
@@ -766,11 +991,13 @@ function FinancePanel({ fin }: { fin: GcnClubFinance }) {
     { label: "Matchday gate", amount: fin.gateIncome },
     { label: "Income upgrades", amount: fin.facilityIncome },
     { label: "Sponsorship", amount: fin.sponsorIncome },
+    // A sim-league club can't itemise the three lines above — it has no fixture
+    // table and no facilities — so its trading week arrives as one figure
+    // (v1.88). Before that it showed nothing at all, and the panel read £0 in.
+    { label: "Matchday & commercial", amount: fin.simTradingIncome },
     { label: "Solidarity payment", amount: fin.solidarityIncome },
     { label: "Network funding", amount: fin.networkIncome },
-    // In a sim league the wage bill isn't debited weekly, so it's shown as the
-    // squad's cost rather than a line in the net (see `banksOwnBooks`).
-    { label: fin.banksOwnBooks ? "Player wages" : "Squad wage bill (not charged)", amount: -fin.wageBill },
+    { label: "Player wages", amount: -fin.wageBill },
     { label: "Staff wages", amount: -fin.staffWages },
   ].filter((r) => r.amount !== 0);
 
@@ -801,9 +1028,9 @@ function FinancePanel({ fin }: { fin: GcnClubFinance }) {
       </Card>
       {!fin.banksOwnBooks && (
         <p className="text-[11px] leading-relaxed text-faint">
-          This club plays in a simulated league, where matchday and TV money — and the wage bill —
-          are abstracted rather than banked week to week. Its funds move on network payments and
-          transfers only.
+          This club plays in a simulated league, so its trading week is abstracted into a single
+          matchday-and-commercial figure rather than itemised — there is no fixture table to draw a
+          position bonus from. The money is real: it is banked, and the wages are charged, every week.
         </p>
       )}
       {fin.weeksOfCover !== null && (
@@ -917,9 +1144,10 @@ function BuyClubModal({ onClose }: { onClose: () => void }) {
         )}
         <p className="text-[11px] leading-relaxed text-faint">
           Clubs in your own country can be bought, but only as{" "}
-          <span className="text-ink">ring-fenced</span> holdings: no network funding, no players
-          moving either way, no feeder loans — and never a club in your own division. You own the
-          balance sheet, not the sporting advantage.
+          <span className="text-ink">ring-fenced</span> holdings: no network funding, no feeder
+          loans, no players moving to or from your own squad — and never a club in your own
+          division. They may trade with each other, at market value. You own the balance sheet, not
+          the sporting advantage.
         </p>
         <input
           value={query}
@@ -1077,7 +1305,6 @@ function SquadPanel({ clubId }: { clubId: string }) {
     .filter((p): p is PlayerBio => !!p)
     .sort((a, b) => b.overall - a.overall);
   const atMin = squad.length <= TUNING.gcnSellMinSquadSize;
-  const fenced = isRingFenced(game, clubId);
 
   if (squad.length === 0) return <p className="py-4 text-center text-sm text-faint">No players.</p>;
 
@@ -1102,7 +1329,7 @@ function SquadPanel({ clubId }: { clubId: string }) {
             <ConfirmButton
               label="Sell"
               confirmLabel="Confirm"
-              disabled={atMin || !!p.loan || fenced}
+              disabled={atMin || !!p.loan}
               onConfirm={() => sellPlayerAction(p.id)}
               className="!px-2 !py-1 !text-[11px]"
             />
@@ -1110,12 +1337,7 @@ function SquadPanel({ clubId }: { clubId: string }) {
         ))}
       </div>
       <p className="text-[11px] leading-relaxed text-faint">
-        {fenced ? (
-          <span className="text-loss">
-            This club is in your own country and ring-fenced — its squad can't be sold from or moved
-            into the network. You own the club; you don't run its transfers.
-          </span>
-        ) : atMin ? (
+        {atMin ? (
           <span className="text-loss">
             This squad is down to the {TUNING.gcnSellMinSquadSize}-player minimum — nothing more can
             be sold.

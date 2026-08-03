@@ -13,9 +13,13 @@
 //                 + badgeEffect × floor(badgeTiersHere / badgeTiersPerStep)
 //
 // `levelEffect` (v1.85) defaults to 0, which is the original three-term shape and
-// what every facility but the Scouting Network still uses. It exists because ONE
-// building's headline quantity is genuinely bought by the building rather than by
-// who works in it — see that row for why the exception is deliberate and narrow.
+// what the ETC and the HPC still use. It exists because some quantities are
+// genuinely bought by the BUILDING rather than by who works in it — a scouting
+// department's headcount, an academy's beds. Two facilities declare it (the
+// Scouting Network and, since v1.87, the Youth Academy) and `verify:facilities`
+// sanctions those channels BY NAME, so a third is a decision someone argues for
+// in a diff rather than a habit that creeps back one row at a time. See each of
+// those rows for the argument it makes.
 //
 // Worked example (the design brief's own, and asserted by verify:facilities):
 // ETC at level 5, six 5-star staff (30 stars), every one holding a legacy ETC
@@ -83,14 +87,17 @@ export interface FacilityChannel {
   /** Value at level 1 with nobody assigned. */
   base: number;
   /**
-   * Added per facility LEVEL above 1 (v1.85). Optional, and 0 for almost
-   * everything: the system's thesis is that a level buys staff slots and the
-   * staff buy the numbers, so a channel that grows on its own is the exception.
+   * Added per facility LEVEL above 1 (v1.85). Optional, and 0 by default: the
+   * system's thesis is that a level buys staff slots and the staff buy the
+   * numbers, so a channel that grows on its own is the exception.
    *
-   * The Scouting Network is that exception, and only for `maxScouts`. How many
-   * people the club may employ is a property of the department's size, not of
-   * how good the people in it are — a 5-star scout doesn't create a job. Every
-   * other quantity on every other facility stays on stars and badges alone.
+   * The exceptions are CAPACITIES — quantities that belong to the building
+   * rather than to the people in it. How many scouts the club may employ, how
+   * many teenagers the academy can house, how many of them get focused: a
+   * 5-star coach doesn't create a job or conjure a bed. The Scouting Network
+   * (v1.85) and the Youth Academy (v1.87) declare it; `verify:facilities` names
+   * exactly which channels are allowed one, so adding a third is a deliberate
+   * edit to that list and not an oversight.
    */
   levelEffect?: number;
   /** Added per completed `STAFF_STARS_PER_STEP` of assigned stars. */
@@ -215,7 +222,8 @@ export const FACILITY_SPECS: FacilitySpec[] = [
     ],
   },
   /**
-   * Youth Academy — the prospect pipeline, rebuilt as a facility (v1.82).
+   * Youth Academy — the prospect pipeline, rebuilt as a facility (v1.82),
+   * re-laddered so that BUILDING it actually does something (v1.87).
    *
    * This is the Academy screen's old Upgrades tab, collapsed into the one system
    * that already owned "a building you invest in". Those upgrades were three
@@ -227,19 +235,67 @@ export const FACILITY_SPECS: FacilitySpec[] = [
    * Three channels, because the academy genuinely governs three things and
    * folding them into one would be a lie about what the money does:
    *
-   *   - squad size  — how many prospects the academy can hold (15 → 30)
+   *   - squad size  — how many prospects the academy can hold (15 → 50)
    *   - focus slots — how many can be flagged for guaranteed U21 minutes (3 → 8)
    *   - prospect value — the old Youth PR, what the market pays for your kids
+   *
+   * ── The second sanctioned level term, and why (v1.87) ────────────────────
+   *
+   * The v1.82 shape had `base: 15` squad places and `base: 3` focus slots — the
+   * SAME numbers `academySquadSizeBase` and `u21FocusBase` give a club that
+   * never built the thing. So spending £50M on level 1 changed literally
+   * nothing: the capacities only started moving once six staff stars were in
+   * post, and the four upgrades after that bought nothing but slots to put them
+   * in. A £50M purchase whose immediate effect is zero doesn't read as an
+   * investment, it reads as a bug.
+   *
+   * The fix is a `levelEffect` on all three channels, which makes this the
+   * second facility to carry one after the Scouting Network. That is a rule
+   * being crossed deliberately, so the argument has to be on the page:
+   *
+   *   - Squad size and focus slots are the same KIND of quantity as the
+   *     scouting department's headcount — a capacity that belongs to the
+   *     BUILDING. How many teenagers you can house is dormitories and pitches;
+   *     a five-star coach does not conjure a bed. That reasoning is the one
+   *     `scoutingNetwork/maxScouts` already makes, and it applies here
+   *     unchanged.
+   *   - Prospect value takes a level term for a different reason: it is the
+   *     channel that gives the unlock a visible effect on day one. At +3%/level
+   *     it stays the SMALLEST of its three terms (15 of the 43-point ceiling),
+   *     so the staff still buy most of it.
+   *
+   * What keeps this from becoming the habit v1.79 and v1.82 exist to prevent is
+   * that the staff track still dominates where it matters: 28 of the 43 value
+   * points come from people, and the building only ever buys ROOM — ten of the
+   * 35 places above the unbuilt baseline are staffed, and no amount of building
+   * makes a single prospect develop faster. You can build a big academy; you
+   * cannot build a good one.
+   * `verify:facilities` sanctions these three channels by name and nothing else.
+   *
+   * The ladder, level by level — every rung is the same rung, which is what
+   * makes it legible without a table on screen:
+   *
+   *   L1 (unlock)  2 slots   20 places   4 focus   +3%
+   *   L2           3 slots   25 places   5 focus   +6%
+   *   L3           4 slots   30 places   6 focus   +9%
+   *   L4           5 slots   35 places   7 focus  +12%
+   *   L5           6 slots   40 places   8 focus  +15%
    *
    * The badge channel pays per TWO tiers rather than per tier (the ETC's rate),
    * because these are integer capacities: a per-tier squad-size step would hand
    * out six extra places for one legacy badge, which dwarfs the star track.
+   * Focus slots take NO star or badge term at all (v1.87) — they are purely a
+   * property of the building, so the ladder above is the whole story and the
+   * count can't drift with who happens to be in post this season.
    *
    * Ceiling at level 5 with six legacy-badged 5-stars (30 stars = 5 steps,
    * 36 badge weight = 18 double-tiers):
-   *   squad  15 + 3×5 + 1×18 = 48 places
-   *   focus   3 + 1×5 +   18 → capped by `u21FocusMax`, which is the real gate
-   *   value   0% + 3×5 + 1×18 = +33% prospect value
+   *   squad  20 + 5×4 levels + 2×5 star steps            = 50 places
+   *   focus   4 + 1×4 levels                             =  8, under `u21FocusMax`
+   *   value   3% + 3×4 levels + 2×5 steps + 0.5×36 tiers = +43% prospect value
+   *
+   * (The level term is paid for levels ABOVE the first — `base` is already the
+   * level-1 value, which is why each line reads ×4 rather than ×5.)
    */
   {
     id: "youthAcademy",
@@ -255,17 +311,21 @@ export const FACILITY_SPECS: FacilitySpec[] = [
         id: "squadSize",
         label: "academy squad size",
         unit: "count",
-        base: 15,
-        starEffect: 3,
-        badgeEffect: 1,
+        // Five above the unbuilt 15, so the unlock is worth a visible five beds.
+        base: 20,
+        levelEffect: 5,
+        starEffect: 2,
+        badgeEffect: 0,
         badgeTiersPerStep: 2,
       },
       {
         id: "focusSlots",
         label: "focus slots",
         unit: "count",
-        base: 3,
-        starEffect: 1,
+        // One above the unbuilt 3. Level alone from here — see the note above.
+        base: 4,
+        levelEffect: 1,
+        starEffect: 0,
         badgeEffect: 0,
         badgeTiersPerStep: 2,
       },
@@ -273,10 +333,11 @@ export const FACILITY_SPECS: FacilitySpec[] = [
         id: "prospectValue",
         label: "prospect value",
         unit: "percent",
-        base: 0,
-        starEffect: 3,
-        badgeEffect: 1,
-        badgeTiersPerStep: 2,
+        base: 3,
+        levelEffect: 3,
+        starEffect: 2,
+        badgeEffect: 0.5,
+        badgeTiersPerStep: 1,
       },
     ],
   },

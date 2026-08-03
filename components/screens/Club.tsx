@@ -37,6 +37,7 @@ import {
   dealsInSlot,
   marketabilityBreakdown,
   marketabilityLabel,
+  marketabilityOfferAnnual,
   slotBlockedReason,
   slotCapacity,
   sponsorCooldownUntil,
@@ -894,7 +895,7 @@ function FacilityRow({
   );
 }
 
-// ── Club Marketability (v44) ───────────────────────────────────────────────
+// ── Club Marketability (v1.86) ─────────────────────────────────────────────
 // The headline of the Investments page: a 0–100 score for how attractive this
 // club looks to a brand, and the one number behind how many suitors call, how
 // good they are and what they pay.
@@ -902,14 +903,26 @@ function FacilityRow({
 // The v20 panel led with a star rating and explained it with a list of players
 // holding a commercial trait — which meant the honest answer to "how do I
 // improve this?" was "hope the RNG gives you a Marketable striker". The score is
-// now four things the manager controls, and the panel shows all four with their
+// now six things the manager controls, and the panel shows all six with their
 // points, so the page answers that question by construction: the smallest bar is
 // the thing to go and fix.
+//
+// The factors are shown sorted by what is MISSING (max − points) rather than in
+// a fixed order, so the top of the list is always the biggest available gain.
+// The panel also states the shirt deal's annual value outright — that is the
+// number the whole page exists to move, and leaving the user to infer it from a
+// multiplier was the one thing the old panel never actually answered.
 function MarketabilityPanel({ weekly, upfrontThisSeason }: { weekly: number; upfrontThisSeason: number }) {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const m = marketabilityBreakdown(game, game.userTeamId, TUNING);
   const moneyBonus = Math.round((m.valueMult - 1) * 100);
+  // What a front-of-shirt deal is actually worth per season at this score — the
+  // same function the offers are built from, so the page cannot quote a figure
+  // the sponsors won't honour.
+  const shirtAnnual = marketabilityOfferAnnual(m.total, TUNING);
+  // Biggest available gain first: the factor furthest from its own ceiling.
+  const factors = [...m.factors].sort((a, b) => b.max - b.points - (a.max - a.points));
 
   return (
     <Card className="border-gold bg-gradient-to-br from-gold-lo/[0.08] to-transparent px-4 py-3">
@@ -936,11 +949,11 @@ function MarketabilityPanel({ weekly, upfrontThisSeason }: { weekly: number; upf
           )}
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-widest text-faint">Offer multiplier</div>
-          <div className="display text-lg font-bold tnum text-win">
-            {moneyBonus > 0 ? `+${moneyBonus}%` : "Base"}
+          <div className="text-[10px] uppercase tracking-widest text-faint">Shirt deal value</div>
+          <div className="display text-lg font-bold tnum text-win">{formatMoney(shirtAnnual)}/season</div>
+          <div className="text-[11px] text-faint">
+            {m.valueMult.toFixed(1)}× base{moneyBonus > 0 ? ` · +${moneyBonus}%` : ""}
           </div>
-          <div className="text-[11px] text-faint">{m.valueMult.toFixed(1)}× base value</div>
         </div>
         <div>
           <div className="text-[10px] uppercase tracking-widest text-faint">Suitors at once</div>
@@ -953,12 +966,12 @@ function MarketabilityPanel({ weekly, upfrontThisSeason }: { weekly: number; upf
           go and do, so hiding it behind a toggle (as v1.65 did with the old
           trait list) would hide the only actionable thing on the page. */}
       <div className="mt-3 grid grid-cols-1 gap-x-8 gap-y-1.5 border-t border-line/60 pt-3 sm:grid-cols-2">
-        {m.factors.map((f) => (
+        {factors.map((f) => (
           <div key={f.key} className="flex items-center gap-3 text-[13px]">
             <span className="w-32 shrink-0 text-dim">{f.label}</span>
-            <span className="display w-14 shrink-0 tnum font-bold text-ink">
-              {f.points}
-              <span className="text-[11px] font-normal text-faint">/{f.max}</span>
+            <span className="display w-16 shrink-0 tnum font-bold text-ink">
+              {f.points.toFixed(1)}
+              <span className="text-[11px] font-normal text-faint">/{f.max.toFixed(0)}</span>
             </span>
             {/* A bar makes "which of these is short" readable at a glance in a
                 way four numbers in a column are not. */}
@@ -972,6 +985,17 @@ function MarketabilityPanel({ weekly, upfrontThisSeason }: { weekly: number; upf
           </div>
         ))}
       </div>
+
+      {/* Without this line the weights look wrong to anyone who has seen them
+          both ways: a club outside Europe genuinely has different maxima, and
+          saying so is cheaper than letting them wonder why League Division is
+          worth 40 this season and 32 next. */}
+      {!m.europeActive && (
+        <div className="mt-2 text-[11px] text-faint">
+          No European football this season — that factor's weight is shared across the other five, so a
+          perfect domestic season still reads as 100.
+        </div>
+      )}
     </Card>
   );
 }

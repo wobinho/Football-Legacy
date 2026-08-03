@@ -21,7 +21,7 @@ import {
 } from "./config/divisions";
 import { leagueReputationOf } from "./config/leaguerep";
 import { mulberry32, deriveSeed, pick, randInt, randNormal, randRange, shuffle, type RNG } from "./rng";
-import { playerValue } from "./value";
+import { formatMoney, playerValue } from "./value";
 import { buildSeasonSchedule } from "./calendar";
 import { generateLeagueFixtures, initCup } from "./season";
 import { generateStaffMarket } from "./facilities";
@@ -759,8 +759,25 @@ export interface NewGameOptions {
   europeanSlots?: Record<string, number[]>;
   /** Whether the domestic cup winner takes a Europa League place (v1.65). */
   europeanCupWinnerQualifies?: boolean;
+  /**
+   * A financial takeover (v1.88): cash injected into the chosen club's budget at
+   * kick-off, £0–£10bn. This is a SANDBOX dial, deliberately unbounded at the top
+   * — the fantasy is the billionaire buy-out, and someone who asks for ten
+   * billion has asked for a world where money is not the constraint.
+   *
+   * It is added to the club's ordinary opening war chest rather than replacing
+   * it, so a takeover of a big club still starts richer than one of a small club
+   * — the takeover changes the manager's ceiling, not the club's identity.
+   * Clamped in `generateWorld`, so a hand-edited save file can't smuggle in more.
+   */
+  takeoverAmount?: number;
   seed?: number;
 }
+
+/** The ceiling on a new-save financial takeover (v1.88). Ten billion is the
+ * owner's number: high enough to be absurd on purpose, finite so the figure
+ * stays a number the economy can format and reason about. */
+export const MAX_TAKEOVER_AMOUNT = 10_000_000_000;
 
 export function teamIdFor(leagueId: string, index: number): string {
   return `${leagueId}_t${index}`;
@@ -1065,6 +1082,15 @@ export function generateWorld(opts: NewGameOptions): GameState {
   syncProgress(state);
 
   const user = teams[opts.userTeamId];
+
+  // Financial takeover (v1.88). Applied AFTER syncProgress so the accolade
+  // high-water marks are the club's own opening war chest — a takeover is the
+  // manager's money arriving, not a record the club set before he walked in.
+  // Peak Budget catches up at the first match, transfer or rollover like any
+  // other balance.
+  const takeover = Math.max(0, Math.min(MAX_TAKEOVER_AMOUNT, Math.round(opts.takeoverAmount ?? 0)));
+  if (takeover > 0) user.budget += takeover;
+
   state.inbox.push({
     id: "welcome",
     day: state.currentDay,
@@ -1074,6 +1100,18 @@ export function generateWorld(opts: NewGameOptions): GameState {
     body: `The board welcomes ${opts.managerName} as the new manager of ${user.name}. Your budget is available now and the summer transfer window is open until 1 September. The season kicks off in mid-August — set your tactics, shape your squad, and build a legacy.`,
     read: false,
   });
+
+  if (takeover > 0) {
+    state.inbox.push({
+      id: "takeover",
+      day: state.currentDay,
+      season: 1,
+      type: "board",
+      title: `${user.name} taken over`,
+      body: `New ownership has completed its acquisition of ${user.name}, injecting ${formatMoney(takeover)} directly into the club's transfer and wage budget. The board's message to ${opts.managerName} is short: the money is there, the expectation is silverware. Spend it well — a squad is easier to buy than a legacy.`,
+      read: false,
+    });
+  }
 
   return state;
 }

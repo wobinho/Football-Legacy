@@ -24,7 +24,7 @@ import { careerSummary } from "@/lib/recordbook";
 import type { PlayerBio, TransferRecord, UserAccolades } from "@/lib/types";
 import { formatMoney } from "@/lib/value";
 import { POS_LABELS } from "@/lib/config/positions";
-import { Card, Crest, Flag, GhostButton, Ovr, PosBadge, Section, Tabs } from "../ui";
+import { Card, ConfirmButton, Crest, Flag, Ovr, PosBadge, Section, Tabs } from "../ui";
 
 export default function AchievementsScreen() {
   const game = useGame((s) => s.game)!;
@@ -137,9 +137,17 @@ function Inductee({ p }: { p: PlayerBio }) {
             </div>
           </div>
         </button>
-        <GhostButton onClick={() => toggleHallOfFame(p.id)} className="shrink-0 !py-1 text-[11px]">
-          REMOVE
-        </GhostButton>
+        {/* Two-step, like every other destructive action in the game (v1.87).
+            An induction is a deliberate curatorial act and REMOVE sat directly
+            beside the row's own expand/profile buttons, so a misclick quietly
+            undid it with nothing to undo it with. */}
+        <ConfirmButton
+          label="REMOVE"
+          confirmLabel="REMOVE?"
+          tone="danger"
+          onConfirm={() => toggleHallOfFame(p.id)}
+          className="shrink-0 !px-2.5 !py-1 !text-[11px] !font-normal"
+        />
       </div>
 
       {open && (

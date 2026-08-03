@@ -16,6 +16,8 @@
     "verify:archetypes": "tsx scripts/check-archetypes.ts",
     "verify:conversion": "tsx scripts/verify-conversion.ts",
     "verify:facilities": "tsx scripts/verify-facilities.ts",
+    "verify:quicksell": "tsx scripts/verify-quicksell.ts",
+    "verify:gcn": "tsx scripts/verify-gcn.ts",
     "smoke:facilities": "tsx scripts/smoke-facilities.ts",
     "verify:archetypes:tactics": "tsx scripts/verify-archetype-tactics.ts"
   },

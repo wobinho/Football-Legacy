@@ -15,6 +15,8 @@ design session before changing, `[FUTURE]` must not be built but must not be blo
 - `npm run verify:conversion` — measure that a training plan actually converts a player's derived archetype (youth steers, settled squads don't)
 - `npm run verify:formations` — structural check on `config/formations.ts` (11 slots, one GK, label==pos, picker coverage) + the AI formation mix
 - `npm run verify:facilities` — facility-table invariants, the badge ladder, and the ETC's worked example (the 33% ceiling)
+- `npm run verify:quicksell` — drive a real world into an academy quick sell; asserts the prospect leaves the world and no club receives him
+- `npm run verify:gcn` — drive a real world into a live network; asserts owned clubs keep non-zero books that match what the tick banks, that net rises with reputation, and that the relaxed ring fence permits exactly the right moves
 - `npm run smoke:facilities [seasons]` — end-to-end drive of build → hire → assign → badge accrual through real rollovers
 - `npx tsx scripts/verify-db.ts` — validate every shipped country DB and build a real world from it
 - `node scripts/ui-test-db.mjs` — end-to-end drive of the default-database + editor-import flow (dev server must be running)
@@ -139,27 +141,35 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   does nothing for a prospect — the ETC stays strictly necessary and the two never
   collapse into "buy the growth building twice". Don't re-express it as a growth
   multiplier; 61% off a penalty and +61% growth are not the same quantity.
-  **Youth Academy** (v1.82) → three channels: `squadSize` (15→48 places),
-  `focusSlots` (3→8, still clipped by `u21FocusMax`) and `prospectValue` (0→+33%, the old
-  Youth PR). Its facility LEVEL is also what `academyUpkeepPerLevel` bills and what biases
-  intake quality.
+  **Youth Academy** (v1.82, re-laddered v1.87) → three channels: `squadSize`
+  (unbuilt 15 → 20 at unlock, +5/level, +2 per 6 stars → 50), `focusSlots` (unbuilt 3 → 4
+  at unlock, +1/level → 8, still clipped by `u21FocusMax`) and `prospectValue` (+3% at
+  unlock, +3%/level, +2% per 6 stars, +0.5% per badge tier → +43%; the old Youth PR, and a
+  VALUATION effect that applies only while a prospect is IN the academy — promotion drops
+  it, and `repriceAcademy` in the store is what makes a facility change show up at once).
+  Its facility LEVEL is also what `academyUpkeepPerLevel` bills and what biases intake
+  quality. The v1.82 shape had every `base` equal to its unbuilt fallback, so a £50M unlock
+  changed *nothing* until six staff stars were in post — hence the level terms below.
+  The capacities take no badge track (a legacy badge must not buy beds); prospect value
+  takes the badge track and pays per single tier, since a rate has no rounding problem.
   **Scouting Network** (v1.85) → `maxScouts` (unbuilt 2, then 3 at unlock rising +1 per
   level to 7) and `scoutSpeed` (+5% at unlock, +5%/level, +3% per 6 stars, +0.75% per badge
   tier → +67% at the ceiling), plus the level-5 capability unlock for the brief auto-filter.
-  It is the **only** facility whose channels carry a `levelEffect` — the term that lets a
-  channel grow with the BUILDING rather than with the staff in it. That is deliberate and
-  narrow: this facility is a department, and a department gets bigger and further-reaching
-  by being built bigger. Headcount is level-only (a 5-star director doesn't conjure a job);
-  speed still takes 42 of its 67 points from people, so you can buy a big department but
-  not a fast one. `verify:facilities` asserts no other facility ever gains a level term —
-  a bought-by-the-level track is exactly what v1.79 and v1.82 exist to remove, and this
-  exception must not become a habit.
-  The **Youth Academy** pays its badge track per TWO tiers (`badgeTiersPerStep: 2`) because
-  its channels are integer capacities — at the ETC's per-tier rate one legacy badge would
-  hand out six squad places and swamp the star track. `verify:facilities` asserts a single
-  bronze badge is worth nothing there; that check is what catches a per-tier regression.
-  The Scouting Network's speed channel deliberately pays per SINGLE tier: a rate has no
-  rounding problem a capacity does, and 0.75%/tier is already small.
+  It and the Youth Academy are the **only** facilities whose channels carry a `levelEffect`
+  — the term that lets a channel grow with the BUILDING rather than with the staff in it.
+  That is deliberate and narrow, and the sanctioned channels are listed BY NAME in
+  `verify:facilities`, so a third is an edit someone makes on purpose. Both are
+  DEPARTMENTS, and every level term is a CAPACITY: how many scouts you may employ, how many
+  teenagers you can house, how many you may focus. A 5-star director doesn't conjure a job
+  and a 5-star coach doesn't conjure a bed. The quality effects still come from people —
+  scout speed takes 42 of its 67 points from staff, prospect value 28 of its 43 — so you
+  can buy a big department but not a good one, and `verify:facilities` asserts that split.
+  A bought-by-the-level track for anything that isn't a capacity is exactly what v1.79 and
+  v1.82 exist to remove.
+  Badge tracks are per SINGLE tier everywhere (v1.87): a rate has no rounding problem, and
+  the integer capacities now carry no badge term at all rather than a two-tier divisor —
+  which is the cleaner answer to "one legacy badge must not buy six squad places".
+  `verify:facilities` asserts a bronze badge buys no beds and no focus slots.
   These two replaced the Academy screen's Upgrades tab, deleted outright (schema v47 drops
   `academyLevel`, `scoutNetworkLevel`, `academySquadLevel`, `focusSlotLevel`,
   `scoutSpeedLevel`, `scoutFilterLevel`, `youthPrLevel` and their tuning ladders; no refund,
@@ -231,9 +241,80 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   **Youth wages** — `academyWageByTier`, £500/wk bronze → £5k/wk legacy. Priced on the badge,
   not on overall: two 15-year-olds rate the same however far apart their ceilings are, so the
   old overall-scaled band made the rarest prospects the cheapest thing in the game to hoard.
-- Interim implementations pending owner design sessions (marked in-file): transfer market
-  AI (§10), trait pool. `emergencyIntake()` in gameloop is a stopgap until the Youth
-  Academy ships.
+- **Season awards score `rating × (1 + teamSuccess)`, and league STANDING is one of the
+  four terms (v1.87).** `lib/accolades.ts`. The other three (league finish, domestic cup,
+  Europe) are about the candidate's club; `awardLeagueRepWeight` × `leagueReputation()` is
+  about his DIVISION, and it exists solely for the two save-wide legacy honours — their
+  pool is every top flight in the world, and `tier === 1` says which leagues are first
+  divisions but nothing about which first division is stronger. It cancels out of every
+  in-league award by construction (one league, one reputation, same constant on every
+  candidate), which is why it can be the largest weight (0.20, ~1.4 rating points across
+  the 0–10 span) without distorting the awards it isn't meant to decide. Measured: at a
+  realistic 1-point rep gap a 0.5-point rating edge still wins; a rep-10 division beats a
+  rep-1 one at a 0.5-point deficit. Don't add a league term anywhere it wouldn't cancel.
+- **Quick sell DELETES the prospect (v1.87).** `quickSellQuote` / `quickSellFromAcademy` in
+  `lib/academy.ts`. It banks `quickSellShareOfBestOffer` (80%) of the best `saleSuitors`
+  offer and then erases the player — record, career, and every list that could name him —
+  rather than transferring him. **The deletion is the feature, not an optimisation**: an
+  academy turns over dozens of prospects a season, and releasing or selling them all would
+  push the user's castoffs into rivals' squads, letting one manager decide who everybody
+  else signs. Nobody receives the player; only the money is real. The 20% haircut is what
+  the convenience costs, so picking a suitor always pays more. `npm run verify:quicksell`
+  drives a real world into the state and asserts the buyer's squad is byte-identical
+  afterwards and the id survives nowhere in the serialised save — a dangling id renders as
+  a blank row a season later, which is the failure mode a targeted check would miss.
+- **A GCN club in a sim league keeps its OWN books (v1.88).** `gcnSimBooks` in `lib/gcn.ts`.
+  `weeklyEconomyTick` skips sim leagues, so before this an owned club banked only GCN
+  Deals plus any standing order — the Finance panel read **£0 in / £0 out** on a club with
+  a real squad on real wages, and "fund this club" had no shortfall to fund against. One
+  function is both what `gcnWeeklyTick` banks and what `gcnClubFinance` prints, so the
+  panel can never quote a number the simulation won't move. Two rules are load-bearing and
+  both were wrong in the first cut — **measure, don't theorise**:
+  **Income scales with REPUTATION** (`gcnSimIncomeRepPivot` 70, `gcnSimIncomeRepPower` 2.4).
+  Every sim league is tier 1, so the tier-keyed income lines are near-flat (1.26× across
+  rep 50→91) while wage bills run **5:1**. Unscaled, 38% of sim clubs ran at a loss and it
+  was the *giants* losing £1.5M/wk while minnows profited — backwards for an empire. Now
+  2 of 64 lose money and net RISES with reputation (+£297k/wk at rep 91 → +£57k at rep 50).
+  **A ring-fenced club gets NO books** — it still draws the AI subsidy in `weeklyEconomyTick`,
+  and that subsidy is its abstracted week; paying both is double income.
+  Note `completeTransfer` moves a fee BOTH ways (credits seller, debits buyer), so pass it
+  the fee once and never also debit the buyer yourself. Run `npm run verify:gcn`.
+- **The ring fence is about the MANAGER's squad, not about the border (v1.88).**
+  `networkMoveError` in `lib/gcn.ts` is the single ruling; the UI calls it to grey out
+  destinations and never re-derives it. v1.64 banned every lever on a home-country holding,
+  which also stopped two domestic holdings dealing with *each other* — a move that confers
+  nothing on the team the manager actually picks. The narrow invariants now: **money never
+  crosses the fence** (no funding, no standing orders, no GCN Deals); **players never move
+  between the manager's own squad and a ring-fenced club**, either direction; a ring-fenced
+  club may not import across a border; two ring-fenced clubs in one country MAY trade, priced
+  at `gcnDomesticTransferPriceFactor` × value so a free intra-pyramid transfer stays
+  impossible. Selling to the open market is allowed (the player leaves the network, so it
+  strengthens nobody); feeder loans to a ring-fenced club stay banned (they move YOUR players).
+- **Marketability is six 0–1 scores × six weights (v1.86).** `lib/marketability.ts`.
+  A factor answers only "how well is this club doing at this thing, 0 to 1";
+  `marketabilityWeights` alone says what that is worth, so re-balancing is one line and
+  never a re-cut of the band tables. Three rules are load-bearing and each exists because
+  the obvious version is wrong in a way only play reveals:
+  **Europe renormalises away** when the club has no continental football — its 20 is
+  shared across the other five, because scoring an unavailable factor zero caps season 1
+  and every non-European nation at 80/100 and puts the top money band out of reach by
+  construction. **A European campaign is floored** at the club's domestic-only score, or
+  qualifying for a weak cup reads as *worse* than not qualifying (a real trap: winning the
+  Conference League scored 89 against 100 for staying home). **Facilities are counted, not
+  averaged** — total levels held / total available across `FACILITY_SPECS`, one point per
+  upgrade, so a fifth facility moves the denominator by itself. It reads the STAFF
+  facilities, never `economy.ts`'s income upgrades: scoring sponsor appeal off sponsor
+  income is a loop.
+- **A major sponsorship's annual value is one band, not a multiplier stack (v1.86).**
+  `marketabilityOfferAnnual`: £20M at score 0, £100M at 100, curve 1.6 — so a maxed club's
+  3-season shirt deal is ≈£293M. Everything else scales that by slot share and suitor tier.
+  The predecessor multiplied reputation × slot share × division ladder × tier ×
+  marketability band × noise, which **double-counted the division** (32% of the
+  marketability score it then multiplied by, and applied again as `aiCommercialTierMult`)
+  and whose product couldn't be read off the tuning file at all. Don't reintroduce
+  reputation here — every question it answered is a marketability factor now. Minors keep
+  the old weekly model deliberately; they're measured in £k/week and don't divide down
+  from an annual band sensibly.
 - Interim implementations pending owner design sessions (marked in-file): transfer market
   AI (§10), trait pool. `emergencyIntake()` in gameloop is a stopgap until the Youth
   Academy ships.

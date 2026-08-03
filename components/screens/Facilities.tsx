@@ -963,17 +963,22 @@ function AssignedCard({ person, facility }: { person: StaffPerson; facility: Fac
 // ── Backroom tab ──────────────────────────────────────────────────────────
 
 /**
- * The shape both halves of the Backroom lay out on: up to five square plates
- * across (v1.84).
+ * The shape both halves of the Backroom lay out on (v1.87): twice as many
+ * plates across as v1.84 laid out, which is what halves the card.
  *
  * One constant, used by Employed and Available-to-hire alike, because the two
  * are the same object seen before and after a signature — if the grids ever
  * drifted apart, comparing a candidate against the man he'd replace would mean
- * comparing two differently-sized cards. Five is the widest the plate stays
- * readable at; below `2xl` it steps down rather than shrinking the square.
+ * comparing two differently-sized cards.
+ *
+ * The plate is a SQUARE, so its height is its width: doubling the column count
+ * is what shrinks the card in both directions at once, and it does so without
+ * touching a single type size, badge size or button inside it — the content is
+ * unchanged and simply has less slack around it. Every breakpoint doubles
+ * together so the step-down ladder keeps its shape on the way to a phone.
  */
 const PERSON_GRID =
-  "grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5";
+  "grid grid-cols-4 gap-2.5 sm:grid-cols-6 lg:grid-cols-8 2xl:grid-cols-10";
 
 function StaffTab() {
   useGame((s) => s.rev);
@@ -1272,6 +1277,11 @@ function CandidateCard({
   return (
     <PersonPlate
       person={cand}
+      // Only the candidates who actually bring something say anything (v1.87).
+      // "No record yet" was printed on ~12 cards in 13 — a caption that is
+      // almost always the same word is not information, it is furniture, and on
+      // the half-size plate it was furniture crowding the badge tray. The empty
+      // slots in that tray already say "no record" far more directly.
       note={
         weight > 0 ? (
           <span
@@ -1282,9 +1292,7 @@ function CandidateCard({
           >
             Arrives with a record
           </span>
-        ) : (
-          <span className="text-dim">No record yet</span>
-        )
+        ) : undefined
       }
       footer={
         <>

@@ -41,6 +41,7 @@ import {
 import { pushInboxItem } from "./inbox";
 import { assignKitNumber, clearKitNumber } from "./kitnumbers";
 import { purgePlayerFromTactics } from "./tactics";
+import { saleSuitors } from "./transfers";
 import {
   assignmentCapacity,
   bestJudgement,
@@ -1045,6 +1046,108 @@ export function releaseFromAcademy(state: GameState, playerId: string): string |
   clearKitNumber(p);
   if (!state.careers[playerId]) state.careers[playerId] = { playerId, seasons: [], transfers: [] };
   state.careers[playerId].transfers.push({ season: state.season, day: state.currentDay, from: team.name, to: "Released", fee: 0, fromId: team.id });
+  return null;
+}
+
+// ── Quick sell (v1.87) ────────────────────────────────────────────────────
+//
+// The academy's disposal route, and the thing it is NOT is the reason it exists:
+// it is not a sale to anybody.
+//
+// Releasing a prospect drops him into the world as a free agent, and selling him
+// properly puts him in a real club's squad. Both are fine for one player you
+// have thought about. Neither is fine as a way to empty an academy: an academy
+// that turns over dozens of prospects a season would push all of them into other
+// people's squads, so a manager clearing house is effectively choosing who every
+// rival signs. That is a decision the user should never get to make on a rival's
+// behalf, and it is easy to do accidentally at scale.
+//
+// So a quick sell DELETES the player. He leaves the world rather than joining
+// anybody: no club is handed a player they never valued, and the world outside
+// the user's club is exactly as it would have been if the prospect had never
+// been found. The club still gets paid, because the fiction is a sale — the
+// money is real, only the destination is nothing.
+//
+// The price is `quickSellShareOfBestOffer` (80%) of the best offer on the table,
+// read from the same `saleSuitors` model the ordinary sale chooser uses. That
+// keeps the two routes honestly comparable: picking a suitor always pays more,
+// so the discount is what convenience costs, and a prospect nobody would buy is
+// worth nothing here either.
+
+/**
+ * What a quick sell would pay for an academy prospect right now, and who set the
+ * price. `fee` is 0 when no club would buy him at all — the UI shows that as
+ * "no interest" rather than offering a free deletion dressed up as a sale.
+ *
+ * Deterministic for a given player and day, because `saleSuitors` is: the figure
+ * on the button is the figure the click banks.
+ */
+export function quickSellQuote(
+  state: GameState,
+  playerId: string,
+  cfg: TuningConfig
+): { fee: number; bestFee: number; from: string | null } {
+  const suitors = saleSuitors(state, playerId, cfg);
+  const best = suitors[0];
+  if (!best) return { fee: 0, bestFee: 0, from: null };
+  return {
+    fee: Math.round(best.fee * cfg.quickSellShareOfBestOffer),
+    bestFee: best.fee,
+    from: best.name,
+  };
+}
+
+/**
+ * Quick-sell an academy prospect: bank the quote and erase him.
+ *
+ * Everything that could still name him has to go, or the save keeps a dangling
+ * id that renders as a blank row somewhere months later. The lists are the same
+ * ones `releaseFromAcademy` clears, plus the record itself and his career — a
+ * career whose player no longer exists can never be rendered (the record book
+ * resolves every name through `state.players`), which is exactly the state
+ * `pruneRetired` drops on sight.
+ *
+ * The gates are the ordinary sale's gates, for the ordinary reasons: a player
+ * locked into a submitted U21 squad or away on loan can't be removed from the
+ * world any more than he can be sold out of it.
+ */
+export function quickSellFromAcademy(
+  state: GameState,
+  playerId: string,
+  cfg: TuningConfig
+): string | null {
+  const team = userTeam(state);
+  const p = state.players[playerId];
+  if (!(team.academyPlayerIds ?? []).includes(playerId) || !p) return "Not an academy player.";
+  if (p.loan) return "Recall him from his loan spell first.";
+  if ((state.academy.u21.registered ?? []).includes(playerId)) {
+    return "Registered for the U21 competition — he can't be sold until the next registration window.";
+  }
+  const quote = quickSellQuote(state, playerId, cfg);
+  if (quote.fee <= 0) return "No club would buy him right now — release him instead.";
+
+  team.budget += quote.fee;
+
+  // Every list that could still hold his id.
+  team.academyPlayerIds = (team.academyPlayerIds ?? []).filter((id) => id !== playerId);
+  team.playerIds = team.playerIds.filter((id) => id !== playerId);
+  state.academy.focusIds = state.academy.focusIds.filter((id) => id !== playerId);
+  state.academy.u21Squad = (state.academy.u21Squad ?? []).filter((id) => id !== playerId);
+  state.academy.loanList = state.academy.loanList.filter((id) => id !== playerId);
+  state.academy.u21.registered = (state.academy.u21.registered ?? []).filter((id) => id !== playerId);
+  state.shortlist = (state.shortlist ?? []).filter((id) => id !== playerId);
+  state.loanList = (state.loanList ?? []).filter((id) => id !== playerId);
+  state.hallOfFame = (state.hallOfFame ?? []).filter((id) => id !== playerId);
+  state.pendingGraduates = (state.pendingGraduates ?? []).filter((g) => g.playerId !== playerId);
+  purgePlayerFromTactics(state, playerId);
+  clearKitNumber(p);
+
+  // …and the player himself. His career goes with him: `pruneRetired` deletes
+  // any career whose player is gone, so leaving it would only defer this.
+  delete state.players[playerId];
+  delete state.careers[playerId];
+
+  state.news.unshift(`${p.name} leaves the ${team.name} academy — ${formatMoney(quote.fee)}.`);
   return null;
 }
 

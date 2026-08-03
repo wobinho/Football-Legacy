@@ -25,6 +25,7 @@ import {
   filterPassRate,
   normalizeFilter,
   prospectSignFee,
+  quickSellQuote,
   scoutCapacity,
   scoutFilterUnlocked,
   u21Eligible,
@@ -558,6 +559,7 @@ function SquadTab() {
   const viewPlayer = useGame((s) => s.viewPlayer);
   const promote = useGame((s) => s.academyPromote);
   const release = useGame((s) => s.academyRelease);
+  const quickSell = useGame((s) => s.academyQuickSell);
   const toggleFocus = useGame((s) => s.academyToggleFocus);
   const recall = useGame((s) => s.academyRecall);
   const [view, setView] = usePlayerView("academy");
@@ -590,7 +592,7 @@ function SquadTab() {
     {
       label: "Academy places",
       value: `${allProspects.length}/${academySquadCap(game, team.id, TUNING)}`,
-      hint: "Prospects in the academy — upgrade Academy Squad Size for more room",
+      hint: "Prospects in the academy — build or upgrade the Youth Academy facility for more room",
     },
     {
       label: "Focus slots",
@@ -718,6 +720,7 @@ function SquadTab() {
                   onRecall={recall}
                   onPromote={promote}
                   onRelease={release}
+                  onQuickSell={quickSell}
                 />
               </span>
             </div>
@@ -789,6 +792,7 @@ function SquadTab() {
                       onRecall={recall}
                       onPromote={promote}
                       onRelease={release}
+                      onQuickSell={quickSell}
                     />
                   }
                 />
@@ -817,6 +821,7 @@ function SquadActions({
   onRecall,
   onPromote,
   onRelease,
+  onQuickSell,
 }: {
   p: PlayerBio;
   isFocus: boolean;
@@ -830,9 +835,21 @@ function SquadActions({
   onRecall: (id: string) => void;
   onPromote: (id: string) => void;
   onRelease: (id: string) => void;
+  onQuickSell: (id: string) => void;
 }) {
   // Training-plan selection lives on the Academy Development tab now, not in the
   // per-prospect action cluster, so the squad row stays about squad decisions.
+  //
+  // The quick-sell figure is quoted on the button rather than behind a modal:
+  // the whole point of the route is that it's one click, and a price you have to
+  // open something to see isn't a price you can act on at that speed. It comes
+  // from the same `saleSuitors` model the Sell chooser uses, so the two numbers
+  // on screen are directly comparable — which is exactly the choice being made.
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const quote = quickSellQuote(game, p.id, TUNING);
+  const canQuickSell = windowOpen && !registered && !p.loan && !signedLock && quote.fee > 0;
+
   return (
     <>
       <TextBtn
@@ -896,6 +913,32 @@ function SquadActions({
         }
         onClick={() => onSellClick(p.id)}
         disabled={!windowOpen || registered || !!p.loan || signedLock}
+      />
+      {/* Quick sell (v1.87) — 80% of the best offer, and the prospect leaves the
+          world rather than joining the buyer. That's the trade: less money, but
+          no rival is handed a player you didn't want. Confirmed because it is
+          irreversible in a way the ordinary sale isn't — there is no club to buy
+          him back from afterwards. */}
+      <ConfirmButton
+        label={canQuickSell ? `Quick Sell ${formatMoney(quote.fee)}` : "Quick Sell"}
+        confirmLabel="Sell & delete?"
+        tone="danger"
+        title={
+          p.loan
+            ? "Recall him from his loan spell first"
+            : registered
+              ? "Registered for the U21 competition — he can't be sold until the next registration window"
+              : signedLock
+                ? "Signed this season — he can't be sold until next season"
+                : !windowOpen
+                  ? "Players can only be sold while a transfer window is open"
+                  : quote.fee <= 0
+                    ? "No club would buy him right now — release him instead"
+                    : `${formatMoney(quote.fee)} — 80% of the best offer (${formatMoney(quote.bestFee)} from ${quote.from}). He leaves the game entirely rather than joining them.`
+        }
+        disabled={!canQuickSell}
+        onConfirm={() => onQuickSell(p.id)}
+        className="display !rounded !px-2 !py-1 !text-[11px] tracking-wide"
       />
       <ConfirmButton
         label="Release"
@@ -1177,7 +1220,8 @@ function AcademyDevelopmentTab() {
                             </div>
                             <p className="pt-1 text-[11px] leading-snug text-faint">
                               An estimate for the coming season only, at academy game time with your current youth coach
-                              &amp; facilities. More U21 minutes, a better Youth Coach, or a higher Youth Academy all lift it.
+                              &amp; facilities. More U21 minutes, a focus slot, or a better-staffed Elite Training Center
+                              all lift it — the Youth Academy buys room and reputation, not development.
                             </p>
                           </div>
                         ) : (

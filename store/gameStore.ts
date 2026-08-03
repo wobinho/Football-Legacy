@@ -62,6 +62,7 @@ import {
   clubSalePrice,
   sellPlayer,
   gcnPlayerSalePrice,
+  networkTransferFee,
   setAutoFunding,
   brandDealsWeekly,
   gcnDealsWeekly,
@@ -80,6 +81,8 @@ import {
   promoteToSenior,
   demoteToAcademy,
   releaseFromAcademy,
+  quickSellFromAcademy,
+  quickSellQuote,
   toggleFocus,
   toggleU21Squad,
   registerU21Squad,
@@ -324,6 +327,9 @@ interface GameStore {
   academyPromote: (playerId: string) => void;
   academyDemote: (playerId: string) => void;
   academyRelease: (playerId: string) => void;
+  /** Quick-sell a prospect: bank 80% of the best offer and erase him from the
+   * world, so no rival club is handed a player they never chose (v1.87). */
+  academyQuickSell: (playerId: string) => void;
   academyToggleFocus: (playerId: string) => void;
   academyToggleU21Squad: (playerId: string) => void;
   academyRegisterU21: (playerIds: string[]) => void;
@@ -1318,8 +1324,19 @@ export const useGame = create<GameStore>((set, get) => ({
   gcnMovePlayer: (playerId, toClubId) => {
     const g = get().game;
     if (!g) return;
-    const err = moveWithinNetwork(g, playerId, toClubId);
+    const name = g.players[playerId]?.name;
+    const fee = networkTransferFee(g, playerId, g.players[playerId]?.clubId ?? "", toClubId, TUNING);
+    const err = moveWithinNetwork(g, playerId, toClubId, TUNING);
     if (err) get().showToast(err);
+    else {
+      // A domestic move is paid between the two clubs (v1.88) — say so, or the
+      // manager sees a budget move he didn't expect.
+      get().showToast(
+        fee > 0
+          ? `${name} joins ${g.teams[toClubId]?.name} for ${formatMoney(fee)}.`
+          : `${name} joins ${g.teams[toClubId]?.name}.`
+      );
+    }
     get().bump(true);
   },
 
@@ -1402,6 +1419,21 @@ export const useGame = create<GameStore>((set, get) => ({
     const name = g.players[playerId]?.name;
     const err = releaseFromAcademy(g, playerId);
     get().showToast(err ?? `${name} released from the academy.`);
+    get().bump(true);
+  },
+
+  academyQuickSell: (playerId) => {
+    const g = get().game;
+    if (!g) return;
+    // Both read BEFORE the call — it deletes the player, so afterwards there is
+    // nothing left to name or price in the confirmation.
+    const name = g.players[playerId]?.name ?? "The prospect";
+    const { fee } = quickSellQuote(g, playerId, TUNING);
+    const err = quickSellFromAcademy(g, playerId, TUNING);
+    get().showToast(err ?? `${name} quick-sold for ${formatMoney(fee)}.`);
+    // The selected-player panel would be pointing at a player who no longer
+    // exists, so clear it when it was him.
+    if (!err && get().selectedPlayerId === playerId) set({ selectedPlayerId: null });
     get().bump(true);
   },
 

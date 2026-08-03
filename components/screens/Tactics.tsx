@@ -1998,8 +1998,23 @@ function SetupPanel() {
                 is enough, and the dropdown's is the one attached to the choice.
                 What survives is the single line the picker can't show — the
                 variant, once one is chosen. */}
+            {/* The `w-0 min-w-full` pair is load-bearing, not tidiness (v1.87).
+                `truncate` sets `white-space: nowrap`, which makes this
+                paragraph's MIN-CONTENT width its whole one-line width — and an
+                `fr` grid track never shrinks below its content's min-content, so
+                the longest description in a family silently widened the entire
+                Setup column and squeezed the pitch beside it. The 4-3-3's "Free
+                Roles" variant is the longest line in the table and dragged the
+                30/30/40 grid to 297/333/724, which is why changing only the
+                midfield appeared to change the page's width.
+
+                `min-w-0` alone does NOT fix it: that overrides the automatic
+                minimum on a flex/grid ITEM, and this is a plain block. Declaring
+                a definite `width: 0` is what stops the text contributing any
+                intrinsic width at all; `min-width: 100%` then lays it back out
+                across the column it no longer gets a vote on. */}
             {activeGroup && activeGroup.formations.length > 1 && (
-              <p className="mt-1.5 truncate text-[11px] text-faint" title={formation.desc}>
+              <p className="mt-1.5 w-0 min-w-full truncate text-[11px] text-faint" title={formation.desc}>
                 {formation.desc}
               </p>
             )}

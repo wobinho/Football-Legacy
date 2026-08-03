@@ -28,6 +28,7 @@ import type {
 import type { TuningConfig } from "./config/tuning";
 import { TUNING } from "./config/tuning";
 import { posGroup } from "./config/positions";
+import { LEAGUE_REP_MAX, LEAGUE_REP_MIN, leagueReputation } from "./config/leaguerep";
 import { activePlayers } from "./archive";
 import { computeTable } from "./season";
 
@@ -78,8 +79,9 @@ function avgRating(p: PlayerBio): number {
 //
 //   score = avgRating × (1 + teamSuccess)
 //
-// where teamSuccess is the sum of three bounded components (league finish, the
-// domestic cup, Europe). The weights live in tuning, and the lift is deliberately
+// where teamSuccess is the sum of four bounded components (league finish, the
+// domestic cup, Europe, and — since v1.87 — the STANDING of the division he
+// played in). The weights live in tuning, and the lift is deliberately
 // modest — the honour still belongs to the best player, not to the best team's
 // most ordinary starter. A 0.10 total lift is worth roughly 0.7 of a rating
 // point, which decides a close call and leaves a clear one alone.
@@ -125,24 +127,58 @@ function euroProgress(state: GameState, cfg: AccoladeTuning, teamId: string): nu
  * the signature says exactly what the weighting depends on. */
 type AccoladeTuning = Pick<
   TuningConfig,
-  "awardLeagueWeight" | "awardCupWeight" | "awardEuroWeight" | "awardEuroStageScore" | "awardEuroTierScale"
+  | "awardLeagueWeight"
+  | "awardCupWeight"
+  | "awardEuroWeight"
+  | "awardEuroStageScore"
+  | "awardEuroTierScale"
+  | "awardLeagueRepWeight"
 >;
+
+// ── League standing (v1.87) ───────────────────────────────────────────────
+// The fourth component, and the only one that compares one DIVISION against
+// another: how strong the league a candidate played in actually is.
+//
+// It exists for the two save-wide legacy honours. Their pool is every top
+// division in the world, and until now they were decided on rating alone — so a
+// 7.6 season in a weak first tier beat a 7.4 in the strongest league on earth,
+// even though the second was played against far better opposition. The tier-1
+// filter answers "is this a first division"; it says nothing about which first
+// division, and `leagueReputation()` is exactly the table that does.
+//
+// It cancels out of a league's OWN honours by construction: every candidate in
+// a league shares its reputation, so the same constant multiplies every score
+// there and the ordering is untouched. That is why this can be the largest of
+// the four weights without distorting the awards it isn't meant to decide.
+
+/** The standing lift for a division, as a 0–1 share of `awardLeagueRepWeight`:
+ * 1 at LEAGUE_REP_MAX, 0 at LEAGUE_REP_MIN. Reads the same stamped-or-derived
+ * figure the rest of the game does, so a pre-v1.72 save scores identically. */
+function leagueRepPart(league: { id: string; tier: number; reputation?: number }): number {
+  const span = LEAGUE_REP_MAX - LEAGUE_REP_MIN;
+  if (span <= 0) return 0;
+  return Math.max(0, Math.min(1, (leagueReputation(league) - LEAGUE_REP_MIN) / span));
+}
 
 /**
  * The success multiplier applied to a candidate's rating: `1 + teamSuccess`,
- * where teamSuccess sums the three weighted components. 1.0 for a club that
- * finished last, won nothing and played no European football.
+ * where teamSuccess sums the four weighted components. 1.0 for a club that
+ * finished last, won nothing, played no European football and did all of it in
+ * a division of zero standing.
  *
  * `leagueRank` is 0-based (0 = champions) within a table of `leagueSize`; pass
  * -1 when the club's finishing position isn't known, which contributes nothing
- * rather than guessing.
+ * rather than guessing. `league` is the division the club played in, and its
+ * standing is the one component that isn't about this club at all — see the
+ * league-standing note above for why it's here and why it can be the largest.
  */
 function teamSuccessMult(
   state: GameState,
   cfg: AccoladeTuning,
   teamId: string | null | undefined,
   leagueRank: number,
-  leagueSize: number
+  leagueSize: number,
+  league: { id: string; tier: number; reputation?: number }
 ): number {
   if (!teamId || !state.teams[teamId]) return 1;
   // League finish, 1 for the champions decaying linearly to 0 for last.
@@ -151,7 +187,8 @@ function teamSuccessMult(
   const success =
     leaguePart * cfg.awardLeagueWeight +
     cupProgress(state, teamId) * cfg.awardCupWeight +
-    euroProgress(state, cfg, teamId) * cfg.awardEuroWeight;
+    euroProgress(state, cfg, teamId) * cfg.awardEuroWeight +
+    leagueRepPart(league) * cfg.awardLeagueRepWeight;
   return 1 + Math.max(0, success);
 }
 
@@ -305,12 +342,13 @@ export function computeSeasonAccolades(state: GameState, cfg: AccoladeTuning = T
       : state.simResults.find((r) => r.leagueId === league.id && r.half === 2)?.table ?? [];
     const size = table.length || league.teamIds.length;
     table.forEach((row, rank) => {
-      multByTeam.set(row.teamId, teamSuccessMult(state, cfg, row.teamId, rank, size));
+      multByTeam.set(row.teamId, teamSuccessMult(state, cfg, row.teamId, rank, size, league));
     });
     // A club with no table row (a league the resolver never filled) still gets its
-    // cup and European lift — it just contributes nothing from its league finish.
+    // cup, European and league-standing lift — it just contributes nothing from
+    // its league finish.
     for (const id of league.teamIds) {
-      if (!multByTeam.has(id)) multByTeam.set(id, teamSuccessMult(state, cfg, id, -1, size));
+      if (!multByTeam.has(id)) multByTeam.set(id, teamSuccessMult(state, cfg, id, -1, size, league));
     }
   }
 

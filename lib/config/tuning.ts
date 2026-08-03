@@ -368,6 +368,21 @@ export interface TuningConfig {
   /** Scale on the European lift by cup tier (index 0 = Champions League), so the
    * third-tier competition is worth a fraction of the first. */
   awardEuroTierScale: number[];
+  /** Max lift from the STANDING of the division a candidate played in (v1.87),
+   * scaled linearly by `leagueReputation()` over [0, LEAGUE_REP_MAX].
+   *
+   * This is the only award term that compares one league against another, and
+   * it exists for the two save-wide legacy honours: their pool is every top
+   * division in the world, so without it a 7.6 average in a weak first tier
+   * outranks a 7.4 in the strongest league on earth. A league's honours are
+   * unaffected — every candidate there shares the same reputation, so the lift
+   * is a constant that cancels out of an in-league comparison.
+   *
+   * Deliberately the largest of the four weights: it is worth ~1.4 rating points
+   * across the full 0–10 span, which is the gap the legacy awards were missing,
+   * and still small enough that a genuinely outstanding season in a mid-table
+   * league beats an ordinary one at a giant. */
+  awardLeagueRepWeight: number;
 
   // ── European Cup payouts (locked spec; consumed once the feature ships) ─────
   // Prize by how far a club goes in each of the three continental cups. Keyed by
@@ -430,54 +445,93 @@ export interface TuningConfig {
   sponsorSlotShare: Record<string, number>; // per-slot fraction of the shirt baseline
   sponsorTierMults: number[]; // offer tier multipliers (Regional/National/Global)
 
-  /** ── Club Marketability, the 0–100 score (v44) ──
+  /** ── What a major sponsorship is worth per season (v1.86) ──
    *
-   * Replaces the v20 model, which read a handful of `marketabilityBonus` traits
-   * off the squad. That made the whole commercial game hinge on whether the RNG
-   * had handed you a player with one specific trait — a club could win the
-   * league and see no change at all. Marketability is now built from four things
-   * the manager actually controls, each capped at its own weight and summing to
-   * 100. Every number below is a band table read by `lib/marketability.ts`; the
-   * engine holds no thresholds of its own.
+   * The ANNUAL value of a front-of-shirt deal (slot share 1.0) at a National
+   * suitor, read straight off the 0–100 marketability score: `Min` at 0, `Max`
+   * at 100, interpolated on `Curve`. Every other figure on the page is this one
+   * scaled — by the slot's share, by the tier roll, and by the term length.
+   *
+   * This replaced a stack of multipliers (reputation × slot share × division
+   * ladder × tier × marketability band × noise) whose product nobody could
+   * predict and which double-counted the division: the division ladder was
+   * applied here AND is 32% of the marketability score the same sum multiplies
+   * by. A single band with the division inside marketability says the same thing
+   * once, and — the point of the rework — the headline number is now legible
+   * from the tuning file: a maxed club is quoted `Max` a season for its shirt.
+   */
+  sponsorMajorAnnualMin: number;
+  sponsorMajorAnnualMax: number;
+  /** Exponent on the 0–1 marketability position between Min and Max. Above 1
+   * the curve is back-loaded: the last twenty points of marketability are worth
+   * far more than the first twenty, which is what keeps a mid-table top-flight
+   * club from being quoted near-elite money for turning up. */
+  sponsorMajorAnnualCurve: number;
+
+  /** ── Club Marketability, the 0–100 score (v1.86) ──
+   *
+   * Six factors, each producing a 0–1 SCORE that is then multiplied by its
+   * weight. The v44 model gave each factor a points budget and let it earn
+   * points directly out of band tables, which meant a factor's weight and its
+   * internal scale were the same number — re-weighting anything meant re-cutting
+   * every band in it. Scores and weights are now separate: the band tables below
+   * are all normalised 0–1, and `marketabilityWeights` alone decides what each
+   * one is worth. Re-balancing is a one-line change.
+   *
+   * The weights sum to 100 with Europe included. A club with no European
+   * football has that factor RENORMALISED away rather than scored zero — see
+   * `lib/marketability.ts` for why (a first-season club would otherwise be
+   * capped at 80 through no fault of its own, and could never reach the top
+   * money band).
    */
 
-  /** A. League & Division Status (35 pts max). Points by league tier, index 0 =
-   * tier 1. A club in a tier past the end of the table takes the last entry. */
-  marketabilityTierPoints: number[];
-  /** Added on top of the tier points when the club is in a continental cup —
-   * the qualification bonus. Still capped by `marketabilityWeightLeague`. */
-  marketabilityEuropeanBonus: number;
-  /** The cap (and stated weight) of factor A. */
-  marketabilityWeightLeague: number;
+  /** Each factor's share of the 0–100 score. Keys are `MarketabilityFactorKey`.
+   * These are the only numbers that decide what a factor is worth; everything
+   * else in this block is a normalised 0–1 curve. */
+  marketabilityWeights: Record<string, number>;
 
-  /** B. Squad Star Power (25 pts max). Bands on the mean overall of the club's
-   * top `marketabilityStarPowerTopN` senior players: `[minAverage, points]`,
-   * read low to high — the last band whose `minAverage` is met wins. */
-  marketabilityStarPowerBands: [number, number][];
-  /** How many of the highest-rated senior players the average is taken over. */
-  marketabilityStarPowerTopN: number;
-  /** The cap (and stated weight) of factor B. */
-  marketabilityWeightStarPower: number;
+  /** A. League Division. Score by the league's own 0–10 reputation
+   * (`config/leaguerep.ts`), index 0 = reputation 0. This is the division's
+   * standing in the world game, not the club's tier number, so a top flight in a
+   * major nation and a top flight in a small one are correctly worth different
+   * money. */
+  marketabilityLeagueRepScore: number[];
 
-  /** C. Recent Team Form (25 pts max). Points are earned over the club's last
-   * `marketabilityFormMatches` completed matches — a win is worth `…FormWin`, a
-   * draw `…FormDraw`, a defeat nothing — then scaled from that raw maximum onto
-   * the weight. An unbeaten run of `…FormUnbeatenGames` or more adds a flat
-   * bonus on top, before the cap. */
+  /** B. League Position. Score by finishing rank as a FRACTION of the division
+   * (0 = champion, 1 = bottom): `[maxFraction, score]`, read low to high — the
+   * first band whose fraction is not exceeded wins. A fraction rather than an
+   * absolute position so an 18-club league and a 24-club one read alike. */
+  marketabilityPositionBands: [number, number][];
+
+  /** C. Recent Team Form. Points over the club's last `…FormMatches` completed
+   * matches (win/draw), scaled onto 0–1 against a full run of wins. An unbeaten
+   * run of `…FormUnbeatenGames` or more adds `…FormUnbeatenBonus` on the same
+   * 0–1 scale, before the clamp. */
   marketabilityFormMatches: number;
   marketabilityFormWin: number;
   marketabilityFormDraw: number;
   marketabilityFormUnbeatenGames: number;
   marketabilityFormUnbeatenBonus: number;
-  /** The cap (and stated weight) of factor C. */
-  marketabilityWeightForm: number;
 
-  /** D. Club Facilities & Infrastructure (15 pts max). Bands on the club's mean
-   * income-upgrade level across `FACILITY_KEYS`: `[minAverageLevel, points]`,
-   * read low to high. */
-  marketabilityFacilityBands: [number, number][];
-  /** The cap (and stated weight) of factor D. */
-  marketabilityWeightFacilities: number;
+  /** D. Squad Star Power. Score by the mean overall of the club's top
+   * `…StarPowerTopN` senior players: `[minAverage, score]`, read low to high. */
+  marketabilityStarPowerBands: [number, number][];
+  marketabilityStarPowerTopN: number;
+
+  /** E. Club Facilities. Scored as total levels held across every facility in
+   * `FACILITY_SPECS` over the total available — one point per upgrade, so four
+   * five-level facilities read as n/20 and adding a fifth facility moves the
+   * denominator on its own (v1.86). Linear, deliberately: a band table here
+   * would make the last upgrade in a band worth nothing. */
+
+  /** F. European Cup Performance. Score by how far the club got, keyed by
+   * `EuroStage`, and scaled by the cup's own tier via
+   * `marketabilityEuroTierMult` — winning the Conference League is not worth
+   * what winning the Champions League is. `qualified` covers a club that is in a
+   * cup this season but has not yet been eliminated or won it. */
+  marketabilityEuroStageScore: Record<string, number>;
+  /** Multiplier on the stage score by cup tier, index 0 = Champions League. */
+  marketabilityEuroTierMult: number[];
 
   /** ── What the score buys ──
    *
@@ -850,6 +904,22 @@ export interface TuningConfig {
   // pipeline still undercuts the transfer market heavily — this is a fraction of
   // what an equivalent senior player costs — but it is no longer nothing.
   prospectSignFeeByTier: Record<ProspectTier, number>;
+  /**
+   * What a QUICK SELL pays, as a fraction of the best offer on the table (v1.87).
+   *
+   * A quick sell is the academy's disposal route: the prospect leaves the world
+   * entirely rather than joining the buying club. That is the point of it —
+   * releasing a prospect into a real club's squad means a rival is handed a
+   * player they never chose and never valued, and doing it in bulk is a way to
+   * quietly seed the world with your own castoffs. Deleting him instead keeps
+   * the disposal a purely private decision.
+   *
+   * The discount is what it costs to have that convenience. A normal sale still
+   * pays full price, so anyone willing to pick a suitor and place the player
+   * properly is always better off; the quick sell is for a squad list you want
+   * shorter, not for a squad list you want monetised.
+   */
+  quickSellShareOfBestOffer: number;
 
   // Intake day (mid-March, once per season)
   intakeClassBase: number; // class size at level 0
@@ -1113,6 +1183,51 @@ export interface TuningConfig {
    * rest of the network, and can't be used as a feeder. This is the flag that
    * turns that behaviour on at all — off makes home-country clubs unbuyable. */
   gcnAllowHomeCountryClubs: boolean;
+  /** A ring-fenced club may still trade players with the rest of the network,
+   * provided both ends sit in the same country and neither is the manager's own
+   * club (v1.88). The arm's-length rule that matters is that the MANAGER's squad
+   * never mixes with a club inside his own pyramid; two ring-fenced holdings
+   * dealing with each other is ordinary domestic business. */
+  gcnAllowDomesticNetworkTransfers: boolean;
+  /** A transfer between two network clubs in the same country is paid at this
+   * fraction of the player's market value, buying club → selling club (v1.88).
+   * A free move inside one pyramid is what the ring fence exists to prevent; a
+   * priced one leaves both balance sheets honest. Cross-border moves inside the
+   * network stay free — no domestic rival is affected by them. */
+  gcnDomesticTransferPriceFactor: number;
+
+  // ── GCN club finances (v1.88) ──
+  // An owned club in a SIM league used to book nothing at all: weeklyEconomyTick
+  // skips sim leagues, and the network's own tick paid it only GCN Deals plus any
+  // standing order. So the Finance panel read £0 in and £0 out on a club with a
+  // real squad on real wages, and "fund this club" had nothing to fund against.
+  // The club now keeps abstracted books of its own — one income line and one
+  // wage line, both derived from what it actually is.
+  /** Fraction of the ordinary weekly income lines (TV, gate, commercial) a
+   * sim-league club books. Below 1 because a sim league's commercial ceiling is
+   * lower than the playable pyramid's, and because these clubs pay no facility
+   * upkeep or staff wages. */
+  gcnSimIncomeFactor: number;
+  /**
+   * How hard a sim club's income scales with its REPUTATION (v1.88).
+   *
+   * Necessary, not cosmetic. Every income line the economy exposes is read at
+   * the club's TIER, and every sim league in the world is tier 1 — so before
+   * this, a rep-91 giant and a rep-50 also-ran booked within 26% of each other
+   * while their wage bills differed FIVEFOLD. Measured across 64 sim clubs that
+   * put 38% of them in the red, and it was precisely the big clubs — the assets
+   * an empire is built on — losing £1.5M a week while minnows turned a profit.
+   *
+   * The multiplier is `(rep / gcnSimIncomeRepPivot) ^ gcnSimIncomeRepPower`: a
+   * club at the pivot is unchanged, above it earns more, below it less. The
+   * power is what sets how steeply commercial pull outruns reputation.
+   */
+  gcnSimIncomeRepPivot: number;
+  gcnSimIncomeRepPower: number;
+  /** Fraction of its squad wage bill a sim-league owned club actually pays each
+   * week. The full bill would bankrupt a club the network has just stocked with
+   * good players, which is the opposite of what owning it should mean. */
+  gcnSimWageFactor: number;
 
   // ── AI club solvency (v1.64) ──
   // AI clubs were running multi-million weekly wage bills against tier income
@@ -1477,6 +1592,14 @@ export const TUNING: TuningConfig = {
     groupStage: 0.15,
   },
   awardEuroTierScale: [1, 0.6, 0.35],
+  // League standing (v1.87). Worth 0.20 at a 10-reputation division and 0 at a
+  // 0 — about 1.4 rating points across the span, which is the single biggest
+  // award term because it is the only one asked to compare two different
+  // leagues. It decides the legacy honours and cancels out of every in-league
+  // one. Sized against the ~0.5-point spread that separates the best seasons in
+  // a division: a genuinely exceptional campaign in a Strong league still beats
+  // an ordinary one in a Major, but a merely-very-good one no longer does.
+  awardLeagueRepWeight: 0.2,
 
   // ── Club income upgrades (v43) ──
   // Payouts are absolute at each level, not increments: buying low-tier level 2
@@ -1549,7 +1672,26 @@ export const TUNING: TuningConfig = {
   // at any of the multipliers: a multiplier is a statement about a club's
   // standing, and inflating one would have changed what the Investments page's
   // own "offer multiplier" means.
+  //
+  // v1.86: this is now the MINOR (weekly partnership) baseline only. Majors are
+  // priced by `sponsorMajorAnnual*` below, off marketability directly, because
+  // the old chain quietly applied the division ladder twice — see that block.
   sponsorBaseWeeklyByReputation: 3_260,
+
+  // A front-of-shirt deal, per season, at a National suitor. £20M at zero
+  // marketability, £100M at a hundred: the owner's spec, and the arithmetic the
+  // headline falls out of — a maxed club offered a 3-season shirt deal is quoted
+  // 100M × 3 × 0.9775 ≈ £293M, and at a Global suitor (1.4×) up to ~£410M.
+  //
+  // The curve is 1.6 rather than linear because a straight line makes the middle
+  // of the ladder far too rich: a 50-marketability club — mid-table top flight,
+  // no Europe, average squad — would be quoted £60M/season, two thirds of what
+  // an elite club gets for a fraction of the work. At 1.6 that same club is
+  // quoted ~£46M, and the £100M ceiling stays something only a club that has
+  // maxed genuinely everything, Europe included, ever sees.
+  sponsorMajorAnnualMin: 20_000_000,
+  sponsorMajorAnnualMax: 100_000_000,
+  sponsorMajorAnnualCurve: 1.6,
   // Per-slot share of the front-of-shirt baseline. The majors sit at the top;
   // the minor partnerships are deliberately small individually — their appeal is
   // that you can hold several at once (v19).
@@ -1568,43 +1710,86 @@ export const TUNING: TuningConfig = {
   },
   sponsorTierMults: [0.7, 1.0, 1.4], // Regional / National / Global
 
-  // ── Club Marketability (v44) ──
-  // A. League & Division Status — 35 pts. Tier 1 → 50 raw, but the factor is
-  // capped at 35, so a top-flight club is maxed on this factor and continental
-  // qualification is what a tier-2 club climbs with.
-  marketabilityTierPoints: [50, 35, 20, 10],
-  marketabilityEuropeanBonus: 10,
-  marketabilityWeightLeague: 35,
-  // B. Squad Star Power — 25 pts, on the mean of the three best senior players.
-  marketabilityStarPowerBands: [
-    [0, 5],
-    [70, 10],
-    [75, 15],
-    [80, 20],
-    [85, 25],
+  // ── Club Marketability (v1.86) ──
+  //
+  // Six factors. The weights are the owner's spec, with one change made on
+  // measurement rather than taste: League Division was specified at 40, which
+  // made the other five factors decorative — a top-flight club scored 40 before
+  // kicking a ball and a fourth-division one could do everything else perfectly
+  // and still be outbid by a top-flight side with an empty trophy room. At 32 it
+  // is still comfortably the largest single factor (nothing else exceeds 20) and
+  // still the thing that gates the top money band, but the remaining 68 is now
+  // enough that running a club well is worth roughly what the division is.
+  //
+  // The 8 points came off Division and went to Facilities (10 → 14) and Position
+  // (10 → 12): those are the two factors most directly bought with the manager's
+  // own decisions, which is the behaviour the commercial game should reward.
+  marketabilityWeights: {
+    league: 32,
+    europe: 20,
+    starPower: 15,
+    facilities: 14,
+    position: 12,
+    form: 7,
+  },
+  // A. League Division — by the league's 0–10 reputation. The owner's ladder
+  // (10 → 100%, 9 → 80%, 8 → 60%, 7 → 45%, 6 → 30%) extended downward on the
+  // same decaying curve, so the bottom of the world isn't a cliff to zero.
+  //  rep:                        0     1     2    3     4    5     6    7     8    9  10
+  marketabilityLeagueRepScore: [0, 0.03, 0.07, 0.12, 0.18, 0.24, 0.3, 0.45, 0.6, 0.8, 1.0],
+  // B. League Position — as a fraction of the division, so league size doesn't
+  // change what a finish is worth. Champion 1.0, top four ~0.8, mid-table ~0.3.
+  marketabilityPositionBands: [
+    [0.0, 1.0], // champions / leaders
+    [0.1, 0.82], // top 10%
+    [0.2, 0.62], // top fifth — European places in most divisions
+    [0.35, 0.4],
+    [0.5, 0.22], // upper half
+    [0.75, 0.08],
+    [1.0, 0.02], // relegation scrap; never quite zero — you're still in the division
   ],
-  marketabilityStarPowerTopN: 3,
-  marketabilityWeightStarPower: 25,
-  // C. Recent Team Form — 25 pts. Ten matches at 3 for a win is 30 raw, scaled
-  // onto 25; five unbeaten adds 5 before the cap, so a good run can max the
+  // C. Recent Team Form — ten matches at 3 for a win is 30 raw, scaled onto
+  // 0–1; five unbeaten adds 0.15 before the clamp, so a good run maxes the
   // factor without needing ten straight wins.
   marketabilityFormMatches: 10,
   marketabilityFormWin: 3,
   marketabilityFormDraw: 1,
   marketabilityFormUnbeatenGames: 5,
-  marketabilityFormUnbeatenBonus: 5,
-  marketabilityWeightForm: 25,
-  // D. Club Facilities & Infrastructure — 15 pts, on the mean income-upgrade
-  // level across the seven tracks (each capped at level 10).
-  marketabilityFacilityBands: [
-    [0, 0],
-    [1, 5],
-    [4, 10],
-    [8, 15],
+  marketabilityFormUnbeatenBonus: 0.15,
+  // D. Squad Star Power — mean of the three best senior players. Wider than the
+  // v44 table: 85 used to be full marks, which meant every serious club sat at
+  // the ceiling. 90+ is now what a genuinely global squad reads as.
+  marketabilityStarPowerBands: [
+    [0, 0.1],
+    [65, 0.25],
+    [70, 0.4],
+    [75, 0.55],
+    [80, 0.7],
+    [85, 0.85],
+    [90, 1.0],
   ],
-  marketabilityWeightFacilities: 15,
-  // What the score buys. Five bands over 0–100; `valueMult` is the headline
-  // "offer multiplier" the Investments page shows as a percentage.
+  marketabilityStarPowerTopN: 3,
+  // E. Club Facilities — no table: levels held / levels available, straight.
+  // F. European Cup Performance — how far you got, times what the cup is worth.
+  // `qualified` is the in-progress reading, so a club three matchdays into a
+  // group isn't scored as though it had already gone out.
+  marketabilityEuroStageScore: {
+    qualified: 0.45,
+    groupStage: 0.35,
+    roundOf16: 0.55,
+    quarterFinal: 0.7,
+    semiFinal: 0.85,
+    runnerUp: 0.93,
+    champion: 1.0,
+  },
+  //                            UCL  UEL  UECL
+  marketabilityEuroTierMult: [1.0, 0.7, 0.45],
+  // What the score buys. Five bands over 0–100. `valueMult` no longer scales the
+  // money — `marketabilityOfferAnnual` does that directly and continuously
+  // (v1.86) — so this ladder is now only about how many suitors call and how
+  // good the brands are. `valueMult` survives as the headline "offer multiplier"
+  // the page quotes, and is kept honest by being the same curve: it is what the
+  // annual band works out to, relative to its floor.
   marketabilityTiers: [
     { maxPoints: 20, offers: 2, valueMult: 1.0, flavour: "Local Businesses" },
     { maxPoints: 40, offers: 3, valueMult: 1.5, flavour: "Regional Brands" },
@@ -1904,6 +2089,9 @@ export const TUNING: TuningConfig = {
     legacy: 10_000_000,
     platinum: 5_000_000, // pre-v1.53 alias — priced as diamond
   },
+  // 80%: enough of a haircut that placing a prospect properly is always the
+  // better deal, small enough that clearing an academy place isn't a punishment.
+  quickSellShareOfBestOffer: 0.8,
 
   intakeClassBase: 3,
   intakeClassPerLevel: 0.5,
@@ -2132,6 +2320,20 @@ export const TUNING: TuningConfig = {
   gcnSellMinSquadSize: 16,
   gcnMinHoldSeasons: 5,
   gcnAllowHomeCountryClubs: true,
+  gcnAllowDomesticNetworkTransfers: true,
+  gcnDomesticTransferPriceFactor: 1,
+  // A sim club books 70% of the ordinary income lines and pays 80% of its wage
+  // bill — a modest structural surplus, so a well-run network club grows rather
+  // than needing a permanent standing order to stay alive.
+  // Swept over 64 sim clubs (rep 50–91). At 0.85 / pivot 70 / power 2.4 only 2 of
+  // the 64 run at a loss, and net RISES with reputation — +£297k/wk at rep 91,
+  // +£142k at rep 65, +£57k at rep 50. That ordering is the point: a big club is
+  // an asset the empire is built on and a small one is viable but thin, which is
+  // the opposite of what the flat tier-keyed income lines produced on their own.
+  gcnSimIncomeFactor: 0.85,
+  gcnSimIncomeRepPivot: 70,
+  gcnSimIncomeRepPower: 2.4,
+  gcnSimWageFactor: 0.8,
 
   // v1.67: both subsidies switched off — they were inflating AI budgets far
   // beyond anything the market could justify by the third season. Zero disables

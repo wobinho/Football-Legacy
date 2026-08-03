@@ -830,8 +830,9 @@ escalating prices. There is no weekly cost — you buy a level and keep it.
 The design intent is a genuine choice of financial strategy. Player Bonus rewards a
 squad-quality strategy; Performance Bonus rewards a winning one; Contract
 Accounting rewards a big wage bill; the three flat tiers are the safe compounding
-base. Upgrade levels also feed **Club Marketability**, so infrastructure indirectly
-raises sponsorship income too.
+base. These income upgrades deliberately do **not** feed Club Marketability — that
+factor reads the staff facilities instead (§13.3), because scoring how much sponsor
+money a club attracts off how much it already collects was a feedback loop.
 
 *(Training, medical, gymnasium, specialist coaching centres, scouting network,
 academy squad size, focus slots, scout speed and Youth PR are also upgrade tracks.
@@ -873,22 +874,70 @@ decision rather than replacing it.
 
 ### 13.3 Club Marketability
 
-A **0–100 score** built from four things you actually control:
+A **0–100 score** built from six things you actually control:
 
 | Factor | Weight | What it reads |
 |---|---|---|
-| **League & Division Status** | 35 | What division you're in, plus European participation |
-| **Squad Star Power** | 25 | The mean of your three best players |
-| **Recent Team Form** | 25 | The last ten results, plus unbeaten runs |
-| **Club Facilities** | 15 | Mean level across your income upgrade tracks |
+| **League Division** | 32 | The division's own 0–10 reputation, not its tier number |
+| **European Cups** | 20 | How far you got, scaled by which cup it is |
+| **Squad Star Power** | 15 | The mean of your three best players |
+| **Club Facilities** | 14 | Levels held across the staff facilities, one point per upgrade |
+| **League Position** | 12 | Where you sit, as a fraction of your division |
+| **Recent Form** | 7 | The last ten results, plus unbeaten runs |
+
+Each factor produces a normalised **0–1 score** which is then multiplied by its
+weight. Scores and weights are deliberately separate: a factor answers only "how
+well is this club doing at this thing", and the weights table alone decides what
+that is worth, so re-balancing is a one-line change rather than a re-cut of every
+band table.
+
+Three rules matter more than the numbers:
+
+- **Europe renormalises away when unavailable.** A club with no continental
+  football isn't scored 0/20 — the factor is removed and its weight shared across
+  the other five. Otherwise season one (which has no European football at all) and
+  every non-European nation would be capped at 80/100 by construction, putting the
+  top money band permanently out of reach.
+- **A European campaign can never lower the score.** The factor is floored at what
+  the club's domestic form alone would have scored, so winning the Conference
+  League cannot read as worse than not qualifying. Europe is upside only.
+- **Facilities are counted, not averaged** — total levels held over total
+  available across the staff facilities. A fifth facility shipping moves the
+  denominator by itself. It reads the *staff* facilities, not the income
+  upgrades: scoring "how much sponsor money you attract" off "how much sponsor
+  money you already collect" was a loop.
 
 The score is derived on read, so it moves the moment a result lands or an upgrade
 is bought. The Investments page shows the full working — every factor, its points,
-its cap, and a plain-English reason ("Tier 1 League", "Unbeaten in 6") — so what
-you read is by construction the same arithmetic the money uses.
+its cap, and a plain-English reason ("Premier Division · reputation 10/10",
+"Unbeaten in 6") — sorted by what is *missing*, so the top of the list is always
+the biggest available gain.
 
-Marketability drives three things: **how many suitors** will talk at once, **how
-good the brands are**, and **how much they pay**. It renders as a 1–5 star rating.
+Marketability drives **how many suitors** will talk at once, **how good the brands
+are**, and **how much they pay**. It renders as a 1–5 star rating.
+
+### 13.4 What a major deal is worth
+
+A front-of-shirt deal's **annual** value is read straight off the marketability
+score: **£20M at 0, £100M at 100**, on a back-loaded curve (exponent 1.6). Every
+other major figure is that number scaled by the slot's share and the suitor tier.
+So a maxed club offered a three-season shirt deal is quoted **≈£293M**, and up to
+~£410M from a Global suitor.
+
+The curve is back-loaded rather than linear because a straight line makes the
+middle of the ladder far too rich — a mid-table top-flight club with nothing built
+would be quoted two-thirds of elite money for a fraction of the work.
+
+This replaced a stack of five multipliers (reputation × slot share × division
+ladder × suitor tier × marketability band × noise) with two problems: it
+**double-counted the division**, which is 32% of the marketability score it then
+multiplied by *and* was applied again separately; and its product couldn't be
+predicted from the tuning file at all. Reputation is deliberately gone from this
+path — every question it answered is now a marketability factor.
+
+Minor (weekly) partnerships keep the reputation-based model: they are measured in
+tens of thousands per week, and the majors' £20M–£100M annual band would be a
+nonsense scale to divide down from.
 
 This model deliberately replaced an earlier one keyed to a squad trait, under which
 a club could win the league, fill the ground and rebuild the squad without the

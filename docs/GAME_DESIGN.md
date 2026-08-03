@@ -464,10 +464,36 @@ Both are gated by the **club cap** (`groupClubsCap`) — see Operations below.
   Its budget does **not** return to the treasury. Any feeder loan there is recalled and its standing
   funding order (below) is cancelled.
 
-**Moving players.** `moveWithinNetwork` transfers a player between any two network clubs for a fee
-of 0 (via the shared `completeTransfer` primitive — no money leaves the empire). Either end may be
-the manager's own club: pulling a player *up* into the main squad is as valid as pushing one down
-(v1.62). `sendToFeeder` loans one of *your* players to an owned club with a guaranteed role;
+**Moving players.** `moveWithinNetwork` transfers a player between any two network clubs via the
+shared `completeTransfer` primitive. Either end may be the manager's own club: pulling a player *up*
+into the main squad is as valid as pushing one down (v1.62).
+
+A **cross-border** move inside the network is free — no money leaves the empire and no domestic
+rival is affected. A **domestic** move involving a ring-fenced club is priced at `playerValue` ×
+`gcnDomesticTransferPriceFactor` (1.0), buying club → selling club (v1.88): a free transfer between
+two clubs in one pyramid is exactly the fixing the ring fence exists to stop, while a priced one is
+ordinary business that leaves both balance sheets honest. `completeTransfer` moves the fee **both
+ways** — it credits the seller *and* debits the buyer — so the fee is passed to it once and never
+also applied by the caller.
+
+**Ring-fencing (v1.64, relaxed v1.88).** A club the network owns in the manager's own country is
+held at arm's length. v1.64 drew that as "no lever whatsoever", which also banned two domestic
+holdings from dealing with *each other* — a move that confers no advantage on the team the manager
+actually picks. The invariant is now stated narrowly, in `networkMoveError` and `fundClub`:
+
+- **Money never crosses the fence.** No treasury funding, no standing orders, no GCN Deals. The
+  manager's club and the network's cash are the same pocket.
+- **Players never move between the manager's own squad and a ring-fenced club**, in either
+  direction, and a ring-fenced club may not import across a border (it must not become a pipeline
+  from the wider empire). Two ring-fenced holdings in the same country may trade, at market value.
+- A ring-fenced club **may sell** to the open market (relaxed in v1.88): the player leaves the
+  network entirely, so it strengthens nobody, and `gcnSellMinSquadSize` already stops a gutting.
+- Feeder loans to a ring-fenced club stay banned — those move *the manager's own* players.
+
+`networkMoveError(state, from, to, cfg)` is the single source of that ruling; the UI greys out
+illegal destinations by calling it rather than re-deriving the rule.
+
+`sendToFeeder` loans one of *your* players to an owned club with a guaranteed role;
 `weeklyLoanTick` recognises a `gcnOwned` destination and guarantees the flagged role's minutes
 (starter ≈ full weeks, rotation a steady share) instead of the ordinary AI-uptake roll — reliable
 development you don't get loaning to a stranger.
@@ -503,8 +529,31 @@ simply ignored.
 
 v1.63 added the two **revenue** tracks. Both use the same curve — nothing at level 0, the base at
 level 1, then `perLevel` for each level above (`weeklyTrackAt`) — and both pay out in
-`gcnWeeklyTick`, which the gameloop runs each Monday beside `weeklyEconomyTick`. This is the only
-weekly money owned clubs see: they sit in sim leagues, which `weeklyEconomyTick` skips.
+`gcnWeeklyTick`, which the gameloop runs each Monday beside `weeklyEconomyTick`.
+
+**An owned club keeps its own books (v1.88).** Until v1.88 the two tracks above were the *only*
+weekly money an owned club saw — they sit in sim leagues, which `weeklyEconomyTick` skips — so the
+Finance panel read **£0 income and £0 spend** on a club fielding a real squad on real wages, and
+"fund this club" had no shortfall to fund against. `gcnSimBooks` now gives such a club abstracted
+books: the tier-keyed income lines × `gcnSimIncomeFactor` (0.85), less `gcnSimWageFactor` (0.8) of
+its squad wage bill. It is the same function `gcnWeeklyTick` banks and `gcnClubFinance` prints, so
+the panel can never quote a figure the simulation won't move.
+
+Two things it must keep doing, both of which were wrong in the first cut and only showed up when
+measured:
+
+1. **Income scales with reputation** (`gcnSimIncomeRepPivot` 70, `gcnSimIncomeRepPower` 2.4). Every
+   sim league is tier 1, so the tier-keyed income lines are near-flat across the whole sim world
+   (1.26× from rep 50 to rep 91) while wage bills run **5:1**. Without the scaling 38% of sim clubs
+   ran at a loss and it was precisely the *giants* — the assets an empire is built on — bleeding
+   £1.5M/wk while minnows profited. With it, 2 of 64 lose money and net **rises** with reputation
+   (+£297k/wk at rep 91, +£142k at rep 65, +£57k at rep 50).
+2. **A ring-fenced club gets no books**, because it still draws the central AI subsidy in
+   `weeklyEconomyTick` (`drawsAiSubsidy`) — that subsidy *is* its abstracted week, and paying both
+   would be double income.
+
+Run `npm run verify:gcn` after touching any of this; it asserts the shape (books non-zero, panel net
+== banked net, net rises with reputation, most clubs solvent) and never the figures.
 
 - **Brand Deals** — into the **GCN treasury**. `gcnBrandDealsBase` **100k/wk**, `+50k` per level over
   `gcnBrandDealsMaxLevel` (9) → **500k/wk** at max. Costs `gcnBrandDealsUpgradeCost`: **$150M**, then

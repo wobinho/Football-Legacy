@@ -24,18 +24,22 @@ import { mulberry32, pick, deriveSeed, uid, type RNG } from "./rng";
 import {
   marketabilityBreakdown,
   marketabilityMaxLiveOffers,
+  marketabilityOfferAnnual,
   marketabilityStarRating,
 } from "./marketability";
 
 export {
+  facilityProgress,
   marketabilityBreakdown,
   marketabilityLabel,
   marketabilityMaxLiveOffers,
+  marketabilityOfferAnnual,
   marketabilityScore,
   marketabilityStarRating,
   marketabilityValueMult,
   type MarketabilityBreakdown,
   type MarketabilityFactor,
+  type MarketabilityFactorKey,
 } from "./marketability";
 
 export interface SponsorSlotDef {
@@ -92,16 +96,53 @@ const BRANDS: Record<SponsorSlot, string[]> = {
 
 const TIER_NAMES = ["Regional", "National", "Global"];
 
-/** Weekly amount for a fresh offer in a given slot at a given tier. */
-function offerAmount(state: GameState, teamId: string, slot: SponsorSlot, tierIndex: number, cfg: TuningConfig, rng: RNG): number {
+/**
+ * The ANNUAL value of a major (lump-sum) offer in a given slot at a given tier
+ * (v1.86).
+ *
+ * One band read off marketability (`marketabilityOfferAnnual`: £20M at 0, £100M
+ * at 100, on a back-loaded curve), scaled by the slot's share of the shirt
+ * baseline and by which calibre of suitor rolled. That is the whole sum.
+ *
+ * It replaced a stack of five multipliers — reputation × slot share × division
+ * ladder × tier × marketability band × noise — that had two problems. It
+ * double-counted the division, which is 32% of the marketability score it then
+ * multiplied by AND was applied again here as `aiCommercialTierMult`; and its
+ * product was unpredictable from the tuning file, so "what does a maxed club get
+ * for its shirt" could only be answered by running the game. Now it is the
+ * `sponsorMajorAnnualMax` line.
+ *
+ * Reputation is deliberately gone from this path: every question it was
+ * answering (what division, how good a squad, how well are they doing) is a
+ * marketability factor now, and keeping it would have been the same
+ * double-count in a second place.
+ */
+function majorAnnualAmount(
+  state: GameState,
+  teamId: string,
+  slot: SponsorSlot,
+  tierIndex: number,
+  cfg: TuningConfig,
+  rng: RNG
+): number {
+  const score = marketabilityBreakdown(state, teamId, cfg).total;
+  const share = cfg.sponsorSlotShare[slot] ?? 0.5;
+  const tierMult = cfg.sponsorTierMults[tierIndex] ?? 1.0;
+  const noise = 0.9 + rng() * 0.2;
+  return Math.round((marketabilityOfferAnnual(score, cfg) * share * tierMult * noise) / 1000) * 1000;
+}
+
+/** Weekly amount for a fresh MINOR offer in a given slot at a given tier.
+ *
+ * Minors keep the reputation-based model (v1.86): they are a weekly top-up
+ * measured in tens of thousands, and the majors' £20M–£100M annual band would be
+ * a nonsense scale to divide down from. The division ladder stays here for the
+ * same reason it was added in v1.67 — a fourth-division sleeve deal should not
+ * be priced like a second-division one — and the marketability multiplier still
+ * applies, so a marketable club's partnerships are still worth more. */
+function minorWeeklyAmount(state: GameState, teamId: string, slot: SponsorSlot, tierIndex: number, cfg: TuningConfig, rng: RNG): number {
   const team = state.teams[teamId];
   const league = state.leagues[team.leagueId];
-  // Division multiplier, per tier (v1.67). This used to be `tier === 1 ? 1.6 : 1`,
-  // which priced a fourth-division sponsorship exactly like a second-division
-  // one — worth about £97k/week to a third-tier club, roughly its whole wage
-  // bill, and a large part of why lower-league sides were sitting on hundreds of
-  // millions. It reads the same tier ladder the AI's abstract commercial figure
-  // does, so the two agree about what a division is worth commercially.
   const divisionMult = league
     ? cfg.aiCommercialTierMult[
         Math.max(0, Math.min(cfg.aiCommercialTierMult.length - 1, league.tier - 1))
@@ -110,9 +151,6 @@ function offerAmount(state: GameState, teamId: string, slot: SponsorSlot, tierIn
   const share = cfg.sponsorSlotShare[slot] ?? 0.5;
   const base = team.reputation * cfg.sponsorBaseWeeklyByReputation * share * divisionMult;
   const tierMult = cfg.sponsorTierMults[tierIndex] ?? 1.0;
-  // Money follows Club Marketability (v44), so the "offer multiplier" the
-  // Investments page advertises is literally the number moving the offer: a 5★
-  // club is quoted 6× what a 1★ club is for the same slot.
   const marketMult = marketabilityBreakdown(state, teamId, cfg).valueMult;
   const noise = 0.9 + rng() * 0.2;
   return Math.round((base * tierMult * marketMult * noise) / 1000) * 1000;
@@ -161,14 +199,15 @@ function bonusTermsFor(guaranteed: number, cfg: TuningConfig): SponsorBonusTerms
 function makeOffer(state: GameState, teamId: string, slot: SponsorSlot, cfg: TuningConfig, rng: RNG): SponsorOffer {
   const tierIndex = rollTier(state, teamId, cfg, rng);
   const kind = slotKind(slot, cfg);
-  const equivalentWeekly = offerAmount(state, teamId, slot, tierIndex, cfg, rng);
 
   if (kind === "major") {
     const lo = Math.max(cfg.sponsorMajorLengthMin, cfg.sponsorMajorMinSeasons);
     const hi = Math.max(lo, cfg.sponsorMajorLengthMax);
     const seasons = lo + Math.floor(rng() * (hi - lo + 1));
-    // one-time lump ≈ equivalent-weekly across the whole term, with an incentive
-    const upfront = Math.round((equivalentWeekly * 52 * seasons * cfg.sponsorMajorUpfrontMult) / 100_000) * 100_000;
+    // The lump sum is the annual value across the whole term (v1.86), with the
+    // signing incentive on top.
+    const annual = majorAnnualAmount(state, teamId, slot, tierIndex, cfg, rng);
+    const upfront = Math.round((annual * seasons * cfg.sponsorMajorUpfrontMult) / 100_000) * 100_000;
     return {
       id: uid("spo"),
       slot,
@@ -194,7 +233,10 @@ function makeOffer(state: GameState, teamId: string, slot: SponsorSlot, cfg: Tun
     slot,
     kind,
     brand: pick(rng, BRANDS[slot]),
-    weeklyAmount: Math.round((equivalentWeekly * cfg.sponsorMinorWeeklyMult) / 1000) * 1000,
+    weeklyAmount:
+      Math.round(
+        (minorWeeklyAmount(state, teamId, slot, tierIndex, cfg, rng) * cfg.sponsorMinorWeeklyMult) / 1000
+      ) * 1000,
     upfront: 0,
     seasons: 1,
     tier: TIER_NAMES[tierIndex],
@@ -280,15 +322,15 @@ function fillAiSponsorBook(state: GameState, team: Team, cfg: TuningConfig, seas
     for (let i = held; i < capacity; i++) {
       if (rng() >= fillChance) continue;
       const tierIndex = rollTier(state, team.id, cfg, rng);
-      const equivalentWeekly =
-        offerAmount(state, team.id, def.slot, tierIndex, cfg, rng) * cfg.aiSponsorValueMult;
 
       if (kind === "major") {
         const lo = Math.max(cfg.sponsorMajorLengthMin, cfg.sponsorMajorMinSeasons);
         const hi = Math.max(lo, cfg.sponsorMajorLengthMax);
         const seasons = lo + Math.floor(rng() * (hi - lo + 1));
+        const annual =
+          majorAnnualAmount(state, team.id, def.slot, tierIndex, cfg, rng) * cfg.aiSponsorValueMult;
         const upfront =
-          Math.round((equivalentWeekly * 52 * seasons * cfg.sponsorMajorUpfrontMult) / 100_000) * 100_000;
+          Math.round((annual * seasons * cfg.sponsorMajorUpfrontMult) / 100_000) * 100_000;
         team.sponsors.push({
           id: uid("spd"),
           slot: def.slot,
@@ -307,7 +349,13 @@ function fillAiSponsorBook(state: GameState, team: Team, cfg: TuningConfig, seas
           slot: def.slot,
           kind,
           brand: pick(rng, BRANDS[def.slot]),
-          weeklyAmount: Math.round((equivalentWeekly * cfg.sponsorMinorWeeklyMult) / 1000) * 1000,
+          weeklyAmount:
+            Math.round(
+              (minorWeeklyAmount(state, team.id, def.slot, tierIndex, cfg, rng) *
+                cfg.aiSponsorValueMult *
+                cfg.sponsorMinorWeeklyMult) /
+                1000
+            ) * 1000,
           upfront: 0,
           expirySeason: season,
           signedSeason: season,

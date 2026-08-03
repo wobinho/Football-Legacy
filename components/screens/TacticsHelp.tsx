@@ -41,11 +41,13 @@ import {
   type InstructionPrefs,
 } from "@/lib/config/archetype";
 import { ATTR_META, type AttrKey } from "@/lib/config/attributes";
-import { styleLabel } from "@/lib/config/formations";
+import { squadBlueprint } from "@/lib/assistant";
+import { getFormation, styleLabel } from "@/lib/config/formations";
 import { POS_ORDER } from "@/lib/config/positions";
 import { TRAINING_PLAN_MAP } from "@/lib/config/training";
 import { TUNING } from "@/lib/config/tuning";
 import { ArchetypeIcon, Card, ClassDot, Section } from "../ui";
+
 
 // ── Small presentational helpers ───────────────────────────────────────────
 
@@ -448,6 +450,202 @@ function StyleGuide() {
   );
 }
 
+// ── Chapter: the ideal XI for a style ──────────────────────────────────────
+
+/**
+ * The best side to build for each style of play (v1.87).
+ *
+ * The class × style grid one chapter up answers "does this KIND of player suit
+ * this style". That is the rule, but it is not an answer to the question a
+ * manager actually arrives with, which is "so who do I sign?" — turning a column
+ * of five class numbers into eleven specific roles means holding the roster's
+ * position reachability in your head, which is exactly the wiki-not-a-game
+ * problem the Squad Blueprint exists to solve on the Tactics screen.
+ *
+ * So this chapter is that same blueprint, run for a style rather than for your
+ * squad. It calls `squadBlueprint` — THE function the Tactics screen calls, with
+ * an empty lineup so every slot reports its ideal — which is what guarantees the
+ * XI named here is the one the ✓/~/✗ marks will grade you against. Restating a
+ * hand-picked "possession XI" in this file would be a second opinion free to
+ * disagree with the first.
+ *
+ * The dials are derived too, not authored: for each axis the setting is the one
+ * whose value the ideal XI's own roles most prefer, scored with the same
+ * `instructionFitScore` the engine multiplies onto a rating. That is why a
+ * recommendation here can never contradict the ▲▼ marks on the Setup tab.
+ */
+
+/** The shape each style is shown in. A blueprint is per-FORMATION — the slots
+ * are what the roles hang off — so naming a style's ideal XI means naming the
+ * shape it is ideal in. These are the shapes each style's prose in the chapter
+ * above already describes: WingPlay needs two wingers, ParkTheBus a back five,
+ * Gegenpress the pressing 4-3-3. */
+const STYLE_SHAPE: Record<Style, string> = {
+  Possession: "433",
+  Counter: "4231",
+  Direct: "442",
+  Gegenpress: "433",
+  ParkTheBus: "532",
+  WingPlay: "4231",
+};
+
+/**
+ * The dial settings this XI wants, derived rather than authored.
+ *
+ * For each axis, every setting the eleven ideal roles actually NAME is scored
+ * with the same ±1 tally `instructionFitScore` averages — liked +1, disliked −1
+ * — and the winner is the setting the side as a whole most wants. Deriving the
+ * candidate settings from the roles' own `likes`/`dislikes` rather than from a
+ * list of enum values is deliberate: it keeps this file free of a third copy of
+ * the option lists (Tactics.tsx and verify-archetype-tactics.ts each hold one),
+ * so a new setting on an axis needs no edit here to be considered.
+ *
+ * A net of zero means the XI genuinely has no collective opinion, which is
+ * reported as "Any" — claiming a preference nobody holds would be the exact
+ * kind of invented fact this file's header rule forbids.
+ */
+function bestDials(ideals: Archetype[]): { label: string; value: string }[] {
+  return AXIS_LABEL.map(({ key, label }) => {
+    const tally = new Map<string, number>();
+    for (const a of ideals) {
+      const pref = ARCHETYPE_PROFILE[a.id].instructionPrefs[key];
+      if (!pref) continue;
+      for (const v of pref.likes ?? []) tally.set(v, (tally.get(v) ?? 0) + 1);
+      for (const v of pref.dislikes ?? []) tally.set(v, (tally.get(v) ?? 0) - 1);
+    }
+    let best: string | undefined;
+    let bestScore = 0;
+    for (const [v, score] of tally) {
+      if (score > bestScore) {
+        bestScore = score;
+        best = v;
+      }
+    }
+    return { label, value: best ?? "Any" };
+  });
+}
+
+function StyleBuilds() {
+  const [style, setStyle] = useState<Style>("Possession");
+
+  const build = useMemo(() => {
+    const formation = getFormation(STYLE_SHAPE[style]);
+    // An EMPTY lineup: with no incumbent every row reports its ideal and
+    // nothing else, which is exactly the "who should I sign" reading.
+    const bp = squadBlueprint(
+      formation.slots.map((s) => ({ id: s.id, pos: s.pos, label: s.label })),
+      {},
+      { formationId: formation.id, mentality: "Balanced", style },
+      TUNING.instructionFitSwing
+    );
+    const ideals = bp.slots.map((s) => s.ideal);
+    // How the eleven break down by class — the bridge back to the grid above.
+    const counts = ARCHETYPE_CLASS_ORDER.map((c) => ({
+      cls: c,
+      n: ideals.filter((a) => a.cls === c).length,
+    })).filter((x) => x.n > 0);
+    return { formation, bp, dials: bestDials(ideals), counts };
+  }, [style]);
+
+  return (
+    <div className="space-y-4">
+      <p className="text-[12px] leading-relaxed text-dim">
+        The grid one chapter up gives the rule; this gives the team sheet. Pick a style and this is
+        the best role at every position for it — the <b className="text-ink">exact</b> XI the Squad
+        Blueprint on the Setup tab grades your side against, produced by the same function, so what
+        you read here is what you will be marked on.
+      </p>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="mr-1 text-[10px] uppercase tracking-widest text-faint">Style</span>
+        {STYLE_TABLE_ORDER.map((s) => (
+          <button
+            key={s}
+            onClick={() => setStyle(s)}
+            className={`rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+              style === s
+                ? "border border-gold bg-hover text-gold"
+                : "border border-line text-faint hover:text-ink"
+            }`}
+          >
+            {styleLabel(s)}
+          </button>
+        ))}
+      </div>
+
+      {/* The shape, the class mix and the dials — the three things that turn a
+          list of eleven names into an actual plan. */}
+      <div className="rounded-md border border-line bg-base/30 px-3 py-2.5">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span className="display text-[13px] font-semibold text-ink">
+            {styleLabel(style)} — {build.formation.name}
+          </span>
+          <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px]">
+            {build.counts.map(({ cls, n }) => (
+              <span key={cls} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                <ClassDot cls={cls} size={7} />
+                <span style={{ color: ARCHETYPE_CLASS_COLOR[cls] }}>{cls}</span>
+                <span className="tnum font-semibold text-dim">×{n}</span>
+              </span>
+            ))}
+          </span>
+        </div>
+        <p className="mt-1 text-[11.5px] leading-relaxed text-faint">{build.formation.desc}</p>
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
+          {build.dials.map(({ label, value }) => (
+            <span key={label}>
+              <span className="text-faint">{label} </span>
+              <span className={value === "Any" ? "text-faint" : "text-ink"}>{value}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* The XI itself. One row per slot, in the formation's own slot order, so
+          it reads goalkeeper-outward the way the pitch does. */}
+      <Card className="divide-y divide-line/50">
+        {build.bp.slots.map((row) => (
+          <div key={row.slotId} className="flex items-center gap-2.5 px-3 py-2">
+            <span className="display w-8 shrink-0 text-[11px] font-bold text-faint">{row.label}</span>
+            <ArchetypeIcon archetype={row.ideal} size={22} />
+            <span className="min-w-0 flex-1">
+              <span className="flex flex-wrap items-baseline gap-x-2">
+                <span className="display text-[12.5px] font-semibold text-ink">{row.ideal.name}</span>
+                <span
+                  className="text-[9.5px] uppercase tracking-widest"
+                  style={{ color: ARCHETYPE_CLASS_COLOR[row.ideal.cls] }}
+                >
+                  {row.ideal.cls}
+                </span>
+              </span>
+              <span className="mt-0.5 block text-[11px] leading-snug text-faint">
+                {row.ideal.desc}
+              </span>
+            </span>
+            {/* What the role is worth here, on the same scale the blueprint and
+                the assistant's report both quote. */}
+            <span
+              className={`w-11 shrink-0 text-right tnum text-[11px] font-semibold ${toneOf(Math.round(row.idealPct))}`}
+              title={`This role earns ${Math.round(row.idealPct)}% on his own rating in this setup, against the best available at ${row.slotPos}.`}
+            >
+              {pct(Math.round(row.idealPct))}
+            </span>
+          </div>
+        ))}
+      </Card>
+
+      <p className="text-[11px] leading-relaxed text-faint">
+        These are the <em>best</em> roles, not the only workable ones — the blueprint grades anything
+        within {/* the same band the blueprint itself uses for `fine` */}
+        <span className="tnum">20%</span> of the ideal as no real cost. Treat this as the side to aim
+        at over several windows, not a list of eleven players to go and buy at once. A slot showing a
+        small percentage is one where the style barely cares who plays there, which is where to spend
+        your budget last.
+      </p>
+    </div>
+  );
+}
+
 // ── Chapter: the five dials ────────────────────────────────────────────────
 
 function Instructions() {
@@ -831,6 +1029,12 @@ const CHAPTERS = [
     title: "Building for each style of play",
     lede: "The full class × style grid, plus how to assemble a squad for all six.",
     body: <StyleGuide />,
+  },
+  {
+    id: "builds",
+    title: "The best side for each style",
+    lede: "The ideal XI, role by role, for all six styles — and the dials it wants.",
+    body: <StyleBuilds />,
   },
   {
     id: "dials",

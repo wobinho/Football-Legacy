@@ -15,7 +15,8 @@ import {
   type PlayerSeed,
 } from "@/lib/database";
 import { libraryClubToSeed } from "@/lib/customdb";
-import { divisionSeed, teamIdFor } from "@/lib/worldgen";
+import { divisionSeed, teamIdFor, MAX_TAKEOVER_AMOUNT } from "@/lib/worldgen";
+import { formatMoney } from "@/lib/value";
 import {
   DEFAULT_TIER_NAMES,
   MAX_DIVISION_DEPTH,
@@ -28,7 +29,7 @@ import { storedKey } from "@/lib/auth";
 import { EURO_MIN_COUNTRIES, europeanCountryCodes } from "@/lib/european";
 import { NAME_POOLS } from "@/lib/config/names";
 import { overallFromAttrs } from "@/lib/config/positions";
-import { CountryFlag, Crest, Flag, GoldButton, GhostButton, Modal, Ovr, PosBadge } from "./ui";
+import { CountryFlag, Crest, Flag, GoldButton, GhostButton, Modal, MoneyInput, Ovr, PosBadge } from "./ui";
 import CreateClubModal, { customClubSeed, type CustomClub } from "./CreateClubModal";
 import CreatePlayerModal, { customPlayerSeed, type CustomPlayer } from "./CreatePlayerModal";
 import DatabaseEditor from "./DatabaseEditor";
@@ -204,6 +205,10 @@ function presetSummary(code: string): string {
   return `${tiers}${p.clubs} clubs`;
 }
 
+/** The takeover quick-picks (v1.88). A ladder rather than a slider: the interesting
+ * choices are order-of-magnitude ones, and the free-text box covers the rest. */
+const TAKEOVER_PRESETS = [0, 100_000_000, 500_000_000, 2_000_000_000, MAX_TAKEOVER_AMOUNT];
+
 function NewGameForm({ onBack }: { onBack: () => void }) {
   const newGame = useGame((s) => s.newGame);
   const showToast = useGame((s) => s.showToast);
@@ -214,6 +219,10 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
   // Which tier of the playable ladder you start in (v17, 1-based). You may begin
   // in a lower division and work your way up.
   const [startTier, setStartTier] = useState<number>(1);
+  // Financial takeover (v1.88): cash injected into the chosen club at kick-off.
+  // 0 = the ordinary career start, which is why it's the default — the takeover
+  // is an opt-in sandbox, not the game's assumption about how a save begins.
+  const [takeoverAmount, setTakeoverAmount] = useState(0);
   // How many tiers EACH included country runs (v17), keyed by country code.
   // Tiers beyond what a country's database authors are generated procedurally.
   // Empty by default: depthFor() falls back to however many tiers a country's
@@ -556,6 +565,7 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
         Object.entries(europeanSlots).filter(([code]) => europeanIncluded.includes(code))
       ),
       europeanCupWinnerQualifies: euroCupWinnerQualifies,
+      takeoverAmount,
       // Only send names the user actually typed; blanks keep the defaults.
       divisionNames: Object.fromEntries(
         Object.entries(divisionNames)
@@ -792,6 +802,46 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
               );
             })}
           </div>
+        )}
+      </div>
+
+      {/* Step 2b: financial takeover (v1.88). An optional cash injection into the
+          club you've just picked — the billionaire buy-out fantasy, opt-in and
+          off by default so an ordinary career start is still the default one. */}
+      <div>
+        <span className="display text-xs font-semibold tracking-widest text-faint">
+          FINANCIAL TAKEOVER (OPTIONAL)
+        </span>
+        <p className="mb-2 mt-0.5 text-[11px] text-faint">
+          New owners, new money. Inject up to {formatMoney(MAX_TAKEOVER_AMOUNT)} straight into your
+          club&apos;s budget on day one — on top of whatever war chest it already has. Leave it at
+          zero for an ordinary career.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <MoneyInput
+            value={takeoverAmount}
+            onChange={(n) => setTakeoverAmount(Math.max(0, Math.min(MAX_TAKEOVER_AMOUNT, n)))}
+            showCurrency
+            className="w-48 rounded-md border border-line bg-raised px-3 py-2 text-ink tnum focus:border-gold focus:outline-none"
+          />
+          {TAKEOVER_PRESETS.map((amount) => (
+            <button
+              key={amount}
+              onClick={() => setTakeoverAmount(amount)}
+              className={`rounded-md border px-3 py-1.5 text-[11px] transition-colors ${
+                takeoverAmount === amount
+                  ? "border-gold bg-hover text-ink"
+                  : "border-line text-faint hover:text-dim"
+              }`}
+            >
+              {amount === 0 ? "None" : formatMoney(amount)}
+            </button>
+          ))}
+        </div>
+        {takeoverAmount > 0 && (
+          <p className="mt-2 text-[11px] text-gold">
+            {formatMoney(takeoverAmount)} will be waiting in the bank when you walk in.
+          </p>
         )}
       </div>
 

@@ -979,6 +979,7 @@ export function ConfirmButton({
   confirmLabel = "Confirm?",
   onConfirm,
   disabled,
+  title,
   className = "",
   tone = "neutral",
 }: {
@@ -986,6 +987,9 @@ export function ConfirmButton({
   confirmLabel?: React.ReactNode;
   onConfirm: () => void;
   disabled?: boolean;
+  /** Hover text. Worth having on a destructive button in particular: it is where
+   * the reason a disabled one is disabled can be said, which the label can't. */
+  title?: string;
   className?: string;
   /** `primary` is for the one action a card exists for (the market's Hire). It
    * carries a gold outline and tint at rest so it reads as the thing to click
@@ -1019,6 +1023,7 @@ export function ConfirmButton({
         }
       }}
       onBlur={() => setArmed(false)}
+      title={title}
       disabled={disabled}
       className={`rounded-md border px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-40 ${armed ? armedCls : idleCls} ${className}`}
     >

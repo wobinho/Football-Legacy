@@ -23,6 +23,7 @@
 import {
   BADGE_HIRE_ABSOLUTE_MAX_TIER,
   BADGE_LADDER,
+  FACILITY_MAP,
   FACILITY_SPECS,
   STAFF_BADGE_SLOTS,
   STAFF_HIRE_MAX_AGE,
@@ -118,17 +119,26 @@ check(
   new Set(FACILITY_SPECS.map((f) => f.id)).size === FACILITY_SPECS.length
 );
 
-// The level lever is an EXCEPTION, and this is what keeps it one (v1.85).
+// The level lever is an EXCEPTION, and this is what keeps it one (v1.85, widened
+// deliberately in v1.87).
 //
 // `levelEffect` lets a channel grow with the building rather than with the
 // people in it — which is the shape the whole facilities rework exists to
-// replace. One facility is allowed it, because one facility is genuinely a
-// DEPARTMENT you build bigger rather than an effect you staff: the Scouting
-// Network's headcount and the reach that comes with it. If a channel on any
-// other facility ever grows this way, that should be a decision someone argues
-// for in a diff, not a habit that creeps back one row at a time.
+// replace. The channels allowed it are all CAPACITIES: things a building has
+// rather than things a staff member does. The Scouting Network's headcount and
+// reach (v1.85), and the Youth Academy's beds, focus slots and the small
+// day-one value bump that stops a £50M unlock from doing nothing (v1.87).
+//
+// The list is by NAME, so widening it is an edit someone makes on purpose and
+// argues for in a diff — never a habit that creeps back one row at a time.
 {
-  const SANCTIONED = ["scoutingNetwork/maxScouts", "scoutingNetwork/scoutSpeed"];
+  const SANCTIONED = [
+    "scoutingNetwork/maxScouts",
+    "scoutingNetwork/scoutSpeed",
+    "youthAcademy/squadSize",
+    "youthAcademy/focusSlots",
+    "youthAcademy/prospectValue",
+  ];
   const withLevels = FACILITY_SPECS.flatMap((spec) =>
     spec.channels.filter((ch) => (ch.levelEffect ?? 0) > 0).map((ch) => `${spec.id}/${ch.id}`)
   );
@@ -137,12 +147,26 @@ check(
     withLevels.length === SANCTIONED.length && withLevels.every((k) => SANCTIONED.includes(k)),
     `got ${withLevels.join(", ") || "none"}`
   );
-  // And no facility other than the Scouting Network gets one at all — the check
-  // above would pass a re-homing that kept the count the same.
+  // The two facilities that own a growth-by-level channel, spelled out — the
+  // check above would pass a re-homing onto the ETC that kept the count the same.
   check(
-    "no facility but the Scouting Network has a level term",
-    withLevels.every((k) => k.startsWith("scoutingNetwork/"))
+    "only the Scouting Network and the Youth Academy have level terms",
+    withLevels.every((k) => k.startsWith("scoutingNetwork/") || k.startsWith("youthAcademy/"))
   );
+  // The staff track still has to DOMINATE the effects that are about quality
+  // rather than capacity — that is the line between "a level buys you room" and
+  // the bought-by-the-level ladder this system replaced. Prospect value is the
+  // one Youth Academy channel that isn't a capacity, so it's the one to police.
+  {
+    const ch = FACILITY_MAP.youthAcademy.channels.find((c) => c.id === "prospectValue")!;
+    const fromLevels = ch.base + (ch.levelEffect ?? 0) * 4;
+    const fromStaff = ch.starEffect * 5 + ch.badgeEffect * (36 / ch.badgeTiersPerStep);
+    check(
+      "youthAcademy/prospectValue: the people still buy most of it",
+      fromStaff > fromLevels,
+      `levels ${fromLevels}%, staff ${fromStaff}%`
+    );
+  }
 }
 
 console.log("\nBadge ladder");
@@ -396,13 +420,26 @@ console.log("\nHigh Performance Center — the design brief's worked example");
   eq("relief 0 is the unchanged curve", eliteResistMult(90, TUNING, 0), noRelief);
 }
 
-// ── 5. The Youth Academy and Scouting Network (v1.82) ─────────────────────
+// ── 5. The Youth Academy and Scouting Network (v1.82, re-laddered v1.87) ──
 //
-// Both are MULTI-CHANNEL, and both pay their badge track per TWO tiers rather
-// than per tier. That divisor is the thing worth pinning: at per-tier rates a
-// single legacy badge would add six squad places, which swamps the star track
-// and makes the star/badge split meaningless. The brief's own numbers are the
-// check — base effects at level 1 empty, and the ceiling with six legacy 5-stars.
+// Both are MULTI-CHANNEL, and both are DEPARTMENTS: some of what they produce
+// is capacity, which belongs to the building, and the rest is quality, which
+// belongs to the people. Three things are pinned here that no table reading
+// makes obvious:
+//
+//   - Every level of both facilities BUYS something on its own. The v1.82 Youth
+//     Academy failed this — its bases equalled the unbuilt fallbacks, so £50M
+//     bought a level-1 building identical to no building at all.
+//   - The capacities (beds, focus slots, scout headcount) take level terms and
+//     no badge term; the rates (prospect value, scout speed) take the badge
+//     track. An integer capacity on a per-tier badge rate would hand out six
+//     squad places for one legacy badge and swamp everything else.
+//   - The staff still buy the majority of every quality effect, which is the
+//     line between "a level buys you room" and the bought-by-the-level ladder
+//     the whole facilities system replaced.
+//
+// Each facility's brief supplies the rest: the rung-by-rung ladder, and the
+// ceiling with six legacy-badged 5-stars.
 
 /** One channel of one facility, by id. */
 function chan(team: Team, id: Parameters<typeof facilityEffect>[1], channelId: string) {
@@ -433,49 +470,91 @@ function maxedTeam(id: "youthAcademy" | "scoutingNetwork"): Team {
   return team;
 }
 
-console.log("\nYouth Academy — the design brief's worked example");
+console.log("\nYouth Academy — the design brief's worked example (v1.87)");
 {
-  // Level 1, nobody assigned: the brief's base effects exactly.
+  // The check the v1.82 ladder failed, and the reason this facility was
+  // re-laddered: BUILDING it has to do something on its own. Before v1.87 every
+  // channel's `base` equalled the unbuilt fallback, so a £50M unlock moved
+  // nothing at all until six staff stars were in post. Each of these three is a
+  // strict inequality on purpose.
   const team = makeTeam();
   team.facilities = { youthAcademy: { level: 1 } };
-  eq("base: academy squad size", chan(team, "youthAcademy", "squadSize").total, 15);
-  eq("base: focus slots", chan(team, "youthAcademy", "focusSlots").total, 3);
-  eq("base: prospect value", chan(team, "youthAcademy", "prospectValue").total, 0);
+  const l1 = {
+    squad: chan(team, "youthAcademy", "squadSize").total,
+    focus: chan(team, "youthAcademy", "focusSlots").total,
+    value: chan(team, "youthAcademy", "prospectValue").total,
+  };
+  eq("unlock: academy squad size", l1.squad, 20);
+  eq("unlock: focus slots", l1.focus, 4);
+  eq("unlock: prospect value", l1.value, 3);
+  check(
+    "unlocking beats not building it on EVERY channel",
+    l1.squad > TUNING.academySquadSizeBase && l1.focus > TUNING.u21FocusBase && l1.value > 0,
+    `squad ${l1.squad} vs ${TUNING.academySquadSizeBase}, focus ${l1.focus} vs ${TUNING.u21FocusBase}, value ${l1.value}%`
+  );
 }
 {
-  // Six stars = one step: +3 squad, +1 focus slot, +3% value.
+  // The level ladder, rung by rung, with nobody assigned — the building alone.
+  // Every rung is the same rung (+5 places, +1 focus, +3% value), which is what
+  // makes the upgrade legible without a table on screen.
+  const expected: [number, number, number, number][] = [
+    // level, squad, focus, value
+    [1, 20, 4, 3],
+    [2, 25, 5, 6],
+    [3, 30, 6, 9],
+    [4, 35, 7, 12],
+    [5, 40, 8, 15],
+  ];
+  for (const [level, squad, focus, value] of expected) {
+    const team = makeTeam();
+    team.facilities = { youthAcademy: { level } };
+    eq(`level ${level} (unstaffed): squad size`, chan(team, "youthAcademy", "squadSize").total, squad);
+    eq(`level ${level} (unstaffed): focus slots`, chan(team, "youthAcademy", "focusSlots").total, focus);
+    eq(`level ${level} (unstaffed): prospect value`, chan(team, "youthAcademy", "prospectValue").total, value);
+  }
+}
+{
+  // Six stars = one step: +2 squad places and +2% value. Focus slots take NO
+  // star term (v1.87) — how many prospects you may focus is a property of the
+  // building, so it must not drift with who happens to be in post this season.
   const team = makeTeam();
-  team.facilities = { youthAcademy: { level: 2 } };
+  team.facilities = { youthAcademy: { level: 1 } };
   team.staffRoster = [
     { ...staff(1, 3), assignedTo: "youthAcademy" as const, badges: [] },
     { ...staff(2, 3), assignedTo: "youthAcademy" as const, badges: [] },
   ];
-  eq("one 6-star step: squad size", chan(team, "youthAcademy", "squadSize").total, 18);
-  eq("one 6-star step: focus slots", chan(team, "youthAcademy", "focusSlots").total, 4);
-  eq("one 6-star step: prospect value", chan(team, "youthAcademy", "prospectValue").total, 3);
+  eq("one 6-star step: squad size", chan(team, "youthAcademy", "squadSize").total, 22);
+  eq("one 6-star step: prospect value", chan(team, "youthAcademy", "prospectValue").total, 5);
+  eq("one 6-star step: focus slots are unmoved by staff", chan(team, "youthAcademy", "focusSlots").total, 4);
 }
 {
-  // The two-tier badge divisor, in isolation: one bronze badge (tier 1) is half
-  // a step and must therefore be worth NOTHING yet. This is the check that
-  // catches a per-tier regression, and it is invisible in the table.
+  // The badge track is prospect value ALONE, and it pays per single tier there
+  // (v1.87) — a rate has none of the rounding problem an integer capacity does.
+  // The capacities take no badge term at all, which is the check that catches a
+  // regression to the v1.82 shape where a legacy badge bought beds.
   const team = makeTeam();
   team.facilities = { youthAcademy: { level: 1 } };
   team.staffRoster = [
     { ...staff(1, 1), assignedTo: "youthAcademy" as const, badges: [{ facility: "youthAcademy" as const, seasons: 1, tier: "bronze" as const }] },
   ];
-  eq("one bronze badge (1 tier) is half a step — worth nothing yet", chan(team, "youthAcademy", "squadSize").total, 15);
-
-  // A silver (tier 2) completes the first step: +1 squad, +1% value.
-  team.staffRoster[0].badges = [{ facility: "youthAcademy", seasons: 2, tier: "silver" }];
-  eq("a silver badge (2 tiers) completes one step", chan(team, "youthAcademy", "squadSize").total, 16);
-  eq("...and one step of prospect value", chan(team, "youthAcademy", "prospectValue").total, 1);
+  eq("one bronze badge: +0.5% prospect value", chan(team, "youthAcademy", "prospectValue").total, 3.5);
+  eq("one bronze badge buys no squad places", chan(team, "youthAcademy", "squadSize").total, 20);
+  eq("one bronze badge buys no focus slots", chan(team, "youthAcademy", "focusSlots").total, 4);
 }
 {
-  // The ceiling: 30 stars = 5 steps, 36 badge weight = 18 double-tier steps.
+  // The ceiling: level 5, 30 stars = 5 steps, 36 badge weight = 36 single tiers.
   const team = maxedTeam("youthAcademy");
-  eq("maxed: squad size (15 + 3×5 + 1×18)", chan(team, "youthAcademy", "squadSize").total, 48);
-  eq("maxed: focus slots (3 + 1×5, no badge track)", chan(team, "youthAcademy", "focusSlots").total, 8);
-  eq("maxed: prospect value (0 + 3×5 + 1×18)", chan(team, "youthAcademy", "prospectValue").total, 33);
+  eq("maxed: squad size (20 + 5×4 levels + 2×5 star steps)", chan(team, "youthAcademy", "squadSize").total, 50);
+  eq("maxed: focus slots (4 + 1×4, level only)", chan(team, "youthAcademy", "focusSlots").total, 8);
+  eq("maxed: prospect value (3 + 3×4 + 2×5 + 0.5×36)", chan(team, "youthAcademy", "prospectValue").total, 43);
+  // The split that keeps the facility staffed rather than merely built: most of
+  // the value premium is bought with people, not with levels.
+  const v = chan(team, "youthAcademy", "prospectValue");
+  check(
+    "maxed: the staff terms outweigh base+levels on prospect value",
+    v.stars + v.badges > v.base + v.levels,
+    `staff ${v.stars + v.badges}%, building ${v.base + v.levels}%`
+  );
 }
 
 console.log("\nScouting Network — the design brief's worked example (v1.85)");
