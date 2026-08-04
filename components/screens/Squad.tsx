@@ -9,7 +9,8 @@ import { POS_LABELS, POS_ORDER } from "@/lib/config/positions";
 import { yearsLeft } from "@/lib/contracts";
 import { formatMoney } from "@/lib/value";
 import { matchesPlayerName } from "@/lib/search";
-import { Card, displayFullName, FitnessBar, Flag, FormChip, Money, Ovr, ArchetypeLabel, PlayerCard, PlayerGrid, PosBadge, Section, usePlayerView, ViewToggle } from "../ui";
+import { Card, displayFullName, FitnessBar, Flag, FormChip, GhostButton, GoldButton, Modal, Money, Ovr, ArchetypeLabel, PlayerCard, PlayerGrid, PosBadge, Section, usePlayerView, ViewToggle } from "../ui";
+import { parsePlayerFile, type PlayerFile } from "@/lib/playerfile";
 
 // The contract used to be a single column (years, then wage as a tiebreak). It's
 // now split so wage/week and years-left are each their own sortable column with
@@ -49,6 +50,10 @@ export default function SquadScreen() {
   const [posFilter, setPosFilter] = useState<"ALL" | Pos>("ALL");
   const [wageBand, setWageBand] = useState("all");
   const [yearsBand, setYearsBand] = useState("all");
+
+  // A parsed player file awaiting confirmation (v1.91).
+  const [pendingImport, setPendingImport] = useState<PlayerFile | null>(null);
+  const showToast = useGame((s) => s.showToast);
 
   const team = game.teams[game.userTeamId];
 
@@ -170,6 +175,32 @@ export default function SquadScreen() {
           <span className="tnum text-dim">{players.length}</span> of {allPlayers.length}
         </span>
       )}
+
+      {/* Import a player file (v1.91). Sits with the squad tools rather than in
+          Transfers because it isn't a transfer — no fee, no negotiation. The
+          chosen file opens a preview first: signing someone sight-unseen out of
+          a file is exactly the mistake this control could otherwise invite. */}
+      <label className="ml-auto cursor-pointer">
+        <span className="display rounded border border-line px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-faint transition-colors hover:border-gold-lo/60 hover:text-gold">
+          Import Player
+        </span>
+        <input
+          type="file"
+          accept=".json,application/json"
+          className="hidden"
+          onChange={async (e) => {
+            const f = e.target.files?.[0];
+            // Reset immediately so re-picking the SAME file fires onChange again.
+            e.target.value = "";
+            if (!f) return;
+            try {
+              setPendingImport(parsePlayerFile(await f.text()));
+            } catch (err) {
+              showToast(err instanceof Error ? err.message : "Couldn't read that file.");
+            }
+          }}
+        />
+      </label>
     </div>
   );
 
@@ -319,6 +350,81 @@ export default function SquadScreen() {
         </table>
       </div>
       )}
+
+      {pendingImport && (
+        <ImportPlayerModal file={pendingImport} onClose={() => setPendingImport(null)} />
+      )}
     </Section>
+  );
+}
+
+/**
+ * Confirm an incoming player file (v1.91).
+ *
+ * Shows what the file actually contains — ratings, honours, where he came from —
+ * before anything touches the save, and states plainly that this is a modding
+ * tool rather than a signing: no fee changes hands and nobody negotiates. The
+ * free-agent option exists for the user who wants the character to EXIST in
+ * this world but would rather sign him properly through the market.
+ */
+function ImportPlayerModal({ file, onClose }: { file: PlayerFile; onClose: () => void }) {
+  const game = useGame((s) => s.game)!;
+  const importPlayerFile = useGame((s) => s.importPlayerFile);
+  const showToast = useGame((s) => s.showToast);
+  const p = file.player;
+  const seasons = file.career?.seasons?.length ?? 0;
+  const honours = p.accolades?.length ?? 0;
+
+  const sign = (clubId: string | null) => {
+    const err = importPlayerFile(file, clubId);
+    if (err) showToast(err);
+    else onClose();
+  };
+
+  return (
+    <Modal title="Import player" onClose={onClose}>
+      <div className="space-y-4">
+        <Card className="p-4">
+          <div className="flex items-center gap-3">
+            <Ovr value={p.overall} />
+            <div className="min-w-0 flex-1">
+              <div className="display truncate text-lg font-semibold">{displayFullName(p)}</div>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-faint">
+                <PosBadge pos={p.positions[0]} />
+                <span>{p.age}y</span>
+                <Flag nat={p.nationality} />
+                <span>Potential {p.potential}</span>
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 border-t border-line pt-3 text-[12px] leading-relaxed text-faint">
+            From <span className="text-dim">{file.origin.saveName}</span>
+            {file.origin.clubName && <> · {file.origin.clubName}</>} · season {file.origin.season}
+            {(seasons > 0 || honours > 0) && (
+              <>
+                <br />
+                Carries {seasons} season{seasons === 1 ? "" : "s"} of career history
+                {honours > 0 && <> and {honours} honour{honours === 1 ? "" : "s"}</>}.
+              </>
+            )}
+          </div>
+        </Card>
+
+        <p className="text-[12px] leading-relaxed text-faint">
+          Importing is a modding tool, not a transfer — no fee is paid and nobody negotiates. He
+          arrives on a fresh 3-year contract and, like any signing, can&apos;t be sold on until next
+          season.
+        </p>
+
+        <div className="flex flex-wrap justify-end gap-2">
+          <GhostButton onClick={() => sign(null)} className="!py-1.5 text-xs">
+            ADD AS FREE AGENT
+          </GhostButton>
+          <GoldButton onClick={() => sign(game.userTeamId)} className="!py-1.5">
+            SIGN TO MY CLUB
+          </GoldButton>
+        </div>
+      </div>
+    </Modal>
   );
 }

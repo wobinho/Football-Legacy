@@ -17,6 +17,30 @@ design session before changing, `[FUTURE]` must not be built but must not be blo
 - `npm run verify:facilities` — facility-table invariants, the badge ladder, and the ETC's worked example (the 33% ceiling)
 - `npm run verify:quicksell` — drive a real world into an academy quick sell; asserts the prospect leaves the world and no club receives him
 - `npm run verify:gcn` — drive a real world into a live network; asserts owned clubs keep non-zero books that match what the tick banks, that net rises with reputation, and that the relaxed ring fence permits exactly the right moves
+- `npm run verify:squads [seasons]` — drive a real world N seasons (default 12) and assert every club can still field its formation naturally, that squads haven't decayed toward the matchday minimum, and that the free-agent market survives the AI's own rollover top-up. A measured sweep, not a table check — the v1.89 defects were all invisible in the tables
+- `npm run verify:standings [seasons]` — play N full 38-game seasons with the real engine and assert that squad quality actually decides the table (rank correlation, who wins it, champion points, draw rate). The companion to `calibrate`: that one asks whether a MATCH looks like football, this one asks whether a SEASON does. The v1.91 defect passed calibration cleanly
+- `npm run verify:reputation [seasons]` — assert that club reputation drifts with squad,
+  division and league finish, and — the actual point — that a club which wins repeatedly
+  becomes one more world-class players will sign for, measured through `willJoin` itself
+- `npm run verify:squadfile` — export a live squad to a club seed and materialise it back
+  through real worldgen; asserts the roster, the derived overall and the contract terms
+  survive, and that a player file can't be imported as a squad
+- `npm run measure:quality [seasons]` — the long-save QUALITY sweep. Prints the world's
+  top-end population by band, top-flight squad means and mean age per season. Not an
+  assertion — a measurement to run before and after a change. `verify:squads` asks whether
+  clubs can field a SHAPE and `calibrate` asks whether a MATCH looks like football; a
+  pyramid passes both with a full complement of 68-rated journeymen, which is exactly how
+  the v1.92 age-inversion defect hid
+- `npm run verify:playerfile` — export a player out of one world and import him into another; asserts the history survives, nothing world-bound travels, and a repeat import can't collide with an existing player
+- `npm run verify:livescores` — drives a real world to its final league round and asserts the
+  final-day panel shows the season the save actually records: at 90' every other scoreline
+  equals the fixture the engine played, and the live table is identical to `computeTable` over
+  the real fixtures (order, points, GD, played). Also checks the reveal is monotonic and
+  deterministic, and that the toggle is offered on the last round and no other
+- `npm run verify:cloud [seasons]` — plays a real world N seasons and asserts the compressed
+  cloud round trip (gzip → base64 → gunzip, exactly as the route stores and serves it) is
+  byte-identical, then measures the metered transfer per hour of play against the old raw-save
+  behaviour. The bandwidth fix is only real if the payload survives it losslessly
 - `npm run smoke:facilities [seasons]` — end-to-end drive of build → hire → assign → badge accrual through real rollovers
 - `npx tsx scripts/verify-db.ts` — validate every shipped country DB and build a real world from it
 - `node scripts/ui-test-db.mjs` — end-to-end drive of the default-database + editor-import flow (dev server must be running)
@@ -40,6 +64,9 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
 - `lib/gameloop.ts` — Continue-button orchestrator (`advanceUntilEvent`), season rollover
 - `lib/worldgen.ts`, `lib/season.ts`, `lib/simresolver.ts`, `lib/development.ts`, `lib/economy.ts`, `lib/transfers.ts`, `lib/recordbook.ts`, `lib/save.ts` (IndexedDB), `lib/selection.ts` (XI picking), `lib/value.ts`, `lib/calendar.ts`, `lib/rng.ts` (mulberry32, derived seeds)
 - `lib/archive.ts` — long-save maintenance: `activePlayers()` (living-world iteration for the hot passes) and the rollover's `pruneRetired()` compaction. Full-world passes should use `activePlayers()`, never `Object.values(state.players)`, unless they genuinely need retirees.
+- `lib/livescores.ts` — the final-day scoreboard (§15.4): which other fixtures are in play,
+  what minute each already-scored goal is revealed on, and the division's table as it stands
+  at that minute. A read over fixtures the engine has already played — it never simulates.
 - `lib/gcn.ts` — Global Club Network (§19, v34, end-game): funds/unlock, treasury, found/buy clubs (sim leagues only), inter-club moves & feeder loans, Operations upgrades. Rules only — the store calls in.
 - `lib/assistant.ts` — everything the Tactics screen *says*: `assistantReport()` (the grade
   and its notes) and `squadBlueprint()` (the ideal role per slot, the ✓/~/✗ against the
@@ -53,6 +80,12 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
 - The engine must never special-case an archetype/trait by name — table lookups only.
 - Determinism: anything random takes a seed derived via `deriveSeed(state.seed, label)`.
 - Balance changes go through `lib/config/tuning.ts` + `npm run calibrate`, never engine edits.
+- The world's growth budget is `growthPerSeasonMax` + `primeGrowthPerSeasonMax`, the two
+  headline numbers every other growth term multiplies into. v1.92 raised both 20% (4.5→5.4,
+  3.0→3.6) together: lifting only the youth one pushes growth further into the age band that
+  takes longest to pay off, which is the opposite of what a shortage of finished players
+  needs. Changing either moves squad quality world-wide — re-run `calibrate`,
+  `verify:standings` and `measure:quality`.
 - Players carry **35 attributes** (v41), not six. `lib/config/attributes.ts` is the single
   source of truth for the keys/labels/groups — iterate its `ATTR_KEYS`, never an inline list.
   The six card faces (PAC/SHO/…) still exist but are a *derived view* (`aggregateAttrs`),
@@ -306,8 +339,11 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   facilities, never `economy.ts`'s income upgrades: scoring sponsor appeal off sponsor
   income is a loop.
 - **A major sponsorship's annual value is one band, not a multiplier stack (v1.86).**
-  `marketabilityOfferAnnual`: £20M at score 0, £100M at 100, curve 1.6 — so a maxed club's
-  3-season shirt deal is ≈£293M. Everything else scales that by slot share and suitor tier.
+  `marketabilityOfferAnnual`: £16M at score 0, £80M at 100 (v1.91 cut both ends 20%),
+  curve 1.6 — so a maxed club's 3-season shirt deal is ≈£235M. Everything else scales
+  that by slot share and suitor tier. A blanket cut scales BOTH ends: moving only the max
+  would flatten the curve, squeezing the gap between an ordinary club and an elite one,
+  which is the thing the marketability score exists to express.
   The predecessor multiplied reputation × slot share × division ladder × tier ×
   marketability band × noise, which **double-counted the division** (32% of the
   marketability score it then multiplied by, and applied again as `aiCommercialTierMult`)
@@ -315,6 +351,317 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   reputation here — every question it answered is a marketability factor now. Minors keep
   the old weekly model deliberately; they're measured in £k/week and don't divide down
   from an annual band sensibly.
+- **A squad is a SHAPE, not a headcount (v1.89).** The AI could field one centre-back by
+  season 5, and four separate defects had to be fixed before it stopped. Each was invisible
+  in the tables and only showed up in a measured sweep — **measure before theorising**, and
+  re-run the coverage sweep after touching any of them:
+  1. `PositionNeed.incumbent` reported `ranked[0]` (the club's BEST player at the position)
+     while the urgency arithmetic three lines above correctly used the marginal starter. A
+     club with one 81-rated CB and a back four therefore scored every CB in the world as
+     "not an upgrade". It is now the **marginal starter** — `ranked[slotsNeeded - 1]`, zero
+     when the slot can't be filled — and `best` is the separate field for callers that want
+     to describe the club. Nothing may compare a signing against `best`.
+  2. `saleCandidates` protected only the top TWO needs and skipped that guard entirely when
+     the stance `sellsStarters` — so a rebuilding club sold its last centre-back. Minimum
+     natural cover (`aiMinSpareCover`) is now a hard floor that **outranks every stance**.
+  3. `depth` counts adjacent cover, which a back four of full-backs passes. `naturalDepth`
+     (players who actually LIST the position) is what the cover rules read. `isUncovered`
+     in `ai/strategy.ts` is the single definition of "a genuine hole" — it compares against
+     the FORMATION's requirement, since one CB is a hole in a back four and a full
+     complement in a back three. Every path that treats a hole differently calls it; don't
+     re-derive `naturalDepth < 1` inline.
+  4. The world only ever LOST players: a regen is born only from a retiree peaking at
+     `regenMinPeakOverall`, so the whole tail below it was a net loss every season. Over 20
+     seasons the median squad fell 28 → 19 and CB cover fell to x1.32 per slot while 220
+     free-agent CBs sat unsigned — the bodies existed but every buy path is discretionary.
+     `replenishFreeAgents` (worldgen) restocks where the world is short, and `ensureAiSquads`
+     (transfers) obliges every AI club to a squad size and a fieldable shape at the rollover.
+     Both count demand and supply over the **same** population — mixing playable demand with
+     world-wide supply makes a starved pyramid look healthy, which is how the first cut
+     silently did nothing. The user's club is topped up FIRST (both draw on one pool; the
+     other order left the manager with four players and no keeper).
+     `freeAgentPoolFloor` (where routine AI signings stop) and `freeAgentPoolTarget` (what
+     the restock aims at) are deliberately two numbers — equal, the pool pins at the point
+     business ceases.
+  Measured after: 0 uncovered positions at season 5, 1 across 40 clubs at season 20, squad
+  sizes flat at ~24, calibration unmoved (2.63 goals/match), +29 players/season.
+- **The same-season transfer lock binds EVERY club (v1.89), not just the manager's.**
+  `p.acquiredSeason` is stamped by `completeTransfer` on a move into any club and cleared
+  only by a release. The AI chokepoint is `saleCandidates` — every AI buy path shops from
+  that one list, so the rule can't be bypassed by whichever path someone forgets; `userBid`
+  carries it for the user's buy side. It began as a user-only rule, which let AI squads
+  churn a player through three clubs in a window while the manager was held to one move.
+- **Backroom wages scale with the manager's division (v1.89).** `staffWageMultiplier` in
+  `lib/facilities.ts` is the single place the tier is read for staffing costs;
+  `config/facilities.ts` stays pure data and takes the multiplier as an argument. Scouts
+  price through the same function so the two departments can't drift onto different
+  ladders. The ladder (`staffWageByTier`) is far flatter than the income one (2.6:1 vs
+  38:1) on purpose — a good coach is a good coach anywhere. Resolved at HIRE time and
+  stored on the person: a wage is a contract, so promotion doesn't hand out rises.
+- **The roll of honour is DERIVED, never stored (v1.89).** `competitionHistories` /
+  `clubHonours` in `lib/recordbook.ts` group `state.recordBook.seasons` by competition
+  instead of by year. No new schema, no migration — a ten-season save already contains its
+  honours list and simply had no reader, and because both views render the same rows the
+  roll of honour and the season review can never disagree. Ordering puts the manager's own
+  divisions first: every top flight is `tier: 1`, so sorting on tier alone buries the
+  user's league behind whichever foreign one sorts first alphabetically.
+- **A club's overall is its XI and bench, never a squad mean (v1.90).** `squadOverall` in
+  `lib/selection.ts` is the single rule, read by the team card and by `gcnClubStatus`. A flat
+  mean over the roster answers a different question badly: it is driven by how many fringe
+  players a club carries, so two clubs with identical first teams read 8 points apart and
+  SIGNING a squad player made a club look worse. The headline is
+  `squadOverallXIWeight` (0.8) of the XI plus the rest from the matchday bench — the bench
+  only, not every reserve, or the squad-size distortion comes straight back. It picks through
+  the same `pickLineup` the matchday uses against the club's OWN formation, so the card can
+  never quote an XI the simulation wouldn't name, and it ignores fitness deliberately: this
+  describes a squad, not who is available on Saturday.
+- **Selection is tactic-aware, through the engine's own lever (v1.90).** `selectionScore`
+  takes an optional `tactic` and multiplies by `tacticalFitMult` (exported from
+  `engine/match.ts`), which is exactly `synergyMult × instructionMult` — the two things
+  `effectiveRating` already applies. This is **not** a third channel (see v1.78): it is a READ
+  of the existing two, so the tables move selection and simulation together and cannot drift.
+  Picked on raw overall alone, an AI club fielded the better player rather than the better
+  player *for its tactic*, and could play possession with a squad of counter-attackers
+  forever. The bench is ranked on the same terms — the in-match sub pass can only choose from
+  who is on it. `bestXIIds` in `ai/strategy.ts` now goes through `pickLineup` too; it used to
+  be the top eleven by raw overall, a list with no positions in it, so a club whose best
+  players were six strikers protected an XI it could never field.
+- **An AI club builds toward a tactic, and the hysteresis is the feature (v1.90).** Two halves
+  pull opposite ways on purpose: `bestTacticFor` finds the shape suiting the players the club
+  HAS, while `effectiveAt`/`targetScore` shop for players the CURRENT tactic wants (both take
+  the tactic, so `need.incumbent` and the candidate are measured on the same terms — compare
+  them any other way and the arithmetic is apples to oranges). `reviewClubTactics` runs once a
+  season at the rollover, last, after squads have settled. `aiTacticSwitchGain` (4%) is what
+  makes this an identity rather than a flip-flop: the search wins by a fraction of a percent
+  on noise most seasons, and without a threshold every club re-picks its shape every year and
+  none is ever *building* toward anything.
+- **A club keeps its key players (v1.90).** `saleCandidates` protects the top
+  `aiKeyPlayerCount` (6) by tactical value who ALSO clear `aiKeyPlayerApps` (60, ~two
+  seasons). Both tests are needed: ability alone protects a summer signing nobody has seen,
+  appearances alone protect a loyal squad player the club would happily sell. It is a
+  reluctance, not a ban — an `aiKeyPlayerSellChance` (12%) roll still opens the door, derived
+  from the world seed plus club/player/season so a rejected bidder **cannot re-roll it by
+  bidding again**. Measured: without it the user could hollow out a rival by buying its best
+  XI one player a window, since the players a club should least want to lose are precisely
+  the ones that clear a buyer's upgrade bar. One wrinkle found by measuring, not theorising:
+  worldgen seeds NO career rows, so at kickoff nobody cleared the apps gate (0 of 240 top-six
+  players; 228 by season 5) and season 1 was an open raiding window. A club that has not
+  played yet falls back to standing alone — a floor on the test, not a second rule.
+- **A prospect's ceiling is his TIER; his current ability is his tier AND his age (v1.90).**
+  `prospectTierBands[tier].potential` is one clean non-overlapping rung per tier (bronze
+  65–70 → legacy 90+) because the ceiling is what the badge promises. Ability is the
+  two-dimensional `prospectOverallByAge` (13→17), since a 13-year-old Gold and a 17-year-old
+  Gold share a ceiling but not a rating. `prospectBandSlack` (±2) is what stops every Gold
+  15-year-old being the same player, and it is why the bands themselves needn't overlap.
+  `prospectOverallBand` is the lookup and falls back to the flat band for any age the table
+  doesn't author (U21 rivals are 16–21), so no path can fail to roll a prospect.
+  Two `generatePlayer` flags exist ONLY for this and must not spread: `overallIsAgeAdjusted`
+  skips the maturity curve (the age table already states ability-at-age — running both
+  discounts youth twice) and `allowBelowFloor` waives `minOverall`, a SENIOR-world rule that
+  predates 13-year-olds. Both were found by measuring the finished player rather than the
+  band: without them Bronze-at-13 came back 50–50 on every roll, collapsing the bottom rungs
+  into one number. Academy intake and scouting share the 13–17 band, and `academyMaxAge` (21)
+  is still when a prospect must be promoted, sold or released.
+- **A match's calibration is not a season's (v1.91).** The engine hit every
+  `calibrate` target — 2.7 goals, 45% home — while a 67-rated promoted side could win a
+  division of 70+ clubs and a top-flight club could fall to the third tier. Those targets
+  describe a MATCH and say nothing about WHO wins, so the whole dynamic range had
+  collapsed unnoticed: measured, the best side in a division (85) beat the worst (70) only
+  1.51-0.77, and finish-vs-squad-overall correlated 0.54. The cause was one constant.
+  `chanceQualityCenter` is defined as "the ATTACK/(ATTACK+DEFENSE) of two equal teams" but
+  was set to **0.385 when two equal sides produce 0.5** — the attack and defense columns of
+  `PHASE_WEIGHTS` sum to ~5.4 and ~5.15, so an even match sits at a half. Centred below the
+  match it centres on, an even game already sat 78% up the squash with 0.07 of headroom to
+  `goalProbCeil`, and superiority had nowhere to go. It is 0.5 now, with `goalProbCeil`,
+  `baseChancesPerSegment` and `chanceQualitySlope` raised to pay back the scoring that
+  recentring costs and `homeAdvantage` cut to 1.04 (a sharper engine amplifies it too).
+  `midfieldSharpness` moved only 2.2 → 3.0: it compounds a strength edge into chance
+  VOLUME and its knee is early — 9.0 doubled discrimination but blew champion points to 106
+  and collapsed the draw rate, which is a different wrong season. Measured after, 30 full
+  seasons: correlation 0.65, champion points 89, the champion is the 2.3rd-best squad, 3.3%
+  of titles go to a bottom-half squad. **Run both `calibrate` and `verify:standings` after
+  touching any of the six** — a change that holds goals/match can still wreck a table.
+- **A formation change rewrites what a club NEEDS, so coverage is checked after it
+  (v1.91).** The rollover ran `ensureAiSquads` and then `reviewClubTactics`, so the coverage
+  pass was answering a question about a shape the club was about to stop playing: a side
+  switching to a 4-2-3-1 suddenly requires two DMs where its old formation asked for none,
+  and no signing pass ran afterwards. Measured, that left a club starting a season with **0
+  DMs against 2 slots while 10 unsigned DMs sat in a 90-strong free-agent pool** — the
+  market, consent and the squad cap were all fine, which is why the market-side theories
+  (scarcity, `canApproach` refusing everyone) were both wrong. Measure before theorising.
+  `ensureAiSquads` now runs again after the tactic review, and `replenishFreeAgents`'s
+  second pass moves after both so it restocks what the world is short of once every club
+  has finished shopping. Cheap: `ensureAiSquads` is idempotent — it breaks immediately when
+  nothing is uncovered — so the clubs that kept their shape (most, by `aiTacticSwitchGain`)
+  pay a no-op.
+- **`teamStrength` is the XI weighted against its bench (v1.91)**, the same quantity
+  `squadOverall` reports, so a club's card and the table it finishes in come from one
+  number. It was a flat mean of an XI picked in a hardcoded 4-3-3 with the bench ignored,
+  which rated a club with no cover exactly as strong as one with a full squad.
+- **A player file is not a save fragment (v1.91).** `lib/playerfile.ts` — export one player
+  to JSON and sign him into another save ("alternate universes"). Three rules, each because
+  the obvious version is wrong: **nothing world-bound travels** (`clubId`, `kitNumber`,
+  `contract`, `loan`, `acquiredSeason` are stripped — they point at teams and seasons the
+  destination never had); **an import always gets a NEW id**, since ids are unique only
+  within a save and re-importing a file, or importing it into its own source world, would
+  otherwise overwrite a real player; and **history travels by NAME, not by id** — the schema
+  already stores `clubName` beside `CareerRow.clubId` and `from`/`to` beside
+  `TransferRow.fromId`/`toId`, so the ids are dropped and the UI's existing name-only
+  fallback renders the record. Importing is deliberately NOT a transfer: no fee, no wage
+  negotiation, no consent roll, because a continuity tool that can fail for reasons the user
+  can't act on defeats its purpose. It does respect `squadCap` and stamps `acquiredSeason`,
+  so it can't be used to dodge the squad limit or the same-season resale lock.
+  Distinct from `LibraryPlayer` (`lib/customdb.ts`), which is a blank-slate DESIGN template
+  for worldgen and carries no career, honours or current ability.
+- **Incoming bids have an off switch (v1.91).** `state.offersPaused`, gated at the
+  `userPlayers` loop in `aiWeeklyTransferTick` — so AI↔AI business, loans and the rest of
+  the market carry on; it silences the user's inbox, it does not freeze the window. Offers
+  already on the table keep their deadlines (switching it on must never void a live
+  negotiation), and a release clause is deliberately not gated: the clause is a term the
+  manager agreed to, and honouring the toggle there would rewrite a contract from a UI switch.
+- **A season is as long as the division is big (v1.91).** `leagueRoundCount(n)` in
+  `lib/calendar.ts` is the single rule: `2 × (n − 1)` — 38 for 20 clubs, 46 for 24, 34 for
+  18. `buildSeasonSchedule(season, rounds)` books that many Saturdays as ONE shared pool
+  sized to the longest playable division, and `generateLeagueFixtures` takes the first
+  `2×(n−1)` of them, so divisions of different sizes coexist on one calendar. Everything
+  downstream (cup final, `simResolveDay2`, the dead week, season end) hangs off the LAST
+  league round, never off index 37. Before this the calendar was a hardcoded 38 whatever
+  the division held: a 24-club league scheduled its last rounds on `undefined` days and an
+  18-club one padded the season with empty weekends. Both callers (`worldgen`, the
+  rollover) must size the schedule AFTER promotion/relegation settles club counts.
+- **A cup's beaten finalist is captured at the summary, or it's gone (v1.91).**
+  `cupRunnerUpOf` in `recordbook.ts` reads the last round's played tie; the European ones
+  come off each cup's own round-3 tie. Same reason `europeanWinners` is stored (v1.67): the
+  rollover rebuilds the brackets a few steps later. Null when the final was a bye rather
+  than a tie — an honest "nobody was beaten" rather than a guess.
+- **The history views are DERIVED, like the roll of honour (v1.89's rule, extended v1.91).**
+  `leagueHistories` / `cupHistories` / `userPlayerHonours` in `recordbook.ts` regroup
+  `state.recordBook.seasons`; no new schema, no migration. `userPlayerHonours` reads each
+  summary's stored accolade block and filters to the user's club exactly as
+  `userPlayerAwardsIn` COUNTS it, so the Achievements tally and the modal listing it can
+  never disagree. Anything new that shows history goes here, not in a component.
+- **One overlay stack, one BACK (v1.91).** `overlayStack` in `store/gameStore.ts`. The team
+  card moved out of the Competition screen's local state into the store, so player and club
+  overlays share one chain: opening either pushes what it replaced, ← pops, ✕ clears the
+  lot. A record book is a graph — season → player → club → player — and every hop used to
+  be a dead end. An `owner` entry is for an overlay a SCREEN owns (the season review): the
+  store can't reopen it, so it holds the id and `activeOwnedOverlay()` tells the screen to
+  render it again. `pushCurrent` no-ops when the target is already on screen, or back would
+  mean "the page you're reading".
+- **The final-day scoreboard INVENTS NO FOOTBALL (v1.92).** `lib/livescores.ts`.
+  `advanceDay` plays every AI fixture *before* handing the matchday back to the UI (so
+  tables are current at kick-off), which means every other result on the last league round
+  is already settled the moment the panel opens. Re-simulating them would produce a
+  different set of results from the ones the save records — two answers to one question.
+  What is invented is only the **clock**: each already-scored goal gets a minute from the
+  fixture's own `matchSeed` and is revealed as the user's own clock passes it, so at 90'
+  the panel *is* the real final table and a reload shows the same goals at the same times.
+  It is therefore free — no second engine pass, on a screen already running a match.
+  The live table is built by handing `computeTable` a **doctored fixture list**, never by
+  patching a finished table: the tie-break (points → GD → goals scored) must stay one rule
+  in `season.ts`, or a title decided on goal difference could be shown wrong on the very
+  day it is decided. `isFinalLeagueRound` asks `leagueRoundCount`, never a hardcoded 38.
+- **A cloud save goes up COMPRESSED, and only when it changed (v1.92).** `lib/cloud.ts` +
+  `app/api/saves/[name]`. A save is ~8 MB by season 9 and grows +0.57 MB a season
+  (measured, `scripts/perf.ts`), and Vercel meters **both** hops — browser → function and
+  function → KV — so the old "raw save every 60s" cost ~15 MB a sync and put a 9-season
+  save at 14 GB of Fast Data Transfer. Three compounding fixes, none of them game logic:
+  the browser gzips the payload (save JSON is hugely repetitive — the same 35 attribute
+  keys on thousands of players); the route **stores the compressed bytes as-is and serves
+  them back that way**, so the function never inflates a multi-megabyte save on either hop;
+  and the interval is 5 min with unchanged saves skipped entirely. **Don't decompress
+  server-side** — that throws away half the saving and adds the CPU of inflating tens of
+  megabytes per autosave. Because the route can't read the payload, save-list metadata
+  rides in the `x-fl-meta` header. Durability is unchanged and must stay so: IndexedDB is
+  written on every autosave and the pagehide/visibilitychange/quit flushes force the cloud
+  copy current, which is why five minutes of drift costs nothing observable. Plain-JSON
+  uploads still work (pre-v1.92 saves, a browser without `CompressionStream`) and both
+  forms must keep coexisting — no cloud save may ever be stranded. `npm run verify:cloud`.
+- **Club reputation MOVES (v1.92).** `lib/reputation.ts`. `Team.reputation` was stamped by
+  worldgen and frozen forever, so winning the league changed nothing about who would sign:
+  every gate that decides it — `willJoin`'s reputation test, `isPeerClub`,
+  `consentPeerReputation` — read a day-one number. It now drifts once a season at the
+  rollover toward a target blended from three DIFFERENT KINDS of evidence: the club's
+  `squadOverall` (the largest weight — it is what a target can see for himself), its
+  division's `leagueReputation`, and where it finished. Two rules keep it sane: it is a
+  **drift, not an assignment** (`repDriftRate` × gap, hard-capped at `repDriftMaxPerSeason`),
+  because a market gate that snapped to last May's table would let one lucky season buy
+  world-class players; and the target is **absolute, never normalised**, so every club can
+  improve at once rather than the ladder being zero-sum. Placement in the rollover is
+  load-bearing at both ends — after promotion and the development pass, before
+  `refreshValues`/stances/every summer market pass — which is what turns a title into
+  signings in the *next* window rather than a season later. The user's club is treated
+  exactly like every other, or the gates become a difficulty setting. `collectSeasonFinishes`
+  must run BEFORE the promotion shuffle, which makes the fixture-derived tables unreadable.
+  Measured (`npm run verify:reputation`): a dominant club going 72 → 84.6 doubled the
+  number of 82+ players who would sign for it, 124 → 243.
+- **A world is an AGE PYRAMID, not a headcount (v1.92).** The fix for "squads degrade after
+  ten seasons and nothing replaces the retirees". `replenishFreeAgents` (v1.89) held the
+  population perfectly flat the whole time — the defect was invisible to it because it
+  counts BODIES and mints them at 23–32, topping up the middle of the age curve while the
+  bottom emptied. Measured over 15 seasons: 18–21 fell 545 → 119, **22–25 fell 712 → 27**,
+  34+ climbed 23 → 871, mean age 23.7 → 31.5. The world was one cohort ageing together;
+  when it retired it took the top of the game with it (top-flight squad mean 78.9 → 72.8).
+  Two halves, and **neither works alone**:
+  1. `replenishYouth` (worldgen) holds the under-`youthIntakeCohortMaxAge` cohort at
+     `youthIntakeCohortShare` of the world — roughly the shape worldgen BUILDS, so it is
+     the absence of decay rather than a boost. The two sides of that shortfall are counted
+     over DIFFERENT populations, and both halves were wrong in a first cut:
+     **demand** is `attached players only` (a world's youth requirement is set by the squads
+     that will play them, not by how many mill about unsigned), while **supply** must credit
+     the prospects already waiting in the market — omit that and the pass re-mints a whole
+     generation every season on top of the one nobody signed, which measured as +230
+     players a season against almost no retirement outflow and a world inflating 2,152 →
+     4,087. But the credit is `youthIntakeMarketCredit` (0.75), deliberately **not** 1.0:
+     crediting them all lets a saturated market switch intake off completely, and once that
+     backlog ages out the world has no generation behind it — the same 23.7 → 27.8 age
+     climb and quality decay, arriving a few seasons later. A partial credit throttles
+     without ever switching off.
+  2. `aiRecruitYouth` (transfers) has every AI club sign prospects on POTENTIAL. Without it
+     the intake is never signed, and since development is driven by MINUTES an unsigned
+     prospect never develops at all — he ages out having become nothing, which is exactly
+     "the new players are youth players that never replace the world-class ones".
+     Deliberately NOT scored through `targetScore`: that scores an UPGRADE, and a 16-year-old
+     rated 48 is not one however high his ceiling (and loosening `aiMinUpgradeGain` would
+     make clubs sign bad players for their first teams). Every stance's `targetAge` also
+     starts at 17+, so the intake is below the youngest age any club shops in. It runs LAST
+     of the rollover's market passes — a prospect is what a club does with SPARE capacity,
+     never instead of a centre-back.
+     The per-club cap must count **prospects** (young AND `aiYouthRecruitMinHeadroom` of
+     headroom), not merely young players: a healthy squad already carries a dozen under-23s,
+     so counting those met the cap before a single prospect was signed and the pass silently
+     never ran — 744 prospects unsigned with no club near its squad cap, a symptom identical
+     to having no recruitment at all. And the size gate is `aiYouthSquadCeiling` (32), **not**
+     `squadCap` (50): the cap almost never binds, so gating on it let clubs hoard until the
+     median squad hit 44 players. A club with a full book needs to play the prospects it has.
+  Measured after: top-flight mean 76.3 → 77.2 over 12 seasons (was 76.4 → 72.8 and falling),
+  85+ population 67 → 117, mean age flat at ~26.5. Use `npm run measure:quality` — it asks
+  whether the world still contains world-class FOOTBALLERS, which `verify:squads` (shape)
+  and `calibrate` (one match) both pass while it fails.
+- **A cup draw happens when the bracket is known, not on the day (v1.92).** `ensureCupRound`
+  keyed on `cupRoundDays.indexOf(currentDay)`, so the quarter-final could finish and the
+  semi-final draw would not exist until the morning of the semi-final. Nothing required
+  that: `drawCupRound` takes the round's day from the SCHEDULE and seeds off
+  season+round, never off the day it is called, so an early draw yields the identical
+  bracket. It now keys on `state.cup.currentRound` and is called immediately after
+  `maybeSettleCup` in both `advanceDay` and `afterUserMatch` — the latter is the one that
+  usually fires, since the user's own tie is typically the last of the round to settle.
+  `ensureEuropeanRounds` does the same, walking forward through the rounds so several can
+  become drawable at once.
+- **A squad file is a DESIGN; a player file is a CHARACTER (v1.92).** `lib/squadfile.ts`
+  exports the user's whole squad as a `ClubSeed` with an authored roster, which the Database
+  Editor imports as an ordinary `LibraryClub` and any new legacy can be started with. It
+  deliberately throws career history away — that belongs to a world, and this club is going
+  to exist in a different one from its first fixture — where `lib/playerfile.ts` preserves
+  history precisely because a character IS his record. Three things the obvious version gets
+  wrong: `squadAvgOverall` must be **omitted** or worldgen bolts a second procedural squad on
+  top of the authored one; `contract.expirySeason` must be re-expressed as a REMAINING term,
+  since an absolute season means nothing in a world starting at 1; and the imported roster
+  must be saved into the PLAYERS library too, because `LibraryClubModal` re-maps a roster by
+  (name, position) on save and would otherwise drop the entire squad the first time the user
+  opened and re-saved the club. `npm run verify:squadfile` drives the round trip through the
+  real `materializePlayer` — that the JSON round-trips and that worldgen can BUILD the club
+  are different claims.
 - Interim implementations pending owner design sessions (marked in-file): transfer market
   AI (§10), trait pool. `emergencyIntake()` in gameloop is a stopgap until the Youth
   Academy ships.

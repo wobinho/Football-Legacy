@@ -354,11 +354,34 @@ export function developPlayer(
     delta = -cfg.declinePerSeasonBase * yearsIn * 0.6 * paceMult * Math.max(0.3, perfSoften) * randRange(rng, 0.7, 1.2);
   }
 
-  // Retirement (~34-37, longevity-modulated)
+  // Retirement (~36-39, longevity-modulated)
   let retired = false;
   const retirementAge = cfg.retirementAgeMin + longevity * (cfg.retirementAgeMax - cfg.retirementAgeMin);
   if (p.age >= retirementAge || p.age >= cfg.retirementAgeMax + 1) retired = true;
   if (p.age >= cfg.retirementAgeMin && p.overall + delta < 55) retired = rng() < 0.6 || retired;
+
+  // A player nobody wants stops playing (v1.92).
+  //
+  // Age retirement alone is not enough to keep a world's veteran population
+  // honest, because it only bites at 36+. Measured over 11 seasons with the
+  // youth pyramid otherwise fixed, the 34+ population still grew 23 → 784: a
+  // fading pro who had already been released simply sat in the free-agent list
+  // for years, ageing, never playing, and never leaving. Real footballers in
+  // that position retire — and the ones the market has passed over are exactly
+  // the players a world should be shedding.
+  //
+  // Deliberately narrow, so it can never touch a player anyone is using:
+  // he must be in DECLINE, have no club, and have gone a full
+  // `retireUnattachedDays` without one. A rebuilding veteran between contracts
+  // is unaffected, and no player on a club's books can ever be retired by it.
+  if (
+    !retired &&
+    phase === "decline" &&
+    !p.clubId &&
+    (p.inactiveDays ?? 0) >= cfg.retireUnattachedDays
+  ) {
+    retired = rng() < cfg.retireUnattachedChance;
+  }
 
   return { delta: Math.round(delta * 10) / 10, potentialDelta, retired, phase };
 }

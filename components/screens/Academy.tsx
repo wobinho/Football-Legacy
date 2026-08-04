@@ -484,7 +484,19 @@ function SquadFilters({
 // line (pos · name · age · OVR · potential) with the actions wrapping beneath.
 // v1.74: the archetype is a column of its own rather than a second line under
 // the name — a wrapped sub-line was the only thing making these rows two-high.
-const SQUAD_GRID = "md:grid-cols-[2.25rem_1fr_9rem_2.5rem_3rem_4.5rem_minmax(0,22rem)]";
+//
+// v1.89: the actions track is the widest thing in the row, not the narrowest.
+// Six buttons sit in there and one of them carries a money figure ("Quick Sell
+// £12.5M"), so the old 22rem ceiling wrapped the cluster onto a second line and
+// doubled every row's height. It now takes a fixed 34rem at xl — enough for the
+// whole cluster on one line at its longest — and the identity columns give up
+// the room: the name track is `minmax(0,1fr)` so it truncates rather than
+// pushing the actions, and the archetype column only appears from xl up, where
+// there is width for both. Keep the actions track ahead of any future column:
+// a wrapped action cluster is what this width exists to prevent.
+const SQUAD_GRID =
+  "md:grid-cols-[2.25rem_minmax(0,1fr)_2.5rem_3rem_4.5rem_minmax(0,26rem)] " +
+  "xl:grid-cols-[2.25rem_minmax(0,1fr)_9rem_2.5rem_3rem_4.5rem_34rem]";
 
 /**
  * Prospects who have outgrown the academy and are waiting on a senior decision
@@ -652,7 +664,9 @@ function SquadTab() {
         <div className={`hidden ${SQUAD_GRID} items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-faint md:grid`}>
           <span>Pos</span>
           <span>Player</span>
-          <span>Archetype</span>
+          {/* The archetype column only exists from xl up (see SQUAD_GRID) — the
+              actions cluster takes that width below it. */}
+          <span className="hidden xl:block">Archetype</span>
           <span className="text-center">Age</span>
           <span className="text-center">OVR</span>
           <span className="text-center">Potential</span>
@@ -661,7 +675,7 @@ function SquadTab() {
         {roster.length === 0 && (
           <div className="px-4 py-6 text-sm text-faint">
             {allProspects.length === 0
-              ? "No academy prospects yet — the first intake class arrives in March, and your scout can find more."
+              ? "No academy prospects yet — send a scout out, and sign what they find."
               : "No prospects match these filters."}
           </div>
         )}
@@ -681,10 +695,10 @@ function SquadTab() {
                     <span className="truncate font-medium transition-colors group-hover:text-gold">{displayFullName(p)}</span>
                     <TierTag tier={p.u21Tier} />
                   </span>
-                  {/* The archetype lives in its own column from md up; on a
-                      phone there are no columns, so it rejoins the chips. */}
+                  {/* The archetype lives in its own column from xl up; below
+                      that there is no column for it, so it rejoins the chips. */}
                   <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-faint">
-                    <ArchetypeLabel p={p} className="md:hidden" />
+                    <ArchetypeLabel p={p} className="xl:hidden" />
                     {chips.map((c) => (
                       <span key={c.label} className={`display rounded-sm border px-1 text-[9px] font-semibold ${c.cls}`}>
                         {c.label}
@@ -692,7 +706,7 @@ function SquadTab() {
                     ))}
                   </span>
                 </button>
-                <span className="hidden min-w-0 text-[11px] text-faint md:block">
+                <span className="hidden min-w-0 text-[11px] text-faint xl:block">
                   <ArchetypeLabel p={p} />
                 </span>
                 <span className="shrink-0 text-center tnum text-sm text-dim">
@@ -748,7 +762,7 @@ function SquadTab() {
         {roster.length === 0 ? (
           <Card className="px-4 py-6 text-sm text-faint">
             {allProspects.length === 0
-              ? "No academy prospects yet — the first intake class arrives in March, and your scout can find more."
+              ? "No academy prospects yet — send a scout out, and sign what they find."
               : "No prospects match these filters."}
           </Card>
         ) : (
@@ -1079,7 +1093,7 @@ function AcademyDevelopmentTab() {
           <div className="display font-semibold text-ink">Optimal training focus</div>
           <div className="text-[12px] leading-relaxed text-faint">
             {squad.length === 0 ? (
-              "No academy prospects yet — the first intake class arrives in March, and your scout can find more."
+              "No academy prospects yet — send a scout out, and sign what they find."
             ) : suboptimal.length > 0 ? (
               <>
                 <span className="text-gold">{suboptimal.length}</span> prospect{suboptimal.length === 1 ? " is" : "s are"} on a
@@ -1335,7 +1349,7 @@ function AcademyGrowthTab() {
   if (rows.length === 0) {
     return (
       <Card className="border-dashed px-4 py-8 text-center text-sm text-faint">
-        No academy prospects to track yet — the first intake class arrives in March, and your scout can find more.
+        No academy prospects to track yet — send a scout out, and sign what they find.
       </Card>
     );
   }
@@ -2537,6 +2551,17 @@ function ScoutOperationsPane() {
                           {formatMoney(prospectSignFee(TUNING, r.tier))}
                         </span>{" "}
                         · youth terms
+                      </span>
+                      {/* Market value beside the fee, never instead of it: the
+                          fee is set by the badge and the valuation by the
+                          player, so the gap between them is the whole judgement
+                          on a signing. A kid already worth more than his
+                          scholarship costs is a bargain you can see. */}
+                      <span title="What he'd be valued at on the open market — the fee left of this is what he actually costs">
+                        <span className="display text-sm font-semibold text-ink">
+                          {formatMoney(p.value)}
+                        </span>{" "}
+                        · market value
                       </span>
                       <TrailTimer daysLeft={r.expiresDay - game.currentDay} />
                       {academyFull && <span className="text-loss">Academy full</span>}

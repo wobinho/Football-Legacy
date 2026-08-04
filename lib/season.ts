@@ -9,7 +9,19 @@ function fid(): string {
   return `f${(++fixtureCounter).toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;
 }
 
-/** Double round-robin via the circle method; second half mirrors venues. */
+/**
+ * Double round-robin via the circle method; second half mirrors venues.
+ *
+ * `roundDays` is the WHOLE season's pool of matchdays (v1.91), which is sized to
+ * the longest division in the world. This league takes only the first
+ * `2 × (n − 1)` of them — everyone plays everyone twice and then the division is
+ * finished, however many Saturdays the calendar still has left. A 20-club league
+ * therefore plays 38, a 24-club one 46, an 18-club one 34, all from one shared
+ * calendar. Before this every league was handed the same 38 days regardless of
+ * its size, so a big division silently lost its last rounds off the end of the
+ * array (`roundDays[r]` undefined → a fixture on day NaN) and a small one left
+ * the tail of the calendar empty.
+ */
 export function generateLeagueFixtures(
   leagueId: string,
   teamIds: string[],
@@ -21,6 +33,9 @@ export function generateLeagueFixtures(
   const n = order.length; // must be even
   const rounds = n - 1;
   const fixtures: Fixture[] = [];
+  // Nothing to schedule if the calendar can't seat this league's whole season —
+  // better an empty division than fixtures on undefined days.
+  if (n < 2 || roundDays.length < rounds * 2) return fixtures;
 
   const rotating = order.slice(1);
   for (let r = 0; r < rounds; r++) {

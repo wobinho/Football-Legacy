@@ -20,16 +20,26 @@ import {
   ensureProgress,
   type AchievementDef,
 } from "@/lib/achievements";
-import { careerSummary } from "@/lib/recordbook";
+import { ACCOLADE_META } from "@/lib/accolades";
+import {
+  careerSummary,
+  clubHonours,
+  userPlayerHonours,
+  type PlayerHonourRow,
+  cupHistories,
+  leagueHistories,
+  type CupHistory,
+  type LeagueHistory,
+} from "@/lib/recordbook";
 import type { PlayerBio, TransferRecord, UserAccolades } from "@/lib/types";
 import { formatMoney } from "@/lib/value";
 import { POS_LABELS } from "@/lib/config/positions";
-import { Card, ConfirmButton, Crest, Flag, Ovr, PosBadge, Section, Tabs } from "../ui";
+import { Card, ConfirmButton, CountryFlag, Crest, Flag, Modal, Ovr, PosBadge, Section, Tabs } from "../ui";
 
 export default function AchievementsScreen() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
-  const [tab, setTab] = useState<"accolades" | "achievements" | "hallOfFame">("accolades");
+  const [tab, setTab] = useState<"accolades" | "achievements" | "hallOfFame" | "history">("accolades");
 
   // `ensureProgress` mutates the state to backfill a blank block — safe here
   // because it only fills defaults and never changes an existing value, and the
@@ -45,6 +55,7 @@ export default function AchievementsScreen() {
           { id: "accolades", label: "User Accolades" },
           { id: "achievements", label: `Achievements (${earnedCount}/${ACHIEVEMENT_DEFS.length})` },
           { id: "hallOfFame", label: `Hall of Fame${hofCount ? ` (${hofCount})` : ""}` },
+          { id: "history", label: "History" },
         ]}
         active={tab}
         onChange={setTab}
@@ -53,9 +64,293 @@ export default function AchievementsScreen() {
         <AccoladesTab a={progress.accolades} />
       ) : tab === "achievements" ? (
         <AchievementsTab earned={progress.earned} a={progress.accolades} />
-      ) : (
+      ) : tab === "hallOfFame" ? (
         <HallOfFameTab />
+      ) : (
+        <HistoryTab />
       )}
+    </div>
+  );
+}
+
+// ── History ────────────────────────────────────────────────────────────────
+//
+// The world's record, not the manager's (v1.91). Everything here is derived on
+// demand from `state.recordBook.seasons` by `leagueHistories` / `cupHistories` —
+// the same stored rows the season review renders, grouped the other way — so
+// this view and that one can never disagree.
+//
+// A league season is its podium (champion + top four), because that is what a
+// league is remembered by: who won it and who else got into Europe. A cup season
+// is its two finalists, because a cup has no table.
+
+/** A club chip — badge plus name, clickable through to the team card when the
+ * club still exists in the world. Crests are cosmetic and looked up live. */
+function ClubLine({
+  teamId,
+  teamName,
+  bold = false,
+  size = 16,
+}: {
+  teamId: string;
+  teamName: string;
+  bold?: boolean;
+  size?: number;
+}) {
+  const game = useGame((s) => s.game)!;
+  const openTeam = useGame((s) => s.viewTeam);
+  const t = game.teams[teamId];
+  const body = (
+    <span className="flex min-w-0 items-center gap-1.5">
+      {t && <Crest colors={t.colors} short={t.short} size={size} />}
+      <span className={`truncate ${bold ? "font-semibold text-ink" : "text-dim"}`}>{teamName}</span>
+    </span>
+  );
+  if (!t) return body;
+  return (
+    <button
+      onClick={() => openTeam(teamId)}
+      className="flex min-w-0 items-center text-left transition-colors hover:text-gold"
+      title={`View ${teamName}`}
+    >
+      {body}
+    </button>
+  );
+}
+
+/** One division's season-by-season podium. Collapsed to the most recent seasons
+ * with a "show all" — a fifty-season save would otherwise render a wall per
+ * league, and there can be dozens of leagues. */
+function LeagueHistoryCard({ h }: { h: LeagueHistory }) {
+  const game = useGame((s) => s.game)!;
+  const [expanded, setExpanded] = useState(false);
+  const INITIAL = 5;
+  const shown = expanded ? h.seasons : h.seasons.slice(0, INITIAL);
+  const more = h.seasons.length - shown.length;
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center justify-between gap-2 border-b border-line/60 bg-raised/40 px-3 py-2">
+        <span className="display flex min-w-0 items-center gap-2 text-sm font-semibold text-ink">
+          <span className="truncate">{h.name}</span>
+          {h.own && (
+            <span className="shrink-0 rounded-sm border border-gold-lo/40 bg-gold-lo/10 px-1.5 py-px text-[9.5px] uppercase tracking-widest text-gold">
+              Your pyramid
+            </span>
+          )}
+        </span>
+        <span className="shrink-0 text-[10px] uppercase tracking-widest text-faint">
+          Tier {h.tier} · {h.seasons.length} {h.seasons.length === 1 ? "season" : "seasons"}
+        </span>
+      </div>
+
+      <div className="divide-y divide-line/40">
+        {shown.map((s) => (
+          <div key={s.season} className="px-3 py-2.5">
+            <div className="mb-1.5 flex items-baseline justify-between gap-2">
+              <span className="display text-[13px] font-bold gold-text">{s.yearLabel}</span>
+              <span className="text-[10px] uppercase tracking-widest text-faint">Top {s.top.length}</span>
+            </div>
+            <div className="space-y-1">
+              {s.top.map((p) => {
+                const mine = p.teamId === game.userTeamId;
+                return (
+                  <div
+                    key={p.teamId}
+                    className={`flex items-center gap-2 text-[12.5px] ${mine ? "text-gold" : ""}`}
+                  >
+                    <span
+                      className={`display flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-sm text-[10px] font-bold tnum ${
+                        p.position === 1 ? "gold-grad text-black" : "bg-raised text-faint"
+                      }`}
+                      style={{ height: 18, width: 18 }}
+                    >
+                      {p.position}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <ClubLine teamId={p.teamId} teamName={p.teamName} bold={p.position === 1} />
+                    </span>
+                    <span className="shrink-0 tnum text-[11px] text-faint">
+                      {p.points} pts
+                      <span className="ml-1.5">
+                        {p.goalDifference > 0 ? "+" : ""}
+                        {p.goalDifference}
+                      </span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {more > 0 && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="w-full border-t border-line/50 py-1.5 text-[11px] text-faint transition-colors hover:bg-hover hover:text-ink"
+        >
+          Show {more} earlier {more === 1 ? "season" : "seasons"}
+        </button>
+      )}
+      {expanded && h.seasons.length > INITIAL && (
+        <button
+          onClick={() => setExpanded(false)}
+          className="w-full border-t border-line/50 py-1.5 text-[11px] text-faint transition-colors hover:bg-hover hover:text-ink"
+        >
+          Show fewer
+        </button>
+      )}
+    </Card>
+  );
+}
+
+/** One cup's roll of finals: winner and, where the save recorded it, the club
+ * they beat. Pre-v1.91 summaries stored only the winner, so the runner-up line
+ * simply doesn't render for those seasons rather than showing a dash. */
+function CupHistoryCard({ h }: { h: CupHistory }) {
+  const [expanded, setExpanded] = useState(false);
+  const INITIAL = 6;
+  const shown = expanded ? h.seasons : h.seasons.slice(0, INITIAL);
+  const more = h.seasons.length - shown.length;
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center justify-between gap-2 border-b border-line/60 bg-raised/40 px-3 py-2">
+        <span className="display truncate text-sm font-semibold text-ink">
+          {h.kind === "cup" ? "🏅" : "⭐"} {h.name}
+        </span>
+        <span className="shrink-0 text-[10px] uppercase tracking-widest text-faint">
+          {h.seasons.length} {h.seasons.length === 1 ? "final" : "finals"}
+        </span>
+      </div>
+      <div className="divide-y divide-line/40">
+        {shown.map((s) => (
+          <div key={s.season} className="flex items-center gap-3 px-3 py-2">
+            <span className="display w-14 shrink-0 text-[12px] font-bold tnum gold-text">{s.yearLabel}</span>
+            <div className="min-w-0 flex-1 space-y-0.5">
+              <div className="flex min-w-0 items-center gap-1.5 text-[12.5px]">
+                <span className="shrink-0 text-[11px] text-gold">🏆</span>
+                <ClubLine teamId={s.winner.teamId} teamName={s.winner.teamName} bold />
+              </div>
+              {s.runnerUp && (
+                <div className="flex min-w-0 items-center gap-1.5 text-[12px]">
+                  <span className="shrink-0 text-[10px] text-faint" title="Runner-up">
+                    🥈
+                  </span>
+                  <ClubLine teamId={s.runnerUp.teamId} teamName={s.runnerUp.teamName} size={14} />
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      {more > 0 && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="w-full border-t border-line/50 py-1.5 text-[11px] text-faint transition-colors hover:bg-hover hover:text-ink"
+        >
+          Show {more} earlier {more === 1 ? "final" : "finals"}
+        </button>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * The world's honours board (v1.91) — every league's champions and podium,
+ * grouped by nation then division, plus the finals of every cup.
+ *
+ * Nations are collapsible and only the manager's own opens by default: a full
+ * world holds dozens of divisions, and a page that renders them all at once is a
+ * scroll rather than a reference.
+ */
+function HistoryTab() {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+
+  const leagues = useMemo(() => leagueHistories(game), [game]);
+  const cups = useMemo(() => cupHistories(game), [game]);
+
+  // Group by country, preserving the order `leagueHistories` already sorted into
+  // (own pyramid, then home nation, then the rest alphabetically).
+  const byCountry = useMemo(() => {
+    const groups: { country: string; own: boolean; leagues: LeagueHistory[] }[] = [];
+    for (const h of leagues) {
+      const g = groups.find((x) => x.country === h.country);
+      if (g) {
+        g.leagues.push(h);
+        g.own = g.own || h.own;
+      } else groups.push({ country: h.country, own: h.own, leagues: [h] });
+    }
+    return groups;
+  }, [leagues]);
+
+  const [openCountries, setOpenCountries] = useState<Record<string, boolean>>({});
+  const isOpen = (g: { country: string; own: boolean }) => openCountries[g.country] ?? g.own;
+  const toggle = (country: string, current: boolean) =>
+    setOpenCountries((prev) => ({ ...prev, [country]: !current }));
+
+  if (!leagues.length && !cups.length) {
+    return (
+      <Section title="History">
+        <Card className="p-6 text-center text-sm text-faint">
+          No history yet. Finish a season and the world&apos;s champions are recorded here.
+        </Card>
+      </Section>
+    );
+  }
+
+  return (
+    <div>
+      {cups.length > 0 && (
+        <Section title="Cups" right={<span className="text-xs text-faint">Winner and runner-up</span>}>
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {cups.map((c) => (
+              <CupHistoryCard key={c.id} h={c} />
+            ))}
+          </div>
+        </Section>
+      )}
+
+      <Section
+        title="Leagues"
+        right={<span className="text-xs text-faint">Champions and the top four</span>}
+      >
+        <div className="space-y-4">
+          {byCountry.map((g) => {
+            const open = isOpen(g);
+            const divisions = g.leagues.length;
+            return (
+              <div key={g.country}>
+                <button
+                  onClick={() => toggle(g.country, open)}
+                  aria-expanded={open}
+                  className="mb-2 flex w-full items-center gap-2 rounded-md border border-line bg-raised/40 px-3 py-2 text-left transition-colors hover:bg-hover"
+                >
+                  <span className={`shrink-0 text-[10px] text-faint transition-transform ${open ? "rotate-90" : ""}`}>
+                    ▶
+                  </span>
+                  <CountryFlag country={g.country} size={16} />
+                  <span className="display min-w-0 flex-1 truncate text-sm font-semibold text-ink">
+                    {g.country}
+                  </span>
+                  <span className="shrink-0 text-[10px] uppercase tracking-widest text-faint">
+                    {divisions} {divisions === 1 ? "division" : "divisions"}
+                  </span>
+                </button>
+                {open && (
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    {g.leagues.map((h) => (
+                      <LeagueHistoryCard key={h.id} h={h} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Section>
     </div>
   );
 }
@@ -281,19 +576,21 @@ function HonourCard({
   value,
   emblem,
   sub,
+  onOpen,
 }: {
   label: string;
   value: number;
   emblem: string;
   sub?: string;
+  /** Opens the breakdown behind the tally (v1.91). A card with nothing to show
+   * — an honour not yet won — is rendered as a plain plinth rather than as a
+   * button that opens an empty list. */
+  onOpen?: () => void;
 }) {
   const won = value > 0;
-  return (
-    <Card
-      className={`relative overflow-hidden p-4 ${
-        won ? "border-gold-lo/50 bg-hover/30" : "border-line bg-surface"
-      }`}
-    >
+  const interactive = won && !!onOpen;
+  const body = (
+    <>
       {/* Watermark emblem — sits behind the number, never competes with it. */}
       <div
         aria-hidden
@@ -310,9 +607,113 @@ function HonourCard({
         >
           {value}
         </div>
-        <div className="mt-0.5 min-h-4 text-[11px] text-faint">{won ? sub : "Not yet won"}</div>
+        <div className="mt-0.5 min-h-4 text-[11px] text-faint">
+          {won ? (
+            interactive ? (
+              <span className="transition-colors group-hover:text-gold">
+                {sub ? `${sub} · ` : ""}View
+                <span className="ml-0.5 inline-block transition-transform group-hover:translate-x-0.5">→</span>
+              </span>
+            ) : (
+              sub
+            )
+          ) : (
+            "Not yet won"
+          )}
+        </div>
       </div>
-    </Card>
+    </>
+  );
+
+  if (!interactive) {
+    return (
+      <Card className={`relative overflow-hidden p-4 ${won ? "border-gold-lo/50 bg-hover/30" : "border-line bg-surface"}`}>
+        {body}
+      </Card>
+    );
+  }
+  return (
+    <button
+      onClick={onOpen}
+      aria-label={`${label}: show the ${value} won`}
+      className="group relative overflow-hidden rounded-lg border border-gold-lo/50 bg-hover/30 p-4 text-left transition-colors hover:border-gold-lo hover:bg-hover/60"
+    >
+      {body}
+    </button>
+  );
+}
+
+/** The seasons behind one honour tally (v1.91) — the rows the count was
+ * accumulated from, most recent first. Trophies name the competition; player
+ * honours name the player and click through to his profile. */
+function HonourDetailModal({
+  title,
+  trophies,
+  honours,
+  onClose,
+}: {
+  title: string;
+  trophies?: ReturnType<typeof clubHonours>;
+  honours?: PlayerHonourRow[];
+  onClose: () => void;
+}) {
+  const game = useGame((s) => s.game)!;
+  const viewPlayer = useGame((s) => s.viewPlayer);
+  const rows = trophies?.length ?? honours?.length ?? 0;
+
+  return (
+    <Modal title={title} onClose={onClose}>
+      {rows === 0 ? (
+        <div className="text-sm text-faint">Nothing won yet.</div>
+      ) : (
+        <Card className="divide-y divide-line/50">
+          {trophies?.map((h) => (
+            <div key={`${h.season}:${h.competition}`} className="flex items-center gap-3 px-3 py-2.5">
+              <span className="display w-16 shrink-0 text-[12px] font-bold tnum gold-text">{h.yearLabel}</span>
+              <span aria-hidden className="shrink-0 text-gold">
+                {h.kind === "league" ? "🏆" : h.kind === "cup" ? "🏅" : "⭐"}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{h.competition}</span>
+            </div>
+          ))}
+          {honours?.map((h, i) => {
+            const meta = ACCOLADE_META[h.type];
+            // A long save prunes retirees, so the click-through is gated on the
+            // player still existing rather than assumed.
+            const exists = !!game.players[h.playerId];
+            const inner = (
+              <>
+                <span className="display w-16 shrink-0 text-[12px] font-bold tnum gold-text">{h.yearLabel}</span>
+                <span aria-hidden className="shrink-0">
+                  {meta.emoji}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-semibold text-ink">{h.playerName}</span>
+                  <span className="block truncate text-[11px] text-dim">
+                    {meta.title}
+                    {h.leagueName && <span className="text-faint"> · {h.leagueName}</span>}
+                  </span>
+                </span>
+              </>
+            );
+            return exists ? (
+              <button
+                key={`${h.season}:${h.type}:${h.playerId}:${i}`}
+                onClick={() => viewPlayer(h.playerId)}
+                className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-hover"
+                title="View profile"
+              >
+                {inner}
+              </button>
+            ) : (
+              <div key={`${h.season}:${h.type}:${h.playerId}:${i}`} className="flex items-center gap-3 px-3 py-2.5">
+                {inner}
+              </div>
+            );
+          })}
+        </Card>
+      )}
+    </Modal>
   );
 }
 
@@ -504,27 +905,58 @@ function ManagerHero({ a }: { a: UserAccolades }) {
 }
 
 function AccoladesTab({ a }: { a: UserAccolades }) {
+  const game = useGame((s) => s.game)!;
   const winPct = a.matchesPlayed > 0 ? Math.round((a.matchesWon / a.matchesPlayed) * 100) : 0;
   const gd = a.goalsFor - a.goalsAgainst;
   const net = a.totalSpent - a.totalReceived;
+
+  // Which tally's breakdown is open (v1.91). The rows come from the record book
+  // — `clubHonours` for silverware, `userPlayerHonours` for individual awards —
+  // which is the same stored data the counters were accumulated from, so the
+  // modal can never list a different number of trophies than the card shows.
+  const [open, setOpen] = useState<"league" | "cup" | "player" | null>(null);
+  const honours = useMemo(() => clubHonours(game, game.userTeamId), [game]);
+  const playerHonours = useMemo(() => userPlayerHonours(game), [game]);
+  const leagueTitles = honours.filter((h) => h.kind === "league");
+  // "Cups won" covers the domestic cup and the European ones alike — both are
+  // knockout silverware and both are what the counter counts.
+  const cupTitles = honours.filter((h) => h.kind !== "league");
 
   return (
     <div>
       <ManagerHero a={a} />
 
+      {/* Promotions was removed as an honour card (v1.91) — going up is a
+          season's outcome rather than something in the cabinet, and it is still
+          tracked as an achievement. Three cards, so the row splits evenly. */}
       <Section title="Major Honours">
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <HonourCard label="League Titles" value={a.leagueTitles} emblem="🏆" />
-          <HonourCard label="Cups Won" value={a.cupsWon} emblem="🥇" />
-          <HonourCard label="Promotions" value={a.promotions} emblem="⬆️" />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <HonourCard
+            label="League Titles"
+            value={a.leagueTitles}
+            emblem="🏆"
+            onOpen={() => setOpen("league")}
+          />
+          <HonourCard label="Cups Won" value={a.cupsWon} emblem="🥇" onOpen={() => setOpen("cup")} />
           <HonourCard
             label="Player Honours"
             value={a.playerAwards}
             emblem="⭐"
             sub="won by your players"
+            onOpen={() => setOpen("player")}
           />
         </div>
       </Section>
+
+      {open === "league" && (
+        <HonourDetailModal title="League Titles" trophies={leagueTitles} onClose={() => setOpen(null)} />
+      )}
+      {open === "cup" && (
+        <HonourDetailModal title="Cups Won" trophies={cupTitles} onClose={() => setOpen(null)} />
+      )}
+      {open === "player" && (
+        <HonourDetailModal title="Player Honours" honours={playerHonours} onClose={() => setOpen(null)} />
+      )}
 
       <Section title="Match Record">
         <div className="space-y-3">

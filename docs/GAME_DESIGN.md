@@ -121,7 +121,9 @@ drives most of the simulation. Attributes are derived from archetype + overall a
 time — you never read a spreadsheet. **Quality floor:** no *generated* player is ever below
 **50 overall** — the world holds no hopeless bodies; every player is at least a rough professional
 and every young prospect is genuinely developable. (Modded custom-DB rosters may author sub-floor
-players deliberately; only procedural generation is clamped.)
+players deliberately; only procedural generation is clamped.) **Academy prospects are the one
+deliberate exception (v1.90):** the floor is a *senior-world* rule, and a 13-year-old is not a weak
+professional — the youngest tiers start in the 40s by design. See §17.2's age table.
 
 ### Archetypes
 
@@ -288,17 +290,18 @@ when a prospect report lands, and when a player ages out.
 Academy Squad Size upgrade (**base 12 places, +3 per level to a max of 24**). Academy players cost no
 wages (only the academy's weekly upkeep) and don't count against the senior cap. **Promote** to the
 seniors any time there's room, **but only once the prospect turns 16** — the youngest kids develop in
-the academy/U21s first. **Demote** seniors aged ≤21 back any time — window-free and instant. At
-rollover a player turning **22 must leave the academy** (auto-promoted if there's room, else
-released), and is warned the whole preceding season. When the academy is at its size cap, intake and
-scouted signings are blocked until a place frees up (release, promote, sell) or the cap is upgraded.
+the academy/U21s first. **Demote** seniors aged ≤21 back any time — window-free and instant.
+Prospects join the academy aged **13–17** and may stay until **21**; at the rollover a player who
+outgrows that must leave, and is warned the whole preceding season. He is *not* auto-promoted —
+he waits on the manager's decision to sign him to a senior contract or let him go, because a squad
+should only ever grow because the manager chose it. When the academy is at its size cap, scouted
+signings are blocked until a place frees up (release, promote, sell) or the cap is upgraded.
 
-**Intake day.** Once per season in **mid-March**, a class of **3–6 prospects aged 12–17** joins,
-with an inbox report card. Class size and quality scale with Academy facility level, Youth Coach
-stars, and club reputation; the class is trimmed to fit whatever academy places remain. A small
-seeded chance produces a **golden generation** — a bigger class with one or two genuinely elite
-potentials and hype news. This is the anti-stagnation lottery that keeps forever-saves alive: every
-March carries a ticket.
+**No intake day (v1.89).** Prospects only ever join because the manager signed them — a scout's find
+or a U21 opponent's prospect, both paid for. The mid-March class that used to arrive on its own (with
+its golden-generation lottery) was removed: it put players on the books nobody chose. A new save is
+still seeded with enough prospects to register a legal U21 seven; nothing tops that up afterwards.
+The anti-stagnation lottery now lives in scouting's Bronze → Legacy tier ladder.
 
 **Potential fog-of-war.** True potential stays in the schema and the engine keeps using it, but the
 UI never shows an exact potential for a player under 24 — it shows a **1–5 star range** centred on a

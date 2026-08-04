@@ -205,6 +205,32 @@ function instructionMult(p: EnginePlayer, side: SideState, cfg: TuningConfig): n
   return 1 + instructionFitScore(prefs, side.instructions) * cfg.instructionFitSwing;
 }
 
+/**
+ * How much this player's identity is worth under a given tactic (v1.90) — the
+ * product of the two levers `effectiveRating` applies, and nothing else.
+ *
+ * Exported so SELECTION can ask the same question the match will answer. The
+ * engine composes `synergyMult × instructionMult` into a player's effective
+ * rating; a lineup picked on raw overall alone therefore fields the better
+ * player rather than the better player *for this tactic*, and the two disagree
+ * often enough that an AI club could play a possession game with a squad of
+ * counter-attackers and never notice.
+ *
+ * This is deliberately NOT a third channel (see CLAUDE.md, v1.78): it is a read
+ * of the existing two, so a change to either table moves selection and the
+ * simulation together and they cannot drift apart.
+ */
+export function tacticalFitMult(p: EnginePlayer, tactic: Tactic, cfg: TuningConfig): number {
+  const prof = profileOfPlayer(p);
+  const synergy = Math.max(
+    1 - cfg.synergyCap,
+    Math.min(1 + cfg.synergyCap, prof.styleSynergy[tactic.style] ?? 1)
+  );
+  const instructions =
+    1 + instructionFitScore(prof.instructionPrefs, resolveInstructions(tactic)) * cfg.instructionFitSwing;
+  return synergy * instructions;
+}
+
 /** The intrinsic shape of a side's chosen style (v19). A pure table lookup —
  * an unknown style (an old save, a mod) falls back to a neutral shape rather
  * than throwing, so the engine never has to know what styles exist. */
@@ -722,8 +748,13 @@ function makeSideState(input: SideInput): SideState {
 
 /** The five advanced dials with their v2-save defaults applied — the same
  * resolution `resolveTempo` and friends do, gathered into one object so the
- * per-player scoring reads settled values. */
-function resolveInstructions(t: Tactic): InstructionView {
+ * per-player scoring reads settled values.
+ *
+ * Exported (v1.90) so squad SELECTION can score a player against the very dials
+ * the match will run on. Picking a side against a second, re-derived copy of the
+ * defaults is how a lineup ends up optimised for a tactic the engine isn't
+ * playing. */
+export function resolveInstructions(t: Tactic): InstructionView {
   return {
     tempo: resolveTempo(t),
     width: resolveWidth(t),

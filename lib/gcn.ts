@@ -16,7 +16,9 @@
 //    playable pyramid is left untouched.
 
 import type { GameState, GlobalClubNetwork, GcnFacility, Team } from "./types";
-import type { TuningConfig } from "./config/tuning";
+import { TUNING, type TuningConfig } from "./config/tuning";
+import { getFormation } from "./config/formations";
+import { squadOverall } from "./selection";
 import { completeTransfer } from "./transfers";
 import { drawsAiSubsidy, weeklyBreakdown } from "./economy";
 import { playerValue } from "./value";
@@ -1128,8 +1130,12 @@ export function gcnClubStatus(state: GameState, clubId: string): GcnClubStatus |
   if (!club) return null;
   const league = state.leagues[club.leagueId];
   const squad = club.playerIds.map((id) => state.players[id]).filter(Boolean);
+  // v1.90: the club's overall is its XI-and-bench rating, the same rule the team
+  // card and the AI read (`squadOverall`). A flat squad mean made a club look
+  // worse for carrying cover, which on this screen is advice to run a thin
+  // roster — exactly backwards for a network club feeding players elsewhere.
   const avgOverall = squad.length
-    ? Math.round(squad.reduce((s, p) => s + p.overall, 0) / squad.length)
+    ? squadOverall(squad, getFormation(club.tactic?.formationId ?? "433"), TUNING).overall
     : 0;
   const base = {
     leagueName: league?.name ?? club.leagueId,

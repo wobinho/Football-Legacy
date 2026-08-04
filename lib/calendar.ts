@@ -81,18 +81,48 @@ function nextWeekday(day: number, weekday: number): number {
 }
 
 /**
+ * How many league matchdays a division of `teamCount` clubs plays (v1.91).
+ *
+ * A season is a double round-robin — everyone plays everyone home and away — so
+ * the answer is simply `2 × (n − 1)`: 38 for 20 clubs, 46 for 24, 34 for 18. The
+ * schedule used to book a flat 38 Saturdays whatever the division held, which
+ * meant a 24-club league dropped fixtures off the end of the calendar and an
+ * 18-club one padded its season with four empty weekends.
+ *
+ * An odd club count can't be paired off at all, so it rounds DOWN to the even
+ * count below it — the same assumption `generateLeagueFixtures`' circle method
+ * has always made. Fewer than two clubs plays nothing.
+ */
+export function leagueRoundCount(teamCount: number): number {
+  const n = Math.floor(teamCount / 2) * 2;
+  return n < 2 ? 0 : 2 * (n - 1);
+}
+
+/**
  * Build the fixed anchors of a season (§3, §4):
- * - 38 league Saturdays from mid-August
+ * - league Saturdays from mid-August — as many as the biggest division needs
  * - 6 cup rounds on midweek Wednesdays
  * - windows: summer Jul 1–Sep 1, winter Jan 1–Feb 1
  * - sim-league resolution just before each window's shopping period
+ *
+ * `rounds` is the LONGEST season any playable division will run (v1.91).
+ * `leagueRoundDays` is the shared pool of matchdays every division draws from;
+ * a smaller division simply takes the first `2×(n−1)` of them, so a 20- and a
+ * 24-club tier can share one calendar. It defaults to the historic 38 so any
+ * caller without a world to measure (migrations, tests) is unchanged.
+ *
+ * Everything downstream — the cup final, the sim-resolution passes, the dead
+ * week — is derived from the LAST league round rather than from index 37, so a
+ * longer or shorter season carries the whole wind-down with it.
  */
-export function buildSeasonSchedule(season: number): SeasonSchedule {
+export function buildSeasonSchedule(season: number, rounds = 38): SeasonSchedule {
   const startYear = 2025 + (season - 1);
   const seasonStartDay = dateToDay(startYear, 6, 1); // Jul 1
 
   const firstRound = nextWeekday(dateToDay(startYear, 7, 14), 6); // Sat on/after Aug 14
-  const leagueRoundDays = Array.from({ length: 38 }, (_, i) => firstRound + i * 7);
+  const roundCount = Math.max(1, rounds);
+  const leagueRoundDays = Array.from({ length: roundCount }, (_, i) => firstRound + i * 7);
+  const lastRoundDay = leagueRoundDays[leagueRoundDays.length - 1];
 
   // Cup Wednesdays: R1 mid-Sep, R2 mid-Oct, R3 mid-Nov, QF mid-Feb, SF mid-Mar,
   // Final the Saturday two weeks after the last league round.
@@ -102,7 +132,7 @@ export function buildSeasonSchedule(season: number): SeasonSchedule {
     nextWeekday(dateToDay(startYear, 10, 24), 3),
     nextWeekday(dateToDay(startYear + 1, 1, 10), 3),
     nextWeekday(dateToDay(startYear + 1, 2, 17), 3),
-    leagueRoundDays[37] + 14,
+    lastRoundDay + 14,
   ];
 
   const winterOpenDay = dateToDay(startYear + 1, 0, 1);
@@ -156,7 +186,7 @@ export function buildSeasonSchedule(season: number): SeasonSchedule {
     // at the very end. It also writes realistic minutes so sim players age like
     // their peers. Kept clear of the cup final (two weeks later) and season end.
     simResolveDay1: winterOpenDay,
-    simResolveDay2: leagueRoundDays[37] + 3,
+    simResolveDay2: lastRoundDay + 3,
     // The day after the cup final — the last fixture in the world — starts the
     // dead week. With no games left to play, the season's individual honours are
     // handed out here (v1.44), a week before the rollover formally closes it.
@@ -167,7 +197,9 @@ export function buildSeasonSchedule(season: number): SeasonSchedule {
     // interruption — and comfortably before END SEASON closes the campaign.
     contractResolveDay: cupRoundDays[5] + 2,
     seasonEndDay: cupRoundDays[5] + 7, // season review, then jump to next Jul 1
-    intakeDay: nextWeekday(dateToDay(startYear + 1, 2, 10), 3), // Wed mid-March (§18)
+    // No intakeDay (v1.89): the annual youth class was removed, so the schedule
+    // no longer books a day for it. The field stays optional on SeasonSchedule
+    // for old saves, which simply never fire it.
     euroRoundDays,
   };
 }

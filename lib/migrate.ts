@@ -6,6 +6,7 @@ import { SCHEMA_VERSION } from "./types";
 import { expandLegacyAttrs, isLegacyAttrs } from "./config/attributes";
 import { TUNING, type TuningConfig } from "./config/tuning";
 import { generateScoutMarket } from "./scouts";
+import { staffWageMultiplier } from "./facilities";
 import { buildSeasonSchedule } from "./calendar";
 import { CUP_MAX_ENTRANTS } from "./season";
 import { byTier } from "./economy";
@@ -91,7 +92,9 @@ function migrateV3toV4(state: GameState): void {
   for (const team of Object.values(state.teams)) {
     team.academyPlayerIds ??= [];
   }
-  state.schedule.intakeDay ??= buildSeasonSchedule(state.season).intakeDay;
+  // `intakeDay` is deliberately NOT backfilled any more (v1.89): the annual
+  // intake it scheduled was removed, and nothing reads the field. An old save
+  // may still carry a value; it is inert either way.
   state.academy ??= initAcademyState(state, TUNING);
 }
 
@@ -336,7 +339,7 @@ function migrateV13toV14(state: GameState, cfg: TuningConfig): void {
     ac.loanList ??= [];
   }
 
-  state.scoutMarket ??= generateScoutMarket(state.seed ^ 0x5c007, cfg);
+  state.scoutMarket ??= generateScoutMarket(state.seed ^ 0x5c007, cfg, staffWageMultiplier(state, cfg));
 }
 
 /**
@@ -1560,8 +1563,8 @@ function migrateV45toV46(state: GameState): void {
  * What this DOES do is make the loss visible in the one place it would
  * otherwise bite silently: the academy squad cap falls back to
  * `academySquadSizeBase`, so a save carrying more prospects than that keeps
- * them (nothing is deleted) and simply takes no intake until it is back under
- * the cap. `runIntakeDay` already handles a full academy that way.
+ * them (nothing is deleted) and simply signs nobody new until it is back under
+ * the cap — `signProspect` refuses a full academy.
  */
 function migrateV46toV47(state: GameState): void {
   const REMOVED_TEAM_KEYS = [

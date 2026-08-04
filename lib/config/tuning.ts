@@ -319,6 +319,12 @@ export interface TuningConfig {
   /** Overall at or below which a prime player carries the FULL headroom floor.
    * Above it the floor tapers linearly to zero at `primeHeadroomCapOverall`. */
   primeHeadroomFullBelow: number;
+  /** Days unattached before a DECLINING player may retire rather than go on
+   * waiting for a club (v1.92). Age retirement only bites at `retirementAgeMin`,
+   * so nothing otherwise removes a faded pro the market has passed over. */
+  retireUnattachedDays: number;
+  /** Chance he does so, once eligible — a roll, so the tail leaves gradually. */
+  retireUnattachedChance: number;
   retirementAgeMin: number;
   retirementAgeMax: number;
 
@@ -437,6 +443,26 @@ export interface TuningConfig {
   /** Full turnover of the staff & scout for-hire pools every N days (v20), on
    * top of dismiss-to-refresh, so the shortlists never go stale. */
   marketRefreshDays: number;
+
+  /**
+   * What a backroom wage costs by the DIVISION the club plays in (v1.89), indexed
+   * by tier − 1 exactly like `weeklyIncomeByTier`.
+   *
+   * Every staff and scout wage in the game was a flat number keyed on stars
+   * alone, while club income runs roughly 38:1 from the top flight to the fourth
+   * tier. A 5-star coach therefore cost £110k/week whether he worked for a club
+   * earning £950k a week or one earning £25k — which made the whole backroom
+   * unaffordable below the top division and priced a promoted side out of the
+   * facilities system it had just unlocked.
+   *
+   * The ladder is deliberately much SHALLOWER than the income one (2.6:1 against
+   * 38:1). A good coach is a good coach anywhere and the market for him is
+   * global, so a fourth-tier club should find him a stretch, not a rounding
+   * error — this closes most of the gap without making the lower leagues a place
+   * where elite staff are cheap. Applied to `staffWageFor` and `scoutWage`, and
+   * to the fees that go with them, so the hiring screen and the wage bill agree.
+   */
+  staffWageByTier: number[];
 
   // Sponsors / investments (v6, Club → Income). Weekly income from season-long
   // deals; quality scales with club reputation, division, and Club
@@ -772,6 +798,25 @@ export interface TuningConfig {
    * regardless of tier — a big foreign club in a lesser division. */
   consentPeerReputation: number;
 
+  // ── Club reputation drift (v1.92) ──
+  // `Team.reputation` was stamped by worldgen and frozen forever, so winning the
+  // league changed nothing about who would sign for you. It now drifts once a
+  // season toward what the club has become. See lib/reputation.ts.
+  /** How the three pieces of evidence are weighted. Squad is the largest because
+   * it is the one a target can see for himself; standing is what makes winning
+   * the division mean something to the market. */
+  repWeights: { squad: number; league: number; standing: number };
+  /** The squad-overall band stretched across the 0–100 reputation scale. Squad
+   * overalls cluster in a narrow range, so using them raw would make the term
+   * say nothing. */
+  repSquadFloor: number;
+  repSquadCeil: number;
+  /** Share of the gap to the target a club closes in one season, and the hard
+   * cap on how far it may move. Both bind — the rate makes a distant target
+   * approach smoothly, the cap stops one freak season relocating a club. */
+  repDriftRate: number;
+  repDriftMaxPerSeason: number;
+
   // ── Wage floors (v1.66) ──
   // The v1.65 market scaling quotes a player his league's going rate, which gave
   // lower-division buyers an automatic discount on exactly the players they
@@ -819,6 +864,99 @@ export interface TuningConfig {
   aiDepthUrgencyWeight: number; // urgency added per missing body at a position
   aiNeedScoreWeight: number; // how much positional urgency amplifies a target's score
   aiMinUpgradeGain: number; // a signing must beat the incumbent by at least this
+  /**
+   * Urgency added per formation slot the club has NO natural body for (v1.89).
+   *
+   * A missing position and a weak one are different problems, and the ordinary
+   * shortfall arithmetic conflates them: a side with no centre-back but a
+   * full-back filling in scores as a few rating points short, which sits below
+   * half a dozen "could be better here" positions. Large enough to outrank any
+   * ordinary shortfall (the whole rating span of a squad is ~25 points), so a
+   * genuinely absent position is always what the club shops for first.
+   */
+  aiMissingCoverUrgency: number;
+  /**
+   * How much better an alternative tactic must score before an AI club switches
+   * to it (v1.90), as a fraction of its current tactic's score.
+   *
+   * The hysteresis on `reviewClubTactics`, and the whole reason a club reads as
+   * having an identity. The squad-fit search is run over a few dozen
+   * formation×style combinations and the winner is often better by a fraction of
+   * a percent on noise alone; without a threshold every club re-picks its shape
+   * every season and none of them is ever *building* toward anything. At 4% a
+   * club changes when its personnel have genuinely moved on from the system, and
+   * otherwise signs players to deepen the system it has.
+   */
+  aiTacticSwitchGain: number;
+  /**
+   * Appearances for the club, above which a player counts as an established
+   * first-teamer his club is reluctant to sell (v1.90).
+   *
+   * Roughly two full seasons. Below it a player is squad furniture and ordinary
+   * stance rules apply; at or above it he is somebody the supporters know, and
+   * `saleCandidates` will only let him go under the conditions in
+   * `aiKeyPlayerSellChance`.
+   */
+  aiKeyPlayerApps: number;
+  /**
+   * Chance per window that a club will even CONSIDER selling one of its key
+   * players — an established first-teamer (see `aiKeyPlayerApps`) who is also
+   * among its best (v1.90).
+   *
+   * Not a ban: a club that never sells its stars is as unrealistic as one that
+   * sells them for nothing, and a hard block would freeze the top of the market
+   * entirely. At 12% a genuine marquee transfer is a thing that happens a couple
+   * of times a season across a division rather than every window, and the user
+   * can no longer strip an AI club of its best XI over two seasons.
+   *
+   * Deterministic per club, per season, per player — derived from the world seed,
+   * so a save reloaded makes the same clubs willing to deal and the answer can't
+   * be re-rolled by retrying a bid.
+   */
+  aiKeyPlayerSellChance: number;
+  /**
+   * How many of its best players a club treats as key (v1.90), among those who
+   * also clear `aiKeyPlayerApps`.
+   *
+   * Six is about the spine of a side — the players a supporter would name — and
+   * leaves the rest of the XI tradeable, so the market stays busy. Raising it
+   * toward 11 progressively freezes AI squads; the transfer volume tuning
+   * assumes it stays well below that.
+   */
+  aiKeyPlayerCount: number;
+  /**
+   * Spare natural bodies a club keeps per position, over what its formation
+   * asks for, before it will sell anyone who plays there (v1.89).
+   *
+   * The floor that stops a rebuilding club selling its last centre-back. At 1 a
+   * side playing two centre-backs keeps three before it sells one — enough for
+   * an injury or a suspension, which is the point of a squad. Raising it makes
+   * the AI market noticeably quieter; the transfer volume tuning above assumes
+   * this stays small.
+   */
+  aiMinSpareCover: number;
+  /**
+   * Floor on the age-band multiplier when a candidate fills a position the club
+   * has NO natural body for (v1.89).
+   *
+   * `aiAgeBandFalloff` compounds hard — a 30-year-old is worth a few percent to a
+   * rebuilding club — which is right for shopping preferences and wrong for an
+   * emergency: a side with no centre-back needs one at any age. This floors the
+   * preference so a gap-filler stays a live target, without disabling the age
+   * band (a young one still scores higher).
+   */
+  aiGapFillMinAgeFit: number;
+  /**
+   * Squad size every AI club is topped back up to at the rollover (v1.89).
+   *
+   * Sits above `matchdaySquad` (the legal minimum) deliberately: a club at
+   * exactly the minimum is one retirement from being unable to name a bench, and
+   * the top-up only runs once a season. The slack is what absorbs a season of
+   * ordinary attrition. Measured: without this pass the median playable squad
+   * fell from 28 to 19 across 20 seasons, because every AI buy path is
+   * discretionary and nothing ever obliged a club to replace what it lost.
+   */
+  aiSquadFloor: number;
   aiAgeBandFalloff: number; // interest multiplier per year outside the stance age band
   aiMaxBudgetSharePerDeal: number; // most of its budget a club commits to one player
   // Market volume.
@@ -827,6 +965,115 @@ export interface TuningConfig {
   aiRenewChance: number; // chance per window an AI club renews a final-year first-teamer
   aiWindowDealsPerLeague: number; // AI↔AI deals each playable division attempts when a window opens (v1.51)
   freeAgentPoolFloor: number; // free agents the AI leaves unsigned, so the user's tab is never empty (v1.51)
+  /** Unattached players `replenishFreeAgents` restocks the market up to (v1.89).
+   * Distinct from `freeAgentPoolFloor`, which is where routine AI signings stop:
+   * a restock target equal to the brake leaves the pool pinned at the point
+   * business ceases, so this sits well above it. */
+  freeAgentPoolTarget: number;
+  /**
+   * ── Free-agent replenishment (v1.89) ──
+   * `replenishFreeAgents` in lib/worldgen.ts, run once per season rollover.
+   *
+   * The world only ever lost players: retirement takes everyone, but a regen is
+   * born only from a retiree who peaked at `regenMinPeakOverall` or better, so
+   * the whole tail below that bar was a net loss every season. Twelve seasons in,
+   * playable-league bodies per formation slot had fallen to x1.32 at centre-back
+   * against x8 at winger, and clubs that could not buy one could not find one
+   * free either.
+   */
+  /** Living bodies per formation slot the world tops a position up TO. Below
+   * this a position is short and gets free agents; at or above it, nothing is
+   * generated however small the pool. Set near the low end of the healthy range
+   * the world generates at, so this is a floor and not a target the market
+   * drifts up to. */
+  freeAgentTargetCoverRatio: number;
+  /** Hard cap on bodies created in one rollover, so no future change to the
+   * shortfall arithmetic can flood a save. */
+  freeAgentReplenishMax: number;
+  /** [min, max] overall band. Journeymen — this is a source of bodies, not of
+   * talent; quality stays the academy's and the regens' business. */
+  freeAgentReplenishOverall: [number, number];
+  /** [min, max] age band. Squad-filler age: old enough to be unattached without
+   * it reading as a wasted prospect. */
+  freeAgentReplenishAge: [number, number];
+
+  /**
+   * ── Youth intake: the world's age structure (v1.92) ──
+   *
+   * The v1.89 replenishment counts BODIES and nothing else, and it generates
+   * them at 23–32 — squad-filler age. That holds the headcount flat while the
+   * age pyramid inverts underneath it, which is the real cause of "squads
+   * degrade after ten seasons". Measured over 15 seasons: the 18–21 cohort fell
+   * 545 → 119 and the 22–25 cohort fell 712 → **27**, while 34+ climbed 23 → 871
+   * and the whole world's mean age went 23.7 → 31.5. The population count looked
+   * healthy the entire time. Every club was simply fielding the same generation,
+   * one year older each season, until it retired together and took the top of
+   * the game with it (85+ players peaked at 130 in season 11 and halved by 16).
+   *
+   * `replenishYouth` fixes the SHAPE rather than the size: each season the world
+   * generates enough teenagers to hold the young cohort at a target share of the
+   * population, so there is always a generation coming through behind the one
+   * currently playing. This is the structural counterpart to the regen system —
+   * regens replace the individually great, this replaces the pyramid.
+   */
+  /** Age band new intake is generated in. Genuinely young: these players are
+   * meant to spend years developing before they replace anyone. */
+  youthIntakeAge: [number, number];
+  /** Share of the world's living players that should sit under
+   * `youthIntakeCohortMaxAge`. Below it, the shortfall is generated. */
+  youthIntakeCohortShare: number;
+  /** The age that defines the "young cohort" the share above is measured over. */
+  youthIntakeCohortMaxAge: number;
+  /** [min, max] overall band for intake. A raw teenager: what he BECOMES is
+   * `youthIntakePotential`'s business, and the development curve's. */
+  youthIntakeOverall: [number, number];
+  /** [min, max] potential band. Deliberately wide and reaching the elite band at
+   * the top: a generation with no future world-class players in it produces
+   * exactly the shortage of them this system exists to prevent. The elite tail
+   * is rare by the roll, not by the cap. */
+  youthIntakePotential: [number, number];
+  /** Share of intake rolled with the elite potential band rather than the
+   * ordinary one — the rate at which the world mints future stars. */
+  youthIntakeEliteShare: number;
+  /** [min, max] potential for that elite slice. */
+  youthIntakeElitePotential: [number, number];
+  /** Hard cap on intake per season, so no future change to the share arithmetic
+   * can flood a save. */
+  youthIntakeMax: number;
+  /** Share of the prospects already sitting unsigned that counts against this
+   * season's shortfall. Below 1 deliberately: crediting them all lets a
+   * saturated market switch intake off entirely, which reproduces the decay a
+   * few seasons later once the backlog ages out. See `replenishYouth`. */
+  youthIntakeMarketCredit: number;
+
+  /**
+   * ── AI youth recruitment (v1.92) ──
+   * `aiRecruitYouth` in lib/transfers.ts. Generating a generation is useless if
+   * nobody signs it: development is driven by MINUTES, so an unsigned prospect
+   * never develops and ages out of the young cohort having become nothing. Every
+   * existing buy path scores a signing as an upgrade, which a 16-year-old never
+   * is — so clubs need a separate, explicitly potential-driven pass.
+   */
+  /** Oldest a free agent may be to be recruited as a prospect. */
+  aiYouthRecruitMaxAge: number;
+  /** Growth headroom (potential − overall) a prospect needs to be worth a slot.
+   * This, not age alone, is what separates a prospect from a journeyman. */
+  aiYouthRecruitMinHeadroom: number;
+  /** Young players a club will carry before it stops recruiting more. Counted
+   * over the squad, so a club that has already invested in a crop waits for it
+   * to come through rather than hoarding indefinitely. */
+  aiYouthProspectsHeld: number;
+  /** Potential points deducted per year of age when ranking prospects, so an
+   * equal ceiling further away is preferred — but not without limit. */
+  aiYouthRecruitAgeDiscount: number;
+  /** Chance a youth signing is reported in the news ticker. Low: forty clubs
+   * doing this every summer would bury the transfers the manager cares about. */
+  aiYouthRecruitNewsChance: number;
+  /** Squad size beyond which a club takes on no more youth, however promising.
+   * Deliberately NOT `squadCap` (50, which almost never binds): gating on the
+   * cap let clubs hoard until the median squad reached 44. A club with a full
+   * book needs to play the prospects it has, not sign more. */
+  aiYouthSquadCeiling: number;
   aiSimDealsPerLeaguePerWindow: number; // intra-league AI↔AI deals each sim league does per window (v1.44)
   aiSimCrossLeagueDealsPerWindow: number; // cross-league AI↔AI deals across the whole sim world per window (v1.44)
 
@@ -876,6 +1123,17 @@ export interface TuningConfig {
    * bill is what limits hoarding — so this only bounds AI roster building. */
   squadCap: number;
   matchdaySquad: number;
+  /**
+   * Share of a club's displayed overall that comes from its starting XI, the
+   * rest coming from the matchday bench (v1.90). See `squadOverall` in
+   * lib/selection.ts.
+   *
+   * 0.8 because most league minutes are played by the eleven, but a side with
+   * nothing behind it should still read as weaker than one with real cover — at
+   * this weight a bench ten points off the XI costs the club two points of
+   * overall, which is visible without swamping the first-team rating.
+   */
+  squadOverallXIWeight: number;
 
   // Sim leagues (§4)
   simTableNoise: number; // sd of strength noise in synthetic tables
@@ -921,9 +1179,12 @@ export interface TuningConfig {
    */
   quickSellShareOfBestOffer: number;
 
-  // Intake day (mid-March, once per season)
-  intakeClassBase: number; // class size at level 0
-  intakeClassPerLevel: number; // + per academy level (rounded)
+  // Prospect generation. The annual intake day these were written for is gone
+  // (v1.89) — what remains reads them is `seedInitialAcademy`, the starting crop
+  // a new save needs to register a legal U21 seven. The class-size pair is dead
+  // weight kept only so an old save's tuning still parses.
+  intakeClassBase: number; // dead since v1.89 (was: class size at level 0)
+  intakeClassPerLevel: number; // dead since v1.89
   intakeAgeMin: number;
   intakeAgeMax: number;
   // Intake quality (v15) now runs through the shared PROSPECT_TIERS bands — the
@@ -1014,8 +1275,44 @@ export interface TuningConfig {
   prospectTierOrder: ProspectTier[];
   /** Per-tier quality bands. `overall` is the ability a find comes back with and
    * `potential` the ceiling it is given — a Diamond prospect is the wonderkid.
-   * Both are inclusive [min, max] ranges, clamped to potentialAbsoluteCap. */
+   * Both are inclusive [min, max] ranges, clamped to potentialAbsoluteCap.
+   *
+   * v1.90: `overall` here is now only a FALLBACK, used when a prospect is rolled
+   * at an age outside the academy band (`prospectOverallByAge` covers 13–17).
+   * The live path reads the age table — see `prospectTierQualityAt` in
+   * lib/scouts.ts. `potential` is still the single source for the ceiling: a
+   * tier's ceiling is what the tier MEANS, and it must not vary with the age the
+   * kid happened to be found at. */
   prospectTierBands: Record<ProspectTier, { overall: [number, number]; potential: [number, number] }>;
+
+  /**
+   * Ability band per tier and per age (v1.90), indexed
+   * `[tier][age - prospectOverallByAgeMin]`.
+   *
+   * A 13-year-old Gold and a 17-year-old Gold share a ceiling but not a current
+   * rating — four years of development separate them. Before this the tier
+   * carried ONE overall band and `generatePlayer`'s maturity curve was left to
+   * scale it down, which made the age effect implicit, unauditable, and
+   * impossible to state as a design decision. The table says it outright.
+   *
+   * Rows must cover `prospectOverallByAgeMin`..`Max` inclusive. A tier or age
+   * the table doesn't author falls back to `prospectTierBands[tier].overall`,
+   * so a future age-band change can never leave a prospect unrollable.
+   */
+  prospectOverallByAge: Partial<Record<ProspectTier, [number, number][]>>;
+  /** First age `prospectOverallByAge` rows are indexed from. */
+  prospectOverallByAgeMin: number;
+  /**
+   * Slack allowed either side of a rolled band (v1.90), in overall/potential
+   * points.
+   *
+   * The bands above are the design intent; this is the wobble that stops every
+   * Gold 15-year-old in a save reading as the same player. Applied AFTER the
+   * band roll and clamped so it can never cross `potentialAbsoluteCap` — so a
+   * Legacy prospect can come in a shade under his band, and a Bronze one a shade
+   * over, without either tier losing its identity.
+   */
+  prospectBandSlack: number;
   /** Fraction of potential fog a judgement star removes on that scout's own
    * reports — a sharp judge of a player also reads the ceiling more tightly. */
   fogJudgementStarReduction: number;
@@ -1276,13 +1573,42 @@ export const TUNING: TuningConfig = {
   // are the most common in a generated world and add chance volume, which pushed
   // the calibration harness from 2.76 to 2.84 goals/match; this pulls the base
   // rate back so the target holds with the new system switched on.
-  baseChancesPerSegment: 1.69,
-  goalProbFloor: 0.08,
-  goalProbCeil: 0.4,
-  chanceQualitySlope: 11.0,
-  midfieldSharpness: 2.2,
-  chanceQualityCenter: 0.385,
-  homeAdvantage: 1.07,
+  // v1.91: re-cut together so squad quality actually decides a season. The old
+  // set hit the goals/home targets but had almost no dynamic range left: the
+  // best side in a division (85 overall) beat the worst (70) by only 1.51-0.77,
+  // and over 40 simulated seasons finish-vs-squad-overall correlated just 0.54,
+  // with champions averaging the 2.5th-best squad. That is how a newly promoted
+  // 67-rated side wins a league of 70+ clubs.
+  //
+  // The root defect was `chanceQualityCenter`. Its own comment says it is "the
+  // ATTACK/(ATTACK+DEFENSE) value of two equal teams", but it was set to 0.385
+  // when two equal sides produce q = 0.5 — the attack and defense columns of
+  // PHASE_WEIGHTS sum to ~5.4 and ~5.15, so an even match sits at a half. The
+  // squash was centred below the match it was meant to centre on, which left an
+  // even game already 78% up the curve with 0.07 of headroom to `goalProbCeil`.
+  // Superiority had nowhere to go, so every gap compressed into the same result.
+  //
+  // Recentring on 0.5 costs scoring (an even match no longer sits near the
+  // ceiling), so the ceiling and chance rate rise to pay for it. `homeAdvantage`
+  // comes down because a sharper engine amplifies it too — left at 1.07 it
+  // pushed home wins to ~50%. `midfieldSharpness` moves only 2.2 → 3.0: it
+  // compounds a strength edge into chance VOLUME, and the sweep showed the knee
+  // is early — 9.0 doubled discrimination but blew champion points out to 106
+  // and collapsed draws, which is a different kind of wrong season.
+  //
+  // Measured over 40 full 38-game seasons (`npm run verify:standings`):
+  // correlation 0.54 → 0.65, champion points 81 → 89, draws 24.4% → 25.3%,
+  // 2.62 goals/match, and the champion is now the 2.3rd-best squad rather than
+  // a mid-table one. Re-run `npm run calibrate` AND `npm run verify:standings`
+  // after touching any of these six — the two answer different questions and a
+  // change that holds goals/match can still wreck a table.
+  baseChancesPerSegment: 2.05,
+  goalProbFloor: 0.085,
+  goalProbCeil: 0.54,
+  chanceQualitySlope: 12.0,
+  midfieldSharpness: 3.0,
+  chanceQualityCenter: 0.5,
+  homeAdvantage: 1.04,
   synergyCap: 0.2,
   instructionFitSwing: 0.06,
   formMin: 0.94,
@@ -1475,7 +1801,17 @@ export const TUNING: TuningConfig = {
   // invested youngster. The elite-resistance curve below handles the top end;
   // this trims the whole band so even a mid-rated prospect climbs in 3–5 point
   // steps rather than 8.
-  growthPerSeasonMax: 4.5,
+  //
+  // v1.92: 4.5 → 5.4 (+20%). Paired with the same +20% on
+  // `primeGrowthPerSeasonMax` below, this is a deliberate world-wide lift to how
+  // fast overall is earned. It exists to answer the long-save decay problem: the
+  // supply of world-class players is set by how many prospects reach the elite
+  // band before the retirement scythe takes the generation above them, and at
+  // the old rate the two didn't balance — squads visibly thinned at the top over
+  // ten seasons. These two constants are the headline budget every other growth
+  // term multiplies into, so raising them lifts the whole distribution rather
+  // than any one age band.
+  growthPerSeasonMax: 5.4,
   declinePerSeasonBase: 1.6,
   // v1.66: 1.8 → 1.35. The catch-up band compounds with coach, facility, plan and
   // the academy bonuses, so at full investment it was producing +12 seasons for a
@@ -1503,7 +1839,11 @@ export const TUNING: TuningConfig = {
   // v1.51: prime growth loosened so players over 24 visibly develop. The pivot
   // drops to 6.7 (a solid regular now improves, not only a standout), the per-
   // season ceiling rises, and prime players join the weekly in-season tick.
-  primeGrowthPerSeasonMax: 3.0,
+  // v1.92: 3.0 → 3.6 (+20%), in step with `growthPerSeasonMax`. Lifting only the
+  // youth budget would push the world's growth even further into the age band
+  // that takes longest to pay off — the opposite of what the long-save shortage
+  // of finished players needs.
+  primeGrowthPerSeasonMax: 3.6,
   // 6.55 sits just under the median regular's rating (~6.65), so an ordinary
   // first-teamer having a normal season edges forward while a squad player who
   // rates below the median still stagnates. At the old 6.9 only ~12% of players
@@ -1527,6 +1867,14 @@ export const TUNING: TuningConfig = {
   // an ageing pro visibly fades before hanging them up.
   retirementAgeMin: 36,
   retirementAgeMax: 39,
+  // A declining player nobody has signed for a year hangs them up (v1.92). Age
+  // retirement only bites at 36+, so without this a faded pro sat unsigned in
+  // the free-agent list for years, ageing and never playing: measured, the 34+
+  // population grew 23 → 784 over eleven seasons even with the youth pyramid
+  // healthy. 365 days is a full season passed over by every club in the world,
+  // which is the market's own verdict rather than an arbitrary age.
+  retireUnattachedDays: 365,
+  retireUnattachedChance: 0.5,
 
   // v1.52: 29 → 33. The prime now runs to ~35, and freezing the ceiling at 29
   // meant a 30-year-old's potential could never respond to how he was actually
@@ -1655,6 +2003,9 @@ export const TUNING: TuningConfig = {
   ],
 
   staffRefreshDays: 2,
+  // Top flight pays the full rate; the fourth tier pays ~38% of it. See the
+  // field comment for why this ladder is far flatter than the income one.
+  staffWageByTier: [1.0, 0.72, 0.52, 0.38],
   marketRefreshDays: 10,
 
   // v44: rebased from 5,200. The old star model topped out at a ~1.88× money
@@ -1676,7 +2027,14 @@ export const TUNING: TuningConfig = {
   // v1.86: this is now the MINOR (weekly partnership) baseline only. Majors are
   // priced by `sponsorMajorAnnual*` below, off marketability directly, because
   // the old chain quietly applied the division ladder twice — see that block.
-  sponsorBaseWeeklyByReputation: 3_260,
+  //
+  // v1.91: cut 20%, 3_260 → 2_608. The MINOR half of "reduce the base value of
+  // offers by 20%". Done at the base for the same reason v1.85 doubled it here:
+  // it sits before the slot share, the division ladder, the tier roll, the
+  // marketability multiplier and the noise, so this is exactly "every weekly
+  // partnership is worth a fifth less" and nothing about what a club's standing
+  // MEANS has changed.
+  sponsorBaseWeeklyByReputation: 2_608,
 
   // A front-of-shirt deal, per season, at a National suitor. £20M at zero
   // marketability, £100M at a hundred: the owner's spec, and the arithmetic the
@@ -1689,8 +2047,18 @@ export const TUNING: TuningConfig = {
   // an elite club gets for a fraction of the work. At 1.6 that same club is
   // quoted ~£46M, and the £100M ceiling stays something only a club that has
   // maxed genuinely everything, Europe included, ever sees.
-  sponsorMajorAnnualMin: 20_000_000,
-  sponsorMajorAnnualMax: 100_000_000,
+  //
+  // v1.91: both ends cut 20%, £20M/£100M → £16M/£80M. The MAJOR half of the same
+  // change. Scaling both ends leaves the curve's SHAPE untouched — the band is
+  // still "nothing special at zero, everything at a hundred", just a fifth
+  // cheaper — so a maxed club's 3-season shirt deal now quotes ≈£235M rather
+  // than ≈£293M and the mid-ladder club that was quoted ~£46M/season is quoted
+  // ~£37M. Cutting only the max would have flattened the curve instead, which
+  // is a different change: it would squeeze the gap between an ordinary club
+  // and an elite one, and that gap is the whole point of the marketability
+  // score.
+  sponsorMajorAnnualMin: 16_000_000,
+  sponsorMajorAnnualMax: 80_000_000,
   sponsorMajorAnnualCurve: 1.6,
   // Per-slot share of the front-of-shirt baseline. The majors sit at the top;
   // the minor partnerships are deliberately small individually — their appeal is
@@ -1958,6 +2326,23 @@ export const TUNING: TuningConfig = {
   // A club this well-regarded is a peer wherever it plays.
   consentPeerReputation: 72,
 
+  // Club reputation drift (v1.92). Squad carries the most weight — a signing
+  // target judges the teammates he'd have — with the division and last season's
+  // finish behind it. Weights need not sum to 1; the blend normalises.
+  repWeights: { squad: 0.5, league: 0.3, standing: 0.2 },
+  // A squad overall of 55 is the bottom of the professional game and 88 is an
+  // elite European side; stretched across 0–100, the term separates clubs that
+  // the raw numbers (all in the 60s and 70s) would report as identical.
+  repSquadFloor: 55,
+  repSquadCeil: 88,
+  // 25% of the gap per season, capped at 4 points. A club that wins its league
+  // with a squad to match closes most of the distance in about five seasons and
+  // moves ~3-4 points the summer it happens — enough that a title visibly opens
+  // up the market next window, slow enough that reputation stays the game's
+  // slowest-moving number. Reputation is built over careers, not campaigns.
+  repDriftRate: 0.25,
+  repDriftMaxPerSeason: 4,
+
   // Wage floors. 0.85 of his current wage means a move is allowed to cost him a
   // little (a step up in football is worth something) but never the 60-80% cut a
   // fourth-tier quote used to represent. The ability anchor is the real gate on
@@ -2000,6 +2385,14 @@ export const TUNING: TuningConfig = {
   // will commit more of its budget to one deal — so squads reshape faster and
   // the market visibly churns each window.
   aiMinUpgradeGain: 0.5,
+  aiMissingCoverUrgency: 30,
+  aiTacticSwitchGain: 0.04,
+  aiKeyPlayerApps: 60,
+  aiKeyPlayerSellChance: 0.12,
+  aiKeyPlayerCount: 6,
+  aiMinSpareCover: 1,
+  aiGapFillMinAgeFit: 0.6,
+  aiSquadFloor: 24,
   aiAgeBandFalloff: 0.9,
   aiMaxBudgetSharePerDeal: 0.65,
   aiDealsPerWeek: 11,
@@ -2017,6 +2410,71 @@ export const TUNING: TuningConfig = {
   // both the weekly tick and the window burst shopping it, the pool could
   // otherwise be cleared out and the user's Free Agents tab would stay empty.
   freeAgentPoolFloor: 12,
+  // The market's stocked inventory (v1.89), distinct from the brake above.
+  // `freeAgentPoolFloor` is where routine AI signings STOP; this is what
+  // `replenishFreeAgents` restocks TO, and it has to sit well above the brake or
+  // the pool spends the season pinned at the point business stops. Sized so
+  // forty clubs topping up at the rollover leave a browsable market behind.
+  freeAgentPoolTarget: 90,
+  // 2.5 bodies per slot. Swept over 20 seasons: at 2.0 the high-demand positions
+  // (centre-back above all — 98 slots against a winger's 15) sit permanently on
+  // the edge and squads still drift down toward the matchday minimum; 2.5 holds
+  // squad sizes and positional cover flat for the length of a long save.
+  freeAgentTargetCoverRatio: 2.5,
+  // Sized against the measured shortfall (peaks ~45/season across the world) with
+  // headroom, since `ensureAiSquads` now draws on this pool every rollover too.
+  // A cap that binds turns a one-season dip into a permanent deficit.
+  freeAgentReplenishMax: 120,
+  freeAgentReplenishOverall: [48, 68],
+  freeAgentReplenishAge: [23, 32],
+
+  // Youth intake (v1.92). Worldgen seeds a world whose under-22s are ~33% of the
+  // population (172 u18 + 545 aged 18–21 out of 2152 at kickoff); by season 10
+  // that had fallen to 8%. 0.30 holds roughly the shape the world is BORN with,
+  // which is the honest target: it is not a boost, it is the absence of the
+  // decay. Measured against the same 15-season sweep that found the problem.
+  youthIntakeAge: [16, 19],
+  youthIntakeCohortShare: 0.3,
+  youthIntakeCohortMaxAge: 22,
+  // A raw teenager. `overallIsAgeAdjusted` is NOT used here — the generator's
+  // maturity curve is wanted, so a 16-year-old reads as unfinished.
+  youthIntakeOverall: [46, 60],
+  // Most of a generation are squad players and lower-league pros; the elite
+  // slice below is what keeps the top of the game stocked a decade out.
+  youthIntakePotential: [62, 80],
+  youthIntakeEliteShare: 0.08,
+  youthIntakeElitePotential: [82, 93],
+  // ~150/season holds the cohort at a world of ~2200. Cap sized with headroom so
+  // a save recovering from an inverted pyramid can catch up over a few seasons
+  // rather than being pinned by the cap forever.
+  youthIntakeMax: 260,
+  // 0.75: a full market throttles intake hard without ever closing it. At 1.0
+  // the pass stops dead while a backlog exists and the decay returns once that
+  // backlog ages out; at 0 the world inflates by ~230 players a season.
+  youthIntakeMarketCredit: 0.6,
+
+  // AI youth recruitment. 21 is the age by which a prospect who was going to be
+  // signed has been; 8 points of headroom excludes the journeymen
+  // `replenishFreeAgents` mints (band [48,68] with little room above) while
+  // admitting every genuine prospect. Six per club across ~500 clubs absorbs a
+  // generation comfortably, and the count is measured over the squad so it is a
+  // standing capacity rather than a per-window quota.
+  aiYouthRecruitMaxAge: 21,
+  aiYouthRecruitMinHeadroom: 8,
+  // 10, not 6. This is an ABSORPTION capacity and has to be sized against the
+  // intake, which is the thing that measuring showed: at 6 the world's clubs
+  // offered 41 prospect slots between them at kickoff (squads already carry
+  // ~6 developing players each) against ~150 new teenagers a season, so the
+  // free-agent pool grew without limit and most of a generation never played.
+  // At 10 a squad of ~27 carries a third of itself in developing players, which
+  // is what a real academy-fed club looks like, and the pool clears.
+  aiYouthProspectsHeld: 10,
+  aiYouthRecruitAgeDiscount: 1.5,
+  aiYouthRecruitNewsChance: 0.02,
+  // 32: a first team, a full bench and a developing group behind them. Sits
+  // above `aiSquadFloor` (24) with real room, and well under `squadCap` (50) so
+  // youth recruitment can never be what pushes a club to its registration limit.
+  aiYouthSquadCeiling: 32,
   // Sim leagues each churn a handful of players between their own clubs per
   // window (v1.44) so browsing a foreign league across seasons shows real squad
   // movement, not a frozen roster. Runs once per window, not weekly, so the
@@ -2063,6 +2521,7 @@ export const TUNING: TuningConfig = {
 
   squadCap: 50,
   matchdaySquad: 18,
+  squadOverallXIWeight: 0.8,
 
   simTableNoise: 4.5,
 
@@ -2095,7 +2554,11 @@ export const TUNING: TuningConfig = {
 
   intakeClassBase: 3,
   intakeClassPerLevel: 0.5,
-  intakeAgeMin: 14,
+  // v1.90: the academy intake band is 13–17, matching `prospectOverallByAge`.
+  // A prospect enters at 13 at the earliest and is found no later than 17; he
+  // may then stay until `academyMaxAge` (21), at the end of which he must be
+  // promoted, sold or released.
+  intakeAgeMin: 13,
   intakeAgeMax: 17,
   intakeOverallBase: 46,
   intakeOverallSpread: 6,
@@ -2168,8 +2631,12 @@ export const TUNING: TuningConfig = {
   // can never accumulate on the board (v12).
   scoutReportExpiryDays: 45,
   scoutFeeMult: 1.3,
-  scoutProspectAgeMin: 15,
-  scoutProspectAgeMax: 18,
+  // v1.90: pulled to the academy band (13–17) so a scouted find and an academy
+  // prospect are priced off the same age table. A scout used to bring back
+  // 18-year-olds, who fell outside `prospectOverallByAge` entirely and had to
+  // use the fallback band.
+  scoutProspectAgeMin: 13,
+  scoutProspectAgeMax: 17,
   scoutPotentialBase: 62,
   scoutPotentialPerStar: 1.6,
   scoutPotentialSpread: 10,
@@ -2221,16 +2688,45 @@ export const TUNING: TuningConfig = {
     // season or two of the (then much faster) youth curve to be world-class.
     // Ceilings still separate the tiers cleanly; they just no longer start the
     // top three rungs most of the way to their own ceiling.
-    bronze: { overall: [44, 52], potential: [58, 70] },
-    silver: { overall: [47, 56], potential: [66, 78] },
-    gold: { overall: [51, 60], potential: [74, 84] },
-    diamond: { overall: [55, 65], potential: [80, 89] },
-    obsidian: { overall: [59, 69], potential: [85, 93] },
-    legacy: { overall: [62, 72], potential: [89, 96] },
+    // v1.90: the potential ladder is now a clean, stated 5-point rung per tier —
+    // bronze 65–70 through legacy 90+ — rather than the wide overlapping bands
+    // it grew into. A tier's ceiling is the thing the badge PROMISES, so the
+    // rungs no longer overlap: a Gold is never secretly a Diamond. The
+    // `prospectBandSlack` wobble (±2) is what keeps two Golds from being the
+    // same player, and it is applied on top of these.
+    // `overall` here is the fallback for ages outside the academy band; the
+    // 13–17 path reads `prospectOverallByAge` below.
+    bronze: { overall: [45, 60], potential: [65, 70] },
+    silver: { overall: [48, 63], potential: [70, 75] },
+    gold: { overall: [48, 64], potential: [75, 80] },
+    diamond: { overall: [52, 67], potential: [80, 85] },
+    obsidian: { overall: [55, 70], potential: [85, 90] },
+    // "90+" — the top rung is open-ended by design, capped only by
+    // `potentialAbsoluteCap`. This is the once-a-career find.
+    legacy: { overall: [60, 80], potential: [90, 95] },
     // Pre-v1.53 saves can still carry a `platinum` badge; it maps onto the
     // diamond band so a migrated prospect never falls through to bronze.
-    platinum: { overall: [55, 65], potential: [80, 89] },
+    platinum: { overall: [52, 67], potential: [80, 85] },
   },
+  // Ability by tier and age, 13 → 17 (v1.90). Read left to right, each entry is
+  // the [min, max] overall a prospect of that tier arrives with at that age.
+  // Every ladder climbs ~3 points a year, and the tiers separate more at the top
+  // than the bottom — a Legacy 17-year-old is already a senior squad player at
+  // 75–80, a Bronze one is still a 57–60 kid.
+  prospectOverallByAgeMin: 13,
+  prospectOverallByAge: {
+    //         13        14        15        16        17
+    bronze:   [[45, 48], [48, 51], [51, 54], [54, 57], [57, 60]],
+    silver:   [[48, 51], [51, 54], [54, 57], [57, 60], [60, 63]],
+    gold:     [[48, 51], [52, 55], [55, 58], [58, 61], [61, 64]],
+    diamond:  [[52, 55], [55, 58], [58, 61], [61, 64], [64, 67]],
+    obsidian: [[55, 58], [58, 61], [61, 64], [64, 67], [67, 70]],
+    legacy:   [[60, 65], [65, 70], [68, 72], [72, 77], [75, 80]],
+    // Migrated pre-v1.53 badge, same rung as diamond (see prospectTierBands).
+    platinum: [[52, 55], [55, 58], [58, 61], [61, 64], [64, 67]],
+  },
+  // ±2 either side of any rolled band. See the field comment.
+  prospectBandSlack: 2,
   fogJudgementStarReduction: 0.09,
   scoutWageBase: 3_000,
   scoutWagePerStar: 1_600,

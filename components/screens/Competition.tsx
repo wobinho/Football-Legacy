@@ -11,13 +11,6 @@ import { EURO_CUP_DEFS, euroCompetitionId, euroSlotForPosition } from "@/lib/eur
 import { formatDayShort } from "@/lib/calendar";
 import { Card, CountryFlag, Crest, Flag, Modal, Section, Tabs } from "../ui";
 
-/** A team's country, resolved through its league — teams carry no country of
- * their own, so the flag comes from the division they play in. */
-function teamCountry(game: import("@/lib/types").GameState, teamId: string): string | undefined {
-  const t = game.teams[teamId];
-  return t ? game.leagues[t.leagueId]?.country : undefined;
-}
-import TeamCard from "./TeamCard";
 import EuropeanView, { OpenTeamCtx } from "./EuropeanView";
 
 /** Competition colour coding for Match History. Keyed by the competition's role
@@ -134,7 +127,11 @@ export default function CompetitionScreen() {
   );
 
   const [tab, setTab] = useState<string>(userLeagueId ?? game.divisionIds[0]);
-  const [teamCard, setTeamCard] = useState<string | null>(null);
+  // The team card is a store overlay now (v1.91) — mounted once in the Shell so
+  // any screen can open a club, and so it shares the player profile's back
+  // stack. The two contexts stay as the screen's own plumbing; they simply hand
+  // the click to the store instead of to local state.
+  const setTeamCard = useGame((s) => s.viewTeam);
 
   // Whether the current tab is one of the "other leagues" (dropdown) selections,
   // so the dropdown trigger reflects the active choice rather than a tab.
@@ -193,7 +190,6 @@ export default function CompetitionScreen() {
           <SimLeagueView leagueId={tab} />
         )}
       </div>
-      {teamCard && <TeamCard teamId={teamCard} onClose={() => setTeamCard(null)} />}
       </OpenTeamCtx.Provider>
     </OpenTeam.Provider>
   );
@@ -626,18 +622,32 @@ function FixtureList({ fixtures }: { fixtures: import("@/lib/types").Fixture[] }
   );
 }
 
+/**
+ * The cup, round by round (v1.91).
+ *
+ * The bracket view was deleted rather than fixed. A knockout tree is
+ * intrinsically wide, so on anything narrower than a desktop it became a
+ * horizontally-scrolling grid of three-letter codes with no scores visible
+ * until you swiped to them — the shape was legible, but nothing else was. What
+ * a manager actually reads a cup page for is who played who, what the score
+ * was, and who went through, and a round is the unit that answers all three.
+ *
+ * So there is one view now and no toggle. Each round is a card that states its
+ * own status (the user's tie is pulled to the top of its round), winners are
+ * marked, and a shootout says so on the row rather than in a footnote.
+ */
 function CupView() {
   const game = useGame((s) => s.game)!;
-  const [view, setView] = useState<"rounds" | "bracket">("rounds");
 
   const rounds = game.cup.roundNames.map((name, i) => ({
     name,
+    index: i,
     day: game.schedule.cupRoundDays[i],
     fixtures: game.fixtures.filter((f) => f.competition === "CUP" && f.round === i + 1),
   }));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {game.cup.winnerId && (
         <Card className="border-gold-lo p-4 text-center">
           <div className="text-[11px] uppercase tracking-widest text-faint">Cup Winners</div>
@@ -645,143 +655,106 @@ function CupView() {
         </Card>
       )}
 
-      <div className="flex items-center justify-between">
-        <span className="display text-sm font-semibold">Cup</span>
-        <div className="flex overflow-hidden rounded-md border border-line">
-          {(["rounds", "bracket"] as const).map((v) => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              className={`display px-3 py-1 text-[11px] font-semibold transition-colors ${
-                view === v ? "gold-grad text-black" : "text-faint hover:text-dim"
-              }`}
-            >
-              {v === "rounds" ? "ROUNDS" : "BRACKET"}
-            </button>
-          ))}
-        </div>
-      </div>
+      {rounds.map((r) => {
+        // A round is "done" once every tie in it has been played — that, not the
+        // calendar, is what decides whether the heading reports a result or a date.
+        const played = r.fixtures.filter((f) => f.played).length;
+        const complete = r.fixtures.length > 0 && played === r.fixtures.length;
+        const drawn = r.fixtures.length > 0;
+        // The user's own tie leads its round; everything else keeps draw order.
+        const ordered = [...r.fixtures].sort((a, b) => {
+          const mine = (f: typeof a) => (f.homeId === game.userTeamId || f.awayId === game.userTeamId ? 0 : 1);
+          return mine(a) - mine(b);
+        });
 
-      {view === "bracket" ? (
-        <CupBracket rounds={rounds} />
-      ) : (
-        rounds.map((r) => (
-          <Section key={r.name} title={`${r.name} — ${formatDayShort(r.day)}`}>
-            {r.fixtures.length ? (
-              <FixtureList fixtures={r.fixtures} />
+        return (
+          <Card key={r.name} className="overflow-hidden">
+            <div className="flex items-center justify-between gap-3 border-b border-line px-3 py-2">
+              <div className="min-w-0">
+                <div className="display truncate text-[13px] font-semibold uppercase tracking-wider">{r.name}</div>
+                <div className="text-[11px] text-faint">
+                  {formatDayShort(r.day)}
+                  {drawn && ` · ${r.fixtures.length} ${r.fixtures.length === 1 ? "tie" : "ties"}`}
+                </div>
+              </div>
+              <span
+                className={`display shrink-0 rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                  complete ? "bg-raised text-faint" : drawn ? "gold-grad text-black" : "border border-line text-faint"
+                }`}
+              >
+                {complete ? "Complete" : drawn ? `${played}/${r.fixtures.length} played` : "Not drawn"}
+              </span>
+            </div>
+
+            {drawn ? (
+              <div className="divide-y divide-line/50">
+                {ordered.map((f) => (
+                  <CupTieRow key={f.id} f={f} />
+                ))}
+              </div>
             ) : (
-              <div className="text-sm text-faint">
-                {game.cup.currentRound >= game.cup.roundNames.indexOf(r.name) ? "Draw made on the day." : "Awaiting earlier rounds."}
+              <div className="px-3 py-4 text-sm text-faint">
+                {game.cup.currentRound >= r.index ? "Draw made on the day." : "Awaiting earlier rounds."}
               </div>
             )}
-          </Section>
-        ))
-      )}
+          </Card>
+        );
+      })}
     </div>
   );
 }
 
-// ── Cup bracket (v19) ─────────────────────────────────────────────────────
-// The knockout laid out as columns, one per round, so the path to the final is
-// readable at a glance.
-//
-// Mobile: a bracket is intrinsically wide, so rather than shrink it to
-// illegibility the columns keep a workable minimum width and the whole grid
-// scrolls horizontally inside its own container (the page itself never scrolls
-// sideways). Each round column is also a scroll-snap target, so on a phone you
-// swipe cleanly from round to round.
-
-interface BracketRound {
-  name: string;
-  day: number;
-  fixtures: Fixture[];
-}
-
-function CupBracket({ rounds }: { rounds: BracketRound[] }) {
-  const drawn = rounds.filter((r) => r.fixtures.length > 0);
-
-  if (!drawn.length) {
-    return (
-      <Card className="p-8 text-center text-sm text-faint">
-        <div className="display mb-2 text-lg text-dim">NO TIES YET</div>
-        The bracket fills in as each round is drawn.
-      </Card>
-    );
-  }
-
-  return (
-    <Card className="overflow-x-auto p-3">
-      {/* Because the ties render only 3-letter abbreviations (never full names),
-          each round column can be narrow — narrow enough that on a desktop the
-          whole bracket, final included, fits without horizontal scroll. The
-          columns keep a small minimum so they stay legible and become
-          scroll-snap targets when the screen is too small to hold them all. */}
-      <div className="flex snap-x snap-mandatory gap-2 sm:gap-3">
-        {drawn.map((r) => (
-          <div key={r.name} className="w-[8.5rem] shrink-0 grow snap-start sm:w-auto sm:flex-1">
-            <div className="mb-2 border-b border-line pb-1.5">
-              <div className="display truncate text-[11px] font-semibold uppercase tracking-widest text-dim">{r.name}</div>
-              <div className="text-[10px] text-faint">{formatDayShort(r.day)}</div>
-            </div>
-            {/* Ties are spread down the column so a round with few matches (the
-                final) sits centred against the fuller rounds beside it. */}
-            <div className="flex h-full flex-col justify-around gap-2">
-              {r.fixtures.map((f) => (
-                <BracketTie key={f.id} f={f} />
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-      {drawn.length > 1 && (
-        <div className="mt-2 text-center text-[10px] text-faint sm:hidden">Swipe to see later rounds →</div>
-      )}
-    </Card>
-  );
-}
-
-/** One tie in the bracket: both sides stacked, winner highlighted. */
-function BracketTie({ f }: { f: Fixture }) {
+/**
+ * One cup tie as a single row: both clubs, the score, and who advanced.
+ *
+ * Full club names (not the bracket's three-letter codes) — a row has the width
+ * for them, and they are what makes the page scannable. The loser is dimmed and
+ * the winner carries the gold score, so "who went through" needs no legend.
+ */
+function CupTieRow({ f }: { f: Fixture }) {
   const game = useGame((s) => s.game)!;
   const openTeam = useContext(OpenTeam);
 
-  // A cup tie level after 90 is settled on penalties, so the winner is the
-  // shootout winner where there is one, otherwise whoever scored more.
   const winnerId = !f.played
     ? null
     : f.shootoutWinnerId ?? (f.homeGoals! > f.awayGoals! ? f.homeId : f.awayGoals! > f.homeGoals! ? f.awayId : null);
+  const mine = f.homeId === game.userTeamId || f.awayId === game.userTeamId;
 
-  const side = (teamId: string, goals: number | undefined) => {
+  const club = (teamId: string, align: "right" | "left") => {
     const t = game.teams[teamId];
     const won = winnerId === teamId;
     const lost = f.played && winnerId !== null && !won;
-    const mine = teamId === game.userTeamId;
     return (
       <button
         onClick={() => openTeam(teamId)}
-        className={`flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-[12px] transition-colors hover:bg-hover ${
-          lost ? "text-faint" : ""
-        } ${mine ? "bg-hover/40" : ""}`}
+        className={`flex min-w-0 flex-1 items-center gap-2 truncate hover:text-gold ${
+          align === "right" ? "justify-end text-right" : "justify-start text-left"
+        } ${lost ? "text-faint" : ""} ${won ? "font-semibold text-ink" : ""}`}
         title={t.name}
       >
-        <Crest colors={t.colors} short={t.short} size={16} />
-        <span className={`flex min-w-0 flex-1 items-center gap-1 truncate ${won ? "font-semibold text-ink" : ""} ${mine ? "font-semibold" : ""}`}>
-          <CountryFlag country={teamCountry(game, teamId) ?? ""} size={9} />
-          <span className="truncate">{t.short}</span>
-        </span>
-        {f.played && <span className={`display tnum ${won ? "gold-text font-bold" : ""}`}>{goals}</span>}
+        {align === "left" && <Crest colors={t.colors} short={t.short} size={18} />}
+        <span className="truncate">{t.name}</span>
+        {align === "right" && <Crest colors={t.colors} short={t.short} size={18} />}
       </button>
     );
   };
 
   return (
-    <div className={`overflow-hidden rounded-md border ${winnerId ? "border-line" : "border-dashed border-line"}`}>
-      {side(f.homeId, f.homeGoals)}
-      <div className="h-px bg-line" />
-      {side(f.awayId, f.awayGoals)}
+    <div className={`px-3 py-2 text-[13px] ${mine ? "bg-hover/50" : ""}`}>
+      <div className="flex items-center gap-2">
+        {club(f.homeId, "right")}
+        <span
+          className={`display w-14 shrink-0 text-center tnum font-bold ${
+            f.played ? "gold-text" : "text-faint"
+          }`}
+        >
+          {f.played ? `${f.homeGoals}–${f.awayGoals}` : "v"}
+        </span>
+        {club(f.awayId, "left")}
+      </div>
       {f.shootoutWinnerId && (
-        <div className="border-t border-line bg-raised px-2 py-0.5 text-center text-[9px] text-faint">
-          {game.teams[f.shootoutWinnerId].short} on pens
+        <div className="mt-0.5 text-center text-[10px] text-faint">
+          {game.teams[f.shootoutWinnerId].name} win on penalties
         </div>
       )}
     </div>

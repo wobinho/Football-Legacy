@@ -218,12 +218,14 @@ export interface PlayerBio {
    * Optional (absent = never won anything); survives on retired players so a
    * legend's cabinet is permanent. */
   accolades?: Accolade[];
-  /** The season this player joined the USER's club through a transfer or free
-   * signing (v1.54). While it equals the current season the player can't be
-   * sold or transfer-listed — a signing can't be flipped for profit inside the
-   * same season it was made. Cleared/re-stamped by `completeTransfer`; irrelevant
-   * for AI clubs (only the user's sell paths read it). Absent = not a fresh
-   * signing (academy graduate, worldgen squad member, or signed in a past season). */
+  /** The season this player joined his CURRENT club through a transfer or free
+   * signing (v1.54; extended to every club in v1.89). While it equals the current
+   * season the player can't be sold, transfer-listed or bought — a signing can't
+   * be flipped inside the same season it was made, and that is now a world rule
+   * rather than a rule about the manager's own squad. Re-stamped by
+   * `completeTransfer` on every move; cleared only by a release, since a free
+   * agent nobody bought has nothing to flip. Absent = not a fresh signing
+   * (academy graduate, worldgen squad member, or signed in a past season). */
   acquiredSeason?: number;
   /** Consecutive in-game days this player has gone without meaningful football
    * (v1.66) — either unattached, or attached and playing under
@@ -935,13 +937,27 @@ export interface SeasonSummary {
   yearLabel: string; // e.g. "2025/26"
   championsByLeague: Record<string, { teamId: string; teamName: string }>;
   cupWinner: { teamId: string; teamName: string } | null;
+  /** Who LOST the domestic cup final (v1.91). Same reason as the European
+   * runners-up below: the bracket is rebuilt at the rollover, so the beaten
+   * finalist is unrecoverable a moment later. Absent on older summaries, and
+   * null in a season whose final was a bye rather than a tie. */
+  cupRunnerUp?: { teamId: string; teamName: string } | null;
   /** Who won each European competition this season (v1.67), best cup first.
    * Recorded on the summary because the European state is rebuilt for the new
    * season during the same rollover — after that the winner is unrecoverable, so
    * a review that didn't capture it here could only ever show a dash. Absent on
    * summaries written before v1.67, and empty in a season with no European
    * football (season 1, or a save that runs no continental layer). */
-  europeanWinners?: { tier: number; cupName: string; teamId: string; teamName: string }[];
+  europeanWinners?: {
+    tier: number;
+    cupName: string;
+    teamId: string;
+    teamName: string;
+    /** The beaten finalist (v1.91) — read off the cup's own final tie, which the
+     * rollover discards a few steps later. Absent on pre-v1.91 summaries. */
+    runnerUpId?: string;
+    runnerUpName?: string;
+  }[];
   finalTables: Record<string, TableRow[]>;
   topScorers: Record<string, { playerId: string; name: string; teamName: string; goals: number }>;
   playerOfSeason: { playerId: string; name: string; teamName: string } | null;
@@ -995,7 +1011,10 @@ export interface RecordBook {
 
 export interface SeasonSchedule {
   seasonStartDay: number; // Jul 1
-  leagueRoundDays: number[]; // 38 Saturdays
+  /** Consecutive Saturdays from mid-August, as many as the LONGEST playable
+   * division needs (v1.91): every league takes the first 2×(n−1) of them, so a
+   * 20-club tier plays 38 and a 24-club one 46 off the same calendar. */
+  leagueRoundDays: number[];
   cupRoundDays: number[]; // 6 rounds
   summerCloseDay: number; // Sep 1
   winterOpenDay: number; // Jan 1
@@ -1013,7 +1032,9 @@ export interface SeasonSchedule {
    * the choice. Optional so pre-v1.51 saves keep the silent-release rollover. */
   contractResolveDay?: number;
   seasonEndDay: number; // review + rollover
-  /** Youth intake day (§18): mid-March, once per season. Optional (v4). */
+  /** Dead since v1.89 — the annual youth intake was removed, so no schedule
+   * books this day and nothing reads it. Kept on the type only so a save
+   * written before v1.89 still parses. */
   intakeDay?: number;
   /** European matchdays (v1.51): 6 group days (Sept–Dec) then 7 knockout days
    * (two legs each of R16/QF/SF, then the final) — 13 midweek dates, all shared
@@ -1591,6 +1612,19 @@ export interface GameState {
    * visibility flag rather than a queue: listed players draw AI loan interest
    * during open windows. Academy loans share the same list. */
   loanList?: string[];
+  /** "Do not disturb" for incoming bids (v1.91). Set, no AI club opens an offer
+   * for a user player — the manager who has finished building a squad stops
+   * fielding approaches for it every week.
+   *
+   * It gates only the OPENING of a bid, in `aiWeeklyTransferTick`. Offers
+   * already on the table keep their deadlines and stay answerable, so switching
+   * it on can never silently void a negotiation the user was in the middle of.
+   * A release clause is deliberately NOT gated: the clause is a term the manager
+   * agreed to and a buyer paying it isn't making an offer, so honouring the
+   * toggle there would turn a UI switch into a contract the user never signed.
+   *
+   * Optional — absent on pre-v1.91 saves, which read as "offers on". */
+  offersPaused?: boolean;
   staffMarket: StaffCandidate[];
   /** Scout hiring market (v14) — the scouting department's own shortlist,
    * separate from `staffMarket` since scouts carry two ratings. */

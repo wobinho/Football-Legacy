@@ -27,23 +27,31 @@ import { TIER_COLOR, TIER_LABEL, migrateProspectTier } from "@/lib/scouts";
 import type { Accolade, AccoladeType, GameState, PlayerBio } from "@/lib/types";
 import { ARCHETYPE_CLASS_COLOR, deriveArchetype, describePrefs, profileOf, rankArchetypes } from "@/lib/config/archetype";
 import { styleLabel } from "@/lib/config/formations";
-import { ArchetypeIcon, AttrGrid, ClassPill, AttrSheet, Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, FitnessBar, FormChip, GhostButton, GoldButton, GrowthBadge, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip, useEscapeKey } from "../ui";
+import { ArchetypeIcon, AttrGrid, BackButton, ClassPill, AttrSheet, Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, FitnessBar, FormChip, GhostButton, GoldButton, GrowthBadge, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip, useEscapeKey } from "../ui";
 import ContractModal from "./ContractModal";
 import { LoanOfferModal, SellPlayerModal } from "./SquadMoveModals";
 import { transferWindowState } from "@/lib/calendar";
 import { signedThisSeason } from "@/lib/transfers";
+import { downloadPlayerFile, exportPlayer } from "@/lib/playerfile";
 
 export default function PlayerProfileModal() {
   const game = useGame((s) => s.game);
   useGame((s) => s.rev);
   const id = useGame((s) => s.selectedPlayerId);
   const close = useGame((s) => s.closePlayer);
+  // The overlay back-stack (v1.91). Subscribing to its LENGTH rather than
+  // calling `canOverlayBack()` is what makes the ← appear and disappear as the
+  // chain grows — a getter read during render never re-runs on its own.
+  const canBack = useGame((s) => s.overlayStack.length > 0);
+  const back = useGame((s) => s.overlayBack);
+  const viewTeam = useGame((s) => s.viewTeam);
   const setTrainingPlan = useGame((s) => s.setTrainingPlan);
   const autoAssignPlan = useGame((s) => s.autoAssignTrainingPlan);
   const toggleShortlist = useGame((s) => s.toggleShortlist);
   const toggleHallOfFame = useGame((s) => s.toggleHallOfFame);
   const releaseSenior = useGame((s) => s.releaseSenior);
   const recallLoanPlayer = useGame((s) => s.academyRecall);
+  const showToast = useGame((s) => s.showToast);
   const [tab, setTab] = useState<"bio" | "career" | "manage">("bio");
   const [contractOpen, setContractOpen] = useState(false);
   // The two direct-move choosers (v1.52). Selling and loaning both resolve
@@ -123,7 +131,9 @@ export default function PlayerProfileModal() {
     >
       <div className="relative my-auto w-full max-w-5xl rounded-lg border border-line bg-surface p-5 shadow-2xl">
         {/* header card */}
-        <div className="mb-5 flex flex-wrap items-center gap-5 rounded-lg border border-line bg-raised p-5 pr-12">
+        {/* pr leaves room for the ✕ and, when the user arrived from another
+            overlay, the ← beside it. */}
+        <div className="mb-5 flex flex-wrap items-center gap-5 rounded-lg border border-line bg-raised p-5 pr-14 sm:pr-28">
           <div
             className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-lg"
             style={{ background: `${primaryColor.bg}22`, border: `1px solid ${primaryColor.bg}` }}
@@ -200,10 +210,17 @@ export default function PlayerProfileModal() {
               and costs one line instead of three. */}
           <div className="flex shrink-0 flex-col items-end gap-2">
             {club && (
-              <div className="flex items-center gap-2 text-sm">
+              // Clicking through to the club opens its team card ON TOP of this
+              // profile (v1.91), with the profile pushed onto the back-stack —
+              // so a player → club → player chain always has a way home.
+              <button
+                onClick={() => viewTeam(club.id)}
+                className="flex items-center gap-2 text-sm transition-colors hover:text-gold"
+                title={`View ${club.name}`}
+              >
                 <Crest colors={club.colors} short={club.short} size={20} />
                 <span className="truncate">{club.name}</span>
-              </div>
+              </button>
             )}
             <div className="flex items-end gap-5 text-right">
               <div>
@@ -238,17 +255,21 @@ export default function PlayerProfileModal() {
               )}
             </div>
           </div>
-          {/* The only way out of the profile now that the backdrop no longer
-              dismisses it — so it shows on phones too, where it used to be
-              hidden and the backdrop was the sole escape. */}
-          <button
-            onClick={close}
-            className="absolute right-4 top-4 rounded px-2 py-1 text-faint transition-colors hover:bg-hover hover:text-ink sm:right-6 sm:top-6"
-            aria-label="Close"
-            title="Close"
-          >
-            ✕
-          </button>
+          {/* The ways out of the profile now that the backdrop no longer
+              dismisses it — so they show on phones too, where the ✕ used to be
+              hidden and the backdrop was the sole escape. ← appears only when
+              the user actually arrived here from another overlay (v1.91). */}
+          <div className="absolute right-4 top-4 flex items-center gap-1.5 sm:right-6 sm:top-6">
+            {canBack && <BackButton onClick={back} />}
+            <button
+              onClick={close}
+              className="rounded px-2 py-1 text-faint transition-colors hover:bg-hover hover:text-ink"
+              aria-label="Close"
+              title="Close"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         {/* Three tabs (v1.76). Bio is now purely WHO HE IS — role, this season,
@@ -669,9 +690,41 @@ export default function PlayerProfileModal() {
           {/* Shirt number (v15) — re-assignable, swapping with the incumbent */}
           {isUserOwned && <KitNumberPanel playerId={p.id} />}
 
+          {/* Export (v1.91) — save this player to a file so he can be signed
+              into another save. Offered for ANY real player, not just the
+              user's: half the appeal is lifting a rival's star out of a world
+              you're leaving behind. It takes a copy and changes nothing here,
+              which the copy says plainly so nobody expects him to depart. */}
+          {!p.retired && (
+            <Section title="Export">
+              <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+                <div className="min-w-0 flex-1">
+                  <div className="display font-semibold text-ink">Export player to file</div>
+                  <div className="text-[12px] leading-relaxed text-faint">
+                    Save {p.name} — his attributes, traits, honours and career history — as a file you
+                    can import into any other save. He stays in this one; exporting takes a copy.
+                  </div>
+                </div>
+                <GhostButton
+                  onClick={() => {
+                    const file = exportPlayer(game, p.id);
+                    if (file) {
+                      downloadPlayerFile(file);
+                      showToast(`${p.name} exported.`);
+                    }
+                  }}
+                  className="shrink-0 !py-1.5 text-xs"
+                >
+                  EXPORT PLAYER
+                </GhostButton>
+              </Card>
+            </Section>
+          )}
+
           {/* Nothing to manage — he isn't yours and isn't a target. Said plainly
-              rather than left as an empty tab. */}
-          {!canShortlist && !canHallOfFame && !isUserOwned && !isUserSenior && !isUserLoanedSenior && !p.contract && (
+              rather than left as an empty tab. Retired only: every living player
+              can at least be exported (v1.91), so the tab is never empty for one. */}
+          {p.retired && !canShortlist && !canHallOfFame && !isUserOwned && !isUserSenior && !isUserLoanedSenior && !p.contract && (
             <Section title="Manage">
               <Card className="p-4 text-sm text-faint">
                 Nothing to manage here — he isn&apos;t one of your players.

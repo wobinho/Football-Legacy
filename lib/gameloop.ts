@@ -6,15 +6,17 @@
 import type { Fixture, GameState, MatchResult } from "./types";
 import { TUNING } from "./config/tuning";
 import { hashString, mulberry32, deriveSeed, uid } from "./rng";
-import { isMonday, formatDayShort, buildSeasonSchedule, seasonYearLabel } from "./calendar";
+import { isMonday, formatDayShort, buildSeasonSchedule, leagueRoundCount, seasonYearLabel } from "./calendar";
 import { buildSideInput, pickLineup } from "./selection";
 import { simulateMatch } from "./engine/match";
 import { generateLeagueFixtures, drawCupRound, applyPromotionRelegation, initCup } from "./season";
-import { regenFromRetiree } from "./worldgen";
+import { regenFromRetiree, replenishFreeAgents, replenishYouth } from "./worldgen";
+import { collectSeasonFinishes, driftClubReputations } from "./reputation";
 import {
   EURO_KO_ROUND_NAMES,
   applyEuropeanPrizes,
   drawKnockoutRound,
+  euroCompetitionId,
   recordGroupExits,
   refreshGroupTables,
   settleKnockoutRound,
@@ -42,11 +44,13 @@ import {
   simLeagueTransferWindow,
   playableLeagueTransferWindow,
   ensureFieldableSquad,
+  ensureAiSquads,
+  aiRecruitYouth,
 } from "./transfers";
 import { activePlayers, pruneRetired } from "./archive";
 import { tickInactivity } from "./consent";
 import { rotationContextFor, rotationMultiplier } from "./rotation";
-import { refreshClubStances } from "./ai/strategy";
+import { refreshClubStances, reviewClubTactics } from "./ai/strategy";
 import { rolloverContracts, ensureContracts, openContractResolution, repriceSquadForLeague } from "./contracts";
 import { resolveSimLeagues } from "./simresolver";
 import { buildSeasonSummary, trackBiggestWin } from "./recordbook";
@@ -59,6 +63,7 @@ import {
   ageStaff,
   growthMultiplier,
   eliteResistRelief,
+  staffWageMultiplier,
 } from "./facilities";
 import { FACILITY_MAP } from "./config/facilities";
 import { scoutMarketTick, refreshScoutMarketFull } from "./scouts";
@@ -70,7 +75,6 @@ import {
 } from "./sponsors";
 import { getFormation } from "./config/formations";
 import {
-  runIntakeDay,
   runU21MatchDay,
   dailyScoutTick,
   weeklyLoanTick,
@@ -169,17 +173,6 @@ export function nextCalendarGate(state: GameState, fromDay: number, targetDay: n
     "The winter transfer window is about to close. This is your last chance to buy or sell until the summer.",
     "transfers"
   );
-
-  // Youth intake — a new class of prospects arrives.
-  if (sched.intakeDay !== undefined) {
-    push(
-      sched.intakeDay,
-      `intake:${state.season}`,
-      "Youth intake day",
-      "This year's academy intake is about to arrive. Head to the Academy screen to see who's come through.",
-      "academy"
-    );
-  }
 
   if (!gates.length) return null;
   // Earliest gate first; the sim pauses the day before it.
@@ -312,19 +305,52 @@ function pushInbox(state: GameState, type: import("./types").InboxItem["type"], 
   state.inbox = state.inbox.slice(0, 120);
 }
 
-/** Draw a cup round the day its fixtures are scheduled, if not yet drawn. */
+/**
+ * Draw the next cup round as soon as the bracket is known (v1.92).
+ *
+ * This used to fire only on the round's own matchday — `cupRoundDays.indexOf(currentDay)`
+ * — so the quarter-final could finish in the afternoon and the semi-final draw
+ * would not exist until the morning of the semi-final itself, weeks later. The
+ * manager could not see who he had drawn, and nor could anything else: the tie
+ * simply wasn't in `state.fixtures` yet.
+ *
+ * Nothing required that delay. `drawCupRound` takes the round's day from the
+ * SCHEDULE rather than from today, and draws from `state.cup.aliveTeamIds`,
+ * which `maybeSettleCup` finalises the moment the previous round's last tie is
+ * played. So the only real precondition is that the bracket has advanced —
+ * which is exactly `state.cup.currentRound`. Drawing the moment that becomes
+ * true is both earlier and simpler than waiting for a date.
+ *
+ * The draw stays deterministic: `drawCupRound` seeds off the season and round
+ * index, never off the day it happens to be called on, so drawing early
+ * produces the identical bracket.
+ */
 function ensureCupRound(state: GameState) {
-  const idx = state.schedule.cupRoundDays.indexOf(state.currentDay);
-  if (idx === -1 || state.cup.currentRound !== idx) return;
-  const exists = state.fixtures.some((f) => f.competition === "CUP" && f.round === idx + 1);
-  if (!exists) {
-    const fixtures = drawCupRound(state, idx, state.seed);
-    state.fixtures.push(...fixtures);
-    const userTie = fixtures.find((f) => f.homeId === state.userTeamId || f.awayId === state.userTeamId);
-    if (userTie) {
-      const opp = userTie.homeId === state.userTeamId ? state.teams[userTie.awayId] : state.teams[userTie.homeId];
-      state.news.unshift(`Cup ${state.cup.roundNames[idx]}: drawn against ${opp.name} today.`);
-    }
+  const idx = state.cup.currentRound;
+  // Bracket finished, or a save whose schedule doesn't reach this round.
+  if (idx < 0 || idx >= state.schedule.cupRoundDays.length) return;
+  if (state.cup.winnerId) return;
+  // Never draw a round before the season has actually started running — the
+  // first round waits for its own day so a fresh save doesn't open with a cup
+  // tie already on the fixture list before the league has kicked off.
+  if (idx === 0 && state.currentDay < state.schedule.cupRoundDays[0]) return;
+  if (state.fixtures.some((f) => f.competition === "CUP" && f.round === idx + 1)) return;
+
+  const fixtures = drawCupRound(state, idx, state.seed);
+  if (!fixtures.length) return;
+  state.fixtures.push(...fixtures);
+  const userTie = fixtures.find((f) => f.homeId === state.userTeamId || f.awayId === state.userTeamId);
+  if (userTie) {
+    const opp = userTie.homeId === state.userTeamId ? state.teams[userTie.awayId] : state.teams[userTie.homeId];
+    const when = formatDayShort(state.schedule.cupRoundDays[idx]);
+    state.news.unshift(`Cup ${state.cup.roundNames[idx]}: drawn against ${opp.name} — ${when}.`);
+    pushInbox(
+      state,
+      "news",
+      `Cup ${state.cup.roundNames[idx]} draw`,
+      `${state.teams[state.userTeamId].name} have been drawn against ${opp.name} in the ${state.cup.roundNames[idx]}, ` +
+        `to be played on ${when}.`
+    );
   }
 }
 
@@ -381,40 +407,60 @@ function fmtM(n: number): string {
 // ── European cups (v1.51) ────────────────────────────────────────────────
 // The three continental competitions advance on the same day-tick the domestic
 // cup does. The group stage's fixtures are all created up front (at the
-// rollover), so the only thing to drive here is the knockout bracket: draw the
-// next round when its matchday arrives, and settle ties once both legs are in.
+// rollover), so the only thing to drive here is the knockout bracket.
+//
+// v1.92: a round is drawn as soon as the one before it has produced all its
+// winners, rather than on the morning of its own first leg. Same change, and the
+// same reasoning, as the domestic cup above — `drawKnockoutRound` takes its days
+// from `euroRoundDays` and seeds off season/tier/round, never off the day it is
+// called, so an early draw yields the identical bracket and simply lets the
+// manager see who he faces when the previous tie ends.
 
-/** Draw whichever European knockout round is due today, for every cup. */
+/** Draw every European knockout round whose bracket is now known. */
 function ensureEuropeanRounds(state: GameState) {
   const euro = state.european;
   const days = state.schedule.euroRoundDays;
   if (!euro?.cups.length || !days) return;
-  // Knockout first legs sit at indices 6, 8, 10 and the final at 12.
-  const round = [6, 8, 10, 12].indexOf(days.indexOf(state.currentDay));
-  if (round === -1) return;
 
   for (const cup of euro.cups) {
-    // The groups must be finished (and their exits recorded) before the R16 is
-    // drawn from them.
-    if (round === 0) {
-      refreshGroupTables(state, cup);
-      recordGroupExits(cup);
-    }
-    // Already drawn (a re-entered day) — don't duplicate the bracket.
-    if (cup.ties.some((t) => t.round === round)) continue;
-    // Every previous round must have produced its winners first.
-    if (round > 0 && !cup.ties.filter((t) => t.round === round - 1).every((t) => t.winnerId)) continue;
-    const fixtures = drawKnockoutRound(state, cup, round);
-    if (!fixtures.length) continue;
-    state.fixtures.push(...fixtures);
-    cup.currentRound = 6 + round;
+    // Walk forward from the R16: each round is drawable once its predecessor has
+    // settled, so several may become available at once on a save loaded mid-run.
+    for (let round = 0; round <= 3; round++) {
+      // Already drawn — don't duplicate the bracket.
+      if (cup.ties.some((t) => t.round === round)) continue;
+      if (round === 0) {
+        // The group stage must be complete before the R16 can be drawn from it.
+        // `groupQualifiers` reads the tables, so they have to be current first.
+        const groupDays = days.slice(0, 6);
+        const groupsDone = state.fixtures
+          .filter((f) => f.competition === euroCompetitionId(cup.tier) && groupDays.includes(f.day))
+          .every((f) => f.played);
+        if (!groupsDone) break;
+        refreshGroupTables(state, cup);
+        recordGroupExits(cup);
+      } else if (!cup.ties.filter((t) => t.round === round - 1).every((t) => t.winnerId)) {
+        // Every previous round must have produced its winners first.
+        break;
+      }
+      const fixtures = drawKnockoutRound(state, cup, round);
+      if (!fixtures.length) break;
+      state.fixtures.push(...fixtures);
+      cup.currentRound = 6 + round;
 
-    const userTie = fixtures.find((f) => f.homeId === state.userTeamId || f.awayId === state.userTeamId);
-    if (userTie) {
-      const oppId = userTie.homeId === state.userTeamId ? userTie.awayId : userTie.homeId;
-      state.news.unshift(
-        `${cup.name} ${EURO_KO_ROUND_NAMES[round]}: ${state.teams[state.userTeamId].name} drawn against ${state.teams[oppId]?.name ?? "—"}.`
-      );
+      const userTie = fixtures.find((f) => f.homeId === state.userTeamId || f.awayId === state.userTeamId);
+      if (userTie) {
+        const oppId = userTie.homeId === state.userTeamId ? userTie.awayId : userTie.homeId;
+        state.news.unshift(
+          `${cup.name} ${EURO_KO_ROUND_NAMES[round]}: ${state.teams[state.userTeamId].name} drawn against ${state.teams[oppId]?.name ?? "—"}.`
+        );
+        pushInbox(
+          state,
+          "news",
+          `${cup.name} ${EURO_KO_ROUND_NAMES[round]} draw`,
+          `${state.teams[state.userTeamId].name} face ${state.teams[oppId]?.name ?? "—"} in the ` +
+            `${cup.name} ${EURO_KO_ROUND_NAMES[round]}, first leg ${formatDayShort(userTie.day)}.`
+        );
+      }
     }
   }
 }
@@ -522,7 +568,7 @@ function advanceDay(state: GameState): StopReason | null {
   // Periodic full turnover of both for-hire pools (v20): every marketRefreshDays
   // the shortlists cycle so they never go stale between hires.
   if (state.marketRefreshDay !== undefined && day >= state.marketRefreshDay) {
-    refreshStaffMarket(state, deriveSeed(state.seed, `staffmkt:${day}`));
+    refreshStaffMarket(state, deriveSeed(state.seed, `staffmkt:${day}`), cfg);
     refreshScoutMarketFull(state, cfg);
     state.marketRefreshDay = day + cfg.marketRefreshDays;
   }
@@ -533,7 +579,10 @@ function advanceDay(state: GameState): StopReason | null {
   runU21MatchDay(state, cfg);
   dailyScoutTick(state, cfg);
   if (isMonday(day)) weeklyLoanTick(state, cfg);
-  if (day === sched.intakeDay) runIntakeDay(state, cfg);
+  // No annual intake class (v1.89): the academy is filled only by moves the
+  // manager makes — a scout's find or a U21 opponent's prospect, both paid for.
+  // A yearly crop that arrived on its own put players on the books nobody chose,
+  // which is the same complaint the graduate queue answers at the other end.
   if (day === sched.summerCloseDay || day === sched.winterCloseDay) {
     pushInbox(state, "window", "Transfer window closed", "The window has closed. Deals resume when the next window opens.");
   }
@@ -557,7 +606,13 @@ function advanceDay(state: GameState): StopReason | null {
     return { kind: "matchday", fixtureId: userFixture.id };
   }
   maybeSettleCup(state);
+  // Draw the next round the instant the bracket advances (v1.92), rather than
+  // waiting for tomorrow's tick to notice. Settling the quarter-finals and then
+  // drawing the semi-final is one continuous act as far as the manager is
+  // concerned, so today's result should put today's draw on the fixture list.
+  ensureCupRound(state);
   maybeSettleEuropean(state);
+  ensureEuropeanRounds(state);
 
   // The contract round opened today and has decisions in it — hand the day back
   // so the UI can prompt. Nothing else happens on this day (the dead week has no
@@ -677,7 +732,13 @@ function autoPlayUserFixture(state: GameState, fixture: Fixture) {
 export function afterUserMatch(state: GameState) {
   state.pendingMatchFixtureId = null;
   maybeSettleCup(state);
+  // The user's own cup tie is usually the last one of the round to be settled,
+  // so this is the call that actually produces the next draw (v1.92) — without
+  // it the manager would finish a quarter-final and still not know his opponent
+  // until the loop ticked past midnight.
+  ensureCupRound(state);
   maybeSettleEuropean(state);
+  ensureEuropeanRounds(state);
 }
 
 // ── Season rollover (§3 off-season, §13 compression) ─────────────────────
@@ -768,6 +829,12 @@ export function runSeasonRollover(state: GameState) {
 
   // history first, while stats are intact
   appendCareerRows(state);
+
+  // Where every club finished, captured while the tables are still readable
+  // (v1.92). The promotion shuffle below rewrites league membership, after which
+  // this season's fixtures no longer describe the divisions they belong to — so
+  // the standings have to be taken now and the drift applied afterwards.
+  const finishes = collectSeasonFinishes(state);
 
   const move = applyPromotionRelegation(state);
   const { promoted, relegated } = move;
@@ -883,6 +950,23 @@ export function runSeasonRollover(state: GameState) {
     pushInbox(state, "news", "End of an era", `Retiring this summer: ${retiredNotable.slice(0, 6).join(", ")}.`);
   }
 
+  // Top the free-agent market back up where the world is genuinely short of
+  // bodies (v1.89). Runs immediately after retirement and the regen pass, which
+  // is what has just changed the population — see `replenishFreeAgents` for why
+  // the world otherwise only ever shrinks, and why that is the shortage behind a
+  // club being unable to field a centre-back.
+  replenishFreeAgents(state, cfg);
+
+  // ...and put a GENERATION behind the one that just aged a year (v1.92). The
+  // pass above holds the world's headcount flat but restocks at 23–32, so it
+  // fills the middle of the age curve while the bottom empties — measured, the
+  // 22–25 cohort fell from 712 players to 27 over ten seasons while the total
+  // population barely moved. That is the shortage behind squads decaying in a
+  // long save: no market rule can sign a player the world never generated.
+  // Runs immediately after retirement, on the same population that has just
+  // changed, and before the AI's squad passes below get to shop.
+  replenishYouth(state, cfg);
+
   // ── Backroom: a season of service (v1.79) ───────────────────────────────
   // Credit the season to every assigned staff member and promote the badges
   // that have come due. This runs AFTER the development pass on purpose: the
@@ -914,6 +998,29 @@ export function runSeasonRollover(state: GameState) {
   // has already been read by everything that still needed it.
   pruneRetired(state);
 
+  // Club reputation drift (v1.92). Runs here, and the position is load-bearing
+  // at both ends: AFTER promotion/relegation and the development pass, so a club
+  // is measured against the division it will actually play and the squad it will
+  // actually field; and BEFORE `refreshValues`, the stance pass and every summer
+  // market pass below, all of which read reputation to decide who may sign whom.
+  // That ordering is what turns a title into signings in the very next window
+  // rather than a season later — which is the whole complaint this answers.
+  const repChanges = driftClubReputations(state, cfg, finishes);
+  const userRep = repChanges.find((c) => c.teamId === state.userTeamId);
+  if (userRep) {
+    const up = userRep.after > userRep.before;
+    pushInbox(
+      state,
+      "board",
+      up ? "The club's standing is rising" : "The club's standing has slipped",
+      `${state.teams[state.userTeamId].name}'s reputation ${up ? "rises" : "falls"} to ` +
+        `${Math.round(userRep.after)} (from ${Math.round(userRep.before)}). ` +
+        (up
+          ? "Players who saw a move here as a step down are starting to think again."
+          : "Bigger names will be harder to persuade until results improve.")
+    );
+  }
+
   refreshValues(state, cfg);
   // Resolve every AI club's sponsorship book for the season about to start and
   // bank what its majors pay (v19, real deals since v1.5) — BEFORE stances are
@@ -931,8 +1038,16 @@ export function runSeasonRollover(state: GameState) {
   // Start-of-season grant for every AI club (v1.64), paid the moment the new
   // season begins so the world enters the summer window able to trade.
   applyAiSeasonSubsidy(state, cfg);
-  state.schedule = buildSeasonSchedule(state.season);
   const playableDivs = Array.from(new Set(state.divisionIds));
+  // The calendar is sized to the LONGEST division the world will play (v1.91):
+  // every league draws its own 2×(n−1) matchdays from the front of this pool, so
+  // one shared set of Saturdays seats a 20-club tier and a 24-club one at once.
+  // Sized after promotion/relegation has settled, since that is what fixes each
+  // division's club count for the season about to start.
+  state.schedule = buildSeasonSchedule(
+    state.season,
+    Math.max(...playableDivs.map((id) => leagueRoundCount(state.leagues[id].teamIds.length)), 1)
+  );
   state.fixtures = playableDivs.flatMap((id, idx) =>
     generateLeagueFixtures(id, state.leagues[id].teamIds, state.schedule.leagueRoundDays, state.seed + state.season * (17 + idx * 14))
   );
@@ -957,7 +1072,13 @@ export function runSeasonRollover(state: GameState) {
     }
   }
   state.currentDay = state.schedule.seasonStartDay;
-  state.staffMarket = generateStaffMarket(deriveSeed(state.seed, `staff:${state.season}`));
+  // Priced at the division the club will play in NEXT season — promotion and
+  // relegation have already been applied above, so a promoted club's shortlist
+  // arrives at its new, dearer rate (v1.89).
+  state.staffMarket = generateStaffMarket(
+    deriveSeed(state.seed, `staff:${state.season}`),
+    staffWageMultiplier(state, cfg)
+  );
   state.marketRefreshDay = state.schedule.seasonStartDay + cfg.marketRefreshDays;
   // Resolve the non-playable leagues for the new season so the open summer window
   // shows the fresh, not-yet-started tables (teams loaded, 0 games) — matching the
@@ -1025,7 +1146,50 @@ export function runSeasonRollover(state: GameState) {
         `sign ${waitingGraduates === 1 ? "him" : "them"} — resolve the queue on the Academy screen.`
     );
   }
+  // The user's club is served FIRST (v1.89). Both passes draw on the same
+  // free-agent pool, and forty AI clubs topping themselves up to `aiSquadFloor`
+  // will strip it: run the other way round, the manager's own side was left with
+  // four players and no goalkeeper while every AI club had a full squad. The
+  // manager's ability to fulfil fixtures outranks the world's cosmetic depth.
   const emergencySignings = ensureFieldableSquad(state, cfg);
+  // Then hold every AI club to a workable squad and a fieldable shape. This runs
+  // after `replenishFreeAgents` above has restocked the pool — there is no point
+  // obliging a club to sign a centre-back on a day the world contains none.
+  ensureAiSquads(state, cfg);
+  // With every squad finally settled for the new season, let each AI club review
+  // whether the football it plays still suits the players it has (v1.90). Runs
+  // after the summer's arrivals and departures on purpose: reviewing before them
+  // would judge a squad the club no longer owns. The `aiTacticSwitchGain`
+  // threshold means most clubs keep their shape and go on building towards it.
+  reviewClubTactics(state, cfg);
+  // ...and then check the shape AGAIN (v1.91). A formation change rewrites what
+  // the club needs — a side moving to a 4-2-3-1 suddenly requires two DMs where
+  // its old shape asked for none — so the coverage pass above was answering a
+  // question about a formation the club has just stopped playing. Measured, this
+  // is what left one club in forty starting a season with nobody who could play
+  // a slot it had a full free-agent market for: 0 DMs against 2 slots, 10 DMs
+  // unsigned in the pool, and no signing pass left to run.
+  //
+  // `ensureAiSquads` is idempotent — it signs only for positions that are still
+  // uncovered — so for the clubs that kept their shape (most of them, by
+  // `aiTacticSwitchGain`) this is a cheap no-op rather than a second spree.
+  ensureAiSquads(state, cfg);
+  // Restock once more (v1.89). Forty clubs topping up to `aiSquadFloor` empties
+  // the pool between them, which would leave the user's Free Agents tab bare all
+  // season — the exact thing `freeAgentPoolFloor` exists to prevent. The second
+  // pass costs nothing when the first left enough: it generates only what the
+  // world is still short of. Runs after BOTH coverage passes so it restocks what
+  // the world is actually short of once every squad has finished shopping.
+  replenishFreeAgents(state, cfg, 1);
+  // Finally, every AI club takes its pick of the young players in the world
+  // (v1.92). Runs LAST of the market passes on purpose: it draws on the pool
+  // `replenishYouth` and both restocks have filled, and it must not compete with
+  // the passes above for the squad places a club needs to field a legal side —
+  // a prospect is what a club does with its SPARE capacity, never instead of a
+  // centre-back. Without this the intake is never signed, never plays, and so
+  // never develops: measured, 970 under-22s sat unattached while the world's
+  // supply of high-potential young players fell by 86%.
+  aiRecruitYouth(state, cfg);
   if (emergencySignings.length) {
     pushInbox(
       state,

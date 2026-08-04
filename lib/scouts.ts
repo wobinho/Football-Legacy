@@ -29,7 +29,7 @@ import {
   locateTarget,
   subRegionOf,
 } from "./config/scouting";
-import { maxScoutsFromFacility } from "./facilities";
+import { maxScoutsFromFacility, staffWageMultiplier } from "./facilities";
 
 const SCOUT_NATS = ["ENG", "ESP", "ITA", "GER", "FRA", "NED", "POR", "BRA", "ARG", "SCO", "IRL", "BEL", "SWE", "SUI"];
 
@@ -163,7 +163,19 @@ export function maxScouts(state: GameState, cfg: TuningConfig): number {
 
 // ── Hiring market ─────────────────────────────────────────────────────────
 
-export function generateScoutCandidates(rng: RNG, cfg: TuningConfig, count: number, availableDay?: number): ScoutCandidate[] {
+/**
+ * `tierMult` (v1.89) is the manager's divisional wage multiplier — the same one
+ * `staffWageMultiplier` hands the backroom shortlist, so the two departments are
+ * priced on one ladder rather than two. It defaults to 1 (the top flight's rate)
+ * for worldgen, which builds the first shortlist before a GameState exists.
+ */
+export function generateScoutCandidates(
+  rng: RNG,
+  cfg: TuningConfig,
+  count: number,
+  availableDay?: number,
+  tierMult = 1
+): ScoutCandidate[] {
   const out: ScoutCandidate[] = [];
   for (let i = 0; i < count; i++) {
     const experience = randInt(rng, 1, 5);
@@ -175,16 +187,16 @@ export function generateScoutCandidates(rng: RNG, cfg: TuningConfig, count: numb
       nationality,
       experience,
       judgement,
-      wage: scoutWage(cfg, experience, judgement),
-      fee: scoutFee(cfg, experience, judgement),
+      wage: Math.round(scoutWage(cfg, experience, judgement) * tierMult),
+      fee: Math.round(scoutFee(cfg, experience, judgement) * tierMult),
       availableDay,
     });
   }
   return out;
 }
 
-export function generateScoutMarket(seed: number, cfg: TuningConfig): ScoutCandidate[] {
-  return generateScoutCandidates(mulberry32(seed), cfg, 6);
+export function generateScoutMarket(seed: number, cfg: TuningConfig, tierMult = 1): ScoutCandidate[] {
+  return generateScoutCandidates(mulberry32(seed), cfg, 6, undefined, tierMult);
 }
 
 /** Top the shortlist back up to six, with new faces arriving in a couple of
@@ -194,7 +206,15 @@ export function refreshScoutMarket(state: GameState, cfg: TuningConfig) {
   const missing = 6 - market.length;
   if (missing <= 0) return;
   const rng = mulberry32(state.seed ^ (state.currentDay * 2654435761));
-  market.push(...generateScoutCandidates(rng, cfg, missing, state.currentDay + cfg.staffRefreshDays));
+  market.push(
+    ...generateScoutCandidates(
+      rng,
+      cfg,
+      missing,
+      state.currentDay + cfg.staffRefreshDays,
+      staffWageMultiplier(state, cfg)
+    )
+  );
 }
 
 export function hireScout(state: GameState, candidateId: string, cfg: TuningConfig): string | null {
@@ -257,7 +277,9 @@ export function refreshScoutMarketFull(state: GameState, cfg: TuningConfig) {
   state.scoutMarket = generateScoutCandidates(
     mulberry32(state.seed ^ (state.currentDay * 0x85ebca6b)),
     cfg,
-    6
+    6,
+    undefined,
+    staffWageMultiplier(state, cfg)
   );
 }
 
@@ -284,16 +306,51 @@ export function rollProspectTier(rng: RNG, cfg: TuningConfig, judgement: number)
   return pickWeighted(rng, cfg.prospectTierOrder, (t) => weights[cfg.prospectTierOrder.indexOf(t)] ?? 0);
 }
 
-/** The ability/ceiling band a tier grants. Sampled, not fixed, so two Gold
- * finds still differ from each other. */
+/**
+ * The ability band a tier grants AT A GIVEN AGE (v1.90).
+ *
+ * A tier's ceiling is fixed — that is what the badge promises — but the ability
+ * a prospect arrives with depends on how old he is when you find him, so the
+ * overall band is a two-dimensional lookup and the potential band is not. An age
+ * the table doesn't author (or a tier it doesn't list) falls back to the tier's
+ * flat `overall` band, so no caller can ever fail to roll a prospect.
+ */
+export function prospectOverallBand(cfg: TuningConfig, tier: ProspectTier, age?: number): [number, number] {
+  const key = migrateProspectTier(tier)!;
+  const fallback = (cfg.prospectTierBands[key] ?? cfg.prospectTierBands.bronze).overall;
+  if (age === undefined) return fallback;
+  const rows = cfg.prospectOverallByAge?.[key];
+  if (!rows) return fallback;
+  return rows[age - cfg.prospectOverallByAgeMin] ?? fallback;
+}
+
+/**
+ * The ability/ceiling band a tier grants. Sampled, not fixed, so two Gold finds
+ * still differ from each other.
+ *
+ * `age` is optional only so callers with no age in hand still work; every
+ * prospect path that knows one should pass it, or the kid is rolled off the
+ * flat fallback band and the age ladder does nothing.
+ *
+ * Both numbers carry `prospectBandSlack` (v1.90) — ±2 points of wobble on top of
+ * the band, so a tier reads as a strong signal rather than a rigid bracket
+ * without the bands themselves having to overlap.
+ */
 export function rollTierQuality(
   rng: RNG,
   cfg: TuningConfig,
-  tier: ProspectTier
+  tier: ProspectTier,
+  age?: number
 ): { overall: number; potential: number } {
   const band = cfg.prospectTierBands[migrateProspectTier(tier)!] ?? cfg.prospectTierBands.bronze;
-  const overall = randRange(rng, band.overall[0], band.overall[1]);
-  const potential = Math.min(cfg.potentialAbsoluteCap, randRange(rng, band.potential[0], band.potential[1]));
+  const [oLo, oHi] = prospectOverallBand(cfg, tier, age);
+  const slack = cfg.prospectBandSlack ?? 0;
+  const jitter = () => randRange(rng, -slack, slack);
+  const overall = Math.max(1, randRange(rng, oLo, oHi) + jitter());
+  const potential = Math.min(
+    cfg.potentialAbsoluteCap,
+    randRange(rng, band.potential[0], band.potential[1]) + jitter()
+  );
   // A ceiling below current ability would read as a dead-end prospect; keep a
   // little headroom so every tier is worth developing.
   return { overall, potential: Math.max(potential, overall + 3) };
@@ -369,7 +426,7 @@ export function tierRank(cfg: TuningConfig, tier: ProspectTier | undefined): num
 /** Seed the department for a brand-new save: an empty roster and a shortlist. */
 export function initScoutMarket(state: GameState, cfg: TuningConfig) {
   state.teams[state.userTeamId].scouts ??= [];
-  state.scoutMarket = generateScoutMarket(state.seed ^ 0x5c007, cfg);
+  state.scoutMarket = generateScoutMarket(state.seed ^ 0x5c007, cfg, staffWageMultiplier(state, cfg));
 }
 
 export type { Scout, ScoutCandidate };

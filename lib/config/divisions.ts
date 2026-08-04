@@ -21,8 +21,11 @@ export const DEFAULT_TIER_NAMES = ["", "First Division", "Second Division", "Thi
  * League Two), and a cap of 3 silently dropped the bottom division. */
 export const MAX_DIVISION_DEPTH = 4;
 
-/** Clubs per generated division — matches the authored divisions' size so the
- * 38-round league calendar and the fixture generator need no special-casing. */
+/** Clubs per generated division. Matches the authored divisions' size, which
+ * keeps a generated tier the same length of season as an authored one — since
+ * v1.91 the calendar sizes itself to each division's club count, so an odd size
+ * here would work, it would just make one tier's season longer than its
+ * neighbours' for no reason. */
 export const GENERATED_DIVISION_SIZE = 20;
 
 /**

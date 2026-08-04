@@ -1032,14 +1032,45 @@ export function ConfirmButton({
   );
 }
 
+/**
+ * The ← that steps back one overlay (v1.91).
+ *
+ * Every overlay in the app that can be opened FROM another one carries this
+ * beside its ✕, because the two are different intentions: ✕ means "I'm done",
+ * ← means "take me back to what I was reading". Without it, following a player
+ * out of a season review threw away the season, and the only way back was to
+ * find and re-open it.
+ *
+ * The label names the destination so the button says where it goes rather than
+ * merely that it goes somewhere.
+ */
+export function BackButton({ onClick, label = "Back", className = "" }: { onClick: () => void; label?: string; className?: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex shrink-0 items-center gap-1 rounded-md border border-line px-2 py-1 text-[11px] font-semibold text-dim transition-colors hover:border-faint hover:bg-hover hover:text-ink ${className}`}
+      title={label}
+      aria-label={label}
+    >
+      <span aria-hidden>←</span>
+      <span className="hidden sm:inline">{label}</span>
+    </button>
+  );
+}
+
 export function Modal({
   title,
   onClose,
+  onBack,
+  backLabel,
   children,
   size = "md",
 }: {
   title: string;
   onClose: () => void;
+  /** When given, a ← appears beside the ✕ — see `BackButton`. */
+  onBack?: () => void;
+  backLabel?: string;
   children: React.ReactNode;
   /** "lg" is for content that carries a data table — a league table at the
    * default width wraps into unreadability. */
@@ -1060,16 +1091,19 @@ export function Modal({
           size === "lg" ? "max-w-3xl" : "max-w-lg"
         }`}
       >
-        <div className="mb-1 flex items-center justify-between">
-          <h3 className="display text-lg font-semibold">{title}</h3>
-          <button
-            onClick={onClose}
-            className="-mr-1 rounded px-2 py-1 text-dim transition-colors hover:bg-hover hover:text-ink"
-            aria-label="Close"
-            title="Close"
-          >
-            ✕
-          </button>
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <h3 className="display min-w-0 truncate text-lg font-semibold">{title}</h3>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {onBack && <BackButton onClick={onBack} label={backLabel} />}
+            <button
+              onClick={onClose}
+              className="-mr-1 rounded px-2 py-1 text-dim transition-colors hover:bg-hover hover:text-ink"
+              aria-label="Close"
+              title="Close"
+            >
+              ✕
+            </button>
+          </div>
         </div>
         <div className="gold-thread mb-4" />
         {children}

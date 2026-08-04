@@ -18,7 +18,14 @@ import { useGame } from "@/store/gameStore";
 import type { AwardWinner, GameState, SeasonSummary } from "@/lib/types";
 import { formatMoney } from "@/lib/value";
 import { ACCOLADE_META } from "@/lib/accolades";
+import { POS_GROUP, type PosGroup } from "@/lib/config/positions";
 import { Card, Crest, Flag, Modal, PosBadge } from "../ui";
+
+/** How many divisions get their own tab before the rest fold into the "More
+ * leagues" select (v1.91). Four covers the deepest shipped pyramid, which is the
+ * set a manager actually flips between; a full world's foreign divisions are a
+ * lookup, not a comparison. */
+const VISIBLE_DIVISION_TABS = 4;
 
 /** A club badge looked up live by id (cosmetic — see the file header), or null
  * when the id is unknown/absent (free agency, released, a pruned club). */
@@ -28,12 +35,20 @@ function TeamCrest({ game, teamId, size = 16 }: { game: GameState; teamId?: stri
   return <Crest colors={t.colors} short={t.short} size={size} />;
 }
 
-/** One club's move — badge plus name, under whichever division heading it
- * belongs to. */
+/**
+ * One club's move — badge plus name, under whichever division heading it
+ * belongs to.
+ *
+ * The club NAME reads in `text-ink` and only the ARROW carries the colour
+ * (v1.91). Tinting the whole row put dark red text on a near-black card, which
+ * fails contrast outright and made the relegated list the hardest thing in the
+ * modal to read; the arrow says the same thing at full saturation while the name
+ * it qualifies stays legible.
+ */
 function MoveRow({ game, name, id, arrow, tone }: { game: GameState; name: string; id?: string; arrow: string; tone: string }) {
   return (
-    <div className={`flex items-center gap-1.5 text-[13px] ${tone}`}>
-      <span aria-hidden className="shrink-0">
+    <div className="flex items-center gap-1.5 text-[13px] text-ink">
+      <span aria-hidden className={`shrink-0 text-[11px] ${tone}`}>
         {arrow}
       </span>
       <TeamCrest game={game} teamId={id} size={16} />
@@ -71,9 +86,14 @@ function MoveList({
   tone: string;
 }) {
   if (!ids?.length) {
+    // Same contrast rule as MoveRow: the arrow carries the colour, the names
+    // stay readable.
     return (
-      <div className={`mt-0.5 text-[13px] ${tone}`}>
-        {arrow} {names.join(", ")}
+      <div className="mt-0.5 text-[13px] text-ink">
+        <span aria-hidden className={`mr-1 text-[11px] ${tone}`}>
+          {arrow}
+        </span>
+        {names.join(", ")}
       </div>
     );
   }
@@ -133,6 +153,7 @@ function MoveList({
 export default function SeasonDetailModal({ summary, onClose }: { summary: SeasonSummary; onClose: () => void }) {
   const game = useGame((s) => s.game)!;
   const viewPlayer = useGame((s) => s.viewPlayer);
+  const pushOwned = useGame((s) => s.pushOwnedOverlay);
 
   // Divisions this season actually recorded a table for, in ladder order so the
   // top flight leads. A save whose ladder changed still renders correctly
@@ -156,9 +177,12 @@ export default function SeasonDetailModal({ summary, onClose }: { summary: Seaso
   // museum, so their row is always the one that stands out.
   const userTeamId = summary.userTeamId;
 
-  // Closing before opening a profile keeps a single overlay on screen at a time.
+  // Opening a player from here hands the overlay over to the store, but records
+  // this review on the back-stack first (v1.91) so his profile's ← comes back to
+  // the season the user was reading. Before this the only way back was to find
+  // and re-open the season, which is the whole complaint the back button fixes.
   const openProfile = (playerId: string) => {
-    onClose();
+    pushOwned(String(summary.season));
     viewPlayer(playerId);
   };
 
@@ -250,20 +274,43 @@ export default function SeasonDetailModal({ summary, onClose }: { summary: Seaso
         )
       )}
 
-      {/* Division picker — only when the save actually has more than one. */}
+      {/* Division picker (v1.91). A world with a deep pyramid and foreign
+          leagues used to render one button per division — a block of a dozen
+          pills that dominated the modal. The manager's own top divisions stay as
+          tabs, because those are the ones actually being compared; everything
+          else folds into a select. */}
       {allIds.length > 1 && (
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {allIds.map((id) => (
+        <div className="mb-2 flex flex-wrap items-center gap-1.5">
+          {allIds.slice(0, VISIBLE_DIVISION_TABS).map((id) => (
             <button
               key={id}
               onClick={() => setActiveId(id)}
-              className={`display rounded px-2.5 py-1 text-[11px] font-semibold ${
-                activeId === id ? "gold-grad text-black" : "border border-line text-dim hover:text-ink"
+              className={`display rounded px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                activeId === id ? "gold-grad text-black" : "border border-line text-dim hover:border-faint hover:text-ink"
               }`}
             >
               {game.leagues[id]?.name ?? id}
             </button>
           ))}
+          {allIds.length > VISIBLE_DIVISION_TABS && (
+            <select
+              value={allIds.slice(VISIBLE_DIVISION_TABS).includes(activeId) ? activeId : ""}
+              onChange={(e) => e.target.value && setActiveId(e.target.value)}
+              aria-label="Select another league"
+              className={`display rounded border px-2 py-1 text-[11px] font-semibold transition-colors ${
+                allIds.slice(VISIBLE_DIVISION_TABS).includes(activeId)
+                  ? "border-gold-lo/60 bg-gold-lo/15 text-gold"
+                  : "border-line bg-surface text-dim hover:border-faint hover:text-ink"
+              }`}
+            >
+              <option value="">More leagues…</option>
+              {allIds.slice(VISIBLE_DIVISION_TABS).map((id) => (
+                <option key={id} value={id}>
+                  {game.leagues[id]?.name ?? id}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       )}
 
@@ -377,7 +424,7 @@ export default function SeasonDetailModal({ summary, onClose }: { summary: Seaso
                 from={summary.promotedFrom}
                 to={summary.promotedTo}
                 arrow="▲"
-                tone="text-win"
+                tone="text-emerald-400"
               />
             </div>
           )}
@@ -391,7 +438,7 @@ export default function SeasonDetailModal({ summary, onClose }: { summary: Seaso
                 from={summary.relegatedFrom}
                 to={summary.relegatedTo}
                 arrow="▼"
-                tone="text-loss"
+                tone="text-rose-400"
               />
             </div>
           )}
@@ -450,17 +497,21 @@ function AwardCard({
       onClick={onClick}
       className="flex w-full items-center justify-between rounded-md border border-line bg-raised px-3 py-2 text-left hover:bg-hover"
     >
+      {/* The WINNER is the answer, the award is the question (v1.91). The two
+          used to compete: a 10px uppercase title over a 14px name reads as a
+          label with a caption. The name is now the largest thing on the card and
+          the award title recedes to `text-faint`. */}
       <span className="flex min-w-0 items-center gap-2">
         {nationality && <Flag nat={nationality} size={14} />}
         <span className="min-w-0">
-          <span className="block text-[10px] uppercase tracking-widest text-faint">{label}</span>
-          <span className="display truncate text-sm font-semibold">{name}</span>
+          <span className="block text-[9.5px] uppercase tracking-widest text-faint/80">{label}</span>
+          <span className="display block truncate text-[15px] font-bold leading-tight text-ink">{name}</span>
         </span>
       </span>
       <span className="ml-2 flex shrink-0 items-center gap-2 text-right">
         <span>
-          <span className="block text-[11px] text-faint">{club}</span>
-          {stat && <span className="display block text-[11px] font-semibold gold-text">{stat}</span>}
+          <span className="block text-[11px] text-dim">{club}</span>
+          {stat && <span className="display block text-[12px] font-bold gold-text">{stat}</span>}
         </span>
         <TeamCrest game={game} teamId={teamId} size={20} />
       </span>
@@ -514,8 +565,20 @@ function LeagueAward({
   );
 }
 
-/** The XI of the season, grouped GK → DEF → MID → ATT, each pick clickable.
- * Each pick shows the player's nationality flag and their club's badge. */
+/**
+ * The XI of the season, in departments — keeper, then defence, midfield, attack
+ * (v1.91).
+ *
+ * The accolade list already arrives in that order, so grouping is a matter of
+ * reading each pick's position rather than re-sorting. The rows carry real
+ * vertical padding and each department gets its own labelled band: eleven
+ * identical chips packed two to a line was the densest block in the modal, and
+ * a football XI has a shape that a flat grid throws away.
+ *
+ * Deliberately NOT a pitch graphic: the accolade block names positions but
+ * carries no formation, so placing eleven players on a pitch would mean the UI
+ * inventing a shape the simulation never picked.
+ */
 function TeamOfSeason({
   label,
   xi,
@@ -527,30 +590,62 @@ function TeamOfSeason({
   game: GameState;
   onView: (id: string) => void;
 }) {
+  const bands: { key: PosGroup; label: string; members: AwardWinner[] }[] = (
+    ["GK", "DEF", "MID", "ATT"] as PosGroup[]
+  ).map((key) => ({
+    key,
+    label: TOS_BAND_LABEL[key],
+    // A pick whose position the summary didn't record falls into midfield rather
+    // than vanishing — an old summary must still render eleven players.
+    members: xi.filter((w) => (w.pos ? POS_GROUP[w.pos] : "MID") === key),
+  }));
+
   return (
     <div>
       <div className="mb-1.5 text-[11px] uppercase tracking-widest text-faint">{label}</div>
-      <Card className="grid grid-cols-2 gap-x-3 gap-y-0.5 p-2 sm:grid-cols-3">
-        {xi.map((w) => (
-          <button
-            key={w.playerId}
-            onClick={() => onView(w.playerId)}
-            className="flex items-center gap-2 rounded px-1.5 py-1 text-left text-[12px] hover:bg-hover"
-          >
-            {w.pos && <PosBadge pos={w.pos} />}
-            {w.nationality && <Flag nat={w.nationality} size={11} />}
-            <span className="min-w-0 flex-1 truncate">
-              <span className="font-medium">{w.name}</span>
-              <span className="ml-1 text-[10px] text-faint">{w.teamName}</span>
-            </span>
-            <TeamCrest game={game} teamId={w.teamId} size={16} />
-            {w.stat !== undefined && <span className="display shrink-0 tnum text-[11px] gold-text">{fmtRating(w.stat)}</span>}
-          </button>
-        ))}
+      <Card className="divide-y divide-line/40 p-0">
+        {bands
+          .filter((b) => b.members.length > 0)
+          .map((b) => (
+            <div key={b.key} className="px-2.5 py-2">
+              <div className="mb-1 text-[9.5px] uppercase tracking-widest text-faint/70">{b.label}</div>
+              <div className="grid grid-cols-1 gap-x-3 gap-y-1 sm:grid-cols-2">
+                {b.members.map((w) => (
+                  <button
+                    key={w.playerId}
+                    onClick={() => onView(w.playerId)}
+                    className="flex items-center gap-2 rounded px-1.5 py-1.5 text-left text-[12.5px] transition-colors hover:bg-hover"
+                  >
+                    {w.pos && <PosBadge pos={w.pos} />}
+                    {w.nationality && <Flag nat={w.nationality} size={12} />}
+                    <span className="min-w-0 flex-1 truncate">
+                      <span className="font-semibold text-ink">{w.name}</span>
+                      <span className="ml-1.5 text-[10.5px] text-dim">{w.teamName}</span>
+                    </span>
+                    <TeamCrest game={game} teamId={w.teamId} size={16} />
+                    {w.stat !== undefined && (
+                      <span className="display shrink-0 tnum text-[11.5px] font-bold gold-text">
+                        {fmtRating(w.stat)}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
       </Card>
     </div>
   );
 }
+
+/** Band headings for the XI. `POS_GROUP_COLORS` carries the singular ("Defender"),
+ * which is right for a legend and wrong for a heading over four of them. */
+const TOS_BAND_LABEL: Record<PosGroup, string> = {
+  GK: "Goalkeeper",
+  DEF: "Defence",
+  MID: "Midfield",
+  ATT: "Attack",
+};
 
 /** Format an average-rating stat to two decimals, or undefined if absent. */
 function fmtRating(stat?: number): string | undefined {

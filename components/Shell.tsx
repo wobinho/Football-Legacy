@@ -24,6 +24,7 @@ import GcnScreen from "./screens/Gcn";
 import DevelopmentScreen from "./screens/Development";
 import AcademyScreen from "./screens/Academy";
 import PlayerProfileModal from "./screens/PlayerProfile";
+import TeamCard from "./screens/TeamCard";
 import SeasonDetailModal from "./screens/SeasonDetailModal";
 import ContractRoundModal from "./screens/ContractRoundModal";
 import GcnUnlockModal from "./screens/GcnUnlockModal";
@@ -241,8 +242,12 @@ export default function Shell() {
         </main>
       </div>
 
-      {/* Player profile floats over whatever screen you're on */}
+      {/* Player profile floats over whatever screen you're on. The team card
+          sits beside it (v1.91) rather than inside the Competition screen, so a
+          club can be opened from anywhere and the two share one back-stack —
+          only one of them is ever non-null at a time. */}
       <PlayerProfileModal />
+      <TeamCard />
 
       {/* Dead-week contract round (v1.51) — raised when the loop stops on it, and
           re-openable from Home while decisions remain. Sits under the season

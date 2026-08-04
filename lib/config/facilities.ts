@@ -504,17 +504,27 @@ export function facilityMaxLevel(spec: FacilitySpec): number {
 
 // ── Hiring market ──────────────────────────────────────────────────────────
 
-/** Weekly wage for a staff member. Superlinear in stars so a 5-star is a real
+/**
+ * Weekly wage for a staff member. Superlinear in stars so a 5-star is a real
  * budget decision rather than an obvious auto-buy, and so filling six slots
- * with 5-stars is a wage bill you have to grow into. */
-export function staffWageFor(stars: number): number {
-  return stars * stars * 4_000 + 10_000;
+ * with 5-stars is a wage bill you have to grow into.
+ *
+ * `tierMult` (v1.89) is what the club's DIVISION does to that number — see
+ * `TUNING.staffWageByTier` for the ladder and why it is flat. It is passed in
+ * rather than looked up because this module is pure data: it must not reach into
+ * a GameState. Callers resolve it through `staffWageMultiplier` in
+ * lib/facilities.ts, which is the single place the tier is read.
+ */
+export function staffWageFor(stars: number, tierMult = 1): number {
+  return Math.round((stars * stars * 4_000 + 10_000) * tierMult);
 }
 
 /** One-off signing fee. Badges the candidate already earned elsewhere are worth
- * paying for — they arrive productive on day one. */
-export function staffFeeFor(stars: number, badgeWeight: number): number {
-  return stars * stars * 120_000 + badgeWeight * 200_000;
+ * paying for — they arrive productive on day one. Scaled by the same divisional
+ * multiplier as the wage (v1.89): a fee a fourth-tier club can't raise is the
+ * same barrier as a wage it can't service. */
+export function staffFeeFor(stars: number, badgeWeight: number, tierMult = 1): number {
+  return Math.round((stars * stars * 120_000 + badgeWeight * 200_000) * tierMult);
 }
 
 /** How many candidates the market shows at once. */

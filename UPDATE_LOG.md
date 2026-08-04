@@ -7,6 +7,69 @@ Save-schema version is noted where it moved. The game auto-migrates older saves 
 
 ---
 
+## 2026-08-04 — Final-day scoreboard, cloud transfer, Club Players removed (v1.92)
+
+**No save migration.** No schema change: the live scoreboard is a read over fixtures the
+engine has already played, and the cloud change is transport only.
+
+- **Final day, live (Match Day).** On the last round of the league season a toggle opens the
+  rest of the division alongside your own match: the other scorelines, and the table
+  re-sorting under them as goals land. Off by default, and offered on no other matchday.
+  Rules live in `lib/livescores.ts` — the component only draws them.
+  **It invents no football.** `advanceDay` plays every AI fixture *before* handing the
+  matchday back to the UI (so tables are current at kick-off), which means every other
+  result on the final day is already settled when the panel opens. Simulating them again
+  would produce a different set of results from the ones the save records — two answers to
+  one question. What is invented is only the **clock**: each already-scored goal is assigned
+  a minute from the fixture's own `matchSeed`, and revealed once your clock passes it. At 90'
+  the panel *is* the real final table. That also makes it free — no second engine pass.
+  The live table is built by handing `computeTable` a doctored fixture list rather than by
+  patching a finished table, so the tie-break (points → GD → goals scored) stays one rule in
+  `season.ts`. A live table that broke ties differently from the real one would be the
+  cruellest possible bug on the day a title is decided on goal difference.
+  `isFinalLeagueRound` asks `leagueRoundCount` (v1.91), so an 18- or 24-club division
+  answers correctly with no hardcoded 38 anywhere near it.
+  Verified end to end on a real 38-round season (`npm run verify:livescores`): at 90' every
+  scoreline equals the fixture the engine played, and the live table is **identical to the
+  real final table** — order, points, GD and games played, row for row. The reveal is
+  monotonic and deterministic, and the toggle fired on round 38 and none of the 37 before it.
+
+- **Cloud transfer cut ~50× (`lib/cloud.ts`, `lib/save.ts`, `api/saves/[name]`).** A
+  9-season save was burning 14.4 GB of Vercel Fast Data Transfer. Measured cause, three
+  compounding parts, none of them the game logic:
+  1. **The whole save went up raw every 60 seconds.** ~8 MB at season 9, growing +0.57 MB a
+     season (`scripts/perf.ts`) — ~60 MB by season 100.
+  2. **Both hops are metered.** Browser → function *and* function → KV, so every sync cost
+     twice the save size.
+  3. **Unchanged saves were re-uploaded anyway**, including while the game sat idle.
+  Fixes: the payload is **gzipped in the browser** (save JSON is hugely repetitive — the same
+  35 attribute keys on thousands of players — so it compresses about an order of magnitude);
+  the route **stores the compressed bytes as-is and serves them back that way**, so the
+  function never inflates a multi-megabyte save on either hop; the interval moved 60s → 5 min;
+  and an unchanged save is skipped outright. Save metadata rides in a header so the save list
+  stays readable without the server ever decompressing anything.
+  **Nothing about durability changed**: IndexedDB is still written on every autosave, and the
+  pagehide/visibilitychange/quit flushes still force the cloud copy current — so the copy is
+  up to date at every moment you could actually pick up another device. Pre-v1.92 cloud saves
+  and browsers without `CompressionStream` keep the plain-JSON path, so no save is stranded.
+  Measured on a real 9-season save (`npm run verify:cloud`): raw 9.28 MB → **0.97 MB** on the
+  browser hop (**9.6×**), 1.30 MB on the KV hop. The two are measured separately because they
+  carry different bytes — only the function ↔ Upstash hop pays base64, since that REST API is
+  JSON and binary has to be text-safe. Base64 is not worth avoiding: a third of an already
+  ~10×-smaller payload, on one hop, against the risk of corrupting saves by pushing raw bytes
+  through a JSON transport. The gzip ratio *improves* with save size (6.7× at S1 → 9.6× at S9)
+  because career history is the most repetitive part — the right direction for a 100-season
+  save. Metered transfer **~1.09 GB/hr → ~0.027 GB/hr, a 41× cut**, round trip byte-identical.
+
+- **Club → Club Players removed.** The tab, `ClubPlayersTab`, `clubPlayerHistory` and the
+  `ClubSpell` type are all deleted, along with the smoke-test block that exercised them.
+  Note for the record: this was **not** a bandwidth cost — it was a pure client-side
+  derivation over `state.careers` and made no network calls. It was removed as unnecessary.
+  Academy provenance is unaffected: `academyClubId` still survives every transfer and still
+  feeds the Academy screen's graduate list.
+
+---
+
 ## 2026-08-01 — The Tactics screen shows its work (v1.79)
 
 **No save migration.** UI only — no engine path was touched, and calibration is unchanged

@@ -960,11 +960,54 @@ function BidModal({ p, onClose, onSigned }: { p: PlayerBio; onClose: () => void;
 function OffersTab() {
   const game = useGame((s) => s.game)!;
   const respondOffer = useGame((s) => s.respondOffer);
+  const toggleOffersPaused = useGame((s) => s.toggleOffersPaused);
   const [negotiating, setNegotiating] = useState<string | null>(null);
   const offers = game.offers.filter((o) => o.direction === "incoming" && o.status === "pending");
-  if (!offers.length) return <div className="pt-8 text-center text-sm text-faint">No offers on the table. List players to attract bids.</div>;
+  const paused = !!game.offersPaused;
   return (
     <div className="space-y-3">
+      {/* "Do not disturb" (v1.91). The switch reads as the state it is IN, not
+          the action it performs, so a glance answers "am I getting bids?".
+          Offers already on the table are untouched by it — the note below says
+          so, because silently voiding a live negotiation would be the one
+          surprising thing this control could do. */}
+      <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <div className="min-w-0">
+          <div className="display text-sm font-semibold">
+            Incoming offers{" "}
+            <span className={paused ? "text-faint" : "gold-text"}>{paused ? "PAUSED" : "OPEN"}</span>
+          </div>
+          <div className="text-xs text-faint">
+            {paused
+              ? "Clubs won't approach your players. Bids already on the table still stand."
+              : "Rival clubs may bid for your players while a window is open."}
+          </div>
+        </div>
+        <button
+          onClick={toggleOffersPaused}
+          role="switch"
+          aria-checked={!paused}
+          aria-label="Receive incoming offers"
+          className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors ${
+            paused ? "border-line bg-raised" : "gold-grad border-transparent"
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 h-4 w-4 rounded-full transition-all ${
+              paused ? "left-0.5 bg-faint" : "left-[1.375rem] bg-black"
+            }`}
+          />
+        </button>
+      </Card>
+
+      {!offers.length && (
+        <div className="pt-6 text-center text-sm text-faint">
+          {paused
+            ? "Offers are paused. Switch them back on to hear from rival clubs."
+            : "No offers on the table. List players to attract bids."}
+        </div>
+      )}
+
       {offers.map((o) => {
         const p = game.players[o.playerId];
         const buyer = game.teams[o.fromClubId];

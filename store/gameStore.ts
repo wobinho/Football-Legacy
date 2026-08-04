@@ -22,6 +22,7 @@ import { saveGame, loadGame, listSaves, deleteSave, exportSave, importSave, back
 import { cloudOwner } from "@/lib/cloud";
 import { forgetKey, rememberLastSave, lastSave, clearLastSave } from "@/lib/auth";
 import { userBid, respondToOffer, releasePlayer, sellToClub, signedThisSeason, type BidOutcome, type OfferResponse } from "@/lib/transfers";
+import { importPlayer, type PlayerFile } from "@/lib/playerfile";
 import { markAvailable, clearAvailable } from "@/lib/consent";
 import {
   hireStaff,
@@ -115,6 +116,24 @@ import {
   type LibraryPlayer,
 } from "@/lib/customdb";
 
+/**
+ * One step in the overlay back-stack (v1.91).
+ *
+ * `player` and `team` are overlays the store itself owns and can restore. A
+ * `player` entry carries its preview object too, so backing into a scouted
+ * prospect — who does not exist in `game.players` — restores him intact rather
+ * than rendering an empty modal.
+ *
+ * `owner` is an overlay some SCREEN owns (the season review, opened from Club →
+ * History). The store can't reopen that itself; it keeps the id so the screen
+ * can re-render it when the stack unwinds back down to it, which is what makes
+ * "season review → player → back" land on the season again.
+ */
+export type OverlayEntry =
+  | { kind: "player"; id: string; preview: PlayerBio | null }
+  | { kind: "team"; id: string }
+  | { kind: "owner"; id: string };
+
 interface GameStore {
   game: GameState | null;
   rev: number;
@@ -124,6 +143,25 @@ interface GameStore {
   selectedPlayerId: string | null;
   /** A not-yet-signed prospect being previewed in the profile modal (v7). */
   previewPlayer: PlayerBio | null;
+  /** The club whose team card is open, or null (v1.91). Lives in the store —
+   * not in the Competition screen's local state as it used to — so ANY surface
+   * can open a club, and so a club and a player can sit on one shared overlay
+   * stack (see `overlayStack`). */
+  selectedTeamId: string | null;
+  /**
+   * The overlays the user opened to GET here, oldest first (v1.91).
+   *
+   * A record book is a graph, not a tree: a season review names a player, whose
+   * profile names a club, whose squad names another player. Every hop used to
+   * be a dead end — the only way out was ✕, which closed the whole chain and
+   * left the user re-opening the season they were reading. Each hop now pushes
+   * what it replaced, and BACK pops one step.
+   *
+   * `owner` entries are for overlays a SCREEN owns rather than the store (the
+   * season review modal): the store can't reopen those itself, so it records
+   * the id and the screen re-renders it when the stack pops back down to it.
+   */
+  overlayStack: OverlayEntry[];
   lastStop: StopReason | null;
   toast: string | null;
   /** A search the user asked for from somewhere else — the Tactics screen's
@@ -157,6 +195,28 @@ interface GameStore {
    * real world player. Read-only: no training plan / re-sign actions apply. */
   viewProspect: (player: PlayerBio) => void;
   closePlayer: () => void;
+  /** Open a club's team card as an overlay, from anywhere (v1.91). */
+  viewTeam: (id: string) => void;
+  closeTeam: () => void;
+  /**
+   * Record that a SCREEN just opened an overlay of its own (the season review),
+   * so a player/team opened from inside it can come back to it. Call it with
+   * the id the screen keys its overlay on; call `closeOverlays` when the user
+   * dismisses that overlay outright.
+   */
+  pushOwnedOverlay: (id: string) => void;
+  /** The `owner` overlay the stack has unwound back to, or null. A screen reads
+   * this to decide whether to re-render its own overlay. */
+  activeOwnedOverlay: () => string | null;
+  /** Step back one overlay. Restores whatever was underneath — a player, a
+   * club, or a screen-owned overlay — and closes everything when the stack is
+   * empty. */
+  overlayBack: () => void;
+  /** True when there is somewhere to go back TO, which is what the modals gate
+   * their ← button on. */
+  canOverlayBack: () => boolean;
+  /** Dismiss the whole chain — the ✕ on any overlay. */
+  closeOverlays: () => void;
   showToast: (msg: string) => void;
 
   continueGame: () => void;
@@ -229,6 +289,8 @@ interface GameStore {
   bid: (playerId: string, fee: number, terms?: { wage: number; years: number; releaseClause?: number }) => BidOutcome;
   respondOffer: (offerId: string, response: "accept" | "reject" | "counter", amount?: number) => OfferResponse;
   toggleTransferList: (playerId: string) => void;
+  /** Pause/resume incoming AI bids for user players (v1.91). */
+  toggleOffersPaused: () => void;
   /** Sell a player outright to one of the clubs `saleSuitors` offered (v1.52).
    * Resolves immediately — no listing, no waiting for the weekly tick. */
   sellPlayerTo: (playerId: string, clubId: string) => void;
@@ -350,6 +412,9 @@ interface GameStore {
 
   // Squad actions (v14): release / list for transfer / list for loan
   releaseSenior: (playerId: string) => void;
+  /** Sign a player-file import into a club (v1.91). `clubId` null = free agent.
+   * Returns an error string, or null on success. */
+  importPlayerFile: (file: PlayerFile, clubId: string | null) => string | null;
 
   // ── Custom content library (v25): reusable saved clubs & players ──
   /** The active game-key owner's saved library. Loaded at boot; persisted on
@@ -404,10 +469,13 @@ function flushSave(flushCloud = false) {
     clearTimeout(saveTimer);
     saveTimer = null;
   }
+  // The store's mutation counter, which the cloud sync uses to tell an unchanged
+  // save from a changed one and skip re-uploading bytes it already holds (v1.92).
+  const rev = useGame.getState().rev;
   const g = dirtyGame;
   if (!g) {
     // Nothing dirty, but a departure still wants the cloud copy current.
-    if (flushCloud && lastSavedGame) saveGame(lastSavedGame, true).catch(() => {});
+    if (flushCloud && lastSavedGame) saveGame(lastSavedGame, true, rev).catch(() => {});
     return;
   }
   // A write is already running — let it finish and re-flush with whatever the
@@ -420,7 +488,7 @@ function flushSave(flushCloud = false) {
   lastSavedGame = g;
   saveInFlight = true;
   const started = performance.now();
-  saveGame(g, flushCloud)
+  saveGame(g, flushCloud, rev)
     .catch(() => {})
     .finally(() => {
       lastSaveMs = performance.now() - started;
@@ -473,6 +541,29 @@ function repriceAcademy(g: GameState, facility: FacilityId) {
   }
 }
 
+/**
+ * The overlay stack after opening `next` on top of whatever is showing now
+ * (v1.91).
+ *
+ * Pushes the CURRENT overlay so BACK can restore it, and does nothing at all
+ * when `next` is already what's on screen — re-opening the profile you are
+ * reading must not make "back" mean "the same page again". A player entry
+ * carries its preview object, since a scouted prospect isn't in `game.players`
+ * and could not otherwise be restored.
+ */
+function pushCurrent(
+  s: Pick<GameStore, "selectedPlayerId" | "previewPlayer" | "selectedTeamId" | "overlayStack">,
+  next: { kind: "player" | "team"; id: string }
+): OverlayEntry[] {
+  if (next.kind === "player" && s.selectedPlayerId === next.id) return s.overlayStack;
+  if (next.kind === "team" && s.selectedTeamId === next.id) return s.overlayStack;
+  if (s.selectedPlayerId) {
+    return [...s.overlayStack, { kind: "player", id: s.selectedPlayerId, preview: s.previewPlayer }];
+  }
+  if (s.selectedTeamId) return [...s.overlayStack, { kind: "team", id: s.selectedTeamId }];
+  return s.overlayStack;
+}
+
 export const useGame = create<GameStore>((set, get) => ({
   game: null,
   rev: 0,
@@ -481,6 +572,8 @@ export const useGame = create<GameStore>((set, get) => ({
   screen: "home",
   selectedPlayerId: null,
   previewPlayer: null,
+  selectedTeamId: null,
+  overlayStack: [],
   lastStop: null,
   pendingSimTarget: null,
   pendingGate: null,
@@ -511,7 +604,7 @@ export const useGame = create<GameStore>((set, get) => ({
         try {
           const game = await loadGame(last);
           if (game) {
-            set({ game, saves, booted: true, screen: "home", selectedPlayerId: null, lastStop: null });
+            set({ game, saves, booted: true, screen: "home", selectedPlayerId: null, selectedTeamId: null, overlayStack: [], lastStop: null });
             return;
           }
         } catch {
@@ -526,7 +619,7 @@ export const useGame = create<GameStore>((set, get) => ({
 
   newGame: async (opts) => {
     const game = generateWorld(opts);
-    set({ game, screen: "home", rev: get().rev + 1, selectedPlayerId: null, lastStop: null });
+    set({ game, screen: "home", rev: get().rev + 1, selectedPlayerId: null, selectedTeamId: null, overlayStack: [], lastStop: null });
     await saveGame(game);
     const owner = cloudOwner();
     if (owner) rememberLastSave(owner, game.saveName);
@@ -538,7 +631,7 @@ export const useGame = create<GameStore>((set, get) => ({
     if (game) {
       const owner = cloudOwner();
       if (owner) rememberLastSave(owner, name);
-      set({ game, screen: "home", rev: get().rev + 1, selectedPlayerId: null, lastStop: null });
+      set({ game, screen: "home", rev: get().rev + 1, selectedPlayerId: null, selectedTeamId: null, overlayStack: [], lastStop: null });
     }
   },
 
@@ -570,7 +663,7 @@ export const useGame = create<GameStore>((set, get) => ({
     flushSave(true); // leaving the save — make sure the cloud copy is current
     const owner = cloudOwner();
     if (owner) clearLastSave(owner); // don't auto-resume — the player asked for the menu
-    set({ game: null, screen: "home", selectedPlayerId: null, lastStop: null });
+    set({ game: null, screen: "home", selectedPlayerId: null, selectedTeamId: null, overlayStack: [], lastStop: null });
     get().boot();
   },
 
@@ -600,9 +693,55 @@ export const useGame = create<GameStore>((set, get) => ({
     return preset;
   },
   // Player profile is a popup overlay now — open it without leaving the screen.
-  viewPlayer: (id) => set({ selectedPlayerId: id, previewPlayer: null }),
-  viewProspect: (player) => set({ selectedPlayerId: player.id, previewPlayer: player }),
-  closePlayer: () => set({ selectedPlayerId: null, previewPlayer: null }),
+  //
+  // Opening one overlay from inside another PUSHES the one being left (v1.91),
+  // so the chain the user walked in on is what BACK walks out of. Re-opening the
+  // overlay that is already on screen is a no-op rather than a self-referential
+  // stack entry — otherwise back would land on the page you're already reading.
+  viewPlayer: (id) => set({ overlayStack: pushCurrent(get(), { kind: "player", id }), selectedPlayerId: id, previewPlayer: null, selectedTeamId: null }),
+  viewProspect: (player) =>
+    set({
+      overlayStack: pushCurrent(get(), { kind: "player", id: player.id }),
+      selectedPlayerId: player.id,
+      previewPlayer: player,
+      selectedTeamId: null,
+    }),
+  viewTeam: (id) => set({ overlayStack: pushCurrent(get(), { kind: "team", id }), selectedTeamId: id, selectedPlayerId: null, previewPlayer: null }),
+  // Closing one overlay closes the chain: ✕ means "I'm done here", and leaving
+  // a half-unwound stack behind would point the NEXT overlay's back button at
+  // something the user never opened.
+  closePlayer: () => set({ selectedPlayerId: null, previewPlayer: null, overlayStack: [] }),
+  closeTeam: () => set({ selectedTeamId: null, overlayStack: [] }),
+  closeOverlays: () => set({ selectedPlayerId: null, previewPlayer: null, selectedTeamId: null, overlayStack: [] }),
+
+  pushOwnedOverlay: (id) => set({ overlayStack: [{ kind: "owner", id }] }),
+  activeOwnedOverlay: () => {
+    const s = get();
+    // The owned overlay is showing only when nothing the store owns is on top
+    // of it — otherwise the season review would render behind a player profile.
+    if (s.selectedPlayerId || s.selectedTeamId) return null;
+    const top = s.overlayStack[s.overlayStack.length - 1];
+    return top?.kind === "owner" ? top.id : null;
+  },
+  canOverlayBack: () => get().overlayStack.length > 0,
+  overlayBack: () => {
+    const stack = get().overlayStack.slice();
+    const prev = stack.pop();
+    if (!prev) {
+      set({ selectedPlayerId: null, previewPlayer: null, selectedTeamId: null, overlayStack: [] });
+      return;
+    }
+    if (prev.kind === "player") {
+      set({ overlayStack: stack, selectedPlayerId: prev.id, previewPlayer: prev.preview, selectedTeamId: null });
+    } else if (prev.kind === "team") {
+      set({ overlayStack: stack, selectedTeamId: prev.id, selectedPlayerId: null, previewPlayer: null });
+    } else {
+      // A screen-owned overlay: clear the store's own overlays and leave the
+      // entry in place, so `activeOwnedOverlay` reports it and the screen that
+      // owns it renders it again.
+      set({ overlayStack: [...stack, prev], selectedPlayerId: null, previewPlayer: null, selectedTeamId: null });
+    }
+  },
   showToast: (msg) => {
     set({ toast: msg });
     setTimeout(() => set({ toast: null }), 3500);
@@ -999,6 +1138,18 @@ export const useGame = create<GameStore>((set, get) => ({
     if (out.kind !== "countered") get().showToast(out.message);
     get().bump(true);
     return out;
+  },
+
+  toggleOffersPaused: () => {
+    const g = get().game;
+    if (!g) return;
+    g.offersPaused = !g.offersPaused;
+    get().showToast(
+      g.offersPaused
+        ? "Incoming offers paused — clubs won't approach your players."
+        : "Incoming offers resumed."
+    );
+    get().bump(true);
   },
 
   toggleTransferList: (playerId) => {
@@ -1433,7 +1584,7 @@ export const useGame = create<GameStore>((set, get) => ({
     get().showToast(err ?? `${name} quick-sold for ${formatMoney(fee)}.`);
     // The selected-player panel would be pointing at a player who no longer
     // exists, so clear it when it was him.
-    if (!err && get().selectedPlayerId === playerId) set({ selectedPlayerId: null });
+    if (!err && get().selectedPlayerId === playerId) set({ selectedPlayerId: null, previewPlayer: null, overlayStack: [] });
     get().bump(true);
   },
 
@@ -1567,6 +1718,27 @@ export const useGame = create<GameStore>((set, get) => ({
     get().showToast(err ?? `${name} released — he leaves as a free agent.`);
     if (!err) get().closePlayer();
     get().bump(true);
+  },
+
+  // ── Player file import (v1.91) ──
+  importPlayerFile: (file, clubId) => {
+    const g = get().game;
+    if (!g) return "No game loaded.";
+    // A squad has a registration limit like any other; an import must respect
+    // it or the "alternate universes" tool becomes a way past the squad cap.
+    if (clubId) {
+      const team = g.teams[clubId];
+      if (!team) return "That club doesn't exist in this save.";
+      if (team.playerIds.length >= TUNING.squadCap) {
+        return `Your squad is full (${TUNING.squadCap}). Release or sell someone first.`;
+      }
+    }
+    const { name } = importPlayer(g, file, clubId);
+    get().showToast(
+      clubId ? `${name} signed from a player file.` : `${name} added to this world as a free agent.`
+    );
+    get().bump(true);
+    return null;
   },
 
   // ── Custom content library (v25) ──

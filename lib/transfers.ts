@@ -28,6 +28,7 @@ import {
   canAfford,
   isDistressed,
   spendableBudget,
+  isUncovered,
   type PositionNeed,
 } from "./ai/strategy";
 import { wageDemand } from "./contracts";
@@ -174,10 +175,14 @@ export function completeTransfer(
   } else {
     p.contract = undefined; // released to free agency
   }
-  // Same-season resale lock (v1.54): a player the USER signs can't be sold or
-  // listed again until next season. Stamped only for a move INTO the user's club;
-  // any move out of it (or to an AI club) clears the mark.
-  if (toClubId === state.userTeamId) p.acquiredSeason = state.season;
+  // Same-season resale lock (v1.54, world-wide since v1.89): a player who joins a
+  // club can't move on again until the next season. Stamped for a move into ANY
+  // club, not just the user's — a rule that only bound the manager let AI squads
+  // churn the same player through three clubs in one window while the user was
+  // held to one move, and made the transfer feed read as noise rather than
+  // business. A release clears it: a free agent has no club to be locked to, and
+  // he should be signable the moment he's available.
+  if (toClubId) p.acquiredSeason = state.season;
   else p.acquiredSeason = undefined;
   p.clubId = toClubId;
   p.form = 1.0;
@@ -269,6 +274,17 @@ export function userBid(
   // in the third tier can't sign a top-flight star simply because the wage their
   // league quotes happens to fit the budget. The refusal is explicit rather than
   // silent, so the user learns the rule rather than wondering why bids vanish.
+  // Same-season resale lock (v1.89). A player who joined his club this season is
+  // not for sale to anyone, the user included — the rule binds every club, so the
+  // manager can't buy a player out of the very window that took him elsewhere.
+  // Free agents are exempt: `acquiredSeason` is cleared on release.
+  if (p.clubId && signedThisSeason(state, p)) {
+    return {
+      kind: "rejected",
+      reason: `${p.name} only joined ${state.teams[p.clubId].name} this season — he can't move again until next season.`,
+    };
+  }
+
   const verdict = willJoin(state, p, user, cfg);
   if (!verdict.ok) return { kind: "rejected", reason: verdict.reason };
   // Wages are floored by what he'll accept, not by what the user's division pays.
@@ -524,7 +540,11 @@ export function aiWeeklyTransferTick(state: GameState, cfg: TuningConfig): boole
   // roll failed. Several clubs can now come calling in the same week, including
   // more than one for the SAME player.
   let offersThisWeek = 0;
-  if (userPlayers.length && user.playerIds.length > 14) {
+  // "Do not disturb" (v1.91) — the manager has switched incoming bids off, so no
+  // club opens one this week. Gated here rather than at the top of the tick so
+  // AI↔AI business, loans and the rest of the market carry on as normal: the
+  // toggle silences the user's inbox, it does not freeze the transfer window.
+  if (!state.offersPaused && userPlayers.length && user.playerIds.length > 14) {
     const listedBoost = (p: PlayerBio) => (state.transferList.includes(p.id) ? 3 : 1);
     const quality = (p: PlayerBio) => Math.max(p.overall, p.age <= 21 ? p.potential - 12 : 0);
     for (const p of userPlayers) {
@@ -655,6 +675,22 @@ export function aiWeeklyTransferTick(state: GameState, cfg: TuningConfig): boole
 }
 
 /**
+ * Which hole the club goes shopping for (v1.89).
+ *
+ * A position it cannot field a natural body in is addressed FIRST and without a
+ * roll — a club with no centre-back should buy a centre-back, not whichever of
+ * its two most urgent needs the dice picked. `squadNeeds` already sorts these to
+ * the front via `aiMissingCoverUrgency`, so this only has to notice they exist.
+ * Absent a genuine gap the old behaviour stands: one of the two most pressing
+ * needs, chosen at random so clubs don't all converge on the same position.
+ */
+function pickNeed(needs: PositionNeed[], rng: RNG): PositionNeed {
+  const gaps = needs.filter(isUncovered);
+  if (gaps.length) return gaps[0];
+  return needs[Math.min(needs.length - 1, Math.floor(rng() * 2))];
+}
+
+/**
  * AI ↔ AI squad building (§10). Each week a window is open, a few clubs act on
  * their stance: they work out their weakest position, look for a player who
  * actually improves it, and pay what their stance says that's worth. Clubs that
@@ -682,8 +718,7 @@ function aiSquadBuilding(state: GameState, rng: RNG, cfg: TuningConfig) {
 
     const needs = squadNeeds(state, buyer, cfg);
     if (!needs.length) continue;
-    // Act on one of the two most pressing holes.
-    const need = needs[Math.min(needs.length - 1, Math.floor(rng() * 2))];
+    const need = pickNeed(needs, rng);
 
     // Shop the rest of the world (never the user's squad — those go through the
     // formal offer path so the user always gets to decide).
@@ -712,7 +747,15 @@ function aiSquadBuilding(state: GameState, rng: RNG, cfg: TuningConfig) {
       // No club-to-club deal to be had — try the free-agent market instead. A
       // free signing costs only wages, so a club that can't (or won't) pay a fee
       // can still address a hole here, which keeps the window from going quiet.
-      if (rng() < cfg.aiFreeAgentSignChance) aiSignFreeAgent(state, buyer, need, cfg);
+      //
+      // A club that cannot field the position AT ALL always looks (v1.89) rather
+      // than rolling for it: the roll is there to keep ordinary window business
+      // at a sane volume, and a missing centre-back is not ordinary business.
+      // This is the safety net behind every other rule here — whatever the state
+      // of a club's books, there is always a path to a body in an empty slot.
+      if (isUncovered(need) || rng() < cfg.aiFreeAgentSignChance) {
+        aiSignFreeAgent(state, buyer, need, cfg);
+      }
       continue;
     }
 
@@ -852,7 +895,7 @@ function trySimDeal(
 
   const needs = squadNeeds(state, buyer, cfg);
   if (!needs.length) return false;
-  const need = needs[Math.min(needs.length - 1, Math.floor(rng() * 2))];
+  const need = pickNeed(needs, rng);
 
   let best: { player: PlayerBio; score: number; price: number } | null = null;
   for (const seller of sellerPool) {
@@ -904,46 +947,79 @@ function trySimDeal(
 function aiSignFreeAgent(state: GameState, buyer: Team, need: PositionNeed, cfg: TuningConfig) {
   if (buyer.playerIds.length >= cfg.squadCap) return;
   const pool = activePlayers(state).filter((p) => !p.clubId && !p.loan);
-  if (pool.length <= cfg.freeAgentPoolFloor) return;
+  // A club that cannot field this position naturally is filling a hole, not
+  // shopping (v1.89), and the two rules below are both about keeping ordinary
+  // business tidy rather than about squad legality — so neither applies to it.
+  // The pool floor exists to keep the user's Free Agents tab from being emptied
+  // by routine AI signings; one club taking one body out of it to be able to
+  // field a back four is not what it guards against.
+  const fillingAGap = isUncovered(need);
+  if (!fillingAGap && pool.length <= cfg.freeAgentPoolFloor) return;
   let best: { player: PlayerBio; score: number } | null = null;
+  // The best natural body for the position, kept as a last resort for a club
+  // with a genuine gap: nobody may "improve" an empty slot by the stance's
+  // shopping criteria (an old free agent scores poorly for a rebuilding club),
+  // and a side with no centre-back still has to sign one.
+  let fallback: PlayerBio | null = null;
   for (const p of pool) {
     if (!p.positions.includes(need.pos) && !p.positions.some((pos) => positionAdjacent(pos, need.pos))) continue;
-    const score = targetScore(state, buyer, need, p, cfg);
-    if (score <= 0) continue;
     // A free agent still has to want the move (v1.66) — being unattached widens
     // what he'll accept through the desperation curve, but on day one a released
     // star is not yet ready to drop three divisions.
     if (!canApproach(state, buyer, p, cfg)) continue;
+    // The gap-filling fallback is chosen BEFORE the affordability test on
+    // purpose (v1.89). A club with no centre-back must end up with one whatever
+    // state its books are in — it is obliged to field eleven players, and a
+    // wage it can't service is a problem the economy settles afterwards, not a
+    // reason to play with three defenders. Every discretionary signing below
+    // still clears `canAfford`; only this last resort doesn't.
+    if (fillingAGap && p.positions.includes(need.pos) && (!fallback || p.overall > fallback.overall)) {
+      fallback = p;
+    }
     // Free transfer: no fee, so the wage is the whole affordability question —
     // and his personal floor, not the buyer's league rate, is what must clear.
     if (!canAfford(state, buyer, 0, askWage(state, p, cfg, buyer.leagueId), cfg)) continue;
+    const score = targetScore(state, buyer, need, p, cfg);
+    if (score <= 0) continue;
     if (!best || score > best.score) best = { player: p, score };
   }
-  if (!best) return;
-  completeTransfer(state, best.player.id, buyer.id, 0);
-  state.news.unshift(`${buyer.name} sign free agent ${best.player.name} to bolster their ${need.pos}.`);
+  const target = best?.player ?? fallback;
+  if (!target) return;
+  completeTransfer(state, target.id, buyer.id, 0);
+  state.news.unshift(`${buyer.name} sign free agent ${target.name} to bolster their ${need.pos}.`);
 }
 
 /**
- * Keep the user's club able to fulfil its fixtures (v1.51).
+ * Keep a club able to fulfil its fixtures (v1.51; any club since v1.89).
  *
  * Squad size is the manager's business — except at the point the club can no
  * longer field a legal side. Contract expiries and retirements both bite at the
  * rollover, so a manager who stops managing (or an automated run that never
  * answers a prompt) would otherwise ratchet the squad down to nothing over a
- * long save. This tops the senior squad back up to `matchdaySquad` from the free
- * agent pool, cheapest useful body first, and reports what it did.
+ * long save. This tops the senior squad back up to `floor` from the free agent
+ * pool, cheapest useful body first, and reports what it did.
  *
  * Deliberately NOT a quality pass: it signs the best free agent available for
  * the thinnest position, which is what a real club does in an emergency, and it
  * only ever runs when the squad is genuinely short. A manager who keeps a full
  * squad never sees it. Returns the names signed.
+ *
+ * Note it ignores `canAfford` on purpose. This is the path of last resort — a
+ * club that cannot pay is still obliged to put eleven players on the pitch, and
+ * the money is settled by the wage bill afterwards. Every discretionary signing
+ * path still respects affordability; this one is not discretionary.
  */
-export function ensureFieldableSquad(state: GameState, cfg: TuningConfig): string[] {
-  const team = state.teams[state.userTeamId];
+export function ensureFieldableSquad(
+  state: GameState,
+  cfg: TuningConfig,
+  teamId: string = state.userTeamId,
+  floor: number = cfg.matchdaySquad
+): string[] {
+  const team = state.teams[teamId];
+  if (!team) return [];
   const signed: string[] = [];
   let guard = 0;
-  while (team.playerIds.filter((id) => !state.players[id]?.retired).length < cfg.matchdaySquad && guard++ < 40) {
+  while (team.playerIds.filter((id) => !state.players[id]?.retired).length < floor && guard++ < 40) {
     const needs = squadNeeds(state, team, cfg);
     const need = needs[0];
     // A squad this thin always has needs; if it somehow doesn't, stop rather
@@ -970,6 +1046,175 @@ export function ensureFieldableSquad(state: GameState, cfg: TuningConfig): strin
     signed.push(target.name);
   }
   return signed;
+}
+
+/**
+ * Hold every AI club to a workable squad at the rollover (v1.89).
+ *
+ * `ensureFieldableSquad` has kept the USER's club fieldable since v1.51; AI
+ * clubs had no equivalent, and it turns out they needed one badly. Retirement
+ * and contract expiry take players out every season while the buy paths are all
+ * discretionary — each gated on stance, affordability and a genuine upgrade — so
+ * an AI squad only ever ratcheted down. Measured over 20 seasons the median
+ * playable squad fell from 28 to 19, effectively the matchday minimum, and
+ * clubs were fielding a single centre-back while 220 free-agent centre-backs sat
+ * unsigned: the bodies existed, but no discretionary rule would sign one.
+ *
+ * Two floors, both necessary and doing different jobs:
+ *  - `aiSquadFloor` is the squad-SIZE floor — enough bodies to be a football
+ *    club rather than a legal minimum, so ordinary attrition has slack to eat
+ *    into before the next rollover.
+ *  - the positional pass below is about SHAPE: a squad can hit its size floor
+ *    and still have no centre-back, which is the bug this whole change is
+ *    about. It signs into the uncovered positions specifically.
+ *
+ * The user's club is excluded — squad size is the manager's business, and their
+ * own (stricter, emergency-only) backfill runs separately.
+ */
+export function ensureAiSquads(state: GameState, cfg: TuningConfig) {
+  for (const team of Object.values(state.teams)) {
+    if (team.id === state.userTeamId) continue;
+    // Shape first: a position nobody can play is worse than a thin bench, and
+    // filling it may also take the squad toward its size floor.
+    let guard = 0;
+    while (guard++ < 8) {
+      const gap = squadNeeds(state, team, cfg).find(isUncovered);
+      if (!gap) break;
+      const before = team.playerIds.length;
+      aiSignFreeAgent(state, team, gap, cfg);
+      // Nothing in the pool plays there — stop rather than spin on the same gap.
+      if (team.playerIds.length === before) break;
+    }
+    // Then size.
+    ensureFieldableSquad(state, cfg, team.id, cfg.aiSquadFloor);
+  }
+}
+
+/**
+ * Every AI club recruits young players on POTENTIAL (v1.92).
+ *
+ * This is the second half of the long-save decay fix, and without it the first
+ * half makes things worse rather than better. `replenishYouth` puts a generation
+ * of teenagers into the world each season; measured, not one of them got signed.
+ * The free-agent pool grew to 2,400 unattached players — 970 of them under 22 —
+ * while squads stayed full at ~27 and the world's supply of high-potential YOUNG
+ * players collapsed anyway (416 → 56 over twelve seasons).
+ *
+ * The cause is that a prospect is invisible to every existing buying path:
+ *
+ *  - `targetScore` scores a signing as an UPGRADE, and must — a 16-year-old
+ *    rated 48 is not an upgrade on anybody, so he fails `aiMinUpgradeGain`
+ *    however high his ceiling. Loosening that bar is not the answer; it would
+ *    make clubs sign bad players for their own first teams.
+ *  - Every stance's `targetAge` band starts at 17 or above, so the intake sits
+ *    below the youngest age any club shops in.
+ *  - And development is driven by MINUTES, so an unsigned prospect never
+ *    develops. He ages out of the young cohort without ever becoming anything,
+ *    which is precisely "the new players are youth players that never replace
+ *    the world-class ones".
+ *
+ * So this is deliberately NOT scored through `targetScore`. Recruiting a
+ * prospect is a different act from strengthening the XI: the club is buying a
+ * ceiling, not a starter, and the only questions are whether he has a genuinely
+ * high one and whether the club has room. Clubs with more room and more ambition
+ * take more of them, but every club takes some — a world where only rebuilding
+ * sides develop players has the same shortage a few seasons later.
+ *
+ * Free transfers only: intake players arrive unattached, and a prospect's fee is
+ * the academy's business (`prospectSignFeeByTier`), not the market's. The squad
+ * cap and `canApproach` still bind, so this can neither overfill a squad nor put
+ * a player somewhere he wouldn't go.
+ */
+export function aiRecruitYouth(state: GameState, cfg: TuningConfig) {
+  const rng = mulberry32(deriveSeed(state.seed, `youthrecruit:${state.season}`));
+  // One shared pool, drawn down as clubs sign from it — so two clubs can't both
+  // sign the same prospect, and the strongest recruiters get first pick.
+  const pool = activePlayers(state).filter(
+    (p) =>
+      !p.clubId &&
+      !p.loan &&
+      p.age <= cfg.aiYouthRecruitMaxAge &&
+      p.potential - p.overall >= cfg.aiYouthRecruitMinHeadroom
+  );
+  if (!pool.length) return;
+  // Ranked once, best prospect first, rather than re-scanned per slot: the score
+  // depends only on the player, so re-deriving it for every club × slot is the
+  // same answer computed thousands of times over. A prospect is worth what he
+  // might BECOME, discounted by how far off it is — a 16-year-old who might
+  // reach 88 beats a 21-year-old who might reach 84, but not infinitely.
+  pool.sort(
+    (a, b) =>
+      b.potential -
+      (b.age - cfg.youthIntakeAge[0]) * cfg.aiYouthRecruitAgeDiscount -
+      (a.potential - (a.age - cfg.youthIntakeAge[0]) * cfg.aiYouthRecruitAgeDiscount)
+  );
+  const available = new Set(pool.map((p) => p.id));
+
+  // Better clubs recruit first: a high-reputation side gets the pick of a
+  // generation, which is both realistic and what keeps the top of the game
+  // stocked. Sorting by reputation rather than by squad quality means the
+  // ordering is stable across a window rather than shifting as squads change.
+  const clubs = Object.values(state.teams)
+    .filter((t) => t.id !== state.userTeamId)
+    .sort((a, b) => b.reputation - a.reputation);
+
+  for (const club of clubs) {
+    // Room to develop somebody is the hard limit — and the limit is a WORKING
+    // squad size, not `squadCap`. The cap is 50, which almost never binds, so
+    // gating on it let clubs hoard prospects until the median squad hit 44
+    // players. `aiYouthSquadCeiling` is the size beyond which a club stops
+    // taking on more youth however promising: a club that already has 34 players
+    // on its books does not need another sixteen-year-old, it needs to give the
+    // ones it has a game.
+    const room = Math.min(cfg.squadCap, cfg.aiYouthSquadCeiling) - club.playerIds.length;
+    if (room <= 0) continue;
+    // How many prospects this club is prepared to carry. Reputation buys the
+    // pick of the crop above; this is about capacity, so it is keyed on how many
+    // the club is already developing — a club whose books are full of teenagers
+    // stops, whatever its standing.
+    //
+    // The count MUST use the same test as the pool (young AND with real
+    // headroom), not simply "young". Counting every under-23 looks equivalent
+    // and is not: a healthy squad already carries a dozen young players who are
+    // finished articles or ordinary squad men, so the cap was met before a
+    // single prospect had been signed and this pass never ran at all. Measured,
+    // that left 744 prospects unsigned with no club anywhere near its squad cap
+    // — the symptom looked identical to having no recruitment pass.
+    const prospectsOnBooks = club.playerIds.filter((id) => {
+      const p = state.players[id];
+      return (
+        p &&
+        !p.retired &&
+        p.age <= cfg.aiYouthRecruitMaxAge &&
+        p.potential - p.overall >= cfg.aiYouthRecruitMinHeadroom
+      );
+    }).length;
+    let slots = Math.min(room, cfg.aiYouthProspectsHeld - prospectsOnBooks);
+    if (slots <= 0) continue;
+
+    while (slots-- > 0) {
+      // The pool is already ranked, so the first still-available prospect this
+      // club may approach IS its best one.
+      let best: PlayerBio | null = null;
+      for (const p of pool) {
+        if (!available.has(p.id)) continue;
+        if (!canApproach(state, club, p, cfg)) continue;
+        best = p;
+        break;
+      }
+      if (!best) break;
+      // Wages still have to clear — a prospect is cheap, but a club in genuine
+      // financial trouble is not obliged to take on more of them.
+      if (!canAfford(state, club, 0, askWage(state, best, cfg, club.leagueId), cfg)) break;
+      available.delete(best.id);
+      completeTransfer(state, best.id, club.id, 0);
+      // Deliberately silent: forty clubs signing prospects every summer would
+      // bury every transfer the manager actually cares about in the news ticker.
+      if (rng() < cfg.aiYouthRecruitNewsChance) {
+        state.news.unshift(`${club.name} sign ${best.age}-year-old ${best.name} for the future.`);
+      }
+    }
+  }
 }
 
 /** A player covers a slot if it's a listed position or a direct adjacent one —
@@ -1163,10 +1408,17 @@ export function saleSuitors(state: GameState, playerId: string, cfg: TuningConfi
 /** Sell a player to one of the clubs `saleSuitors` returned, immediately. The
  * fee is the buyer's own number — there is no haggling here, because the point
  * of this path is that the decision is "who, and for how much", made once. */
-/** Whether a player the user owns is locked to the club for the rest of the
- * season because they were signed this season (v1.54). A fresh signing can't be
- * flipped for profit in the same season it was made — this gates every user
- * sell path (direct sale, transfer-listing, accepting an incoming offer). */
+/**
+ * Whether a player is locked to his club for the rest of the season because he
+ * joined it this season (v1.54; every club since v1.89).
+ *
+ * A fresh signing can't be moved on inside the same season he was signed. This
+ * gates every user sell path (direct sale, transfer-listing, accepting an
+ * incoming offer) and — since v1.89 — every AI path too, through
+ * `saleCandidates` in lib/ai/strategy.ts, which is the one list all of them shop
+ * from. Keeping the rule at that chokepoint is what stops it being a rule some
+ * market paths remembered and others didn't.
+ */
 export function signedThisSeason(state: GameState, p: PlayerBio): boolean {
   return p.acquiredSeason === state.season;
 }

@@ -48,6 +48,7 @@ import {
   hasScout,
   idleScouts,
   migrateProspectTier,
+  prospectOverallBand,
   rollProspectTier,
   rollReportSize,
   rollTierQuality,
@@ -245,16 +246,18 @@ function rollRivalProspects(state: GameState, cfg: TuningConfig, rng: RNG, club:
   const slots: Pos[] = ["GK", ...shuffle(rng, INTAKE_POS_POOL.filter((p) => p !== "GK")).slice(0, 6)];
   for (const pos of slots) {
     const tier = rollProspectTier(rng, cfg, judgement);
-    const band = rollTierQuality(rng, cfg, tier);
+    // A registered U21 squad is competition-age, not the whole academy: the
+    // floor is the age a prospect could step up at, not intake age. Rolled
+    // BEFORE the quality band (v1.90) — the band is keyed on it.
+    const age = randInt(rng, cfg.academyPromoteMinAge, cfg.academyMaxAge);
+    const band = rollTierQuality(rng, cfg, tier, age);
     const prodigy = isEliteTier(cfg, tier);
     const p = freshId(
       generatePlayer(rng, cfg, {
         pos,
         overall: band.overall,
         nat: "ENG",
-        // A registered U21 squad is competition-age, not the whole academy: the
-        // floor is the age a prospect could step up at, not intake age.
-        age: randInt(rng, cfg.academyPromoteMinAge, cfg.academyMaxAge),
+        age,
         prodigy,
       })
     );
@@ -358,7 +361,9 @@ export function scoutCapacity(state: GameState, _cfg: TuningConfig): number {
   return assignmentCapacity(state);
 }
 
-// ── Intake day (§18) ──────────────────────────────────────────────────────
+// ── Prospect generation (§18) ─────────────────────────────────────────────
+// Only `seedInitialAcademy` rolls prospects this way now; the annual intake day
+// that used to share it was removed in v1.89 (see below).
 
 function rollIntakeProspect(
   state: GameState,
@@ -392,7 +397,9 @@ function rollIntakeProspect(
     )
   );
   const tier = rollProspectTier(rng, cfg, academyJudgement);
-  const band = rollTierQuality(rng, cfg, tier);
+  // Age-keyed ability (v1.90): a 13-year-old Gold and a 17-year-old Gold share a
+  // ceiling but not a current rating.
+  const band = rollTierQuality(rng, cfg, tier, age);
 
   // The tier band describes a finished prospect's level; generatePlayer's
   // maturity curve scales it down to what a kid this age can actually do today,
@@ -400,7 +407,17 @@ function rollIntakeProspect(
   // current rating — which is exactly the age realism this pass is after.
   const prodigy = isEliteTier(cfg, tier) || (opts.golden && rng() < 0.5);
   const p = freshId(
-    generatePlayer(rng, cfg, { pos: pick(rng, INTAKE_POS_POOL), overall: band.overall, nat: "ENG", age, prodigy })
+    generatePlayer(rng, cfg, {
+      pos: pick(rng, INTAKE_POS_POOL),
+      overall: band.overall,
+      nat: "ENG",
+      age,
+      prodigy,
+      // The band is already age-keyed and deliberately dips under the senior
+      // quality floor for the youngest rungs (v1.90).
+      overallIsAgeAdjusted: true,
+      allowBelowFloor: true,
+    })
   );
 
   let pot = band.potential;
@@ -422,48 +439,13 @@ function rollIntakeProspect(
   return p;
 }
 
-/** The season's intake class arrives (user club only; AI clubs intake at
- * rollover, invisibly). Golden generations are the forever-save lottery. */
-export function runIntakeDay(state: GameState, cfg: TuningConfig) {
-  const team = userTeam(state);
-  const rng = mulberry32(deriveSeed(state.seed, `intake:${state.season}:user`));
-  const golden = rng() < cfg.goldenGenChance;
-  const level = facilityLevel(team, "youthAcademy");
-  let size = Math.max(2, Math.round(cfg.intakeClassBase + level * cfg.intakeClassPerLevel + randRange(rng, -0.4, 1.2)));
-  if (golden) size += cfg.goldenGenExtra;
-  // Never overflow the academy squad-size cap (§18 v7): the intake fills whatever
-  // slots remain. If the academy is already full, the class is skipped entirely.
-  const room = Math.max(0, academySquadCap(state, team.id, cfg) - (team.academyPlayerIds?.length ?? 0));
-  size = Math.min(size, room);
-  if (size <= 0) {
-    pushInbox(
-      state,
-      "academy",
-      "Intake day: no room in the academy",
-      "This year's crop had nowhere to go — the academy is at full capacity. Promote, sell, release, or upgrade Academy Squad Size to make space for next year's intake."
-    );
-    return;
-  }
-
-  const ids: string[] = [];
-  const lines: string[] = [];
-  for (let i = 0; i < size; i++) {
-    const p = rollIntakeProspect(state, rng, cfg, { golden: golden && i < 2 });
-    state.players[p.id] = p;
-    (team.academyPlayerIds ??= []).push(p.id);
-    assignKitNumber(state, p);
-    ids.push(p.id);
-    lines.push(`${p.name} — ${p.positions[0]}, ${p.age}, ${starRangeLabel(state, p, cfg)}`);
-  }
-  state.academy.lastIntake = { season: state.season, playerIds: ids, golden };
-
-  const title = golden ? "INTAKE DAY — a golden generation!" : "Intake day: this year's academy class";
-  const intro = golden
-    ? "The coaches are calling it the best crop in a generation. Clear space — some of these kids are special.\n\n"
-    : `${size} prospects join the academy. The coaches' first reads:\n\n`;
-  pushInbox(state, "academy", title, intro + lines.join("\n"));
-  if (golden) state.news.unshift(`${team.name}'s academy is buzzing about a once-in-a-generation intake class.`);
-}
+// There is no annual intake day (v1.89). A class of generated kids used to land
+// in the academy every March, which meant the roster grew players the manager
+// never chose — the same complaint the graduate queue answers on the way out.
+// The academy is now filled only by explicit, paid moves: a scout's find
+// (`signProspect`) or a U21 opponent's prospect (`signU21Prospect`).
+// `rollIntakeProspect` above survives because `seedInitialAcademy` still needs a
+// starting crop, without which a new save forfeits its first U21 competition.
 
 /** A fresh save starts with an academy that can actually enter the season's
  * first U21 competition (v18): enough bodies to register a legal seven, keeper
@@ -1349,9 +1331,14 @@ export function normalizeFilter(cfg: TuningConfig, f: ScoutFilter | undefined): 
   let maxAge = clamp(f.maxAge, cfg.scoutProspectAgeMin, cfg.scoutProspectAgeMax);
   if (minAge !== undefined && maxAge !== undefined && minAge > maxAge) [minAge, maxAge] = [maxAge, minAge];
 
-  // Ability is clamped to the widest band any tier can produce, so a brief can't
-  // ask for an overall no scouted 15–18-year-old ever arrives at.
-  const bands = cfg.prospectTierOrder.map((t) => cfg.prospectTierBands[t]?.overall ?? [0, 100]);
+  // Ability is clamped to the widest band any tier can produce at any admissible
+  // age, so a brief can't ask for an overall no scouted prospect ever arrives at.
+  // Both the age table and the flat fallback are folded in (v1.90): a brief may
+  // name any age in the band, so the reachable span is the union over all of them.
+  const bands = cfg.prospectTierOrder.flatMap((t) => [
+    cfg.prospectTierBands[t]?.overall ?? [0, 100],
+    ...(cfg.prospectOverallByAge?.[t] ?? []),
+  ]);
   const ovrFloor = Math.min(...bands.map((b) => b[0]));
   const ovrCeil = Math.max(...bands.map((b) => b[1]));
   let minOverall = clamp(f.minOverall, ovrFloor, ovrCeil);
@@ -1552,12 +1539,19 @@ export function filterPassRate(cfg: TuningConfig, judgement: number, f: ScoutFil
     if (want && !want.has(migrateProspectTier(tier))) continue;
     const tierP = tierChance(cfg, judgement, tier);
     if (tierP <= 0) continue;
-    // Overall overlap within this tier's band, treated as uniform.
-    const band = cfg.prospectTierBands[migrateProspectTier(tier)!] ?? cfg.prospectTierBands.bronze;
-    const [bLo, bHi] = band.overall;
-    const lo = Math.max(bLo, filter.minOverall ?? bLo);
-    const hi = Math.min(bHi, filter.maxOverall ?? bHi);
-    const ovrPass = Math.max(0, hi - lo + 1) / Math.max(1, bHi - bLo + 1);
+    // Overall overlap within this tier's band, treated as uniform — and the band
+    // is age-keyed since v1.90, so this averages the overlap over the ages the
+    // brief actually admits. Reading the flat fallback band here would badly
+    // misreport a brief that asks for a narrow age: a "16–17, 60+" brief passes
+    // often at Gold and almost never at Bronze, which one band can't express.
+    let ovrPass = 0;
+    for (let age = ageLo; age <= ageHi; age++) {
+      const [bLo, bHi] = prospectOverallBand(cfg, tier, age);
+      const lo = Math.max(bLo, filter.minOverall ?? bLo);
+      const hi = Math.min(bHi, filter.maxOverall ?? bHi);
+      ovrPass += Math.max(0, hi - lo + 1) / Math.max(1, bHi - bLo + 1);
+    }
+    ovrPass /= Math.max(1, ageHi - ageLo + 1);
     rate += tierP * ovrPass;
   }
   return Math.max(0, Math.min(1, rate * agePass));
@@ -1598,12 +1592,21 @@ function generateScoutReport(
   for (let attempt = 0; attempt < rolls; attempt++) {
     const age = randInt(rng, cfg.scoutProspectAgeMin, cfg.scoutProspectAgeMax);
     const rolledTier = rollProspectTier(rng, cfg, scout.judgement);
-    const band = rollTierQuality(rng, cfg, rolledTier);
+    const band = rollTierQuality(rng, cfg, rolledTier, age);
     // Elite finds are generational, so they take the prodigy path through worldgen
     // (see isEliteTier).
     const prodigy = isEliteTier(cfg, rolledTier);
     const candidate = freshId(
-      generatePlayer(rng, cfg, { pos, overall: band.overall, nat, age, prodigy, planId })
+      generatePlayer(rng, cfg, {
+        pos,
+        overall: band.overall,
+        nat,
+        age,
+        prodigy,
+        planId,
+        overallIsAgeAdjusted: true,
+        allowBelowFloor: true,
+      })
     );
     candidate.potential = Math.round(
       Math.min(cfg.potentialAbsoluteCap, Math.max(candidate.overall + 3, band.potential))
@@ -1781,8 +1784,8 @@ export function signProspect(state: GameState, reportId: string, cfg: TuningConf
   p.clubId = team.id;
   p.academyClubId = team.id;
   // Carry the scout's prospect tier onto the player as its academy rarity badge,
-  // so a scouted signing wears the same Bronze→Legacy label an intake kid does
-  // — and keeps it until promotion clears it (parity with runIntakeDay above).
+  // so a scouted signing wears a Bronze→Legacy label and keeps it until
+  // promotion clears it (parity with `seedInitialAcademy`'s starting crop).
   // academyTier is the permanent counterpart shown as the Career-history tag.
   if (report.tier) {
     p.u21Tier = migrateProspectTier(report.tier);

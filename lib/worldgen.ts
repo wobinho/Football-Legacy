@@ -12,7 +12,7 @@ import { fitAttrsToOverall, keyAttrsFor, LEFT_FOOT_CHANCE, overallFromAttrs } fr
 import { ATTR_KEYS, normalizeAttrs } from "./config/attributes";
 import { poolFor, NAME_POOLS } from "./config/names";
 import { defaultCountryDB, type ClubSeed, type CountryDatabase, type PlayerSeed } from "./database";
-import { AI_FORMATIONS } from "./config/formations";
+import { AI_FORMATIONS, FORMATIONS } from "./config/formations";
 import {
   DEFAULT_TIER_NAMES,
   MAX_DIVISION_DEPTH,
@@ -20,9 +20,9 @@ import {
   topUpDivisionClubs,
 } from "./config/divisions";
 import { leagueReputationOf } from "./config/leaguerep";
-import { mulberry32, deriveSeed, pick, randInt, randNormal, randRange, shuffle, type RNG } from "./rng";
+import { mulberry32, deriveSeed, pick, pickWeighted, randInt, randNormal, randRange, shuffle, type RNG } from "./rng";
 import { formatMoney, playerValue } from "./value";
-import { buildSeasonSchedule } from "./calendar";
+import { buildSeasonSchedule, leagueRoundCount } from "./calendar";
 import { generateLeagueFixtures, initCup } from "./season";
 import { generateStaffMarket } from "./facilities";
 import { generateScoutMarket } from "./scouts";
@@ -43,6 +43,22 @@ import type { AcademyState } from "./types";
 const SQUAD_TEMPLATE: [Pos, number][] = [
   ["GK", 3], ["CB", 4], ["LB", 2], ["RB", 2], ["DM", 2], ["CM", 3], ["LM", 1], ["RM", 1], ["AM", 2], ["LW", 2], ["RW", 2], ["ST", 3],
 ];
+
+/**
+ * A position drawn in the proportions the template asks for (v1.89).
+ *
+ * The distinction matters wherever a LOOSE player is generated — the free-agent
+ * pool, and any future top-up that isn't filling a specific slot. Picking a row
+ * of `SQUAD_TEMPLATE` uniformly gives every position a 1-in-12 share, which is
+ * not what the table says: it asks for four centre-backs per club and one left
+ * midfielder. Seeding the market that way starves the positions clubs need most
+ * and floods the ones they need least, and because the free-agent pool is where
+ * the AI turns when it can't buy, that shortage is what eventually leaves a club
+ * unable to field a back four.
+ */
+function templateWeightedPos(rng: RNG): Pos {
+  return pickWeighted(rng, SQUAD_TEMPLATE, ([, count]) => count)[0];
+}
 
 // Secondary-position table (§ multi-position): a player has their primary plus,
 // with the given probability, ONE realistic secondary. Not every player gets
@@ -207,13 +223,53 @@ function normalizeAttrsOnto(base: Attributes, authored: Partial<Attributes>): At
 export function generatePlayer(
   rng: RNG,
   cfg: TuningConfig,
-  opts: { pos: Pos; overall: number; nat: string; age?: number; prodigy?: boolean; planId?: string }
+  opts: {
+    pos: Pos;
+    overall: number;
+    nat: string;
+    age?: number;
+    prodigy?: boolean;
+    planId?: string;
+    /**
+     * Waive the `minOverall` quality floor (v1.90).
+     *
+     * That floor is a SENIOR-world rule — it exists so the leagues hold no
+     * hopeless 38-rated professionals — and it predates the academy taking
+     * 13-year-olds. A child is not a weak professional, and the academy's age
+     * ladder deliberately starts a Bronze 13-year-old at 45–48, below the floor.
+     * Left clamped, every prospect below 50 pinned to exactly 50 and the bottom
+     * two rungs of the age table collapsed into one number (measured: Bronze at
+     * 13 came back 50–50 on every roll).
+     *
+     * Set ONLY by the academy/scouting prospect paths. Ordinary generation must
+     * keep the floor, or "make a striker who rates 72" starts producing bodies
+     * the world was designed not to contain.
+     */
+    allowBelowFloor?: boolean;
+    /**
+     * The requested overall is ALREADY age-adjusted (v1.90) — skip the maturity
+     * curve.
+     *
+     * `overall` normally means "the ability this player would have as an adult",
+     * which the maturity curve then scales down for a teenager. An academy
+     * prospect's band is not that: `prospectOverallByAge` states what the kid can
+     * do *at that age*, so running the curve over it applies the age discount
+     * twice and a 13-year-old Bronze comes back in the 30s before the floor pins
+     * him to 50.
+     *
+     * Potential headroom is unaffected — it comes from the tier's own ceiling
+     * band, not from what the curve trimmed.
+     */
+    overallIsAgeAdjusted?: boolean;
+  }
 ): PlayerBio {
   const age = opts.age ?? Math.round(Math.min(35, Math.max(17, 24 + randNormal(rng) * 4.2)));
   // Quality floor (balance): no generated player is ever weaker than cfg.minOverall,
   // so the world holds no hopeless 38-rated bodies — every player is at least a
-  // rough professional, and every prospect is genuinely developable.
-  const requested = Math.round(Math.max(cfg.minOverall, Math.min(94, opts.overall)));
+  // rough professional, and every prospect is genuinely developable. Youth
+  // prospects opt out (see `allowBelowFloor`).
+  const floorOverall = opts.allowBelowFloor ? 1 : cfg.minOverall;
+  const requested = Math.round(Math.max(floorOverall, Math.min(94, opts.overall)));
   // The caller may brief a specific archetype by naming its training plan (a
   // scout looking for a "Sniper" asks for `st_poacher`); otherwise pick one of
   // the position's five at random. A plan from another position group is ignored
@@ -237,7 +293,11 @@ export function generatePlayer(
   // club's squad occasionally throw up a high-rated teenager.
   const isProdigy = opts.prodigy ?? rng() < cfg.youthProdigyChance;
   let overall: number;
-  if (maturityAt(age, cfg) >= 1) {
+  if (opts.overallIsAgeAdjusted) {
+    // The caller's band already says what this player can do at this age
+    // (v1.90) — scaling it again would discount his youth twice.
+    overall = requested;
+  } else if (maturityAt(age, cfg) >= 1) {
     overall = requested; // adult — nothing to scale
   } else {
     const natural = ageAdjustedOverall(rng, requested, age, cfg);
@@ -251,7 +311,7 @@ export function generatePlayer(
       overall = Math.round(natural);
     }
   }
-  overall = Math.max(cfg.minOverall, Math.min(requested, overall));
+  overall = Math.max(floorOverall, Math.min(requested, overall));
   const trimmed = Math.max(0, requested - overall);
 
   // Younger players carry headroom; veterans are what they are. Any ability the
@@ -295,7 +355,7 @@ export function generatePlayer(
   // spread from it, then recompute overall from those attrs so the stored number
   // matches what the engine and UI read off the six attributes.
   const attrs = deriveAttrs(rng, overall, plan, opts.pos);
-  overall = Math.max(cfg.minOverall, overallFromAttrs(attrs, opts.pos));
+  overall = Math.max(floorOverall, overallFromAttrs(attrs, opts.pos));
   potential = Math.max(potential, overall);
 
   const p: PlayerBio = {
@@ -372,6 +432,225 @@ export function regenFromRetiree(rng: RNG, cfg: TuningConfig, retiree: PlayerBio
   p.contract = undefined;
   p.value = playerValue(p, cfg);
   return p;
+}
+
+/**
+ * Top the free-agent market back up at the season rollover (v1.89).
+ *
+ * The world only ever LOST players before this. Retirement takes everyone, but a
+ * regen is only born from a retiree who peaked at `regenMinPeakOverall` (75) or
+ * better — so every season the population shrank by the whole tail below that
+ * bar, and it shrank hardest where clubs carry the most bodies. Measured over 12
+ * seasons, playable-league supply per formation slot fell from x1.80 to x1.32 at
+ * centre-back while wingers sat at x8 — and the free-agent pool, which is where
+ * the AI turns when it cannot buy, ran dry at exactly the positions clubs needed.
+ * That is the shortage behind "Arsenal has no centre-back": no market rule can
+ * place a player who does not exist.
+ *
+ * Two things make this a replenishment rather than a spawner:
+ *
+ *  - It generates only what the world is actually SHORT of. Demand is counted off
+ *    every playable club's formation, supply off the living players who can fill
+ *    it, and a position is topped up only while it sits under
+ *    `freeAgentTargetCoverRatio` bodies per slot. A position already at x8 gets
+ *    nothing however small the pool is.
+ *  - It is capped per season (`freeAgentReplenishMax`), so a save can't be flooded
+ *    if some other change ever makes the shortfall large.
+ *
+ * The players are ordinary journeymen — the same band the world seeds its
+ * original free agents in. This is not a source of talent; it is a source of
+ * bodies, and the quality ladder stays the academy's and the regens' business.
+ */
+export function replenishFreeAgents(state: GameState, cfg: TuningConfig, pass = 0): number {
+  // `pass` distinguishes the two rollover calls (before and after the AI squad
+  // top-up). Without it both share a seed and the second would mint duplicates
+  // of the first's players — same names, same attributes.
+  const rng = mulberry32(deriveSeed(state.seed, `fatopup:${state.season}:${pass}`));
+
+  // What the world's formations ask for, and who can actually answer.
+  //
+  // Both sides are counted over the SAME population — every club, sim leagues
+  // included, plus the unattached. Mixing the two (playable demand against
+  // world-wide supply) makes a starved pyramid look healthy: the first cut of
+  // this counted playable demand against every living player and concluded the
+  // world had twice the centre-backs it needed while the playable divisions sat
+  // at 1.3 per slot with an empty free-agent market.
+  const demand = new Map<Pos, number>();
+  for (const team of Object.values(state.teams)) {
+    const formation = FORMATIONS.find((f) => f.id === team.tactic?.formationId) ?? FORMATIONS[0];
+    for (const slot of formation.slots) demand.set(slot.pos, (demand.get(slot.pos) ?? 0) + 1);
+  }
+  const supply = new Map<Pos, number>();
+  for (const p of Object.values(state.players)) {
+    if (!p || p.retired) continue;
+    for (const pos of p.positions) supply.set(pos, (supply.get(pos) ?? 0) + 1);
+  }
+
+  // How many bodies each short position needs to reach the target ratio.
+  const shortfall: [Pos, number][] = [];
+  for (const [pos, need] of demand) {
+    const want = Math.ceil(need * cfg.freeAgentTargetCoverRatio);
+    const gap = want - (supply.get(pos) ?? 0);
+    if (gap > 0) shortfall.push([pos, gap]);
+  }
+
+  // The market itself must never run dry (v1.89). Total supply can sit
+  // comfortably above the cover ratio while every spare body is on a club's
+  // books — which is what `ensureAiSquads` does at the rollover — leaving the
+  // user's Free Agents tab empty all season. `freeAgentPoolFloor` is a promise
+  // about the MARKET, not about the world's population, so it is topped up
+  // separately and in the proportions clubs actually need.
+  const unattached = Object.values(state.players).filter((p) => p && !p.retired && !p.clubId).length;
+  const poolGap = cfg.freeAgentPoolTarget - unattached;
+  if (poolGap > 0) {
+    for (let i = 0; i < poolGap; i++) {
+      const pos = templateWeightedPos(rng);
+      const row = shortfall.find(([p]) => p === pos);
+      if (row) row[1] += 1;
+      else shortfall.push([pos, 1]);
+    }
+  }
+
+  if (!shortfall.length) return 0;
+
+  // Worst-covered first, so a hard cap spends itself where it matters most.
+  shortfall.sort((a, b) => b[1] - a[1]);
+  const budget = Math.min(cfg.freeAgentReplenishMax, shortfall.reduce((n, [, gap]) => n + gap, 0));
+
+  let made = 0;
+  // Round-robin across the short positions rather than draining the budget into
+  // the single worst one — several positions are usually short together.
+  for (let pass = 0; made < budget; pass++) {
+    let placedThisPass = false;
+    for (const [pos, gap] of shortfall) {
+      if (made >= budget) break;
+      if (pass >= gap) continue;
+      const p = generatePlayer(rng, cfg, {
+        pos,
+        overall: cfg.freeAgentReplenishOverall[0] + rng() * (cfg.freeAgentReplenishOverall[1] - cfg.freeAgentReplenishOverall[0]),
+        nat: pickNationality(rng, state.playableCountry ?? "ENG", 0.4),
+        age: randInt(rng, cfg.freeAgentReplenishAge[0], cfg.freeAgentReplenishAge[1]),
+      });
+      p.clubId = null;
+      p.contract = undefined;
+      p.value = playerValue(p, cfg);
+      state.players[p.id] = p;
+      made++;
+      placedThisPass = true;
+    }
+    if (!placedThisPass) break;
+  }
+  return made;
+}
+
+/**
+ * Keep a generation coming through behind the one currently playing (v1.92).
+ *
+ * This is the fix for "squads degrade after ten seasons, nothing replaces the
+ * players who retire". `replenishFreeAgents` above already holds the world's
+ * HEADCOUNT flat — and it does, exactly — but it counts bodies and generates
+ * them at 23–32, so it tops up the middle of the age curve while the bottom of
+ * it empties. Measured over 15 seasons with that pass working perfectly:
+ *
+ *     cohort      S1     S10
+ *     under 18    172     59
+ *     18–21       545    119
+ *     22–25       712     27      ← the generation that should be peaking
+ *     34+          23    717
+ *     mean age   23.7   30.9
+ *
+ * The world was one cohort, aging together. Around season 8 it began retiring en
+ * masse and there was nobody behind it: living players fell 2284 → 1916, the
+ * top-flight squad mean fell 78.9 → 72.8, and the 85+ population halved. Every
+ * club's squad "degraded" for a reason no market rule could fix, because the
+ * players simply did not exist to sign — which is why the AI looked passive.
+ *
+ * The rule here is about SHAPE, not size: hold the under-`youthIntakeCohortMaxAge`
+ * population at `youthIntakeCohortShare` of the living world, generating the
+ * shortfall as free agents each rollover. That share is set to roughly what
+ * worldgen BUILDS a world with, so this is not a boost — it is the absence of
+ * the decay. It composes with the two existing systems rather than replacing
+ * either: regens still succeed individually great players, and the free-agent
+ * pass still guarantees bodies at short positions.
+ *
+ * Quality is a roll, not a guarantee. Most intake are ordinary
+ * (`youthIntakePotential`); a `youthIntakeEliteShare` slice carries a genuinely
+ * elite ceiling, which is what keeps the top of the game stocked a decade out.
+ * They arrive raw and unattached — the market decides where they land, and the
+ * development curve decides who they become.
+ *
+ * Returns how many were created.
+ */
+export function replenishYouth(state: GameState, cfg: TuningConfig): number {
+  const rng = mulberry32(deriveSeed(state.seed, `youth:${state.season}`));
+
+  // Measured over players ON A CLUB's books, not over everyone alive.
+  //
+  // This distinction is the whole difference between replenishment and
+  // inflation, and the obvious version (count every living player) is wrong.
+  // Unsigned prospects never play, so they never develop and never leave the
+  // young cohort by ageing into a useful player — they simply accumulate. Count
+  // them as part of the population and each season's surplus raises next
+  // season's target, so the world compounds: measured, it grew 2,152 → 4,051
+  // players with 1,700 of them unattached, while clubs stayed the same size.
+  //
+  // Counting only attached players is what makes the DEMAND side honest — a
+  // world's youth requirement is set by the squads that will play them, not by
+  // how many are milling about unsigned.
+  const attached = Object.values(state.players).filter((p) => p && !p.retired && p.clubId);
+  if (!attached.length) return 0;
+  const young = attached.filter((p) => p.age < cfg.youthIntakeCohortMaxAge).length;
+  const want = Math.round(attached.length * cfg.youthIntakeCohortShare);
+
+  // …and the SUPPLY side has to count what is already waiting, or the pass
+  // re-mints a whole generation every season on top of the one nobody has
+  // signed yet. Measured with this term missing: the world gained ~230 players
+  // a season against almost no retirement outflow and inflated 2,152 → 4,087,
+  // with 1,755 unattached, because unsigned prospects were invisible to the
+  // only number the target was measured against.
+  //
+  // Only `youthIntakeMarketCredit` of them counts, though, and that ceiling is
+  // the whole subtlety. Credit them ALL and the opposite failure appears: a
+  // saturated market pins the shortfall at zero, intake stops completely, and
+  // once that backlog finally ages out the world is left with no generation
+  // behind it at all — measured, exactly the 23.7 → 27.8 age climb and the
+  // quality decay this system exists to prevent, arriving a few seasons later.
+  // A partial credit throttles intake while the market is full without ever
+  // switching it off.
+  const waiting = Object.values(state.players).filter(
+    (p) => p && !p.retired && !p.clubId && p.age < cfg.youthIntakeCohortMaxAge
+  ).length;
+  const credited = Math.round(waiting * cfg.youthIntakeMarketCredit);
+
+  const gap = Math.min(cfg.youthIntakeMax, want - young - credited);
+  if (gap <= 0) return 0;
+
+  for (let i = 0; i < gap; i++) {
+    const pos = templateWeightedPos(rng);
+    const elite = rng() < cfg.youthIntakeEliteShare;
+    const band = elite ? cfg.youthIntakeElitePotential : cfg.youthIntakePotential;
+    const p = generatePlayer(rng, cfg, {
+      pos,
+      overall: cfg.youthIntakeOverall[0] + rng() * (cfg.youthIntakeOverall[1] - cfg.youthIntakeOverall[0]),
+      nat: pickNationality(rng, state.playableCountry ?? "ENG", 0.4),
+      age: randInt(rng, cfg.youthIntakeAge[0], cfg.youthIntakeAge[1]),
+    });
+    // The ceiling is this system's whole point, so it is set explicitly rather
+    // than left to the generator's age-derived headroom — which knows nothing
+    // about whether this player is meant to become elite. Never below what he
+    // already is, and never through the world's absolute cap.
+    p.potential = Math.round(
+      Math.min(
+        cfg.potentialAbsoluteCap,
+        Math.max(p.overall + 4, band[0] + rng() * (band[1] - band[0]))
+      )
+    );
+    p.clubId = null;
+    p.contract = undefined;
+    p.value = playerValue(p, cfg);
+    state.players[p.id] = p;
+  }
+  return gap;
 }
 
 /** Materialize a hand-authored player from a custom-database seed. Two authoring
@@ -987,7 +1266,7 @@ export function generateWorld(opts: NewGameOptions): GameState {
   // Free agents — signable during windows (home-nation flavored to the country)
   const faRng = mulberry32(deriveSeed(seed, "freeagents"));
   for (let i = 0; i < 45; i++) {
-    const pos = pick(faRng, SQUAD_TEMPLATE)[0];
+    const pos = templateWeightedPos(faRng);
     const p = generatePlayer(faRng, cfg, {
       pos,
       overall: 48 + faRng() * 22,
@@ -997,8 +1276,13 @@ export function generateWorld(opts: NewGameOptions): GameState {
     players[p.id] = p;
   }
 
-  const schedule = buildSeasonSchedule(1);
   const playableDivisionIds = Array.from(new Set(divisionIds));
+  // Same rule as the rollover (v1.91): the calendar is as long as the biggest
+  // playable division needs, and every other division takes the front of it.
+  const schedule = buildSeasonSchedule(
+    1,
+    Math.max(...playableDivisionIds.map((id) => leagueRoundCount(leagues[id].teamIds.length)), 1)
+  );
   const fixtures = playableDivisionIds.flatMap((id, idx) =>
     generateLeagueFixtures(id, leagues[id].teamIds, schedule.leagueRoundDays, seed + idx)
   );

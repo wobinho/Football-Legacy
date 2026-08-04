@@ -9,16 +9,52 @@ import { useMemo } from "react";
 import { useGame } from "@/store/gameStore";
 import { computeTable } from "@/lib/season";
 import { formatDayShort } from "@/lib/calendar";
-import { POS_ORDER } from "@/lib/config/positions";
+import { POS_ORDER, POS_GROUP, POS_GROUP_COLORS, type PosGroup } from "@/lib/config/positions";
+import { squadOverall } from "@/lib/selection";
+import { getFormation } from "@/lib/config/formations";
 import { squadWageBill } from "@/lib/value";
 import { TUNING } from "@/lib/config/tuning";
 import type { Fixture } from "@/lib/types";
-import { Card, Crest, Flag, Money, Ovr, ArchetypeLabel, PosBadge, useEscapeKey } from "../ui";
+import { BackButton, Card, Crest, Flag, Money, Ovr, ArchetypeLabel, PosBadge, useEscapeKey } from "../ui";
 
-export default function TeamCard({ teamId, onClose }: { teamId: string; onClose: () => void }) {
+// Plural department names for the strength tiles. POS_GROUP_COLORS carries the
+// singular ("Goalkeeper"), which is right for a legend and wrong for a column
+// heading counting a group of players.
+const DEPT_LABEL: Record<PosGroup, string> = {
+  GK: "Goalkeepers",
+  DEF: "Defenders",
+  MID: "Midfielders",
+  ATT: "Forwards",
+};
+
+/**
+ * The team card, wired to the store's overlay stack (v1.91).
+ *
+ * It used to be the Competition screen's own local state, which meant only that
+ * screen could open a club and a club could never be opened from a player's
+ * profile. `teamId` is now optional: given, it renders that club (the legacy
+ * call site); omitted, it renders `store.selectedTeamId` and nothing at all when
+ * that is null — which is how the app mounts one global instance.
+ */
+export default function TeamCard({ teamId, onClose }: { teamId?: string; onClose?: () => void }) {
+  const game = useGame((s) => s.game);
+  const storeTeamId = useGame((s) => s.selectedTeamId);
+  const storeClose = useGame((s) => s.closeTeam);
+
+  const id = teamId ?? storeTeamId;
+  const close = onClose ?? storeClose;
+  // The body below reads a club unconditionally, so the gate lives out here —
+  // an inner component keeps its hooks off the "nothing is open" path.
+  if (!game || !id || !game.teams[id]) return null;
+  return <TeamCardBody key={id} teamId={id} onClose={close} />;
+}
+
+function TeamCardBody({ teamId, onClose }: { teamId: string; onClose: () => void }) {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const viewPlayer = useGame((s) => s.viewPlayer);
+  const canBack = useGame((s) => s.overlayStack.length > 0);
+  const back = useGame((s) => s.overlayBack);
   useEscapeKey(onClose);
 
   const team = game.teams[teamId];
@@ -71,7 +107,34 @@ export default function TeamCard({ teamId, onClose }: { teamId: string; onClose:
       .slice(0, 8);
   }, [game.fixtures, league, teamId]);
 
-  const avgOvr = squad.length ? Math.round(squad.reduce((s, p) => s + p.overall, 0) / squad.length) : 0;
+  // Club overall (v1.90): the XI this club would actually field, plus the bench
+  // behind it — not a flat mean over the whole roster, which rewarded carrying
+  // fewer fringe players. `squadOverall` is the shared rule (lib/selection.ts)
+  // and it picks through the same `pickLineup` the matchday path uses, against
+  // the club's OWN formation, so the card can never quote an XI the simulation
+  // wouldn't name.
+  const strength = useMemo(
+    () => squadOverall(squad, getFormation(team.tactic?.formationId ?? "433"), TUNING),
+    [squad, team.tactic?.formationId]
+  );
+
+  // Departmental strength: the club's average overall in each of the four broad
+  // position groups. A single squad average hides the shape of a side — a club
+  // that averages 72 might be 80 up front and 64 at the back, and that is the
+  // thing a manager is actually scouting for. Grouped by POS_GROUP off each
+  // player's primary position, so the split matches the badge colours the rows
+  // below already use. `n` rides along to caption the tile and to distinguish
+  // "no players here" from "average happens to be low".
+  const departments = useMemo(() => {
+    const groups: PosGroup[] = ["GK", "DEF", "MID", "ATT"];
+    return groups.map((g) => {
+      const members = squad.filter((p) => POS_GROUP[p.positions[0]] === g);
+      const avg = members.length
+        ? Math.round(members.reduce((s, p) => s + p.overall, 0) / members.length)
+        : null;
+      return { group: g, avg, n: members.length };
+    });
+  }, [squad]);
   const squadValue = squad.reduce((s, p) => s + p.value, 0);
   const wageBill = squadWageBill(squad, TUNING);
 
@@ -89,19 +152,24 @@ export default function TeamCard({ teamId, onClose }: { teamId: string; onClose:
       aria-modal="true"
     >
       <div className="relative my-auto w-full max-w-2xl rounded-lg border border-line bg-surface p-5 shadow-2xl">
-        {/* The ✕ (and Escape) are the only ways out — a backdrop click no longer
-            dismisses, so a stray click can't close the card. */}
-        <button
-          onClick={onClose}
-          className="absolute right-4 top-4 rounded px-2 py-1 text-faint transition-colors hover:bg-hover hover:text-ink sm:right-5 sm:top-5"
-          aria-label="Close"
-          title="Close"
-        >
-          ✕
-        </button>
+        {/* The ✕ (and Escape) dismiss the card — a backdrop click no longer
+            does, so a stray click can't close it. ← steps back to whatever
+            overlay the user opened this club FROM (v1.91), and only appears
+            when there is one. */}
+        <div className="absolute right-4 top-4 flex items-center gap-1.5 sm:right-5 sm:top-5">
+          {canBack && <BackButton onClick={back} />}
+          <button
+            onClick={onClose}
+            className="rounded px-2 py-1 text-faint transition-colors hover:bg-hover hover:text-ink"
+            aria-label="Close"
+            title="Close"
+          >
+            ✕
+          </button>
+        </div>
 
         {/* header */}
-        <div className="mb-5 flex items-center gap-4 rounded-lg border border-line bg-raised p-5">
+        <div className="mb-5 flex items-center gap-4 rounded-lg border border-line bg-raised p-5 pr-14 sm:pr-28">
           <Crest colors={team.colors} short={team.short} size={56} />
           <div className="min-w-0 flex-1">
             <div className="display text-2xl font-bold leading-tight">{team.name}</div>
@@ -123,15 +191,49 @@ export default function TeamCard({ teamId, onClose }: { teamId: string; onClose:
         </div>
 
         {/* stats */}
-        <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {stat("Avg Ovr", avgOvr || "—")}
+        <div className="mb-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {stat("Overall", strength.overall || "—")}
           {stat("Squad", squad.length)}
           {stat("Reputation", team.reputation)}
           {stat("Value", <Money value={squadValue} />)}
         </div>
+        {/* The two halves behind the headline. Shown alongside it rather than
+            folded in, because "how good is the first team" and "how far does it
+            fall when they're rested" are separate questions before a cup run. */}
+        <div className="mb-5 grid grid-cols-2 gap-2">
+          {stat(`Starting XI (${strength.xiCount})`, strength.starting || "—")}
+          {stat(`Bench (${strength.benchCount})`, strength.bench || "—")}
+        </div>
         <div className="mb-5 grid grid-cols-2 gap-2">
           {stat("Budget", <Money value={team.budget} />)}
           {stat("Wage bill / wk", <Money value={wageBill} />)}
+        </div>
+
+        {/* squad strength by department — where this club is actually good */}
+        <div className="mb-1 flex items-end justify-between">
+          <h3 className="display text-lg font-semibold">Squad Strength</h3>
+          <span className="text-xs text-faint">Average OVR by department</span>
+        </div>
+        <div className="gold-thread mb-3" />
+        <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {departments.map(({ group, avg, n }) => {
+            const c = POS_GROUP_COLORS[group];
+            return (
+              <div
+                key={group}
+                className="rounded-md border border-line bg-raised px-3 py-2 text-center"
+                title={`${c.label}s — ${n} in the squad`}
+              >
+                <div className="display tnum text-xl font-bold" style={{ color: avg === null ? undefined : c.bg }}>
+                  {avg ?? "—"}
+                </div>
+                <div className="text-[10px] uppercase tracking-widest text-faint">
+                  {DEPT_LABEL[group]}
+                </div>
+                <div className="tnum text-[10px] text-faint">{n}</div>
+              </div>
+            );
+          })}
         </div>
 
         {/* season leaders */}

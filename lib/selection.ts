@@ -5,7 +5,7 @@ import type { PlayerBio, Pos, Tactic, TeamAssignments } from "./types";
 import type { TuningConfig } from "./config/tuning";
 import { getFormation, type Formation } from "./config/formations";
 import { positionFit } from "./config/positions";
-import type { EnginePlayer, LineupEntry, SideInput } from "./engine/match";
+import { tacticalFitMult, type EnginePlayer, type LineupEntry, type SideInput } from "./engine/match";
 
 export function toEnginePlayer(p: PlayerBio): EnginePlayer {
   return {
@@ -23,10 +23,24 @@ export function toEnginePlayer(p: PlayerBio): EnginePlayer {
   };
 }
 
-export function selectionScore(p: PlayerBio, slotPos: Pos, cfg: TuningConfig): number {
+/**
+ * How good this player is for this slot.
+ *
+ * `tactic` (v1.90) folds in the same identity levers the match applies —
+ * `tacticalFitMult`, i.e. class-vs-style synergy times role-vs-instructions fit.
+ * Passed, the pick is "the best player FOR THIS TACTIC"; omitted, it is the pure
+ * ability ranking it has always been, which is what a caller with no tactic in
+ * hand (the calibration harness) still wants.
+ *
+ * This is the whole of "best in slot": one score, read by both the AI's matchday
+ * pick and the user's auto-pick, so the two can't rank the same squad
+ * differently.
+ */
+export function selectionScore(p: PlayerBio, slotPos: Pos, cfg: TuningConfig, tactic?: Tactic): number {
   const fit = positionFit(p.positions, slotPos, cfg.adjacentPositionMult, cfg.outOfPositionFloor);
   const fitness = cfg.fitnessFloorMult + (1 - cfg.fitnessFloorMult) * (p.fitness / 100);
-  return p.overall * fit * fitness * p.form;
+  const tactical = tactic ? tacticalFitMult(toEnginePlayer(p), tactic, cfg) : 1;
+  return p.overall * fit * fitness * p.form * tactical;
 }
 
 /**
@@ -48,7 +62,10 @@ export function pickLineup(
   respectFitness = true,
   /** Rotation weighting (v1.66) — rests tired starters and pulls players short
    * of their role's minutes up the order. See lib/rotation.ts. */
-  weight?: SelectionWeight
+  weight?: SelectionWeight,
+  /** The tactic the side will actually play (v1.90). Supplied, both the XI and
+   * the bench are chosen for it — see `selectionScore`. */
+  tactic?: Tactic
 ): { lineup: { slotId: string; player: PlayerBio }[]; bench: PlayerBio[] } {
   const available = players.filter((p) => !p.retired);
   const pool = new Set(available.map((p) => p.id));
@@ -61,7 +78,7 @@ export function pickLineup(
     return na - nb;
   });
 
-  const scoreFor = (p: PlayerBio, pos: Pos) => selectionScore(p, pos, cfg) * (weight ? weight(p) : 1);
+  const scoreFor = (p: PlayerBio, pos: Pos) => selectionScore(p, pos, cfg, tactic) * (weight ? weight(p) : 1);
 
   for (const slot of slots) {
     let best: PlayerBio | null = null;
@@ -95,9 +112,17 @@ export function pickLineup(
   // The bench is ordered by the same weighting as the XI (v1.66), so a player
   // owed minutes is not just eligible but actually named among the subs — the
   // in-match sub pass can only pick from who is on it.
+  // Ranked on the same tactical terms as the XI (v1.90): a bench ordered on raw
+  // overall names the best players left rather than the best options for the
+  // game being played, and the in-match sub pass can only choose from who is on
+  // it. Scored at the player's own primary position — a bench slot has no
+  // position of its own, so this asks "how useful is he to this tactic at all".
+  const benchScore = (p: PlayerBio) =>
+    (tactic ? p.overall * tacticalFitMult(toEnginePlayer(p), tactic, cfg) : p.overall) *
+    (weight ? weight(p) : 1);
   const rest = [...pool]
     .map((id) => byId.get(id)!)
-    .sort((a, b) => b.overall * (weight ? weight(b) : 1) - a.overall * (weight ? weight(a) : 1));
+    .sort((a, b) => benchScore(b) - benchScore(a));
   const bench: PlayerBio[] = [];
   const gk = rest.find((p) => p.positions[0] === "GK");
   if (gk) bench.push(gk);
@@ -127,7 +152,7 @@ export function buildSideInput(
   weight?: SelectionWeight
 ): SideInput {
   const formation = getFormation(tactic.formationId);
-  const picked = fixedLineup ?? pickLineup(players, formation, cfg, true, weight).lineup;
+  const picked = fixedLineup ?? pickLineup(players, formation, cfg, true, weight, tactic).lineup;
   const usedIds = new Set(picked.map((e) => e.player.id));
   const benchCap = cfg.matchdaySquad - 11;
   let bench: PlayerBio[];
@@ -152,7 +177,7 @@ export function buildSideInput(
   } else {
     bench = fixedLineup
       ? players.filter((p) => !usedIds.has(p.id) && !p.retired).sort((a, b) => b.overall - a.overall).slice(0, benchCap)
-      : pickLineup(players, formation, cfg, true, weight).bench;
+      : pickLineup(players, formation, cfg, true, weight, tactic).bench;
   }
 
   const slotById = new Map(formation.slots.map((s) => [s.id, s]));
@@ -178,10 +203,74 @@ export function buildSideInput(
   };
 }
 
-/** Aggregate strength used by the sim resolver and AI decisions. */
-export function teamStrength(players: PlayerBio[], cfg: TuningConfig): number {
-  const formation = getFormation("433");
-  const { lineup } = pickLineup(players, formation, cfg, false);
+/**
+ * Aggregate strength used by the sim resolver and AI decisions.
+ *
+ * The XI weighted against the bench behind it (v1.91) — the same quantity
+ * `squadOverall` reports, so a club's card and the table it finishes in are
+ * built from one number. It used to be a flat mean of an XI picked in a
+ * hardcoded 4-3-3 with the bench ignored, which said a club with no cover was
+ * exactly as strong as one with a full squad; over a sim season that is how a
+ * top-flight side with a thin bench slid two divisions.
+ *
+ * `formationId` lets a caller pass the club's OWN shape. It defaults to a 4-3-3
+ * for callers that genuinely have no tactic in hand (the calibration harness).
+ */
+export function teamStrength(players: PlayerBio[], cfg: TuningConfig, formationId = "433"): number {
+  const formation = getFormation(formationId);
+  const { lineup, bench } = pickLineup(players, formation, cfg, false);
   if (!lineup.length) return 40;
-  return lineup.reduce((s, e) => s + e.player.overall, 0) / lineup.length;
+  const mean = (ns: number[]) => ns.reduce((s, n) => s + n, 0) / ns.length;
+  const starting = mean(lineup.map((e) => e.player.overall));
+  if (!bench.length) return starting;
+  return starting * cfg.squadOverallXIWeight + mean(bench.map((p) => p.overall)) * (1 - cfg.squadOverallXIWeight);
+}
+
+/**
+ * A club's overall, split into the XI it would field and the bench behind it
+ * (v1.90).
+ *
+ * How good a side IS is what its best eleven can do — a flat mean over the whole
+ * squad answers a different question and answers it badly, because it is driven
+ * by how many fringe players a club happens to carry. Two clubs with identical
+ * first teams read 8 points apart if one keeps a 34-man roster and the other a
+ * 22-man one, and signing a squad player made a club look WORSE. Registering
+ * that as one number also hides the thing a manager actually wants to know
+ * before a cup run: how far the quality falls when the XI is rested.
+ *
+ * Uses the club's OWN formation, so the number reflects the shape it plays
+ * rather than a notional 4-3-3, and it is the same `pickLineup` the matchday
+ * path calls — the card can't quote an XI the simulation wouldn't name. Fitness
+ * is ignored (`respectFitness = false`): this is a description of the squad, not
+ * of who is available on Saturday, and a card that dropped a rating because a
+ * striker is carrying a knock would read as a permanent judgement on the club.
+ *
+ * `bench` is the matchday bench only — `cfg.matchdaySquad - 11`, ordered by the
+ * same weighting the XI used — not "everyone else". The reserves beyond the
+ * bench never take the field, so folding them in would put the squad-size
+ * distortion straight back.
+ */
+export function squadOverall(
+  players: PlayerBio[],
+  formation: Formation,
+  cfg: TuningConfig
+): { starting: number; bench: number; overall: number; xiCount: number; benchCount: number } {
+  const { lineup, bench } = pickLineup(players, formation, cfg, false);
+  const mean = (ns: number[]) => (ns.length ? ns.reduce((s, n) => s + n, 0) / ns.length : 0);
+  const starting = mean(lineup.map((e) => e.player.overall));
+  const benchAvg = mean(bench.map((p) => p.overall));
+  // The headline weights the XI heavily: the bench matters, but it does not
+  // matter equally — most minutes in a season are played by the eleven. A club
+  // with no bench at all is judged on its XI rather than punished twice for the
+  // shortage the bench figure already shows.
+  const overall = bench.length
+    ? starting * cfg.squadOverallXIWeight + benchAvg * (1 - cfg.squadOverallXIWeight)
+    : starting;
+  return {
+    starting: Math.round(starting),
+    bench: Math.round(benchAvg),
+    overall: Math.round(overall),
+    xiCount: lineup.length,
+    benchCount: bench.length,
+  };
 }

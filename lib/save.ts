@@ -126,32 +126,83 @@ function upgradeIfNeeded(state: GameState): GameState {
 // after every autosave. Syncing it on an interval (and on any explicit save)
 // keeps cross-device resume working while taking the serialisation cost off the
 // per-action path entirely.
-const CLOUD_SYNC_INTERVAL_MS = 60_000;
+//
+// ── What the interval actually costs (v1.92) ────────────────────────────────
+// A save is ~8 MB of JSON by season 9 and grows ~0.57 MB a season (measured,
+// scripts/perf.ts). At the old 60s interval an hour of play pushed that whole
+// graph 60 times, and Vercel meters BOTH the browser → function hop and the
+// function → KV hop — so ~15 MB per sync, ~0.9 GB an hour, and worse every
+// season. That is what put a 9-season save at 14 GB of Fast Data Transfer.
+//
+// Three things fix it, and they multiply rather than overlap:
+//   • The payload is gzipped (lib/cloud.ts) — save JSON is hugely repetitive
+//     and compresses about an order of magnitude.
+//   • The interval is far longer. 60s was pricing the cloud copy as if it were
+//     the save; it isn't. IndexedDB has every keystroke, and the flush on
+//     pagehide/visibilitychange/quit means the cloud copy is current at every
+//     moment you could actually pick up another device. Between those, five
+//     minutes of drift costs nothing you can observe.
+//   • An unchanged save is not re-uploaded at all. The old code would push an
+//     identical graph every interval while the game sat idle on a menu.
+const CLOUD_SYNC_INTERVAL_MS = 300_000; // 5 min
 let lastCloudSyncAt = 0;
 let cloudSyncInFlight = false;
+/** Identity of the last state successfully pushed, so an unchanged save is
+ * skipped. Cheap to compute and never wrong in the direction that matters: a
+ * changed save always differs on at least one of these. */
+let lastCloudStamp: string | null = null;
 
-async function syncCloud(state: GameState, force: boolean): Promise<void> {
+/** A cheap fingerprint of "has anything happened since the last upload".
+ *
+ * Deliberately NOT a hash of the save — hashing tens of megabytes on the UI
+ * thread to decide whether to upload would cost more than the upload it saves.
+ * `rev` is the store's own mutation counter (it is bumped by every action that
+ * changes the game), so this changes exactly when the save does. The day and
+ * season are folded in as a backstop for any path that moves the world without
+ * going through a `rev` bump.
+ *
+ * It is only ever compared for EQUALITY, so a stamp that changes when nothing
+ * material did merely costs one redundant upload — never a lost save. */
+function cloudStamp(state: GameState, rev: number): string {
+  return `${state.saveName}:${state.season}:${state.currentDay}:${rev}`;
+}
+
+async function syncCloud(state: GameState, force: boolean, rev: number): Promise<void> {
   if (cloudSyncInFlight) return;
   if (!force && Date.now() - lastCloudSyncAt < CLOUD_SYNC_INTERVAL_MS) return;
+  // Nothing has moved since the last successful push — uploading the same bytes
+  // again buys nothing and is billed all the same. A forced flush (quitting,
+  // the tab going away) still short-circuits here, because if the stamp matches
+  // the cloud already holds this exact save.
+  const stamp = cloudStamp(state, rev);
+  if (stamp === lastCloudStamp) return;
   if (!(await cloudEnabled())) return;
   cloudSyncInFlight = true;
   try {
     // best-effort: a cloud hiccup must never lose the just-written local save
-    await cloudSave(state).catch(() => {});
+    const ok = await cloudSave(state).catch(() => false);
     lastCloudSyncAt = Date.now();
+    // Only remember the stamp on a SUCCESSFUL push. Recording it after a failed
+    // upload would suppress every retry and strand the save on this device.
+    if (ok) lastCloudStamp = stamp;
   } finally {
     cloudSyncInFlight = false;
   }
 }
 
 /**
- * Autosave. Always writes local; syncs to the cloud at most once a minute.
+ * Autosave. Always writes local; syncs to the cloud at most once every
+ * `CLOUD_SYNC_INTERVAL_MS`, and only when something has actually changed.
  * Pass `flushCloud` for the moments where the copy must be current no matter
  * what — quitting to the menu, or the tab going away.
+ *
+ * `rev` is the store's mutation counter; it only feeds the unchanged-save check,
+ * so a caller that hasn't got one can leave it out and simply forfeits that
+ * optimisation (the interval still applies).
  */
-export async function saveGame(state: GameState, flushCloud = false): Promise<void> {
+export async function saveGame(state: GameState, flushCloud = false, rev = 0): Promise<void> {
   await localPut(state); // local cache is always written first (fast + offline)
-  void syncCloud(state, flushCloud);
+  void syncCloud(state, flushCloud, rev);
 }
 
 export async function loadGame(saveName: string): Promise<GameState | null> {

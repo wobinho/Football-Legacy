@@ -21,7 +21,6 @@ import { flagForNat } from "../lib/config/flags";
 import { ARCHETYPE_ROSTER, ARCHETYPE_PROFILE } from "../lib/config/archetype";
 import { TRAITS, RETIRED_TRAIT_IDS } from "../lib/config/traits";
 import { SPONSOR_SLOTS } from "../lib/sponsors";
-import { clubPlayerHistory } from "../lib/recordbook";
 import { saleSuitors, sellToClub } from "../lib/transfers";
 import { transferWindowState } from "../lib/calendar";
 
@@ -208,37 +207,11 @@ const back = JSON.parse(json);
 console.log(`save JSON: ${(json.length / 1024 / 1024).toFixed(2)} MB, round-trips: ${back.season === state.season}`);
 console.log(`inbox items: ${state.inbox.length}, careers tracked: ${Object.keys(state.careers).length}`);
 
-// ── Club Players (v1.66) ──────────────────────────────────────────────────
-// Everyone who has ever worn the shirt. Checked here because it is built by
-// walking career rows, which the rollover folds (lib/archive.ts) — a spell has
-// to survive that fold, so it needs a multi-season save to be worth asserting.
-const roll = clubPlayerHistory(state, state.userTeamId);
-const stillHere = roll.filter((s) => s.leftSeason === null);
-console.log(`\n── Club Players ──`);
-console.log(`ever played for the club: ${roll.length} (${stillHere.length} still in club, ${roll.length - stillHere.length} former)`);
-const longest = roll.slice().sort((a, b) => (b.leftSeason ?? state.season) - b.joinedSeason - ((a.leftSeason ?? state.season) - a.joinedSeason))[0];
-if (longest) {
-  console.log(
-    `longest spell: ${longest.name} S${longest.joinedSeason}→${longest.leftSeason ?? "present"} — ${longest.apps} apps, ${longest.goals}g ${longest.assists}a`
-  );
-}
-const squadCovered = state.teams[state.userTeamId].playerIds.every((id) => roll.some((s) => s.playerId === id));
-console.log(`every current squad member listed: ${squadCovered}`);
-// The Academy filter (v1.71) spans every graduate the club ever produced — on the
-// books, promoted, or sold on — so it has to cover the academy squad too.
-const academyRows = roll.filter((s) => s.academy);
-const academyCovered = (state.teams[state.userTeamId].academyPlayerIds ?? []).every((id) =>
-  roll.some((s) => s.playerId === id)
-);
-console.log(
-  `academy filter: ${new Set(academyRows.map((s) => s.playerId)).size} graduates (${academyRows.filter((s) => s.inAcademy).length} on the books) · every prospect listed: ${academyCovered}`
-);
-
 // ── Selling out of the academy (v1.71) ────────────────────────────────────
 // A prospect can be sold straight from the academy, through the same chooser the
 // senior squad uses. The point of the assertion is the AFTERMATH: he has to
-// leave BOTH squad lists, and he has to stay on the club's academy ledger
-// forever — the whole reason the Academy filter can show players who were sold.
+// leave BOTH squad lists, and he has to keep naming this club as the one that
+// raised him — `academyClubId` is never rewritten by a transfer.
 const sellable = (state.teams[state.userTeamId].academyPlayerIds ?? [])
   .map((id) => state.players[id])
   .filter((p) => p && !p.loan && !(state.academy.u21.registered ?? []).includes(p.id))
@@ -258,7 +231,8 @@ if (!forSale) {
   console.log(`  off the academy list: ${!(team.academyPlayerIds ?? []).includes(forSale.id)}`);
   console.log(`  off the senior list:  ${!team.playerIds.includes(forSale.id)}`);
   console.log(`  budget credited:      ${team.budget > before}`);
-  const after = clubPlayerHistory(state, state.userTeamId);
-  const row = after.find((s) => s.playerId === forSale.id);
-  console.log(`  still on the academy ledger after the sale: ${!!row?.academy} (in academy: ${!!row?.inAcademy})`);
+  // `academyClubId` survives every transfer — it is what the Academy screen's
+  // graduate list reads, so a sold prospect must still name the club that
+  // raised him.
+  console.log(`  still names this club as his academy: ${state.players[forSale.id]?.academyClubId === state.userTeamId}`);
 }

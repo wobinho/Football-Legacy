@@ -1,7 +1,7 @@
 // Record Book (§13): the museum of the save. Season summaries stored forever;
 // match detail compresses into these at rollover.
 
-import type { GameState, SeasonSummary, PlayerBio } from "./types";
+import type { AccoladeType, AwardWinner, GameState, SeasonSummary, PlayerBio } from "./types";
 import { computeTable } from "./season";
 import { seasonYearLabel } from "./calendar";
 import { activePlayers } from "./archive";
@@ -21,6 +21,32 @@ function topScorerOf(state: GameState, leagueId: string): { playerId: string; na
     teamName: best.clubId ? state.teams[best.clubId].name : "—",
     goals: best.stats.goals,
   };
+}
+
+/**
+ * Who lost the domestic cup final (v1.91).
+ *
+ * The cup keeps no record of its beaten finalist — only `winnerId` — so this
+ * reads the final round's played tie and takes the club that isn't the winner.
+ * Null when the last round staged no tie at all (a bracket that ran out of
+ * clubs and crowned a survivor by reputation), which is an honest "nobody was
+ * beaten in a final" rather than a guess.
+ */
+function cupRunnerUpOf(state: GameState): { teamId: string; teamName: string } | null {
+  const winnerId = state.cup.winnerId;
+  if (!winnerId) return null;
+  const lastRound = state.schedule.cupRoundDays.length;
+  const final = state.fixtures.find(
+    (f) =>
+      f.competition === "CUP" &&
+      f.round === lastRound &&
+      f.played &&
+      (f.homeId === winnerId || f.awayId === winnerId)
+  );
+  if (!final) return null;
+  const loserId = final.homeId === winnerId ? final.awayId : final.homeId;
+  const team = state.teams[loserId];
+  return team ? { teamId: loserId, teamName: team.name } : null;
 }
 
 export function buildSeasonSummary(state: GameState): SeasonSummary {
@@ -102,6 +128,7 @@ export function buildSeasonSummary(state: GameState): SeasonSummary {
     cupWinner: state.cup.winnerId
       ? { teamId: state.cup.winnerId, teamName: state.teams[state.cup.winnerId].name }
       : null,
+    cupRunnerUp: cupRunnerUpOf(state),
     // Continental champions (v1.67). Captured here because the rollover rebuilds
     // `state.european` for the next campaign a few steps later — read it now or
     // the season's European winners are gone for good, which is why the review
@@ -109,12 +136,25 @@ export function buildSeasonSummary(state: GameState): SeasonSummary {
     europeanWinners: (state.european?.cups ?? [])
       .filter((c) => c.winnerId && state.teams[c.winnerId])
       .sort((a, b) => a.tier - b.tier)
-      .map((c) => ({
-        tier: c.tier,
-        cupName: c.name,
-        teamId: c.winnerId!,
-        teamName: state.teams[c.winnerId!].name,
-      })),
+      .map((c) => {
+        // The beaten finalist is the other club in the cup's own final tie
+        // (round 3). Read here for the same reason the winner is: the rollover
+        // rebuilds `state.european` a few steps later and the tie is gone.
+        const final = c.ties.find((t) => t.round === 3 && t.winnerId);
+        const loserId = final
+          ? final.winnerId === final.teamAId
+            ? final.teamBId
+            : final.teamAId
+          : undefined;
+        return {
+          tier: c.tier,
+          cupName: c.name,
+          teamId: c.winnerId!,
+          teamName: state.teams[c.winnerId!].name,
+          runnerUpId: loserId && state.teams[loserId] ? loserId : undefined,
+          runnerUpName: loserId ? state.teams[loserId]?.name : undefined,
+        };
+      }),
     finalTables,
     topScorers,
     playerOfSeason: poty
@@ -131,6 +171,429 @@ export function buildSeasonSummary(state: GameState): SeasonSummary {
     promoted: [],
     relegated: [],
   };
+}
+
+// ── The roll of honour (v1.89) ────────────────────────────────────────────
+//
+// The save has stored every season's champions since v1 — per league, the
+// domestic cup, and (since v1.67) each European cup. What it never had was a way
+// to READ that history as a competition's own story: the Club screen listed
+// seasons, so answering "who has won this league, and how often?" meant opening
+// twenty season reviews and counting.
+//
+// Everything below is DERIVED from `state.recordBook.seasons` on demand. Nothing
+// new is stored and no migration is needed — a save that has played ten seasons
+// already contains its own honours list, it simply had no reader. That also
+// means the two views can never disagree: the roll of honour and the season
+// review are the same rows, grouped differently.
+
+/** One competition's winner in one season. */
+export interface HonourRow {
+  season: number;
+  yearLabel: string;
+  teamId: string;
+  teamName: string;
+}
+
+/** A competition and everyone who has ever won it. */
+export interface CompetitionHistory {
+  /** League id, "CUP", or the European cup's competition key. */
+  id: string;
+  name: string;
+  kind: "league" | "cup" | "european";
+  /** Tier, for ordering leagues top-flight first. European cups use their own
+   * tier (1 = the premier competition). */
+  tier: number;
+  /** Every season's winner, most recent first. */
+  winners: HonourRow[];
+  /** Clubs by titles won, most first — the competition's all-time table. */
+  titles: { teamId: string; teamName: string; count: number; seasons: number[] }[];
+}
+
+/** Roll `winners` into an all-time title count, most titles first. Ties break on
+ * the most recent win, so the club that won it last season edges one that won
+ * the same number a decade ago. */
+function tallyTitles(winners: HonourRow[]): CompetitionHistory["titles"] {
+  const byTeam = new Map<string, { teamId: string; teamName: string; count: number; seasons: number[] }>();
+  for (const w of winners) {
+    // Keyed by id, but the NAME is refreshed from the most recent win — a club
+    // renamed by a custom database should read under the name it carries now.
+    const row = byTeam.get(w.teamId) ?? { teamId: w.teamId, teamName: w.teamName, count: 0, seasons: [] };
+    row.count += 1;
+    row.seasons.push(w.season);
+    byTeam.set(w.teamId, row);
+  }
+  return [...byTeam.values()]
+    .map((r) => ({ ...r, seasons: r.seasons.sort((a, b) => b - a) }))
+    .sort((a, b) => b.count - a.count || (b.seasons[0] ?? 0) - (a.seasons[0] ?? 0));
+}
+
+/**
+ * Every competition in the save with a winners list, ready to render.
+ *
+ * Ordered the way a trophy cabinet reads: the domestic pyramid top-first, then
+ * the cup, then the continental competitions. A competition nobody has won yet
+ * is omitted rather than shown empty — in season one that is all of them, and a
+ * page of blank cards says less than an honest "no history yet".
+ *
+ * League NAMES come from live state where the league still exists, so a division
+ * renamed mid-save reads consistently; the stored summary's name is the fallback
+ * for a league that has since gone (a database change between saves).
+ */
+export function competitionHistories(state: GameState): CompetitionHistory[] {
+  const seasons = state.recordBook.seasons;
+  const out: CompetitionHistory[] = [];
+
+  // ── Leagues ──────────────────────────────────────────────────────────────
+  // Driven off what the summaries actually recorded rather than off the current
+  // league list, so a division the save no longer runs keeps its history.
+  const leagueIds = new Set<string>();
+  for (const s of seasons) for (const id of Object.keys(s.championsByLeague)) leagueIds.add(id);
+  for (const id of leagueIds) {
+    const winners: HonourRow[] = [];
+    for (const s of seasons) {
+      const champ = s.championsByLeague[id];
+      if (champ) winners.push({ season: s.season, yearLabel: s.yearLabel, ...champ });
+    }
+    if (!winners.length) continue;
+    winners.reverse(); // most recent first
+    out.push({
+      id,
+      name: state.leagues[id]?.name ?? id,
+      kind: "league",
+      tier: state.leagues[id]?.tier ?? 99,
+      winners,
+      titles: tallyTitles(winners),
+    });
+  }
+
+  // ── Domestic cup ─────────────────────────────────────────────────────────
+  const cupWinners: HonourRow[] = [];
+  for (const s of seasons) {
+    if (s.cupWinner) cupWinners.push({ season: s.season, yearLabel: s.yearLabel, ...s.cupWinner });
+  }
+  if (cupWinners.length) {
+    cupWinners.reverse();
+    out.push({
+      id: "CUP",
+      // The cup carries no name of its own in the schema; "Cup" is what every
+      // other surface labels it (see Competition.tsx), so it is what this uses.
+      name: "Cup",
+      kind: "cup",
+      tier: 0,
+      winners: cupWinners,
+      titles: tallyTitles(cupWinners),
+    });
+  }
+
+  // ── European cups ────────────────────────────────────────────────────────
+  // `europeanWinners` is absent on pre-v1.67 summaries and empty in a season with
+  // no continental football, so both simply contribute nothing.
+  const euro = new Map<string, { name: string; tier: number; winners: HonourRow[] }>();
+  for (const s of seasons) {
+    for (const w of s.europeanWinners ?? []) {
+      const key = `EURO${w.tier}`;
+      const row = euro.get(key) ?? { name: w.cupName, tier: w.tier, winners: [] };
+      row.winners.push({ season: s.season, yearLabel: s.yearLabel, teamId: w.teamId, teamName: w.teamName });
+      euro.set(key, row);
+    }
+  }
+  for (const [id, row] of euro) {
+    row.winners.reverse();
+    out.push({ id, name: row.name, kind: "european", tier: row.tier, winners: row.winners, titles: tallyTitles(row.winners) });
+  }
+
+  // The manager's OWN pyramid first, top division down; then their cup; then
+  // everything else. Every top flight in the world is `tier: 1`, so sorting on
+  // tier alone buried the user's league behind whichever foreign division sorted
+  // first alphabetically — on a page about their club's history, their own
+  // competitions are what they came to read.
+  const ownDivision = new Map(state.divisionIds.map((id, i) => [id, i]));
+  const rank = (c: CompetitionHistory): number => {
+    if (c.kind === "league" && ownDivision.has(c.id)) return ownDivision.get(c.id)!; // 0,1,2…
+    if (c.kind === "cup") return 100;
+    if (c.kind === "european") return 200 + c.tier;
+    return 300 + c.tier; // foreign leagues, top flights first
+  };
+  return out.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+}
+
+// ── The world's history, season by season (v1.91) ─────────────────────────
+//
+// `competitionHistories` above answers "who has won this, and how often" — a
+// per-competition all-time table. This answers the other question: "what
+// happened everywhere, that season?" — the champion AND the podium behind them,
+// for every league in the world, plus the two finalists of every cup.
+//
+// Same source, same rule as everything else in this file: DERIVED from
+// `state.recordBook.seasons` on demand, nothing stored, no migration. The top
+// four come from the season's own `finalTables`, which have been recorded since
+// v1 for every league the save runs, playable or simulated — so a save deep
+// enough to have a history already contains all of this.
+
+/** One club's finishing place in a league season. */
+export interface LeaguePlace {
+  position: number;
+  teamId: string;
+  teamName: string;
+  points: number;
+  goalDifference: number;
+}
+
+/** One league's season: who won it and who else made the podium. */
+export interface LeagueSeasonResult {
+  season: number;
+  yearLabel: string;
+  /** Champions first, down to 4th — fewer if the division is smaller than that. */
+  top: LeaguePlace[];
+}
+
+/** A division and every season of it the save has recorded. */
+export interface LeagueHistory {
+  id: string;
+  name: string;
+  country: string;
+  tier: number;
+  /** True for a division in the manager's own pyramid — the UI leads with these. */
+  own: boolean;
+  /** Most recent season first. */
+  seasons: LeagueSeasonResult[];
+}
+
+/** A cup final: the two clubs that contested it. `runnerUp` is absent on
+ * pre-v1.91 summaries, which recorded only the winner. */
+export interface CupSeasonResult {
+  season: number;
+  yearLabel: string;
+  winner: { teamId: string; teamName: string };
+  runnerUp?: { teamId: string; teamName: string };
+}
+
+export interface CupHistory {
+  id: string;
+  name: string;
+  kind: "cup" | "european";
+  /** Ordering only: the domestic cup leads, then the European cups by tier. */
+  tier: number;
+  /** Most recent season first. */
+  seasons: CupSeasonResult[];
+}
+
+/** How many places below the champion the history view shows. Four is the
+ * podium a league season is actually remembered by — the title race plus who
+ * else got into Europe. */
+const LEAGUE_PLACES = 4;
+
+/**
+ * Every league in the save with a recorded season, grouped-ready for the UI.
+ *
+ * Ordered nation-first with the manager's own country leading, and within a
+ * nation by tier, so the list reads as pyramids rather than as an alphabet. A
+ * league the world no longer runs (a database change between saves) keeps its
+ * history and falls back to its stored id for a name, exactly as
+ * `competitionHistories` does.
+ */
+export function leagueHistories(state: GameState): LeagueHistory[] {
+  const seasons = state.recordBook.seasons;
+  const own = new Set(state.divisionIds ?? []);
+  const homeCountry = state.leagues[state.divisionIds?.[0] ?? ""]?.country;
+
+  // Driven off what the summaries recorded, not off the live league list.
+  const ids = new Set<string>();
+  for (const s of seasons) for (const id of Object.keys(s.finalTables)) ids.add(id);
+
+  const out: LeagueHistory[] = [];
+  for (const id of ids) {
+    const league = state.leagues[id];
+    const rows: LeagueSeasonResult[] = [];
+    for (const s of seasons) {
+      const table = s.finalTables[id];
+      if (!table?.length) continue;
+      rows.push({
+        season: s.season,
+        yearLabel: s.yearLabel,
+        top: table.slice(0, LEAGUE_PLACES).map((r, i) => ({
+          position: i + 1,
+          teamId: r.teamId,
+          // The table stores ids only, so the name is looked up live and falls
+          // back to the id for a club the save has since dropped.
+          teamName: state.teams[r.teamId]?.name ?? r.teamId,
+          points: r.points,
+          goalDifference: r.gf - r.ga,
+        })),
+      });
+    }
+    if (!rows.length) continue;
+    rows.reverse(); // most recent first
+    out.push({
+      id,
+      name: league?.name ?? id,
+      country: league?.country ?? "—",
+      tier: league?.tier ?? 99,
+      own: own.has(id),
+      seasons: rows,
+    });
+  }
+
+  return out.sort(
+    (a, b) =>
+      // The manager's own pyramid first, then their nation, then everyone else
+      // alphabetically; within a country, top flight down.
+      Number(b.own) - Number(a.own) ||
+      Number(b.country === homeCountry) - Number(a.country === homeCountry) ||
+      a.country.localeCompare(b.country) ||
+      a.tier - b.tier ||
+      a.name.localeCompare(b.name)
+  );
+}
+
+/**
+ * Every cup in the save — the domestic one and each European competition —
+ * with both finalists per season.
+ *
+ * Separate from `leagueHistories` because a cup has no table: its season is two
+ * clubs, not a podium, and folding them into one shape would mean rendering an
+ * empty "2nd/3rd/4th" for every cup ever played.
+ */
+export function cupHistories(state: GameState): CupHistory[] {
+  const seasons = state.recordBook.seasons;
+  const out: CupHistory[] = [];
+
+  const domestic: CupSeasonResult[] = [];
+  for (const s of seasons) {
+    if (!s.cupWinner) continue;
+    domestic.push({
+      season: s.season,
+      yearLabel: s.yearLabel,
+      winner: s.cupWinner,
+      runnerUp: s.cupRunnerUp ?? undefined,
+    });
+  }
+  if (domestic.length) {
+    domestic.reverse();
+    out.push({ id: "CUP", name: "Cup", kind: "cup", tier: 0, seasons: domestic });
+  }
+
+  const euro = new Map<string, CupHistory>();
+  for (const s of seasons) {
+    for (const w of s.europeanWinners ?? []) {
+      const key = `EURO${w.tier}`;
+      const row =
+        euro.get(key) ?? { id: key, name: w.cupName, kind: "european" as const, tier: w.tier, seasons: [] };
+      row.seasons.push({
+        season: s.season,
+        yearLabel: s.yearLabel,
+        winner: { teamId: w.teamId, teamName: w.teamName },
+        runnerUp:
+          w.runnerUpId && w.runnerUpName
+            ? { teamId: w.runnerUpId, teamName: w.runnerUpName }
+            : undefined,
+      });
+      euro.set(key, row);
+    }
+  }
+  for (const row of euro.values()) {
+    row.seasons.reverse();
+    out.push(row);
+  }
+
+  return out.sort((a, b) => a.tier - b.tier);
+}
+
+// ── What's BEHIND a tally on the accolades screen (v1.91) ─────────────────
+//
+// `state.progress.accolades` holds counts — 3 league titles, 11 player honours.
+// A count is a claim with nothing to inspect: it says the manager won three
+// leagues but not which, or when. Everything below re-derives the ROWS those
+// counts were accumulated from, so clicking a number opens the seasons it is
+// made of.
+//
+// Derived, never stored, from the same two sources the counters read at the
+// rollover: `clubHonours` for team silverware and each season summary's own
+// accolade block for the individual honours. That is what keeps the modal and
+// the headline number from drifting — they are the same rows, counted once and
+// listed once.
+
+/** One individual honour won by one of the manager's players. */
+export interface PlayerHonourRow {
+  season: number;
+  yearLabel: string;
+  /** `ACCOLADE_META` key — the UI reads the title and emoji from there. */
+  type: AccoladeType;
+  playerId: string;
+  playerName: string;
+  /** The division it was won in; absent for the two save-wide legacy awards. */
+  leagueName?: string;
+}
+
+/**
+ * Every individual honour won by a player of the manager's club, most recent
+ * first.
+ *
+ * Read off each season summary's stored accolade block and filtered to the
+ * user's club exactly as `userPlayerAwardsIn` counts them, so the list length
+ * matches the "Player Honours" tally by construction. A team-of-the-season pick
+ * counts as one honour each, which is what the counter does too.
+ */
+export function userPlayerHonours(state: GameState): PlayerHonourRow[] {
+  const out: PlayerHonourRow[] = [];
+  const userTeamId = state.userTeamId;
+
+  for (const s of state.recordBook.seasons) {
+    const acc = s.accolades;
+    if (!acc) continue; // pre-v24 summary: no honours recorded at all
+    const add = (type: AccoladeType, w: AwardWinner | undefined, leagueName?: string) => {
+      if (!w || w.teamId !== userTeamId) return;
+      out.push({
+        season: s.season,
+        yearLabel: s.yearLabel,
+        type,
+        playerId: w.playerId,
+        playerName: w.name,
+        leagueName,
+      });
+    };
+
+    for (const [leagueId, block] of Object.entries(acc.byLeague)) {
+      // The league NAME is looked up live and falls back to the id, the same
+      // way every other view in this file handles a division the save dropped.
+      const leagueName = state.leagues[leagueId]?.name ?? leagueId;
+      add("playerOfSeason", block.playerOfSeason, leagueName);
+      add("youngPlayerOfSeason", block.youngPlayerOfSeason, leagueName);
+      add("goldenBoot", block.goldenBoot, leagueName);
+      add("goldenPlaymaker", block.goldenPlaymaker, leagueName);
+      add("goldenGlove", block.goldenGlove, leagueName);
+      add("goldenWall", block.goldenWall, leagueName);
+      for (const w of block.teamOfSeason ?? []) add("teamOfSeason", w, leagueName);
+    }
+    add("legacyPlayerOfSeason", acc.legacyPlayerOfSeason);
+    for (const w of acc.legacyTeamOfSeason ?? []) add("legacyTeamOfSeason", w);
+  }
+
+  return out.sort((a, b) => b.season - a.season || a.type.localeCompare(b.type));
+}
+
+/**
+ * Every trophy the user's club has ever lifted, most recent first (v1.89).
+ *
+ * The same rows as `competitionHistories`, filtered to one club and flattened
+ * back into season order — which is the question "what have WE won?" rather than
+ * "who has won this?". Kept here rather than derived in the component so the
+ * cabinet and the roll of honour can never disagree about what counts as a
+ * trophy.
+ */
+export function clubHonours(
+  state: GameState,
+  teamId: string
+): { season: number; yearLabel: string; competition: string; kind: CompetitionHistory["kind"] }[] {
+  const out: { season: number; yearLabel: string; competition: string; kind: CompetitionHistory["kind"] }[] = [];
+  for (const comp of competitionHistories(state)) {
+    for (const w of comp.winners) {
+      if (w.teamId !== teamId) continue;
+      out.push({ season: w.season, yearLabel: w.yearLabel, competition: comp.name, kind: comp.kind });
+    }
+  }
+  return out.sort((a, b) => b.season - a.season || a.competition.localeCompare(b.competition));
 }
 
 /**
@@ -157,169 +620,6 @@ export function trackBiggestWin(state: GameState, fixture: { homeId: string; awa
   const oppName = state.teams[isHome ? fixture.awayId : fixture.homeId]?.name ?? "—";
   const text = isHome ? `${state.teams[userId].name} ${hg}–${ag} ${oppName}` : `${oppName} ${hg}–${ag} ${state.teams[userId].name} (away)`;
   state.recordBook.biggestWin = { season: state.season, text, margin, goalsFor: own };
-}
-
-/**
- * Everyone who has ever pulled on the shirt (v1.66) — the club's roll of honour.
- *
- * Built from the same source as the record book: career rows name the club they
- * were played for, so a spell is the run of seasons carrying this club's name,
- * plus the current season for anyone on the books right now. `leftSeason` is
- * null while a player is still here, which is what the UI renders as "present".
- *
- * A player who left and came back has one entry per spell — that is what a club
- * history actually records, and folding them into one row would invent a
- * continuous stay that never happened.
- */
-export interface ClubSpell {
-  playerId: string;
-  name: string;
-  nationality?: string;
-  pos?: import("./types").Pos;
-  /** Season the spell began, and the season it ended — null while still here. */
-  joinedSeason: number;
-  leftSeason: number | null;
-  current: boolean;
-  apps: number;
-  goals: number;
-  assists: number;
-  cleanSheets: number;
-  /** Minutes-weighted mean of the seasons in this spell, 0 when he never played. */
-  avgRating: number;
-  retired: boolean;
-  /** He came through THIS club's academy (v1.71). Permanent — it stays true
-   * after he's promoted, sold, or retired, because `academyClubId` is never
-   * rewritten by a transfer. This is what the club's "Academy" filter reads. */
-  academy: boolean;
-  /** Still on the club's books as an academy prospect right now. A graduate who
-   * has since been promoted is `academy` but not this. */
-  inAcademy: boolean;
-}
-
-export function clubPlayerHistory(state: GameState, teamId: string): ClubSpell[] {
-  const teamName = state.teams[teamId].name;
-  const currentSquad = new Set(state.teams[teamId].playerIds);
-  // Prospects on the books today. Kept separate from the senior squad because a
-  // prospect isn't "in the squad", but he is very much on the club's books.
-  const academySquad = new Set(state.teams[teamId].academyPlayerIds ?? []);
-  const out: ClubSpell[] = [];
-
-  const seen = new Set<string>();
-  for (const c of Object.values(state.careers)) {
-    const rows = c.seasons.filter((r) => r.clubName === teamName);
-    if (!rows.length) continue;
-    seen.add(c.playerId);
-    const p = state.players[c.playerId];
-    rows.sort((a, b) => a.season - b.season);
-
-    // Walk the rows and cut a new spell wherever there is a gap in the seasons.
-    // A folded summary row (lib/archive.ts) covers a RANGE, so its end season is
-    // read off the `from–to` label it carries rather than assumed to be one year.
-    let spell: { rows: typeof rows; from: number; to: number } | null = null;
-    const spells: { rows: typeof rows; from: number; to: number }[] = [];
-    for (const row of rows) {
-      const m = /^(\d+)–(\d+)/.exec(row.competition);
-      const to = m ? Number(m[2]) : row.season;
-      if (spell && row.season <= spell.to + 1) {
-        spell.rows.push(row);
-        spell.to = Math.max(spell.to, to);
-      } else {
-        spell = { rows: [row], from: row.season, to };
-        spells.push(spell);
-      }
-    }
-
-    for (const s of spells) {
-      const apps = s.rows.reduce((n, r) => n + r.apps, 0);
-      const ratingSum = s.rows.reduce((n, r) => n + r.avgRating * r.apps, 0);
-      // The last spell is the live one only if he is on the books today.
-      const isLast = s === spells[spells.length - 1];
-      const isCurrent = isLast && currentSquad.has(c.playerId);
-      // A prospect who has played U21 football has career rows naming the club,
-      // so he arrives here — but he is not in the SENIOR squad, which is what
-      // `current` means. He hasn't left either, so his spell stays open (v1.71):
-      // without this he read as a departure the season he was still in the
-      // academy.
-      const isHere = isCurrent || (isLast && academySquad.has(c.playerId));
-      out.push({
-        playerId: c.playerId,
-        name: p?.name ?? "?",
-        nationality: p?.nationality,
-        pos: p?.positions[0],
-        joinedSeason: s.from,
-        leftSeason: isHere ? null : s.to,
-        current: isCurrent,
-        apps: apps + (isCurrent ? p?.stats.apps ?? 0 : 0),
-        goals: s.rows.reduce((n, r) => n + r.goals, 0) + (isCurrent ? p?.stats.goals ?? 0 : 0),
-        assists: s.rows.reduce((n, r) => n + r.assists, 0) + (isCurrent ? p?.stats.assists ?? 0 : 0),
-        cleanSheets:
-          s.rows.reduce((n, r) => n + (r.cleanSheets ?? 0), 0) + (isCurrent ? p?.stats.cleanSheets ?? 0 : 0),
-        avgRating: apps ? Math.round((ratingSum / apps) * 100) / 100 : 0,
-        retired: !!p?.retired,
-        academy: p?.academyClubId === teamId,
-        inAcademy: academySquad.has(c.playerId),
-      });
-    }
-  }
-
-  // Anyone signed this season has no career row yet — his first one is written
-  // at the rollover — so the current squad is added from live stats. Academy
-  // prospects (v1.71) join them: they're on the club's books and the ledger's
-  // "Academy" filter has to find them, but they've played no senior football, so
-  // they carry live stats and no spell history either.
-  const live = (p: PlayerBio, current: boolean, joinedSeason: number, leftSeason: number | null): ClubSpell => ({
-    playerId: p.id,
-    name: p.name,
-    nationality: p.nationality,
-    pos: p.positions[0],
-    joinedSeason,
-    leftSeason,
-    current,
-    apps: p.stats.apps,
-    goals: p.stats.goals,
-    assists: p.stats.assists,
-    cleanSheets: p.stats.cleanSheets ?? 0,
-    avgRating: p.stats.apps ? Math.round((p.stats.ratingSum / p.stats.apps) * 100) / 100 : 0,
-    retired: !!p.retired,
-    academy: p.academyClubId === teamId,
-    inAcademy: academySquad.has(p.id),
-  });
-
-  for (const pid of [...state.teams[teamId].playerIds, ...academySquad]) {
-    if (seen.has(pid)) continue;
-    seen.add(pid);
-    const p = state.players[pid];
-    if (!p) continue;
-    // `current` means the SENIOR squad — it is what the ledger counts as "in the
-    // squad today". A prospect is on the books but not in it, so his spell is
-    // open (leftSeason null) without being current.
-    out.push(live(p, !academySquad.has(pid), state.season, null));
-  }
-
-  // Graduates who have LEFT (v1.71): sold, released, or moved on years ago and
-  // never logged a senior season here. `academyClubId` survives every transfer,
-  // so the club's own production line stays visible in its ledger even when a
-  // prospect was sold before he ever played a first-team game. Iterating every
-  // player is the same full-world pass `academyGraduates` already makes, and it
-  // must include retirees — a graduate's record doesn't end when he stops.
-  for (const p of Object.values(state.players)) {
-    if (!p || seen.has(p.id) || p.academyClubId !== teamId) continue;
-    seen.add(p.id);
-    // He's gone, so the spell is closed. Without a career row naming the club
-    // there is no honest departure season to quote — the current one is the
-    // best the save actually knows. His live stats belong to whoever he plays
-    // for NOW, so they're zeroed rather than credited to this club: he genuinely
-    // never played a senior game here.
-    out.push({ ...live(p, false, state.season, state.season), apps: 0, goals: 0, assists: 0, cleanSheets: 0, avgRating: 0 });
-  }
-
-  // Current players first, then the most recent departures.
-  return out.sort(
-    (a, b) =>
-      Number(b.current) - Number(a.current) ||
-      (b.leftSeason ?? Infinity) - (a.leftSeason ?? Infinity) ||
-      b.apps - a.apps
-  );
 }
 
 /** All-time club records computed from careers on demand (no extra store). */

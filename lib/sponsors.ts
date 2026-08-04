@@ -100,8 +100,8 @@ const TIER_NAMES = ["Regional", "National", "Global"];
  * The ANNUAL value of a major (lump-sum) offer in a given slot at a given tier
  * (v1.86).
  *
- * One band read off marketability (`marketabilityOfferAnnual`: £20M at 0, £100M
- * at 100, on a back-loaded curve), scaled by the slot's share of the shirt
+ * One band read off marketability (`marketabilityOfferAnnual`: £16M at 0, £80M
+ * at 100 since v1.91, on a back-loaded curve), scaled by the slot's share of the shirt
  * baseline and by which calibre of suitor rolled. That is the whole sum.
  *
  * It replaced a stack of five multipliers — reputation × slot share × division

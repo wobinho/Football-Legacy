@@ -9,10 +9,11 @@
 // compose: build players, then assemble clubs from them. Placement into a world
 // happens later, at new-game setup — nothing here touches a running save.
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { LibraryClub, LibraryPlayer } from "@/lib/customdb";
-import { libraryId } from "@/lib/customdb";
+import { libraryId, seedToLibraryPlayer } from "@/lib/customdb";
+import { parseSquadFile, squadFileToLibraryClub } from "@/lib/squadfile";
 import { NAME_POOLS } from "@/lib/config/names";
 import { COUNTRIES } from "@/lib/config/countries";
 import { PRESETS } from "@/lib/config/presets";
@@ -72,6 +73,8 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
   // Import-from-the-default-database browser (v1.47). Open on whichever tab the
   // user is on, so "Import" always means the thing they're currently looking at.
   const [importOpen, setImportOpen] = useState(false);
+  /** Hidden file picker for a squad exported out of a running save (v1.92). */
+  const squadFileInput = useRef<HTMLInputElement>(null);
 
   // Search both libraries by name (and clubs by short code); empty = show all.
   // Accent-insensitive throughout (v1.5): "Doue" finds "Doué". Player search
@@ -91,6 +94,44 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
     [library.players, q]
   );
 
+  /**
+   * Import a squad exported from a running save (v1.92) — Club → Save → Export
+   * Squad. It lands as an ordinary library club with an authored roster, so from
+   * here it edits and places exactly like any other entry.
+   *
+   * The roster is saved into the PLAYERS library too, not just onto the club.
+   * That is not redundancy: `LibraryClubModal` re-maps a club's roster to
+   * library players by (name, position) when it saves, so a club whose players
+   * aren't in the library would quietly lose its entire squad the first time the
+   * user opened and re-saved it. Same reason, and the same de-duplication, as
+   * the import-from-default path below.
+   */
+  const importSquadFile = async (file: File) => {
+    try {
+      const parsed = parseSquadFile(await file.text());
+      const club = squadFileToLibraryClub(parsed);
+      const roster = (club.players ?? []).map((seed) => seedToLibraryPlayer(seed, seed.nationality ?? "ENG"));
+
+      const key = (n: string, p: string) => `${n.toLowerCase()}|${p}`;
+      const existing = new Set(library.players.map((p) => key(p.name, p.positions[0])));
+      let added = 0;
+      for (const p of roster) {
+        if (existing.has(key(p.name, p.positions[0]))) continue;
+        saveLibraryPlayer(p);
+        existing.add(key(p.name, p.positions[0]));
+        added++;
+      }
+      saveLibraryClub(club);
+      setTab("clubs");
+      showToast(
+        `${club.name} imported from ${parsed.origin.saveName} (season ${parsed.origin.season}) — ` +
+          `${club.players?.length ?? 0} players${added ? `, ${added} new to your library` : ""}.`
+      );
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "That squad file couldn't be read.");
+    }
+  };
+
   /** Save a copy of a library entry under a new id so the user can spin a variant
    * (a B-team, an alternate Haaland) without rebuilding it. */
   const duplicateClub = (c: LibraryClub) => {
@@ -109,8 +150,10 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
         <p className="mt-1 text-sm text-dim">
           Build custom clubs and players, or <b className="text-ink">import them from the default database</b> and edit
           the real thing — change Liverpool&apos;s squad, retune a player, then drop your version into a new legacy.
-          Attach players to a club to author a whole team that plugs into any save intact. Your library lives on this
-          device, tied to your key; the shipped database is never modified.
+          Attach players to a club to author a whole team that plugs into any save intact. You can also{" "}
+          <b className="text-ink">import a squad you exported from a running save</b> (Club → Save → Export Squad) and
+          carry your team into the next legacy. Your library lives on this device, tied to your key; the shipped
+          database is never modified.
         </p>
       </div>
 
@@ -146,6 +189,9 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
             <div className="flex items-center gap-3">
               <button onClick={() => setImportOpen(true)} className="text-[11px] text-gold hover:underline">
                 ↓ Import from default
+              </button>
+              <button onClick={() => squadFileInput.current?.click()} className="text-[11px] text-gold hover:underline">
+                ↥ Import a squad file
               </button>
               <button onClick={() => setClubModal("new")} className="text-[11px] text-gold hover:underline">
                 ＋ Create a club
@@ -253,6 +299,21 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
       <div className="flex justify-between pt-2">
         <GhostButton onClick={onBack}>← Back to menu</GhostButton>
       </div>
+
+      {/* Squad-file picker (v1.92). Hidden; driven by the "Import a squad file"
+          button above. Reset to "" after each pick so re-choosing the same file
+          fires a change event. */}
+      <input
+        ref={squadFileInput}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) void importSquadFile(f);
+        }}
+      />
 
       {/* Import browser (v1.47): copies a real club/player out of the shipped
           database and straight into the library, where it edits like any other

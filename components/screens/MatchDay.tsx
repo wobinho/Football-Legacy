@@ -3,10 +3,17 @@
 // Match Day (§15.4): event-based text sim watchable in ~30–60s, or instant
 // result. Halftime exposes the one in-match interaction point (§6).
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { Fixture, MatchEvent, MatchResult, Mentality, PlayerBio, Style } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
+import {
+  isFinalLeagueRound,
+  liveScoresFor,
+  liveTable,
+  scoreAt,
+  type LiveScore,
+} from "@/lib/livescores";
 import {
   createMatch,
   playSegments,
@@ -63,6 +70,10 @@ export default function MatchDayScreen() {
   /** Bumped whenever a sub or a shape change is applied, so the touchline panel
    * re-reads the engine state it renders straight out of `matchRef`. */
   const [touchlineRev, setTouchlineRev] = useState(0);
+  /** Final-day scoreboard: the rest of the division, live alongside your match.
+   * Off by default — it is a deliberate choice to watch the title race rather
+   * than something that appears over your own game unasked. */
+  const [scoreboard, setScoreboard] = useState(false);
   const matchRef = useRef<MatchState | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const speedRef = useRef(1);
@@ -101,6 +112,7 @@ export default function MatchDayScreen() {
       setDoneFixture(null);
       setPaused(false);
       setSubsOpen(false);
+      setScoreboard(false);
     }
   }, [liveId]);
 
@@ -376,6 +388,26 @@ export default function MatchDayScreen() {
   const live = phase === "first" || phase === "second";
 
   const { h, a } = result ? { h: result.homeGoals, a: result.awayGoals } : scoreFromEvents(visibleEvents);
+
+  // ── Final-day scoreboard (§15.4) ──────────────────────────────────────────
+  // Offered only on the last round of the league season — the day the table is
+  // actually decided. Every other matchday keeps the screen clear.
+  //
+  // The other results are already in the save (gameloop plays them before
+  // handing the day back), so this is a read, not a second simulation. The panel
+  // is what times the reveal against your own clock.
+  const isDecider = isFinalLeagueRound(game, fixture);
+  // Assigned minutes are fixed for the whole match — they come off the fixture's
+  // own seed, not off the clock — so this is built once rather than on each of
+  // the ~90 re-renders a watched match causes.
+  const otherScores = useMemo(
+    () => (isDecider ? liveScoresFor(game, fixture) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isDecider, fixture.id]
+  );
+  // Once your match is over the rest of the day is over too: hold the panel at
+  // 90 so it settles on the real final table rather than freezing mid-reveal.
+  const boardMinute = phase === "done" ? 90 : phase === "pre" ? 0 : clock;
   const compLabel =
     fixture.competition === "CUP"
       ? `Cup · ${game.cup.roundNames[fixture.round - 1]}`
@@ -460,6 +492,22 @@ export default function MatchDayScreen() {
             </button>
           </div>
         )}
+        {/* The final-day toggle sits on its own row rather than among the speed
+            controls: it is available before kick-off and after full time too, so
+            it can't live inside the block that only renders while a match runs. */}
+        {isDecider && (
+          <div className="mt-3 flex items-center justify-center border-t border-line/60 pt-3">
+            <button
+              onClick={() => setScoreboard((v) => !v)}
+              title="Follow the rest of the division as your match plays out"
+              className={`display rounded px-3 py-1 text-xs font-semibold ${
+                scoreboard ? "gold-grad text-black" : "border border-line text-dim hover:text-ink"
+              }`}
+            >
+              {scoreboard ? "▾ HIDE OTHER SCORES" : "▸ FINAL DAY · OTHER SCORES & TABLE"}
+            </button>
+          </div>
+        )}
         {/* A stopped clock with the board closed would otherwise sit there saying
             only "PAUSED" — say what the pause is FOR, and give the way back in. */}
         {live && paused && !subsOpen && (
@@ -472,6 +520,16 @@ export default function MatchDayScreen() {
           </p>
         )}
       </div>
+
+      {isDecider && scoreboard && (
+        <FinalDayBoard
+          fixture={fixture}
+          scores={otherScores}
+          minute={boardMinute}
+          userHome={h}
+          userAway={a}
+        />
+      )}
 
       {phase === "pre" && (
         <div className="flex flex-col items-center gap-4">
@@ -733,6 +791,174 @@ function TouchlinePanel({
   );
 }
 
+
+/**
+ * The final day, as a scoreboard (§15.4).
+ *
+ * Two halves of one question — what is happening elsewhere, and what that makes
+ * the table. Both are read off `lib/livescores.ts` at the minute the manager's
+ * own match has reached, so the panel can never show a table the save won't
+ * settle on: at 90' it IS the real final table, because every other result was
+ * already played before kick-off and the user's own line is his actual score.
+ *
+ * The reveal is what makes it worth watching. A match that has just scored is
+ * flashed for a few minutes of match time, so a title changing hands is
+ * something you SEE happen rather than something you notice later in the table.
+ */
+function FinalDayBoard({
+  fixture,
+  scores,
+  minute,
+  userHome,
+  userAway,
+}: {
+  fixture: Fixture;
+  scores: LiveScore[];
+  minute: number;
+  userHome: number;
+  userAway: number;
+}) {
+  const game = useGame((s) => s.game)!;
+  const viewTeam = useGame((s) => s.viewTeam);
+  // The table moves only when a GOAL lands, not on every tick of the clock, so
+  // it is keyed on the scorelines rather than on the minute — most of the 90
+  // re-renders a watched match causes then cost nothing. The key is cheap: it
+  // reads the same `scoreAt` the rows do.
+  const scoreKey = scores.map((s) => {
+    const { home, away } = scoreAt(s, minute);
+    return `${home}-${away}`;
+  }).join("|");
+  const table = useMemo(
+    () => liveTable(game, fixture, scores, minute, userHome, userAway),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fixture.id, scores, scoreKey, userHome, userAway]
+  );
+  const league = game.leagues[fixture.competition];
+  const userPos = table.findIndex((r) => r.teamId === game.userTeamId) + 1;
+
+  return (
+    <div className="mb-5 space-y-3">
+      <div className="flex items-baseline justify-between">
+        <span className="display text-sm font-semibold text-gold">
+          FINAL DAY · {league?.name ?? "LEAGUE"}
+        </span>
+        <span className="text-[11px] text-faint">
+          {minute >= 90 ? "Final table" : `As it stands · ${minute}'`}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        {/* Other matches */}
+        <Card className="max-h-72 overflow-y-auto p-2">
+          {scores.length === 0 ? (
+            <p className="px-2 py-3 text-center text-[12px] text-faint">
+              No other matches in the division today.
+            </p>
+          ) : (
+            <div className="space-y-0.5">
+              {scores.map((s) => (
+                <OtherScoreRow key={s.fixtureId} s={s} minute={minute} />
+              ))}
+            </div>
+          )}
+        </Card>
+
+        {/* Live table */}
+        <Card className="max-h-72 overflow-y-auto p-0">
+          <table className="w-full text-[12px]">
+            <thead className="sticky top-0 bg-raised">
+              <tr className="border-b border-line/60 text-[10px] uppercase tracking-widest text-faint">
+                <th className="py-1.5 pl-2 text-left">#</th>
+                <th className="py-1.5 text-left">Club</th>
+                <th className="py-1.5 text-center">P</th>
+                <th className="py-1.5 text-center">GD</th>
+                <th className="py-1.5 pr-2 text-right">Pts</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line/30">
+              {table.map((r, i) => {
+                const t = game.teams[r.teamId];
+                const mine = r.teamId === game.userTeamId;
+                const gd = r.gf - r.ga;
+                return (
+                  <tr
+                    key={r.teamId}
+                    onClick={() => viewTeam(r.teamId)}
+                    className={`cursor-pointer hover:bg-hover ${mine ? "bg-gold-lo/[0.10]" : ""}`}
+                  >
+                    <td className={`py-1 pl-2 tnum ${i === 0 ? "font-bold text-gold" : "text-faint"}`}>{i + 1}</td>
+                    <td className={`py-1 pr-1 ${mine ? "font-semibold text-gold" : ""}`}>
+                      <span className="block truncate">{t?.name ?? "?"}</span>
+                    </td>
+                    <td className="py-1 text-center tnum text-dim">{r.played}</td>
+                    <td className="py-1 text-center tnum text-dim">{gd > 0 ? `+${gd}` : gd}</td>
+                    <td className="display py-1 pr-2 text-right tnum font-semibold">{r.points}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Card>
+      </div>
+
+      {userPos > 0 && (
+        <p className="text-center text-[11px] text-faint">
+          {minute >= 90 ? "You finish" : "On current scores you finish"}{" "}
+          <span className="display font-semibold text-gold">
+            {userPos}
+            {ordinalSuffix(userPos)}
+          </span>
+          {userPos === 1 && " — champions."}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** One other match on the scoreboard, at the minute your own clock has reached. */
+function OtherScoreRow({ s, minute }: { s: LiveScore; minute: number }) {
+  const game = useGame((s2) => s2.game)!;
+  const viewTeam = useGame((s2) => s2.viewTeam);
+  const { home, away } = scoreAt(s, minute);
+  // A goal in the last few minutes of match time is worth calling out — a title
+  // changing hands should be visible as it happens, not just in the table below.
+  const justScored = s.goals.some((g) => g.minute <= minute && minute - g.minute < 3);
+  const ft = minute >= 90;
+  const h = game.teams[s.homeId];
+  const a = game.teams[s.awayId];
+
+  return (
+    <div
+      className={`flex items-center gap-2 rounded px-2 py-1 text-[12px] ${
+        justScored ? "bg-gold-lo/15" : "hover:bg-hover"
+      }`}
+    >
+      <button
+        onClick={() => viewTeam(s.homeId)}
+        className="min-w-0 flex-1 truncate text-right hover:text-gold"
+      >
+        {h?.name ?? "?"}
+      </button>
+      <span className="display shrink-0 rounded bg-raised px-1.5 py-0.5 tnum font-semibold">
+        {home}–{away}
+      </span>
+      <button
+        onClick={() => viewTeam(s.awayId)}
+        className="min-w-0 flex-1 truncate hover:text-gold"
+      >
+        {a?.name ?? "?"}
+      </button>
+      <span className={`shrink-0 text-[10px] tnum ${ft ? "text-faint" : "text-dim"}`}>
+        {ft ? "FT" : `${minute}'`}
+      </span>
+    </div>
+  );
+}
+
+function ordinalSuffix(n: number): string {
+  if (n % 100 >= 11 && n % 100 <= 13) return "th";
+  return ["th", "st", "nd", "rd"][n % 10] ?? "th";
+}
 
 function shootoutLabel(fixture: Fixture, userTeamId: string): string | null {
   if (!fixture.shootoutWinnerId) return null;

@@ -62,6 +62,7 @@ import {
   type FacilitySpec,
 } from "./config/facilities";
 import { NAME_POOLS } from "./config/names";
+import type { TuningConfig } from "./config/tuning";
 import { mulberry32, pick, randInt, uid, type RNG } from "./rng";
 
 // ── Badges ────────────────────────────────────────────────────────────────
@@ -548,6 +549,29 @@ export function ageStaff(state: GameState): StaffPerson[] {
 
 // ── Wages ─────────────────────────────────────────────────────────────────
 
+/**
+ * What the manager's DIVISION does to every backroom wage and fee (v1.89).
+ *
+ * The single place the tier is read for staffing costs — `config/facilities.ts`
+ * is pure data and must not touch a GameState, and lib/scouts.ts prices through
+ * here too, so the two departments can never drift onto different ladders.
+ * Indexed by tier − 1 and clamped, exactly like the income tables it exists to
+ * sit alongside.
+ *
+ * Note this is resolved at HIRE time and stored on the person, not applied on
+ * every read. A wage is a contract: a coach who signed for a fourth-tier club
+ * doesn't get an automatic rise the week they're promoted, and one signed in the
+ * top flight doesn't take a pay cut on relegation. Renegotiating on promotion
+ * would also mean the Facilities screen quoted a number that changed underneath
+ * the manager for reasons the page never showed.
+ */
+export function staffWageMultiplier(state: GameState, cfg: TuningConfig): number {
+  const table = cfg.staffWageByTier;
+  if (!table?.length) return 1;
+  const tier = state.leagues[state.teams[state.userTeamId]?.leagueId]?.tier ?? 1;
+  return table[Math.max(0, Math.min(table.length - 1, Math.round(tier) - 1))];
+}
+
 /** The backroom wage bill: every employed staff member (assigned or not) plus
  * the scouting department, which is paid the same way. */
 export function staffWageBill(state: GameState): number {
@@ -605,7 +629,7 @@ function generateBadges(rng: RNG, stars: number, age: number): StaffBadge[] {
   return [{ facility: spec.id, seasons, tier }];
 }
 
-function generateCandidate(rng: RNG): StaffCandidate {
+function generateCandidate(rng: RNG, tierMult: number): StaffCandidate {
   const stars = randInt(rng, STAFF_MIN_STARS, STAFF_MAX_STARS);
   // The MARKET's band, not the retirement age: everyone on the shortlist is
   // somewhere in a career, so a hire has decades of badge-earning ahead.
@@ -618,21 +642,24 @@ function generateCandidate(rng: RNG): StaffCandidate {
     nationality,
     age,
     stars,
-    wage: staffWageFor(stars),
-    fee: staffFeeFor(stars, badges.reduce((s, b) => s + badgeWeight(b.tier), 0)),
+    wage: staffWageFor(stars, tierMult),
+    fee: staffFeeFor(stars, badges.reduce((s, b) => s + badgeWeight(b.tier), 0), tierMult),
     badges,
   };
 }
 
-export function generateStaffMarket(seed: number): StaffCandidate[] {
+/** Generate a shortlist. `tierMult` is the manager's divisional wage multiplier
+ * (v1.89) — defaulted to 1 because worldgen builds the first shortlist before
+ * there is a GameState to read a tier from, which is the top flight's rate. */
+export function generateStaffMarket(seed: number, tierMult = 1): StaffCandidate[] {
   const rng = mulberry32(seed);
-  return Array.from({ length: STAFF_MARKET_SIZE }, () => generateCandidate(rng));
+  return Array.from({ length: STAFF_MARKET_SIZE }, () => generateCandidate(rng, tierMult));
 }
 
 /** Swap the whole shortlist for a fresh one. Candidates the user hired are
  * already gone from the list, so this is a straight replacement. */
-export function refreshStaffMarket(state: GameState, seed: number) {
-  state.staffMarket = generateStaffMarket(seed);
+export function refreshStaffMarket(state: GameState, seed: number, cfg: TuningConfig) {
+  state.staffMarket = generateStaffMarket(seed, staffWageMultiplier(state, cfg));
 }
 
 /** Convenience for the UI: the spec list, for rendering the facility cards. */

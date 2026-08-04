@@ -26,7 +26,8 @@ import {
   type Facility,
 } from "@/lib/economy";
 import { facilityLevel } from "@/lib/facilities";
-import { clubAllTimeRecords, clubPlayerHistory } from "@/lib/recordbook";
+import { downloadSquadFile, exportSquad } from "@/lib/squadfile";
+import { clubAllTimeRecords, clubHonours, competitionHistories } from "@/lib/recordbook";
 import { academyGraduates } from "@/lib/academy";
 import { TIER_LABEL, TRAVEL_BAND_LABEL } from "@/lib/scouts";
 import {
@@ -46,11 +47,11 @@ import type { SponsorPayoutChoice } from "@/lib/sponsors";
 import type { SponsorDeal, SponsorOffer } from "@/lib/types";
 import { formatMoney } from "@/lib/value";
 import { gcnFundsOf, gcnOverview } from "@/lib/gcn";
-import { Card, Flag, GhostButton, GoldButton, MoneyInput, Section, Stars, Tabs } from "../ui";
+import { Card, Crest, Flag, GhostButton, GoldButton, MoneyInput, Section, Stars, Tabs } from "../ui";
 import SeasonDetailModal from "./SeasonDetailModal";
 
 // v7: staff moved to Development → Staff, so the Club page no longer has a Staff tab.
-type Tab = "finances" | "income" | "investments" | "history" | "players" | "save";
+type Tab = "finances" | "income" | "investments" | "history" | "save";
 
 export default function ClubScreen() {
   const [tab, setTab] = useState<Tab>("finances");
@@ -62,7 +63,6 @@ export default function ClubScreen() {
           { id: "income", label: "Income" },
           { id: "investments", label: "Investments" },
           { id: "history", label: "History & Records" },
-          { id: "players", label: "Club Players" },
           { id: "save", label: "Save" },
         ]}
         active={tab}
@@ -72,7 +72,6 @@ export default function ClubScreen() {
       {tab === "income" && <IncomeTab />}
       {tab === "investments" && <InvestmentsTab />}
       {tab === "history" && <HistoryTab />}
-      {tab === "players" && <ClubPlayersTab />}
       {tab === "save" && <SaveTab />}
     </div>
   );
@@ -1392,14 +1391,35 @@ function HistoryTab() {
   // The season whose full review is open (v21). Held by season number rather
   // than by object so it survives a re-render of the record book.
   const [openSeason, setOpenSeason] = useState<number | null>(null);
-  const openSummary = seasons.find((s) => s.season === openSeason) ?? null;
+  // The review is also re-opened by the overlay back-stack (v1.91): following a
+  // player out of a season review pushes an `owner` entry keyed on the season,
+  // and his profile's ← unwinds to it. The store can't render this modal itself,
+  // so it reports the id and this screen puts it back on screen.
+  const ownedOverlay = useGame((s) => s.activeOwnedOverlay());
+  const closeOverlays = useGame((s) => s.closeOverlays);
+  const backSeason = ownedOverlay !== null ? Number(ownedOverlay) : null;
+  const shownSeason = openSeason ?? backSeason;
+  const openSummary = seasons.find((s) => s.season === shownSeason) ?? null;
 
   return (
+    <div>
+      {/* The honours board spans the full width above the two-column body: it is
+          the club's story, and squeezing an all-time table plus a season list
+          into half a column makes both unreadable. */}
+      <TrophyCabinet />
+      <RollOfHonour />
+
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+      {/* Seasons Past (v1.91). Each season is one clickable CARD rather than a
+          block of text under a caption saying it was clickable: the whole card
+          is the hit target, it lifts on hover and shows a "Full review →" cue,
+          so the affordance lives on the thing it applies to. */}
       <Section
         title="Seasons Past"
         right={
-          seasons.length > 0 ? <span className="text-xs text-faint">Click a season for the full review</span> : undefined
+          seasons.length > 0 ? (
+            <span className="text-xs text-dim">{seasons.length} recorded</span>
+          ) : undefined
         }
       >
         {seasons.length === 0 && (
@@ -1407,48 +1427,79 @@ function HistoryTab() {
         )}
         <div className="space-y-3">
           {seasons.map((s) => (
-            <Card key={s.season} className="p-0">
-              <button
-                onClick={() => setOpenSeason(s.season)}
-                className="group w-full rounded-lg p-4 text-left hover:bg-hover"
-                aria-label={`Open the ${s.yearLabel} season review`}
-              >
-                <div className="mb-2 flex items-baseline justify-between gap-2">
-                  <span className="display gold-text text-lg font-bold">{s.yearLabel}</span>
-                  <span className="flex items-baseline gap-2 text-xs text-dim">
-                    You: {s.userFinish}
-                    <span className="text-faint transition-transform group-hover:translate-x-0.5">→</span>
+            <button
+              key={s.season}
+              onClick={() => setOpenSeason(s.season)}
+              className="group block w-full rounded-lg border border-line bg-surface p-4 text-left transition-colors hover:border-gold-lo/50 hover:bg-hover"
+              aria-label={`Open the ${s.yearLabel} season review`}
+            >
+              <div className="mb-2 flex items-baseline justify-between gap-2">
+                <span className="display gold-text text-lg font-bold">{s.yearLabel}</span>
+                <span className="flex items-baseline gap-2 text-xs text-dim">
+                  <span>You: {s.userFinish}</span>
+                  <span className="text-faint transition-colors group-hover:text-gold">
+                    Full review <span className="inline-block transition-transform group-hover:translate-x-0.5">→</span>
                   </span>
-                </div>
-                <div className="grid grid-cols-1 gap-1 text-[13px] text-dim sm:grid-cols-2">
-                  <div>🏆 {s.championsByLeague[topDivId]?.teamName ?? "—"}</div>
-                  <div>🏅 Cup: {s.cupWinner?.teamName ?? "—"}</div>
-                  {/* The top continental champion (v1.67) — the season's biggest
-                      trophy after the league, so it belongs on the summary line. */}
-                  {s.europeanWinners?.[0] && (
-                    <div>
-                      ⭐ {s.europeanWinners[0].cupName}: {s.europeanWinners[0].teamName}
-                    </div>
-                  )}
-                  {s.playerOfSeason && <div>Player of the Season: {s.playerOfSeason.name}</div>}
-                  {s.topScorers[topDivId] && (
-                    <div>
-                      Top scorer: {s.topScorers[topDivId].name} ({s.topScorers[topDivId].goals})
-                    </div>
-                  )}
-                  {s.promoted.length > 0 && <div className="text-win">▲ {s.promoted.join(", ")}</div>}
-                  {s.relegated.length > 0 && <div className="text-loss">▼ {s.relegated.join(", ")}</div>}
-                </div>
-                {s.notableTransfers.length > 0 && (
-                  <div className="mt-2 border-t border-line pt-2 text-[12px] text-faint">
-                    Record deal: {s.notableTransfers[0].playerName} to {s.notableTransfers[0].to} ({formatMoney(s.notableTransfers[0].fee)})
+                </span>
+              </div>
+              <div className="grid grid-cols-1 gap-1 text-[13px] text-dim sm:grid-cols-2">
+                <div>🏆 {s.championsByLeague[topDivId]?.teamName ?? "—"}</div>
+                <div>🏅 Cup: {s.cupWinner?.teamName ?? "—"}</div>
+                {/* The top continental champion (v1.67) — the season's biggest
+                    trophy after the league, so it belongs on the summary line. */}
+                {s.europeanWinners?.[0] && (
+                  <div>
+                    ⭐ {s.europeanWinners[0].cupName}: {s.europeanWinners[0].teamName}
                   </div>
                 )}
-              </button>
-            </Card>
+                {s.playerOfSeason && <div>Player of the Season: {s.playerOfSeason.name}</div>}
+                {s.topScorers[topDivId] && (
+                  <div>
+                    Top scorer: {s.topScorers[topDivId].name} ({s.topScorers[topDivId].goals})
+                  </div>
+                )}
+                {/* Same contrast rule as the season review (v1.91): the arrow
+                    carries the colour, the club names stay readable. */}
+                {s.promoted.length > 0 && (
+                  <div className="text-ink">
+                    <span className="mr-1 text-[11px] text-emerald-400">▲</span>
+                    {s.promoted.join(", ")}
+                  </div>
+                )}
+                {s.relegated.length > 0 && (
+                  <div className="text-ink">
+                    <span className="mr-1 text-[11px] text-rose-400">▼</span>
+                    {s.relegated.join(", ")}
+                  </div>
+                )}
+              </div>
+              {s.notableTransfers.length > 0 && (
+                // `text-dim`, not `text-faint` (v1.91): this is secondary
+                // information, not disabled text, and at faint it disappeared
+                // into the card entirely.
+                <div className="mt-2 border-t border-line pt-2 text-[12px] text-dim">
+                  <span className="text-faint">Record deal </span>
+                  {s.notableTransfers[0].playerName} to {s.notableTransfers[0].to}{" "}
+                  <span className="display font-semibold tnum text-ink">
+                    {formatMoney(s.notableTransfers[0].fee)}
+                  </span>
+                </div>
+              )}
+            </button>
           ))}
         </div>
-        {openSummary && <SeasonDetailModal summary={openSummary} onClose={() => setOpenSeason(null)} />}
+        {openSummary && (
+          <SeasonDetailModal
+            summary={openSummary}
+            onClose={() => {
+              setOpenSeason(null);
+              // Also clears an `owner` entry left by a back-navigation, so ✕
+              // dismisses the chain rather than leaving the review re-opening
+              // itself on the next render.
+              closeOverlays();
+            }}
+          />
+        )}
       </Section>
 
       <div className="space-y-6">
@@ -1477,6 +1528,7 @@ function HistoryTab() {
         <GraduatesLedger />
       </div>
     </div>
+    </div>
   );
 }
 
@@ -1488,7 +1540,7 @@ function GraduatesLedger() {
   return (
     <Section title="Academy Graduates" right={<span className="text-xs text-faint">{grads.length} produced</span>}>
       {grads.length === 0 ? (
-        <div className="text-sm text-faint">No academy products yet — the intake class arrives every March.</div>
+        <div className="text-sm text-faint">No academy products yet — raise a prospect and promote him to start the list.</div>
       ) : (
         <Card className="p-2">
           {grads.slice(0, 10).map((g, i) => (
@@ -1508,6 +1560,149 @@ function GraduatesLedger() {
             </button>
           ))}
         </Card>
+      )}
+    </Section>
+  );
+}
+
+/**
+ * The save's roll of honour (v1.89) — every competition's champions, and the
+ * all-time title table that goes with them.
+ *
+ * The record book has stored this since v1; what it lacked was a reader. The
+ * season list next door answers "what happened in 2029/30"; this answers "who
+ * has won this league, and how often" — the question you can't get at by
+ * scrolling seasons. Both render the same stored rows (see
+ * `competitionHistories`), so they can never disagree.
+ *
+ * One competition at a time, chosen by a pill row, because the interesting
+ * comparison is between CLUBS within a competition rather than between
+ * competitions — and a save fifty seasons deep would otherwise be an unreadable
+ * wall.
+ */
+function RollOfHonour() {
+  const game = useGame((s) => s.game)!;
+  const comps = competitionHistories(game);
+  // Held by id rather than index so the selection survives a new competition
+  // appearing (the first European season adds three).
+  const [openId, setOpenId] = useState<string | null>(null);
+  const active = comps.find((c) => c.id === openId) ?? comps[0];
+
+  if (!comps.length) {
+    return (
+      <Section title="Roll of Honour">
+        <div className="text-sm text-faint">
+          Nothing has been won yet. Finish a season and the honours board begins.
+        </div>
+      </Section>
+    );
+  }
+
+  return (
+    <Section title="Roll of Honour" right={<span className="text-xs text-faint">{comps.length} competitions</span>}>
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        {comps.map((c) => {
+          const on = c.id === active.id;
+          return (
+            <button
+              key={c.id}
+              onClick={() => setOpenId(c.id)}
+              className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                on
+                  ? "border-gold-lo/60 bg-gold-lo/15 text-gold"
+                  : "border-line text-dim hover:border-faint hover:text-ink"
+              }`}
+            >
+              {c.name}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {/* All-time table: who has won it most. The headline of the page. */}
+        <Card className="p-3">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-faint">Most titles</div>
+          {active.titles.slice(0, 10).map((t, i) => {
+            const team = game.teams[t.teamId];
+            return (
+              <div key={t.teamId} className="flex items-center gap-2 px-1 py-1 text-sm">
+                <span className="w-4 shrink-0 tnum text-right text-faint">{i + 1}</span>
+                {team && <Crest colors={team.colors} short={team.short} size={18} />}
+                <span className="min-w-0 flex-1 truncate">{t.teamName}</span>
+                <span
+                  className="display tnum font-semibold"
+                  // The seasons behind the count, without spending a column on
+                  // them — a fifty-season save has too many to list inline.
+                  title={t.seasons.map((s) => `Season ${s}`).join(", ")}
+                >
+                  {t.count}
+                </span>
+              </div>
+            );
+          })}
+        </Card>
+
+        {/* Season by season, most recent first. */}
+        <Card className="p-3">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-faint">Season by season</div>
+          <div className="max-h-72 overflow-y-auto">
+            {active.winners.map((w) => {
+              const team = game.teams[w.teamId];
+              const isUser = w.teamId === game.userTeamId;
+              return (
+                <div
+                  key={w.season}
+                  className={`flex items-center gap-2 px-1 py-1 text-sm ${isUser ? "text-gold" : ""}`}
+                >
+                  <span className="w-16 shrink-0 tnum text-faint">{w.yearLabel}</span>
+                  {team && <Crest colors={team.colors} short={team.short} size={18} />}
+                  <span className="min-w-0 flex-1 truncate">{w.teamName}</span>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      </div>
+    </Section>
+  );
+}
+
+/** The user club's own trophy cabinet — the same honours filtered to them. Sits
+ * above the roll of honour because "what have we won" is the first thing a
+ * manager looks for on their own club's history page. */
+function TrophyCabinet() {
+  const game = useGame((s) => s.game)!;
+  const honours = clubHonours(game, game.userTeamId);
+  const byComp = new Map<string, number>();
+  for (const h of honours) byComp.set(h.competition, (byComp.get(h.competition) ?? 0) + 1);
+
+  return (
+    <Section title="Trophy Cabinet" right={<span className="text-xs text-faint">{honours.length} won</span>}>
+      {honours.length === 0 ? (
+        <div className="text-sm text-faint">
+          The cabinet is empty. Win a league, the cup, or a European trophy and it starts here.
+        </div>
+      ) : (
+        <>
+          <div className="mb-3 flex flex-wrap gap-2">
+            {[...byComp.entries()].map(([name, count]) => (
+              <Card key={name} className="px-3 py-2 text-center">
+                <div className="display gold-text text-2xl font-bold tnum">{count}</div>
+                <div className="text-[11px] text-dim">{name}</div>
+              </Card>
+            ))}
+          </div>
+          <Card className="p-2">
+            {honours.slice(0, 12).map((h) => (
+              <div key={`${h.season}:${h.competition}`} className="flex items-center gap-2 px-2 py-1 text-sm">
+                <span className="w-16 shrink-0 tnum text-faint">{h.yearLabel}</span>
+                <span className="text-gold">🏆</span>
+                <span className="min-w-0 flex-1 truncate">{h.competition}</span>
+              </div>
+            ))}
+          </Card>
+        </>
       )}
     </Section>
   );
@@ -1557,223 +1752,6 @@ function RecordList({
   );
 }
 
-/**
- * Club Players (v1.66) — everyone who has ever played for the club.
- *
- * The record book answers "who scored the most"; this answers "who has been
- * here". One row per spell: when he arrived, when he left (or that he is still
- * here), and what he did in the shirt. Sortable, because the question changes —
- * sometimes it's "who is the club's longest server", sometimes "who scored".
- */
-function ClubPlayersTab() {
-  const game = useGame((s) => s.game)!;
-  useGame((s) => s.rev);
-  const viewPlayer = useGame((s) => s.viewPlayer);
-  const [sort, setSort] = useState<"recent" | "apps" | "goals" | "assists" | "spell">("recent");
-  // "Academy" (v1.71) is a different axis to the other three — it asks where a
-  // player came FROM rather than whether he's here now, so it deliberately spans
-  // both current players and the ones who've been sold on.
-  const [filter, setFilter] = useState<"all" | "current" | "past" | "academy">("all");
-  const [q, setQ] = useState("");
-
-  const all = clubPlayerHistory(game, game.userTeamId);
-
-  const spellLength = (s: (typeof all)[number]) =>
-    (s.leftSeason ?? game.season) - s.joinedSeason + 1;
-
-  const rows = all
-    .filter((s) =>
-      filter === "all"
-        ? true
-        : filter === "current"
-          ? s.current
-          : filter === "academy"
-            ? s.academy
-            : // "Former" means gone — an academy prospect is neither in the senior
-              // squad nor a departure, so he belongs in neither of those two.
-              !s.current && !s.inAcademy
-    )
-    .filter((s) => (q ? s.name.toLowerCase().includes(q.toLowerCase()) : true))
-    .slice()
-    .sort((a, b) => {
-      switch (sort) {
-        case "apps":
-          return b.apps - a.apps;
-        case "goals":
-          return b.goals - a.goals;
-        case "assists":
-          return b.assists - a.assists;
-        case "spell":
-          return spellLength(b) - spellLength(a);
-        default:
-          return 0; // clubPlayerHistory already returns current-first, most-recent-first
-      }
-    });
-
-  const currentCount = all.filter((s) => s.current).length;
-  // A prospect is on the books without being in the senior squad, so he counts
-  // as neither current nor former — the three tallies have to be spelled out
-  // rather than derived as "everyone else".
-  const inAcademyCount = all.filter((s) => s.inAcademy).length;
-  const formerCount = all.length - currentCount - inAcademyCount;
-  // One row per SPELL, so a graduate who left and came back would be counted
-  // twice — the academy tally is by player, which is what "he came through here"
-  // actually means.
-  const academyCount = new Set(all.filter((s) => s.academy).map((s) => s.playerId)).size;
-
-  return (
-    <div className="space-y-4">
-      <Card className="flex flex-wrap items-center gap-x-8 gap-y-3 border-gold bg-gradient-to-br from-gold-lo/[0.08] to-transparent px-4 py-3">
-        <div>
-          <div className="text-[10px] uppercase tracking-widest text-faint">Players on the books</div>
-          <div className="display gold-text text-2xl font-bold tnum">{all.length}</div>
-        </div>
-        <div className="text-sm text-dim">
-          <span className="display tnum font-semibold text-ink">{currentCount}</span> in the squad today ·{" "}
-          <span className="display tnum font-semibold text-ink">{inAcademyCount}</span> in the academy ·{" "}
-          <span className="display tnum font-semibold text-ink">{formerCount}</span> former ·{" "}
-          <span className="display tnum font-semibold text-gold">{academyCount}</span> academy-raised
-        </div>
-        <div className="ml-auto text-xs text-faint">Click a name for the full profile</div>
-      </Card>
-
-      <div className="flex flex-wrap items-center gap-2">
-        {(["all", "current", "past", "academy"] as const).map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            title={
-              f === "academy"
-                ? "Everyone who came through your academy — still here, promoted, or sold on"
-                : undefined
-            }
-            className={`display rounded px-3 py-1 text-xs font-semibold ${
-              filter === f ? "gold-grad text-black" : "border border-line text-dim hover:text-ink"
-            }`}
-          >
-            {f === "all" ? "All" : f === "current" ? "Current" : f === "past" ? "Former" : "Academy"}
-          </button>
-        ))}
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search a name…"
-          className="ml-auto min-w-0 rounded-md border border-line bg-surface px-3 py-1.5 text-sm outline-none focus:border-gold"
-        />
-      </div>
-
-      <Card className="overflow-hidden">
-        {/* Wide on desktop, and the whole table scrolls sideways on a phone
-            rather than crushing the stat columns into unreadable slivers. */}
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead>
-              <tr className="border-b border-line/60 bg-raised text-[10px] uppercase tracking-widest text-faint">
-                <th className="px-3 py-2 text-left font-medium">Player</th>
-                <SortHeader label="Spell" active={sort === "spell"} onClick={() => setSort("spell")} align="left" />
-                <SortHeader label="Apps" active={sort === "apps"} onClick={() => setSort("apps")} />
-                <SortHeader label="Goals" active={sort === "goals"} onClick={() => setSort("goals")} />
-                <SortHeader label="Assists" active={sort === "assists"} onClick={() => setSort("assists")} />
-                <th className="px-3 py-2 text-right font-medium">Avg</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line/40">
-              {rows.map((s, i) => (
-                <tr
-                  key={`${s.playerId}-${s.joinedSeason}-${i}`}
-                  onClick={() => viewPlayer(s.playerId)}
-                  className="cursor-pointer hover:bg-hover"
-                >
-                  <td className="px-3 py-2">
-                    <span className="flex min-w-0 items-center gap-2">
-                      {s.nationality && <Flag nat={s.nationality} size={11} />}
-                      <span className="truncate">{s.name}</span>
-                      {s.pos && (
-                        <span className="shrink-0 rounded-sm bg-raised px-1 text-[9px] font-semibold text-faint">
-                          {s.pos}
-                        </span>
-                      )}
-                      {s.current && (
-                        <span className="display shrink-0 rounded-sm bg-gold-lo/20 px-1 text-[9px] font-semibold text-gold">
-                          IN SQUAD
-                        </span>
-                      )}
-                      {s.inAcademy && (
-                        <span className="display shrink-0 rounded-sm bg-gold-lo/20 px-1 text-[9px] font-semibold text-gold">
-                          IN ACADEMY
-                        </span>
-                      )}
-                      {s.academy && !s.inAcademy && (
-                        <span
-                          className="display shrink-0 rounded-sm border border-gold-lo/40 px-1 text-[9px] font-semibold text-gold"
-                          title="Came through your academy"
-                        >
-                          ACADEMY
-                        </span>
-                      )}
-                      {s.retired && !s.current && (
-                        <span className="shrink-0 rounded-sm border border-line px-1 text-[9px] text-faint">
-                          RETIRED
-                        </span>
-                      )}
-                    </span>
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2 text-[12px] text-dim">
-                    <span className="tnum">S{s.joinedSeason}</span>
-                    <span className="text-faint"> → </span>
-                    {s.leftSeason === null ? (
-                      <span className="text-win">still in club</span>
-                    ) : (
-                      <span className="tnum">S{s.leftSeason}</span>
-                    )}
-                    <span className="ml-1.5 text-[11px] text-faint">
-                      ({spellLength(s)} {spellLength(s) === 1 ? "season" : "seasons"})
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-right tnum">{s.apps}</td>
-                  <td className="px-3 py-2 text-right tnum">{s.goals}</td>
-                  <td className="px-3 py-2 text-right tnum">{s.assists}</td>
-                  <td className="px-3 py-2 text-right tnum text-dim">{s.avgRating ? s.avgRating.toFixed(2) : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {rows.length === 0 && (
-          <div className="px-4 py-6 text-center text-sm text-faint">
-            {all.length === 0
-              ? "Nobody has played for the club yet — the ledger fills as seasons are played."
-              : filter === "academy" && !q
-                ? "No academy players yet — the first intake class arrives in March, and every prospect you raise stays on this list for good."
-                : "No player matches that filter."}
-          </div>
-        )}
-      </Card>
-    </div>
-  );
-}
-
-function SortHeader({
-  label,
-  active,
-  onClick,
-  align = "right",
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-  align?: "left" | "right";
-}) {
-  return (
-    <th className={`px-3 py-2 font-medium ${align === "left" ? "text-left" : "text-right"}`}>
-      <button onClick={onClick} className={`uppercase tracking-widest hover:text-ink ${active ? "text-gold" : ""}`}>
-        {label}
-        {active && " ▾"}
-      </button>
-    </th>
-  );
-}
-
 function SaveTab() {
   const game = useGame((s) => s.game)!;
   const exportCurrent = useGame((s) => s.exportCurrent);
@@ -1794,6 +1772,7 @@ function SaveTab() {
           <GhostButton onClick={quitToMenu}>Save & quit to menu</GhostButton>
         </div>
       </Section>
+      <ExportSquadSection />
       <Section title="Save Details">
         <Card className="divide-y divide-line/50 text-sm">
           {[
@@ -1811,5 +1790,63 @@ function SaveTab() {
         </Card>
       </Section>
     </div>
+  );
+}
+
+/**
+ * Export the squad into the Database Editor (v1.92).
+ *
+ * Distinct from the save backup above, and from a player file: this writes a
+ * CLUB — your team as a custom club with an authored roster — which the editor
+ * imports and any future legacy can be started with. See lib/squadfile.ts for
+ * why the career history deliberately doesn't travel.
+ */
+function ExportSquadSection() {
+  const game = useGame((s) => s.game)!;
+  const showToast = useGame((s) => s.showToast);
+  const [includeAcademy, setIncludeAcademy] = useState(false);
+
+  const team = game.teams[game.userTeamId];
+  const seniorCount = team.playerIds.filter((id) => game.players[id] && !game.players[id].retired).length;
+  const academyCount = (team.academyPlayerIds ?? []).filter(
+    (id) => game.players[id] && !game.players[id].retired
+  ).length;
+
+  return (
+    <Section title="Export Squad">
+      <p className="mb-3 text-sm leading-relaxed text-dim">
+        Save {team.name} into your <b className="text-ink">Database Editor</b> as a custom club — the whole squad,
+        attributes and potential intact. Import it there, then start a new legacy with this team in any league you like.
+        Career history and honours stay with this save: the exported club is a blueprint for a world that hasn&apos;t been
+        played yet.
+      </p>
+      {academyCount > 0 && (
+        <label className="mb-3 flex items-center gap-2 text-[13px] text-dim">
+          <input
+            type="checkbox"
+            checked={includeAcademy}
+            onChange={(e) => setIncludeAcademy(e.target.checked)}
+            className="accent-[var(--color-gold-hi)]"
+          />
+          Include the {academyCount} academy {academyCount === 1 ? "prospect" : "prospects"} as well
+        </label>
+      )}
+      <GhostButton
+        onClick={() => {
+          const file = exportSquad(game, game.userTeamId, { includeAcademy });
+          if (!file) {
+            showToast("Couldn't export this squad.");
+            return;
+          }
+          downloadSquadFile(file);
+          showToast(`Exported ${file.club.players?.length ?? 0} players. Import it in the Database Editor.`);
+        }}
+      >
+        Export squad (.flsquad.json)
+      </GhostButton>
+      <p className="mt-2 text-[11px] text-faint tnum">
+        {seniorCount} senior{includeAcademy && academyCount > 0 ? ` + ${academyCount} academy` : ""} players
+      </p>
+    </Section>
   );
 }

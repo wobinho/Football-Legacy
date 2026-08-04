@@ -703,8 +703,14 @@ At season end, in order:
 
 ### 10.1 League
 
-Double round-robin, 38 rounds. Three points for a win. Promotion and relegation
-run between every adjacent pair of divisions in your country's ladder.
+Double round-robin: every club plays every other twice, home and away, so a
+division of n clubs plays **2 x (n - 1)** rounds - 38 for a 20-club league, 46
+for 24, 34 for 18 (v1.91). Three points for a win. Promotion and relegation run
+between every adjacent pair of divisions in your country's ladder.
+
+The season calendar is one shared pool of Saturdays, sized to the LONGEST
+division the world runs; each league takes the first 2 x (n - 1) of them. That
+is what lets divisions of different sizes coexist in one pyramid.
 
 ### 10.2 Domestic cup
 
@@ -773,13 +779,31 @@ earns fourth-division money.
 | Line | Detail |
 |---|---|
 | **Squad wages** | The sum of real individual contracts, reduced by the Contract Accounting discount |
-| **Staff wages** | Coaches, scouts and backroom |
+| **Staff wages** | Coaches, scouts and backroom — **scaled by the division you manage in** (see below) |
 | **Academy upkeep** | The youth setup's running cost |
 | **Academy wages** | Youth scholarships, roughly £1k–£5k weekly per prospect, scaled by ability |
 | **Operating costs** | (AI clubs) the ground, travel, insurance, everything below the first team |
 
 The weekly breakdown is fully itemised on the Club page: every line, in and out,
 with the net.
+
+**Backroom wages scale with your division** (v1.89). Staff and scout wages were a
+flat number keyed on star rating alone, while club income runs roughly **38:1**
+from the top flight to the fourth tier — so a 5-star coach cost the same whether
+he worked for a club earning £950k a week or one earning £25k, which put the whole
+backroom out of reach below the top division and priced a promoted side out of the
+facilities it had just unlocked.
+
+The ladder is deliberately far **shallower** than the income one — about 2.6:1,
+against income's 38:1. A good coach is a good coach anywhere and the market for him
+is global, so a fourth-tier club should find him a stretch rather than a rounding
+error. It applies to signing fees as well as wages, since a fee you cannot raise is
+the same barrier as a wage you cannot service.
+
+A wage is a **contract**: the rate is fixed when you hire, not re-derived every
+week. A coach who signed for a fourth-tier club doesn't get an automatic rise the
+week you go up, and one signed in the top flight doesn't take a pay cut on
+relegation.
 
 ### 11.3 Keeping the world solvent
 
@@ -1034,9 +1058,17 @@ loop. You may accept, reject, or counter — and countering is a real negotiatio
   modest one.** How hard you push matters as much as how often. At zero patience
   the buyer walks.
 
-You can also sell directly to a specific club. A player signed **this season
-cannot be sold or listed** — a signing can't be flipped for profit inside the
-window it was made in.
+You can also sell directly to a specific club. A player who joined a club **this
+season cannot be moved on again until the next one** — a signing can't be flipped
+inside the window it was made in.
+
+Since v1.89 this binds **every club in the world, not just yours.** It began as a
+rule about the manager, which meant AI squads could churn the same player through
+three clubs in a single window while you were held to one move — and the transfer
+wire read as noise rather than business. It applies to selling, listing, accepting
+an offer, and buying: you cannot sign a player out of the very window that took
+him somewhere else. Being released clears it, since a free agent has no club to be
+locked to.
 
 ### 15.4 Will he actually come?
 
@@ -1125,7 +1157,40 @@ An AI club reads its own squad against its formation, finds the positions it is
 thinnest at, and scores targets on ability and potential weighted by its stance.
 It won't buy a fourth centre-back while it has one goalkeeper.
 
-### 16.3 What keeps the market alive
+**A position it cannot field at all is a different problem from a weak one**
+(v1.89), and the two are kept apart deliberately:
+
+- A need is measured against the **marginal starter** — the weakest player the
+  formation would be forced to field there, which is nothing when the slot can't
+  be filled. Measured against the club's *best* player in the position instead, a
+  side with one good centre-back and a back four judged every centre-back in the
+  world "not an upgrade" and never signed one.
+- An **uncovered** position (fewer natural bodies than the formation asks for)
+  outranks every ordinary shortfall, is shopped for first without a roll, and is
+  filled from the free-agent market at any age if no transfer is available.
+- **No stance may sell a club below minimum cover.** Rebuilding is allowed;
+  fielding ten men is not.
+
+### 16.3 Squads are held to a floor
+
+Every AI buy path is discretionary — gated on stance, affordability and a genuine
+upgrade — while retirement and expiry take players out every season regardless. Left
+alone, AI squads only ever shrink: measured over twenty seasons the median squad
+fell from 28 to 19, and clubs fielded a single centre-back while hundreds of free
+ones went unsigned.
+
+Two obligations fix it, both at the rollover and both non-discretionary:
+
+- **The world is restocked.** Only a retiree who peaked high enough leaves a regen
+  behind, so the population had no floor. Free agents are now generated wherever
+  the world is genuinely short of a position, and the market is kept stocked so
+  the Free Agents screen is never bare.
+- **Every AI club is topped back up** to a workable squad size, and into any
+  position it cannot field. The manager's own club is served first — both draw on
+  the same pool, and a manager who cannot name a side is a worse failure than a
+  thin AI bench.
+
+### 16.4 What keeps the market alive
 
 - **Weekly activity during windows** rather than one bulk pass, so deals land
   across the whole window.
@@ -1137,7 +1202,7 @@ It won't buy a fourth centre-back while it has one goalkeeper.
 - **Distressed clubs** sell to survive.
 - **Surplus is reinvested** rather than hoarded.
 
-### 16.4 Matchday AI
+### 16.5 Matchday AI
 
 Every AI club picks its own XI and bench each matchday, using the same
 rotation-aware selection you get, against its own formation and tactic. AI clubs
@@ -1159,13 +1224,23 @@ its own (much cheaper) wage bill, ages roughly 15–21.
 Nothing in the academy ever stops the Continue loop. Everything streams through the
 inbox.
 
-### 17.1 Intake day
+### 17.1 How prospects arrive (v1.89)
 
-Once a season, in mid-March, a class arrives. Class size and quality scale with
-your academy level, your youth coach's rating and your club's reputation. Some
-intakes are **golden** — a standout class, and the inbox tells you so.
+**There is no annual intake day.** Every prospect in your academy got there
+because you chose him and paid for him — a scout's find (§17 scouting) or a U21
+opponent's prospect you bought out. The mid-March intake class that used to
+arrive on its own was removed: a roster that grows players the manager never
+picked is the same complaint the graduate queue answers at the other end of the
+pipeline, and it made the academy something to prune rather than to build.
 
-Intake classes lean toward spine positions, with keepers rare.
+The one exception is the **starting crop**: a new save seeds enough prospects to
+register a legal U21 seven, keeper included, so the opening competition isn't
+forfeited before the manager can do anything about it. Nothing tops it up
+afterwards.
+
+The golden-generation lottery went with the intake. The anti-stagnation role it
+played now belongs to scouting, where the tier ladder already runs Bronze →
+Legacy and a Legacy find is the once-a-career ticket.
 
 ### 17.2 Prospect tiers
 
@@ -1173,18 +1248,48 @@ Every academy prospect wears a rarity badge:
 
 **Bronze → Silver → Gold → Diamond → Obsidian → Legacy**
 
-Tiers describe both **current ability** and **potential ceiling**, in overlapping
-bands — so a tier is a strong signal, not a rigid bracket. Diamond reaches the
-absolute potential cap: that's the wonderkid. Obsidian sits above it, and
-**Legacy** pins the ceiling at the cap — the once-a-career find.
+A tier answers two different questions, and since v1.90 it answers them in two
+different ways.
 
-The bands align to the star scale, so a tier reads as a star range without
-arithmetic: Bronze tops out at 3★, Silver spans 3–3.5★, Gold 3.5–4★, Diamond
-4.5–5★, and the top two are the full five.
+**The ceiling is the tier, full stop.** One clean rung each, no overlap, because
+the ceiling is what the badge *promises*:
 
-Crucially, **a prospect is raw.** Even a Legacy find arrives in his 60s and has to
-be developed. He is not a ready-made star you sign and play; he is a ceiling you
-have to reach.
+| Tier | Potential |
+|---|---|
+| Bronze | 65–70 |
+| Silver | 70–75 |
+| Gold | 75–80 |
+| Diamond | 80–85 |
+| Obsidian | 85–90 |
+| Legacy | 90+ |
+
+**Current ability is the tier *and* his age.** A 13-year-old Gold and a
+17-year-old Gold share a ceiling but not a rating — four years of development
+separate them — so ability is a table over both (13 → 17):
+
+| Tier | 13 | 14 | 15 | 16 | 17 |
+|---|---|---|---|---|---|
+| Bronze | 45–48 | 48–51 | 51–54 | 54–57 | 57–60 |
+| Silver | 48–51 | 51–54 | 54–57 | 57–60 | 60–63 |
+| Gold | 48–51 | 52–55 | 55–58 | 58–61 | 61–64 |
+| Diamond | 52–55 | 55–58 | 58–61 | 61–64 | 64–67 |
+| Obsidian | 55–58 | 58–61 | 61–64 | 64–67 | 67–70 |
+| Legacy | 60–65 | 65–70 | 68–72 | 72–77 | 75–80 |
+
+Every rolled band carries **±2 points of slack**, which is what keeps two Golds
+of the same age from being the same player — the bands themselves no longer need
+to overlap to make a tier "a strong signal rather than a rigid bracket".
+
+Crucially, **a prospect is raw.** Even a Legacy find is a long way short of his
+ceiling — at 13 he is a 60-odd rated child, and only the oldest, rarest finds
+arrive anywhere near senior quality. He is not a ready-made star you sign and
+play; he is a ceiling you have to reach.
+
+**Ages.** The academy takes prospects from **13 to 17** — both the intake and the
+scouting network work that band, so a find and a home-grown kid are priced on the
+same ladder. A prospect may then stay until **21**; at the end of that season he
+must be promoted, sold or released, and nobody joins the senior squad unless the
+manager says so.
 
 Two badges are kept: the **live tier** while he's a prospect, and a **permanent
 academy tier** recording the rarity he graduated as — a history tag on his profile
@@ -1452,13 +1557,34 @@ with goals-for breaking ties between equal margins.
 
 The season review modal at the rollover presents all of it.
 
-### 20.3 The Hall of Fame
+### 20.3 The roll of honour
+
+The record book is stored one season at a time, which answers "what happened in
+2029/30" and not "who has won this league, and how often" — a question that meant
+opening twenty season reviews and counting.
+
+Club → History & Records therefore reads the same stored seasons a second way,
+grouped by **competition** instead of by year:
+
+- **Trophy Cabinet** — every trophy your own club has lifted, counted per
+  competition and listed most recent first.
+- **Roll of Honour** — one competition at a time: its **all-time title table**
+  (who has won it most, ties broken by the most recent win) alongside its
+  **season-by-season champions**. Your own divisions come first, then your cup,
+  then the European cups, then the rest of the world.
+
+Nothing new is stored and no migration is needed — a save that has already played
+ten seasons contains its own honours list, it simply had no reader. Because both
+views render the same rows, the roll of honour and the season review can never
+disagree.
+
+### 20.4 The Hall of Fame
 
 A hand-curated honour roll. From any player's profile you can enshrine him:
 living, retired, sold, or still at the club. It changes nothing in the world — it
 just collects the legends you want remembered.
 
-### 20.4 Manager accolades
+### 20.5 Manager accolades
 
 A permanent, passively-recorded ledger of your own career:
 
