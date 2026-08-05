@@ -70,15 +70,58 @@ export interface LibraryPlayer {
   updatedAt: number;
 }
 
+/**
+ * A saved WORLD preset (v1.93): which other countries a new legacy includes,
+ * how deep each of their pyramids runs, and the European qualification design.
+ *
+ * These are the two most laborious parts of setting up a legacy and the two
+ * least likely to change between saves — a manager who has decided that his
+ * world is England, Spain, Italy, Germany and France with a particular set of
+ * Champions League slots has to rebuild that by hand on every new legacy,
+ * clicking through twenty countries and then a position grid per country. It is
+ * setup, not gameplay, and re-doing it is pure friction.
+ *
+ * Deliberately does NOT store the playable country, the club, the start tier or
+ * the takeover. Those are the CHOICES a new legacy is about; a preset that also
+ * picked your club would be a saved game rather than a saved world, and the
+ * whole point is to vary the career against a settled backdrop.
+ *
+ * It also does not store per-country database choices (real vs generated).
+ * Those are keyed to countries a preset may or may not include, and silently
+ * switching a country to a generated world because a preset said so is the kind
+ * of surprise that makes a convenience feature untrustworthy.
+ */
+export interface WorldPreset {
+  id: string;
+  name: string;
+  /** Sim-only countries to include, as country codes. */
+  viewCountries: string[];
+  /** How many tiers each country runs, keyed by code. Sparse: a country absent
+   * from the map falls back to however many its database authors. */
+  divisionDepths: Record<string, number>;
+  /** How many continental competitions run (0 = none). */
+  europeanTiers: number;
+  /** The qualification design: which cup each finishing position feeds, keyed
+   * by country code. Sparse — worldgen falls back to the engine defaults for
+   * any country left unauthored, which is what lets a preset stay valid when
+   * it is applied to a save that includes a country it never named. */
+  europeanSlots: Record<string, number[]>;
+  cupWinnerQualifies: boolean;
+  updatedAt: number;
+}
+
 /** Everything a saved library holds, as it lives in one IndexedDB record. */
 export interface CustomLibrary {
   schema: string;
   clubs: LibraryClub[];
   players: LibraryPlayer[];
+  /** Saved new-game world setups (v1.93). Optional in the stored record so a
+   * library written before they existed loads without migration. */
+  worldPresets?: WorldPreset[];
 }
 
 export function emptyLibrary(): CustomLibrary {
-  return { schema: LIBRARY_SCHEMA, clubs: [], players: [] };
+  return { schema: LIBRARY_SCHEMA, clubs: [], players: [], worldPresets: [] };
 }
 
 /** Strip a LibraryClub down to the ClubSeed worldgen consumes. */
@@ -113,7 +156,7 @@ export function libraryPlayerToSeed(p: LibraryPlayer): PlayerSeed {
 }
 
 /** A short, collision-resistant id for a new library entry. */
-export function libraryId(prefix: "club" | "player"): string {
+export function libraryId(prefix: "club" | "player" | "world"): string {
   return `${prefix}_${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
 }
 
@@ -216,11 +259,16 @@ export async function loadLibrary(): Promise<CustomLibrary> {
     const raw = (await tx(db, "readonly", (s) => s.get(owner()))) as CustomLibrary | undefined;
     db.close();
     if (!raw || raw.schema !== LIBRARY_SCHEMA) return emptyLibrary();
-    // Defensive: never hand back a partial shape.
+    // Defensive: never hand back a partial shape. `worldPresets` (v1.93) is
+    // read the same way and defaults to empty, which is why the schema string
+    // did NOT need bumping — a library written before world presets existed is
+    // a valid one that simply has none, and bumping would have discarded every
+    // saved club and player on the device to add an optional field.
     return {
       schema: LIBRARY_SCHEMA,
       clubs: Array.isArray(raw.clubs) ? raw.clubs : [],
       players: Array.isArray(raw.players) ? raw.players : [],
+      worldPresets: Array.isArray(raw.worldPresets) ? raw.worldPresets : [],
     };
   } catch {
     return emptyLibrary();

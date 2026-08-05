@@ -6,8 +6,10 @@ import { useState } from "react";
 import { useGame } from "@/store/gameStore";
 import { formatDay, formatDayShort } from "@/lib/calendar";
 import { computeTable } from "@/lib/season";
-import { INBOX_TAG_META } from "@/lib/inbox";
-import type { Fixture } from "@/lib/types";
+import { INBOX_TAG_META, groupedInbox, type InboxGroup, type InboxGroupId } from "@/lib/inbox";
+import { isRivalryFixture } from "@/lib/rivalry";
+import { TUNING } from "@/lib/config/tuning";
+import type { Fixture, InboxItem } from "@/lib/types";
 import { Card, Crest, Section, GhostButton } from "../ui";
 import Calendar from "../Calendar";
 
@@ -18,9 +20,18 @@ export default function HomeScreen() {
   const markAllRead = useGame((s) => s.markAllRead);
   const deleteMail = useGame((s) => s.deleteMail);
   const deleteAllMail = useGame((s) => s.deleteAllMail);
+  const markGroupReadAction = useGame((s) => s.markGroupReadAction);
+  const deleteGroupMail = useGame((s) => s.deleteGroupMail);
   const setScreen = useGame((s) => s.setScreen);
   // One item open at a time — the inbox is a list of headlines you drill into.
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Which FOLDERS are open (v1.94). A Set rather than a single id: folders are
+  // independent, and the whole point of pre-grouping is that the manager can
+  // leave the two they care about open and never see the others.
+  //
+  // Everything starts CLOSED. That is the feature — the default view is four
+  // rows with counts rather than a wall of headlines.
+  const [openGroups, setOpenGroups] = useState<Set<InboxGroupId>>(new Set());
   const [confirmClearAll, setConfirmClearAll] = useState(false);
 
   const team = game.teams[game.userTeamId];
@@ -32,6 +43,17 @@ export default function HomeScreen() {
     .slice(0, 5)
     .reverse();
   const unread = game.inbox.filter((i) => !i.read).length;
+  // The folders, always all of them and always in the same order — the grouping
+  // rule is `lib/inbox.ts`'s, not this screen's.
+  const groups = groupedInbox(game.inbox);
+
+  const toggleGroup = (id: InboxGroupId) =>
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const league = game.leagues[team.leagueId];
   const table = computeTable(game.fixtures, league.id, league.teamIds);
@@ -79,85 +101,44 @@ export default function HomeScreen() {
             ) : undefined
           }
         >
-          {/* The inbox is capped rather than growing with the mail (v1.67): a
-              busy week used to stretch this column far past the sidebar, so the
-              rest of the page sat marooned at the top of a very long scroll.
-              It now scrolls inside itself and keeps the page one screen tall. */}
+          {/* Pre-grouped folders (v1.94), collapsed by default. The mail is
+              filed the moment it arrives rather than piling into one list, so
+              the resting state of this column is four rows and a count — the
+              manager opens the folder they came for. The whole column still
+              scrolls inside itself (v1.67) so the page stays one screen tall. */}
           <div className="max-h-[calc(100vh-13rem)] min-h-[18rem] space-y-2 overflow-y-auto pr-1">
+            {groups.map((group) => (
+              <InboxFolder
+                key={group.id}
+                group={group}
+                open={openGroups.has(group.id)}
+                onToggle={() => toggleGroup(group.id)}
+                expandedId={expanded}
+                onExpand={(item) => {
+                  const isOpen = expanded === item.id;
+                  setExpanded(isOpen ? null : item.id);
+                  if (!isOpen && !item.read) markRead(item.id);
+                }}
+                onDelete={(item) => {
+                  if (expanded === item.id) setExpanded(null);
+                  deleteMail(item.id);
+                }}
+                onMarkGroupRead={() => markGroupReadAction(group.id)}
+                onClearGroup={() => {
+                  setExpanded(null);
+                  deleteGroupMail(group.id);
+                }}
+                hasPendingOffer={(item) =>
+                  !!item.offerId && game.offers.find((o) => o.id === item.offerId)?.status === "pending"
+                }
+                onRespond={() => setScreen("transfers")}
+              />
+            ))}
             {game.inbox.length === 0 && (
-              <Card className="border-dashed p-6 text-center text-sm text-faint">
-                Nothing yet — club news, offers and reports land here.
-                <div className="mt-1">Hit <span className="display text-gold">CONTINUE ▸</span> to start the season.</div>
-              </Card>
+              <div className="px-1 pt-1 text-center text-xs text-faint">
+                Hit <span className="display text-gold">CONTINUE ▸</span> to start the season.
+              </div>
             )}
-            {game.inbox.slice(0, 30).map((item) => {
-              // Collapsed by default: the list reads as headlines, and opening
-              // one is the act that marks it read.
-              const open = expanded === item.id;
-              return (
-                <Card key={item.id} className={`p-3 ${item.read && !open ? "opacity-60" : ""}`}>
-                  <div className="flex items-baseline gap-2">
-                    <button
-                      className="min-w-0 flex-1 text-left"
-                      onClick={() => {
-                        setExpanded(open ? null : item.id);
-                        if (!open && !item.read) markRead(item.id);
-                      }}
-                      aria-expanded={open}
-                      title={open ? "Collapse" : "Read"}
-                    >
-                      <div className="flex items-baseline justify-between gap-3">
-                        <span className={`flex min-w-0 items-baseline gap-1.5 text-sm font-semibold ${!item.read ? "text-ink" : "text-dim"}`}>
-                          {!item.read && <span className="h-1.5 w-1.5 shrink-0 self-center rounded-full bg-gold" aria-label="Unread" />}
-                          {(() => {
-                            const tag = INBOX_TAG_META[item.type];
-                            return tag ? (
-                              <span
-                                className="display shrink-0 self-center rounded-sm border px-1.5 py-px text-[9px] font-bold uppercase tracking-wider"
-                                style={{ color: tag.color, borderColor: `${tag.color}66` }}
-                              >
-                                {tag.label}
-                              </span>
-                            ) : null;
-                          })()}
-                          {item.type === "offer" && <span className="gold-text">◈</span>}
-                          <span className="min-w-0">{item.title}</span>
-                        </span>
-                        <span className="flex shrink-0 items-baseline gap-2">
-                          <span className="text-[11px] tnum text-faint">{formatDayShort(item.day)}</span>
-                          <span className={`text-[10px] text-faint transition-transform ${open ? "rotate-90" : ""}`} aria-hidden>
-                            ▸
-                          </span>
-                        </span>
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (open) setExpanded(null);
-                        deleteMail(item.id);
-                      }}
-                      className="shrink-0 self-center rounded px-1.5 text-sm leading-none text-faint transition-colors hover:text-loss"
-                      title="Delete this message"
-                      aria-label="Delete message"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  {open && (
-                    <>
-                      <p className="mt-2 border-t border-line/60 pt-2 text-[13px] leading-relaxed text-dim">{item.body}</p>
-                      {item.offerId && game.offers.find((o) => o.id === item.offerId)?.status === "pending" && (
-                        <div className="mt-2">
-                          <GhostButton onClick={() => setScreen("transfers")} className="!py-1 text-xs">
-                            Respond in Transfers →
-                          </GhostButton>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </Card>
-              );
-            })}
           </div>
         </Section>
       </div>
@@ -170,8 +151,19 @@ export default function HomeScreen() {
         <Section title="Next Fixture">
           {next ? (
             <Card className="p-4">
-              <div className="mb-1 text-[11px] uppercase tracking-widest text-faint">
-                {next.competition === "CUP" ? `Cup · ${game.cup.roundNames[next.round - 1]}` : `${game.leagues[next.competition]?.name} · Round ${next.round}`}
+              <div className="mb-1 flex items-baseline justify-between gap-2 text-[11px] uppercase tracking-widest text-faint">
+                <span className="min-w-0 truncate">
+                  {next.competition === "CUP" ? `Cup · ${game.cup.roundNames[next.round - 1]}` : `${game.leagues[next.competition]?.name} · Round ${next.round}`}
+                </span>
+                {/* A derby says so on the card the manager is already looking at
+                    (v1.94). The multiplier lands whether or not this is here,
+                    but a bonus the player only discovers in the ledger
+                    afterwards isn't a rivalry — it's an accounting quirk. */}
+                {isRivalryFixture(game, next, TUNING) && (
+                  <span className="display shrink-0 rounded-sm border border-loss/50 px-1.5 py-px text-[9px] font-bold tracking-wider text-loss">
+                    Derby
+                  </span>
+                )}
               </div>
               <div className="flex items-center justify-between gap-2 py-2">
                 {[game.teams[next.homeId], game.teams[next.awayId]].map((t, i) => (
@@ -235,6 +227,224 @@ export default function HomeScreen() {
           </ul>
         </Section>
       </div>
+    </div>
+  );
+}
+
+/**
+ * One inbox folder (v1.94): a header row that is always present, and the mail
+ * inside it once opened.
+ *
+ * The header is the resting state of the inbox, so it carries everything needed
+ * to decide whether to open it — the folder's name, how much unread mail it
+ * holds, and how much mail there is in total. An empty folder still renders, in
+ * a muted state with its blurb: the set of folders is fixed, and a folder that
+ * came and went as post arrived would move the rest of the list under the
+ * cursor.
+ *
+ * The per-folder actions only appear while it is open, which keeps a closed
+ * inbox to one clean row per folder and puts "delete all of this" next to the
+ * thing it would delete rather than above the whole mailbox.
+ */
+function InboxFolder({
+  group,
+  open,
+  onToggle,
+  expandedId,
+  onExpand,
+  onDelete,
+  onMarkGroupRead,
+  onClearGroup,
+  hasPendingOffer,
+  onRespond,
+}: {
+  group: InboxGroup;
+  open: boolean;
+  onToggle: () => void;
+  expandedId: string | null;
+  onExpand: (item: InboxItem) => void;
+  onDelete: (item: InboxItem) => void;
+  onMarkGroupRead: () => void;
+  onClearGroup: () => void;
+  hasPendingOffer: (item: InboxItem) => boolean;
+  onRespond: () => void;
+}) {
+  const [confirmClear, setConfirmClear] = useState(false);
+  const empty = group.items.length === 0;
+
+  return (
+    <Card className={`overflow-hidden ${empty ? "opacity-60" : ""}`}>
+      <button
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-hover"
+        onClick={onToggle}
+        aria-expanded={open}
+        disabled={empty && !open}
+        title={empty ? group.blurb : open ? "Collapse" : "Open"}
+      >
+        <span
+          className={`text-[10px] text-faint transition-transform ${open ? "rotate-90" : ""}`}
+          aria-hidden
+        >
+          ▸
+        </span>
+        <span
+          className="display text-xs font-bold uppercase tracking-wider"
+          style={{ color: group.color }}
+        >
+          {group.label}
+        </span>
+        {group.unread > 0 && (
+          <span
+            className="display rounded-full px-1.5 py-px text-[10px] font-bold tnum text-black"
+            style={{ backgroundColor: group.color }}
+          >
+            {group.unread}
+          </span>
+        )}
+        <span className="ml-auto text-[11px] tnum text-faint">
+          {empty ? "—" : `${group.items.length}`}
+        </span>
+      </button>
+
+      {open && (
+        <div className="border-t border-line/60">
+          {empty ? (
+            <p className="px-3 py-3 text-[12px] text-faint">{group.blurb}</p>
+          ) : (
+            <>
+              <div className="space-y-px">
+                {group.items.map((item) => (
+                  <InboxRow
+                    key={item.id}
+                    item={item}
+                    open={expandedId === item.id}
+                    onExpand={() => onExpand(item)}
+                    onDelete={() => onDelete(item)}
+                    showRespond={hasPendingOffer(item)}
+                    onRespond={onRespond}
+                  />
+                ))}
+              </div>
+              <div className="flex items-center justify-end gap-3 border-t border-line/60 px-3 py-1.5">
+                {group.unread > 0 && (
+                  <button
+                    onClick={onMarkGroupRead}
+                    className="text-[11px] text-faint transition-colors hover:text-dim"
+                  >
+                    Mark read ({group.unread})
+                  </button>
+                )}
+                {confirmClear ? (
+                  <span className="flex items-center gap-2 text-[11px]">
+                    <button
+                      onClick={() => {
+                        onClearGroup();
+                        setConfirmClear(false);
+                      }}
+                      className="text-loss transition-colors hover:text-loss/80"
+                    >
+                      Delete {group.label}?
+                    </button>
+                    <button
+                      onClick={() => setConfirmClear(false)}
+                      className="text-faint transition-colors hover:text-dim"
+                    >
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setConfirmClear(true)}
+                    className="text-[11px] text-faint transition-colors hover:text-loss"
+                  >
+                    Clear folder
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/** One message inside a folder. Collapsed to a headline; opening it is the act
+ * that marks it read — unchanged from the flat list this replaced. */
+function InboxRow({
+  item,
+  open,
+  onExpand,
+  onDelete,
+  showRespond,
+  onRespond,
+}: {
+  item: InboxItem;
+  open: boolean;
+  onExpand: () => void;
+  onDelete: () => void;
+  showRespond: boolean;
+  onRespond: () => void;
+}) {
+  const tag = INBOX_TAG_META[item.type];
+  return (
+    <div className={`px-3 py-2 ${item.read && !open ? "opacity-60" : ""} ${open ? "bg-hover" : ""}`}>
+      <div className="flex items-baseline gap-2">
+        <button
+          className="min-w-0 flex-1 text-left"
+          onClick={onExpand}
+          aria-expanded={open}
+          title={open ? "Collapse" : "Read"}
+        >
+          <div className="flex items-baseline justify-between gap-3">
+            <span
+              className={`flex min-w-0 items-baseline gap-1.5 text-[13px] font-semibold ${
+                !item.read ? "text-ink" : "text-dim"
+              }`}
+            >
+              {!item.read && (
+                <span
+                  className="h-1.5 w-1.5 shrink-0 self-center rounded-full bg-gold"
+                  aria-label="Unread"
+                />
+              )}
+              {tag && (
+                <span
+                  className="display shrink-0 self-center rounded-sm border px-1.5 py-px text-[9px] font-bold uppercase tracking-wider"
+                  style={{ color: tag.color, borderColor: `${tag.color}66` }}
+                >
+                  {tag.label}
+                </span>
+              )}
+              {item.type === "offer" && <span className="gold-text">◈</span>}
+              <span className="min-w-0 truncate">{item.title}</span>
+            </span>
+            <span className="shrink-0 text-[11px] tnum text-faint">{formatDayShort(item.day)}</span>
+          </div>
+        </button>
+        <button
+          onClick={onDelete}
+          className="shrink-0 self-center rounded px-1 text-sm leading-none text-faint transition-colors hover:text-loss"
+          title="Delete this message"
+          aria-label="Delete message"
+        >
+          ✕
+        </button>
+      </div>
+      {open && (
+        <>
+          <p className="mt-2 border-t border-line/60 pt-2 text-[13px] leading-relaxed text-dim">
+            {item.body}
+          </p>
+          {showRespond && (
+            <div className="mt-2">
+              <GhostButton onClick={onRespond} className="!py-1 text-xs">
+                Respond in Transfers →
+              </GhostButton>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

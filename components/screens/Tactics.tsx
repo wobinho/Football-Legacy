@@ -2435,7 +2435,10 @@ const GRADE_MARK: Record<SlotGrade, { mark: string; tone: string; title: string 
 
 function BlueprintRow({ row }: { row: BlueprintSlot }) {
   const g = GRADE_MARK[row.grade];
-  const gap = row.idealPct - row.actualPct;
+  // The row's own `gap` (v1.93), not `idealPct - actualPct`: a slot's ideal may
+  // be a differentiated second-choice role chosen to vary the line, and charging
+  // the incumbent for that would contradict the ✓ beside it.
+  const gap = row.gap;
   // Worth naming only where the dials disagree with the style — which is the
   // interesting case and, because style is the bigger lever, not the common one.
   const dialPick = row.bestForDials.id !== row.ideal.id ? row.bestForDials : undefined;
@@ -2503,7 +2506,9 @@ function SquadBlueprintPanel({ tactic }: { tactic: Tactic }) {
     const lineup: Record<string, PlayerBio | undefined> = {};
     for (const slot of formation.slots) lineup[slot.id] = game.players[game.lineup[slot.id]];
     return squadBlueprint(
-      formation.slots.map((s) => ({ id: s.id, pos: s.pos, label: s.label })),
+      // `x` is passed so the blueprint can order a position group left-to-right
+      // when it differentiates their roles (v1.93) — see `squadBlueprint`.
+      formation.slots.map((s) => ({ id: s.id, pos: s.pos, label: s.label, x: s.x })),
       lineup,
       tactic,
       TUNING.instructionFitSwing
@@ -2537,9 +2542,12 @@ function SquadBlueprintPanel({ tactic }: { tactic: Tactic }) {
       {open && (
         <>
           <p className="border-t border-line/60 px-3 py-2 text-[11px] leading-snug text-faint">
-            The best role at each slot for <b className="text-dim">{styleLabel(tactic.style)}</b> — and how your XI
-            measures up. Style is the bigger lever, so it decides most picks; where your advanced dials would pick
-            someone else, that role is named after a slash.
+            The side to build for <b className="text-dim">{styleLabel(tactic.style)}</b> — and how your XI measures
+            up. Where a line has two of the same position it asks for two different roles, because a back four of
+            two identical centre backs covers less between them than a pair that complement each other. The ✓/~/✗
+            still grades each player against the best role available to him, so playing a recommended role in the
+            other slot is never marked down. This ranks ROLES; whether these particular players have the attributes
+            the plan demands is the assistant&apos;s report above, and it is the larger half of the grade.
           </p>
           <div className="flex items-center gap-2 border-b border-line/60 px-3 pb-1 text-[9px] uppercase tracking-widest text-faint">
             <span className="w-7 shrink-0">Slot</span>

@@ -54,6 +54,7 @@ import {
   STAFF_MIN_STARS,
   STAFF_NATIONALITIES,
   STAFF_STARS_PER_STEP,
+  archetypeDevFacilityFor,
   facilityMaxLevel,
   seasonsForTier,
   staffFeeFor,
@@ -384,6 +385,99 @@ export function scoutSpeedMultiplier(state: GameState): number {
  * auto-filter. Until then a scout files whatever they find. */
 export function scoutFilterUnlocked(state: GameState): boolean {
   return facilityUnlockActive(state, "scoutingNetwork");
+}
+
+// ── The commercial pair's channels (v1.93) ────────────────────────────────
+//
+// Both return MULTIPLIERS rather than the raw percentages, which is the form
+// every caller in economy.ts and sponsors.ts wants, and every one of them is
+// exactly 1 for a club that never built the facility — so the books of an AI
+// club, and of a save that skipped these buildings, are untouched.
+//
+// The cut functions read a POSITIVE percentage out of the table and subtract it
+// here. See the Club Expense Center's spec comment: a table where one row means
+// "more is better" and the next means the opposite is where sign errors live.
+// Each is floored so no amount of stacking can make a bill negative — a wage
+// bill that pays the club would be a money printer, not a discount.
+
+/** Multiplier on the club's gross weekly income (1 = no facility). */
+export function incomeMultiplier(state: GameState, teamId: string): number {
+  if (teamId !== state.userTeamId) return 1;
+  return 1 + facilityChannelValue(state, "clubIncomeCenter", "weeklyIncome", 0) / 100;
+}
+
+/** Multiplier on what a freshly-generated sponsorship offer is worth, major or
+ * minor (1 = no facility). Applied when the offer is CREATED, never to a deal
+ * already signed. */
+export function sponsorOfferMultiplier(state: GameState, teamId: string): number {
+  if (teamId !== state.userTeamId) return 1;
+  return 1 + facilityChannelValue(state, "clubIncomeCenter", "sponsorOffers", 0) / 100;
+}
+
+/** Multiplier on a bill, given one of the Expense Center's cut channels. */
+function wageCutMultiplier(state: GameState, teamId: string, channelId: string): number {
+  if (teamId !== state.userTeamId) return 1;
+  const cut = facilityChannelValue(state, "clubExpenseCenter", channelId, 0);
+  return Math.max(0, 1 - cut / 100);
+}
+
+/** Multiplier on the senior squad's weekly wage bill (1 = no facility). */
+export function squadWageMultiplier(state: GameState, teamId: string): number {
+  return wageCutMultiplier(state, teamId, "squadWageCut");
+}
+
+/** Multiplier on the academy scholarship wage bill (1 = no facility). */
+export function academyWageMultiplier(state: GameState, teamId: string): number {
+  return wageCutMultiplier(state, teamId, "academyWageCut");
+}
+
+/** Multiplier on the backroom (staff + scouts) wage bill (1 = no facility). */
+export function staffWageCutMultiplier(state: GameState, teamId: string): number {
+  return wageCutMultiplier(state, teamId, "staffWageCut");
+}
+
+// ── The archetype development centers' channels (v1.93) ───────────────────
+
+/**
+ * The growth multiplier a player of a given CLASS earns from his class's
+ * development center (1 = none built, or a class with no center).
+ *
+ * Takes the class as a string and resolves the facility through
+ * `archetypeDevFacilityFor`, so nothing here names a facility in a conditional
+ * — the rule this file has held since v1.79. A class with no center (Blitzer)
+ * resolves to null and gets exactly 1, which is why the absence of a fifth
+ * building needs no special case anywhere.
+ */
+export function archetypeClassGrowthMultiplier(
+  state: GameState,
+  teamId: string,
+  cls: string | undefined
+): number {
+  if (teamId !== state.userTeamId || !cls) return 1;
+  const id = archetypeDevFacilityFor(cls);
+  if (!id) return 1;
+  return 1 + facilityChannelValue(state, id, "growth", 0) / 100;
+}
+
+/** Whether a class's center has reached the level that unlocks retraining into
+ * that class. False for a class with no center. */
+export function archetypeConversionUnlocked(state: GameState, cls: string): boolean {
+  const id = archetypeDevFacilityFor(cls);
+  return id ? facilityUnlockActive(state, id) : false;
+}
+
+/**
+ * How much faster a conversion into `cls` runs, as a fraction (0 = no boost,
+ * 0.5 = twice as fast).
+ *
+ * Capped below 1 so the wait can never reach zero: an instant conversion would
+ * make the whole two-season commitment — the thing that makes retraining a plan
+ * rather than a button — free.
+ */
+export function archetypeConversionSpeedup(state: GameState, cls: string): number {
+  const id = archetypeDevFacilityFor(cls);
+  if (!id) return 0;
+  return Math.min(0.9, facilityChannelValue(state, id, "convertSpeed", 0) / 100);
 }
 
 // ── Actions ───────────────────────────────────────────────────────────────

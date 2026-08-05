@@ -25,7 +25,7 @@ import {
   type BreakdownItem,
   type Facility,
 } from "@/lib/economy";
-import { facilityLevel } from "@/lib/facilities";
+import { facilityEffect, facilityLevel } from "@/lib/facilities";
 import { downloadSquadFile, exportSquad } from "@/lib/squadfile";
 import { clubAllTimeRecords, clubHonours, competitionHistories } from "@/lib/recordbook";
 import { academyGraduates } from "@/lib/academy";
@@ -47,6 +47,7 @@ import type { SponsorPayoutChoice } from "@/lib/sponsors";
 import type { SponsorDeal, SponsorOffer } from "@/lib/types";
 import { formatMoney } from "@/lib/value";
 import { gcnFundsOf, gcnOverview } from "@/lib/gcn";
+import { isRival, rivalriesOf, rivalryRecordLine } from "@/lib/rivalry";
 import { Card, Crest, Flag, GhostButton, GoldButton, MoneyInput, Section, Stars, Tabs } from "../ui";
 import SeasonDetailModal from "./SeasonDetailModal";
 
@@ -424,6 +425,21 @@ function FinancesTab() {
     ...(b.sponsorIncome > 0
       ? [{ label: "Sponsorships", amount: b.sponsorIncome, items: sponsorItems, note: "Weekly income from minor deals; major deals pay a lump sum instead." }]
       : []),
+    // The Club Income Center's uplift (v1.93), on its own line rather than folded
+    // silently into the lines above. A facility the manager paid £100M for has to
+    // be visible earning its keep, and a percentage buried in `tvIncome` would be
+    // a number nothing on this page could ever account for.
+    ...(b.incomeCenterBonus > 0
+      ? [
+          {
+            label: "Club Income Center",
+            amount: b.incomeCenterBonus,
+            note: `A ${Math.round(
+              facilityEffect(team, "clubIncomeCenter").channels.find((c) => c.id === "weeklyIncome")?.total ?? 0
+            )}% uplift on every earning line above. It also lifts what sponsors offer, which shows up in the deals themselves rather than here.`,
+          },
+        ]
+      : []),
     {
       label: "Squad wage bill",
       amount: -b.wageBill,
@@ -480,6 +496,26 @@ function FinancesTab() {
         ]
       : []),
   ];
+
+  // The Club Expense Center's saving (v1.93) is reported as a NOTE on the three
+  // bills it reduces, never as a row of its own. A row would have to carry a
+  // positive amount to read as a saving, and this ledger splits income from
+  // costs on the sign — so a "saving" row would land in the income column and
+  // inflate the weekly total by money that was never received. The three figures
+  // above are already net of it; this only says so.
+  if (b.expenseCenterSaving > 0) {
+    const cuts = facilityEffect(team, "clubExpenseCenter");
+    const pct = (id: string) => Math.round(cuts.channels.find((c) => c.id === id)?.total ?? 0);
+    for (const r of rows) {
+      const bill =
+        r.label === "Squad wage bill" ? "squadWageCut"
+        : r.label === "Staff wages" ? "staffWageCut"
+        : r.label === "Academy wages" ? "academyWageCut"
+        : null;
+      if (!bill) continue;
+      r.note = `${r.note ? `${r.note} ` : ""}The Club Expense Center takes ${pct(bill)}% off this bill; the figure shown is already net of it.`;
+    }
+  }
 
   // Split the ledger into what comes in and what goes out, so the weekly picture
   // reads as two columns of a P&L rather than one long undifferentiated list.
@@ -1525,10 +1561,81 @@ function HistoryTab() {
             <RecordList rows={records.cleanSheets.map((r) => ({ ...r, value: r.cleanSheets }))} onView={viewPlayer} unit="clean sheets" />
           </Section>
         )}
+        <RivalsPanel />
         <GraduatesLedger />
       </div>
     </div>
     </div>
+  );
+}
+
+/**
+ * Modern rivalries (v1.94) — who this save has turned into an enemy, and how it
+ * has gone against them.
+ *
+ * Every rule shown here comes from `lib/rivalry.ts`: the list is
+ * `rivalriesOf`, whether one is live is `isRival`, and the record line is
+ * `rivalryRecordLine`. The screen never re-derives one — the same contract the
+ * assistant and the facilities card hold.
+ *
+ * Dormant rivalries are SHOWN, greyed, rather than hidden. A rivalry that
+ * silently vanished when a club was relegated would read as a bug, and the
+ * history is the thing the feature exists to accumulate.
+ */
+function RivalsPanel() {
+  const game = useGame((s) => s.game)!;
+  const viewTeam = useGame((s) => s.viewTeam);
+  const all = rivalriesOf(game);
+
+  return (
+    <Section
+      title="Rivals"
+      right={all.length > 0 ? <span className="text-xs text-faint">{all.length} formed</span> : undefined}
+    >
+      {all.length === 0 ? (
+        <div className="text-sm text-faint">
+          No rivalries yet. Meet a club in a cup final, or finish alongside them in the top{" "}
+          {TUNING.rivalryTitleRaceTop} for {TUNING.rivalryTitleRaceSeasons} seasons running, and the
+          fixture becomes a derby — worth {TUNING.rivalryMatchBonusMult}× on your Performance and
+          Stadium Bonus tracks, with one-off sponsors on the table that week.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {all.map((r) => {
+            const live = isRival(game, r.rivalId, TUNING);
+            const club = game.teams[r.rivalId];
+            return (
+              <Card key={r.rivalId} className={`p-3 ${live ? "" : "opacity-60"}`}>
+                <button
+                  className="flex w-full items-center gap-2 text-left"
+                  onClick={() => viewTeam(r.rivalId)}
+                >
+                  {club && <Crest colors={club.colors} short={club.short} size={26} />}
+                  <span className="min-w-0 flex-1">
+                    <span className="display block truncate text-sm font-bold">{r.rivalName}</span>
+                    <span className="block text-[11px] text-faint">
+                      {r.cause === "cupFinal" ? "Cup final" : "Title race"} · since S{r.formedSeason}
+                    </span>
+                  </span>
+                  {live ? (
+                    <span className="display shrink-0 rounded-sm border border-loss/50 px-1.5 py-px text-[9px] font-bold uppercase tracking-wider text-loss">
+                      Derby
+                    </span>
+                  ) : (
+                    <span className="display shrink-0 text-[9px] uppercase tracking-wider text-faint">
+                      Dormant
+                    </span>
+                  )}
+                </button>
+                <div className="mt-2 border-t border-line pt-2 text-[12px] tnum text-dim">
+                  {rivalryRecordLine(r)}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </Section>
   );
 }
 

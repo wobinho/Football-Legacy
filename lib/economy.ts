@@ -1,23 +1,28 @@
 // Economy (§8): one budget number per club, updated weekly.
 // income (division + league position + gate) − expenses (wages + staff).
 
-import type { GameState, PlayerBio, Team } from "./types";
+import type { Fixture, GameState, PlayerBio, Team } from "./types";
 import type { TuningConfig } from "./config/tuning";
 import { computeTable } from "./season";
 import { squadWageBill, playerValue, playerWage } from "./value";
 import { leagueWageMult } from "./contracts";
 import {
   academySquadSize,
+  academyWageMultiplier,
   facilityLevel,
   growthMultiplier,
+  incomeMultiplier,
   prospectValueMultiplier,
+  squadWageMultiplier,
   staffWageBill,
+  staffWageCutMultiplier,
   rosterOf,
   badgeWeightAt,
 } from "./facilities";
 import { FACILITY_MAP } from "./config/facilities";
 import { migrateProspectTier, TIER_LABEL } from "./scouts";
 import { sponsorWeeklyIncome } from "./sponsors";
+import { rivalryMatchMultiplier } from "./rivalry";
 
 export interface WeeklyBreakdown {
   tvIncome: number;
@@ -45,6 +50,14 @@ export interface WeeklyBreakdown {
   /** Retainers on open-ended scouting trips (v1.85). A fixed-duration brief paid
    * up front and never appears here. */
   scoutTrips: number;
+  /** What the Club Income Center added to this week's gross income (v1.93), and
+   * what the Club Expense Center took off the three wage bills. Both are
+   * reported separately from the lines they modify so the Finances page can show
+   * the facility earning its keep — a silent uplift folded into `tvIncome` would
+   * be a number the manager paid £100M for and can never see. Zero for a club
+   * that hasn't built them. */
+  incomeCenterBonus: number;
+  expenseCenterSaving: number;
   net: number;
 }
 
@@ -188,15 +201,23 @@ export function weeklyBreakdown(state: GameState, teamId: string, cfg: TuningCon
   // club's accounting, not a pay cut.
   const grossWageBill = squadWageBill(players, cfg, leagueWageMult(state, team.leagueId, cfg));
   const wageDiscount = Math.round(grossWageBill * wageDiscountRate(state, teamId, cfg));
-  const wageBill = grossWageBill - wageDiscount;
-  const staffWages = teamId === state.userTeamId ? staffWageBill(state) : 0;
+  // The Club Expense Center (v1.93) applies AFTER the Contract Accounting
+  // discount, on what the club is actually left paying. Multiplying the gross
+  // instead would let the two upgrades each discount money the other had already
+  // saved, which is how a stack of percentages quietly becomes more than 100%.
+  const squadCut = squadWageMultiplier(state, teamId);
+  const wageBillBeforeFacility = grossWageBill - wageDiscount;
+  const wageBill = Math.round(wageBillBeforeFacility * squadCut);
+  const staffWagesGross = teamId === state.userTeamId ? staffWageBill(state) : 0;
+  const staffWages = Math.round(staffWagesGross * staffWageCutMultiplier(state, teamId));
   // The Youth Academy building's running cost (v1.82 — was the old standalone
   // `academyLevel`). A club that hasn't built it pays nothing, which is right:
   // there is no building to run.
   const academyUpkeep = facilityLevel(team, "youthAcademy") * cfg.academyUpkeepPerLevel;
   // Youth scholarship wages (v25). Only the user runs a visible academy roster,
   // so AI clubs' academy wage bill is zero — their youth costs are abstracted.
-  const academyWages = teamId === state.userTeamId ? academyWageBill(state, teamId, cfg) : 0;
+  const academyWagesGross = teamId === state.userTeamId ? academyWageBill(state, teamId, cfg) : 0;
+  const academyWages = Math.round(academyWagesGross * academyWageMultiplier(state, teamId));
   // Scouts out on open-ended briefs (v1.85). AI clubs don't run visible briefs.
   const scoutTrips = scoutTripBill(state, teamId);
   const solidarityIncome = drawsAiSubsidy(state, teamId) ? cfg.aiWeeklySubsidy : 0;
@@ -207,6 +228,17 @@ export function weeklyBreakdown(state: GameState, teamId: string, cfg: TuningCon
     teamId === state.userTeamId
       ? 0
       : Math.round(team.reputation * byTier(cfg.aiOperatingCostPerReputationByTier, tier));
+
+  // The Club Income Center (v1.93) lifts the club's GROSS weekly income — every
+  // earning line above, sponsorship included. It deliberately excludes the
+  // solidarity payment, which the user's club never draws anyway, so the uplift
+  // is strictly a percentage of money the club earned for itself.
+  const grossIncome = tvIncome + positionBonus + gateIncome + facilities + sponsorIncome;
+  const incomeCenterBonus = Math.round(grossIncome * (incomeMultiplier(state, teamId) - 1));
+  // What the Expense Center saved this week, across all three bills. Reported,
+  // not subtracted again — the three figures above are already net of it.
+  const expenseCenterSaving =
+    wageBillBeforeFacility - wageBill + (staffWagesGross - staffWages) + (academyWagesGross - academyWages);
 
   return {
     tvIncome,
@@ -222,8 +254,10 @@ export function weeklyBreakdown(state: GameState, teamId: string, cfg: TuningCon
     academyUpkeep,
     academyWages,
     scoutTrips,
+    incomeCenterBonus,
+    expenseCenterSaving,
     net:
-      tvIncome + positionBonus + gateIncome + facilities + sponsorIncome + solidarityIncome
+      grossIncome + incomeCenterBonus + solidarityIncome
       - wageBill - staffWages - academyUpkeep - academyWages - scoutTrips - operatingCost,
   };
 }
@@ -573,14 +607,23 @@ export function upgradeFacility(state: GameState, facility: Facility, cfg: Tunin
  *
  * `own`/`opp` are goals from the club's own perspective; `isHome` decides the
  * stadium half. Returns 0 for a club with neither upgrade, so the caller can
- * apply it unconditionally. */
+ * apply it unconditionally.
+ *
+ * `fixture` (v1.94) is what makes a derby pay. A rivalry multiplies these two
+ * TRACKS by `rivalryMatchBonusMult` and nothing else in the club's books — see
+ * `rivalryMatchMultiplier`, which returns exactly 1 for every ordinary match, so
+ * a save with no rivalries computes precisely what it always did. Multiplying
+ * the upgrade tracks rather than paying flat derby money is deliberate: it makes
+ * the rivalry a return on an investment the manager chose to make, and a club
+ * that bought neither upgrade earns nothing extra from hating anybody. */
 export function matchUpgradeIncome(
   state: GameState,
   teamId: string,
   isHome: boolean,
   own: number,
   opp: number,
-  cfg: TuningConfig
+  cfg: TuningConfig,
+  fixture?: Fixture
 ): number {
   let total = 0;
   const stadiumLevel = incomeUpgradeLevel(state, teamId, "stadiumBonus");
@@ -590,7 +633,10 @@ export function matchUpgradeIncome(
     const table = own > opp ? cfg.performanceBonusWin : own === opp ? cfg.performanceBonusDraw : cfg.performanceBonusLoss;
     total += table[perfLevel - 1] ?? 0;
   }
-  return total;
+  // The derby multiplier applies to the sum of the two tracks, which is the
+  // whole of what this function pays. Only the user's club can hold a rivalry.
+  if (teamId === state.userTeamId) total *= rivalryMatchMultiplier(state, fixture, cfg);
+  return Math.round(total);
 }
 
 // ── Academy & scouting upgrades — REMOVED (v1.82) ───────────────────────────

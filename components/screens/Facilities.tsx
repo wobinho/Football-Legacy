@@ -201,21 +201,25 @@ function BadgeRow({
 // ── Facilities tab ────────────────────────────────────────────────────────
 
 /**
- * Two facilities per row (v1.83).
+ * Four facilities per row (v1.93; was two in v1.83).
  *
- * Four buildings stacked full-width made the page a scroll: the fourth was
- * three screens below the first, so "which should I put my next coach in?" —
- * the actual question this tab answers — could never be asked by looking. Two
- * columns puts a pair side by side at desk widths and keeps the single column
- * on a phone, where a facility card is already the full width of the world.
+ * The v1.83 note argued for two columns because four buildings stacked
+ * full-width made the page a scroll — the fourth was three screens below the
+ * first, so "which should I put my next coach in?", the actual question this
+ * tab answers, could never be asked by looking. That argument is unchanged and
+ * is exactly why the count had to rise with the table: at TEN facilities, two
+ * columns is five rows and the same scroll is back.
  *
- * The panel itself is unchanged inside; only the `Section` wrapper moved out to
- * the grid so the two columns' headers line up.
+ * Four across at 2xl, three at xl, two at lg, one on a phone. The ladder
+ * matters more than the top number — a facility card carries several channels
+ * of arithmetic and a star bar, so it has a floor width below which the
+ * arithmetic wraps into noise, and the breakpoints are where each count still
+ * clears it.
  */
 function FacilitiesTab() {
   useGame((s) => s.rev);
   return (
-    <div className="mt-4 grid grid-cols-1 items-start gap-x-5 gap-y-0 xl:grid-cols-2">
+    <div className="mt-4 grid grid-cols-1 items-start gap-x-5 gap-y-0 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
       {FACILITY_SPECS.map((spec) => (
         <FacilityPanel key={spec.id} id={spec.id} />
       ))}
@@ -247,6 +251,15 @@ function FacilitiesTab() {
  *
  * Nothing that OPENS is constrained by it: a card with its slot grid expanded
  * grows past the floor freely. It just never starts below it.
+ *
+ * v1.93: the grid went to four columns and the table to ten facilities, and
+ * this number deliberately did NOT change. It is a FLOOR, not a fixed height —
+ * a narrower card whose channel rows wrap simply grows past it, and the two
+ * facilities with four channels (the Club Expense Center) do exactly that. What
+ * the floor is for is the opposite case: stopping a cheap-looking unbuilt card
+ * sitting next to a built one, which is a per-ROW property and is unaffected by
+ * how many cards a row holds. Re-measure it only if the ragged-grid problem
+ * comes back, not merely because the column count moved.
  */
 const CARD_MIN_H = "min-h-[560px]";
 

@@ -1266,6 +1266,105 @@ export interface TuningConfig {
   u21FocusMax: number; // absolute cap on focus slots, whatever the facility says
   u21FocusGrowthBonus: number; // extra growth multiplier for focus prospects
   u21SquadGrowthBonus: number; // extra growth multiplier for players tagged into the U21 squad
+  /**
+   * ── The academy is a better place to be YOUNG (v1.93) ──
+   *
+   * A 16-year-old in the academy develops faster than the same 16-year-old
+   * carried in the senior squad, and the edge fades to nothing as he approaches
+   * the age he must be promoted at. That is what makes the academy a genuine
+   * pathway rather than a waiting room: before this, the only reason to keep a
+   * prospect in it was the squad cap, so the optimal play was to promote every
+   * good teenager immediately and the academy screen described a formality.
+   *
+   * It is deliberately an AGE curve, not a flat bonus. A flat one would say
+   * "the academy is simply better", which makes promoting anybody a mistake and
+   * turns `academyMaxAge` into a punishment. Ramped down to zero instead, the
+   * decision the manager actually faces is a timing one — hold him another year
+   * for the coaching, or promote him for the senior minutes that drive
+   * everything else — and both answers are live at different ages.
+   *
+   * `academyYouthGrowthBonus` is the bonus at (or below) `academyYouthPeakAge`;
+   * it decays linearly to 0 at `academyMaxAge`, so a prospect at the age-out
+   * boundary gains nothing from staying and the ramp joins the senior curve
+   * smoothly rather than as a cliff.
+   *
+   * It multiplies into the same `extraGrowth` term the loan/U21/focus bonuses
+   * use, so it stacks with them exactly as every other academy lever does and
+   * needs no new channel in `developPlayer`.
+   */
+  academyYouthGrowthBonus: number;
+  academyYouthPeakAge: number;
+
+  // ── Archetype retraining (v1.93) ──
+  //
+  // The Development → Archetype page. A class development center at level 5 can
+  // put a player through a programme that reshapes his ATTRIBUTES toward a
+  // target archetype while holding his overall — see lib/archetypedev.ts.
+  /** Seasons a programme takes with no staff speed-up. The brief's "2 years". */
+  archetypeConvertSeasons: number;
+  /** Programmes ONE center may run at once. The brief's "1 player at a time at
+   * base"; it is per center, so a club with all four built can retrain four
+   * players — one into each class — rather than one player in total. */
+  archetypeConvertSlots: number;
+  /**
+   * How much of the gap to the target shape a programme closes per season, as a
+   * fraction, before the final season snaps the rest.
+   *
+   * Deliberately partial. A programme that did nothing until it completed would
+   * make a two-season commitment invisible for two seasons — the player would
+   * read exactly as he did before, and the manager would have no way to tell it
+   * was working. Reshaping a share each summer means his attributes visibly
+   * drift toward the role, and his derived archetype flips when it genuinely
+   * earns it, which is the same rule every other identity change in the game
+   * follows.
+   */
+  archetypeConvertProgressShare: number;
+
+  // ── Dynamic rivalries (v1.94) ──
+  //
+  // A rivalry is FORMED by the save's own history (lib/rivalry.ts) and then pays
+  // out on the fixtures it produces. Two halves, and they are tuned against
+  // different things: the formation numbers decide how often a rivalry happens
+  // at all, and the payout numbers decide what one is worth when it does.
+  /** Consecutive seasons two clubs must BOTH finish inside
+   * `rivalryTitleRaceTop` to be declared rivals. Three is the brief's own
+   * number and it is doing real work: two is a coincidence in a division where
+   * the same six clubs share the top places, three is a pattern. */
+  rivalryTitleRaceSeasons: number;
+  /** The finishing places that count as "in the title race". */
+  rivalryTitleRaceTop: number;
+  /**
+   * Multiplier on the Performance Bonus and Stadium Bonus upgrade tracks in a
+   * rivalry fixture. The brief asks for "massive", and 3× is what that means
+   * here: it is the difference between a bonus track being background income
+   * and a derby being the week the club's finances turn on.
+   *
+   * It multiplies the UPGRADE tracks specifically, not the gate or the TV money
+   * — so it rewards a manager who invested in those tracks rather than handing
+   * out flat cash, and a club that bought neither gets exactly nothing extra.
+   * That is deliberate: the rivalry makes an existing investment pay, which is
+   * a decision, where flat cash would be a windfall.
+   */
+  rivalryMatchBonusMult: number;
+  /** How many one-off minor sponsorships a rivalry week attracts. */
+  rivalryOfferCount: number;
+  /** Multiplier on a rivalry one-off's weekly value over an ordinary minor.
+   * These are single-season deals bought at a premium for the association, so
+   * they are worth carrying even against a better ordinary offer. */
+  rivalryOfferAmountMult: number;
+  /** Days before the fixture that the rivalry sponsors come to the table, and
+   * how long they stay. Short on purpose — the whole point is that it is THAT
+   * week's money, not a permanent uplift. */
+  rivalryOfferLeadDays: number;
+  /** Seasons without meeting after which a rivalry goes dormant and stops
+   * paying. A club relegated three divisions is no longer your rival, and a
+   * rivalry that pays forever on a fixture that never happens is just a
+   * permanent income boost with a story attached. */
+  rivalryDormantSeasons: number;
+  /** The most rivalries one save may carry at once. A manager with eleven
+   * rivals has none — the word has to keep meaning something, and the payouts
+   * are large enough that an uncapped list would become the main income line. */
+  rivalryMaxActive: number;
   u21GoalsPerMatch: number; // youth football is looser than the senior game
   u21OppStrengthBase: number; // opponent strength = base + rep * perRep (+noise)
   u21OppStrengthPerRep: number;
@@ -2711,6 +2810,38 @@ export const TUNING: TuningConfig = {
   u21FocusMax: 15,
   u21FocusGrowthBonus: 0.1,
   u21SquadGrowthBonus: 0.06,
+  // +25% at 16 and below, decaying to 0 at academyMaxAge (21). Sized against
+  // the levers beside it: bigger than focus (+10%) or U21 selection (+6%),
+  // because it is the one that should decide whether a prospect is in the
+  // academy at all, and small enough that senior minutes — worth up to a 0.35 →
+  // 1.0 swing on the whole growth stack in `developPlayer` — still beat it for
+  // a prospect who would actually play. That is the intended tension: coaching
+  // wins for a teenager who'd sit on a senior bench, minutes win for one ready
+  // to start.
+  academyYouthGrowthBonus: 0.25,
+  academyYouthPeakAge: 16,
+
+  archetypeConvertSeasons: 2,
+  archetypeConvertSlots: 1,
+  // 0.6 of the remaining gap each summer. Chosen so the FIRST season already
+  // moves him most of the way (which is what makes the programme legible) while
+  // leaving the completion genuinely worth waiting for.
+  archetypeConvertProgressShare: 0.6,
+
+  // Rivalries (v1.94). The brief's own numbers where it gave them (three
+  // consecutive seasons, top three); the payout side is set so a derby is a
+  // genuine event without becoming the club's business model — at 3× the
+  // Performance and Stadium tracks, two league meetings a season is worth
+  // roughly one extra home fixture's bonus income, plus whatever the one-off
+  // sponsors are taken up.
+  rivalryTitleRaceSeasons: 3,
+  rivalryTitleRaceTop: 3,
+  rivalryMatchBonusMult: 3,
+  rivalryOfferCount: 2,
+  rivalryOfferAmountMult: 2.5,
+  rivalryOfferLeadDays: 7,
+  rivalryDormantSeasons: 3,
+  rivalryMaxActive: 4,
   u21GoalsPerMatch: 3.2,
   u21OppStrengthBase: 26,
   u21OppStrengthPerRep: 0.34,

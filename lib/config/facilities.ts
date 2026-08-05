@@ -28,6 +28,7 @@
 //   = 5 + 10 + 18 = 33% faster player growth.
 
 import type { BadgeTier, FacilityId } from "../types";
+import { ARCHETYPE_CLASS_ORDER, type ArchetypeClass } from "./archetype";
 
 /** How many badges one staff member can ever hold — i.e. how many distinct
  * facilities they can build a record at. Serving a fourth facility earns
@@ -139,6 +140,118 @@ export function headlineChannel(spec: FacilitySpec): FacilityChannel {
 export function effectLabel(spec: FacilitySpec): string {
   return headlineChannel(spec).label;
 }
+
+// ── The archetype development centers (v1.93) ─────────────────────────────
+//
+// Five facilities that are the same facility five times over, so they are
+// GENERATED from one function rather than copy-pasted. Five near-identical
+// hand-written specs is five places for a number to drift, and the whole point
+// of this table is that a facility is data.
+//
+// ── One per class, and the list is DERIVED ────────────────────────────────
+// The set is `ARCHETYPE_CLASS_ORDER` itself rather than a hand-written list, so
+// a class can never exist without a center or a center without a class. The
+// first cut shipped only four — `Blitzer` was left out on the argument that it
+// is already the class with the sharpest style edges and so least needed a
+// building. That was wrong in a way the tables couldn't show: it made Blitzer
+// the one class a player could never be CONVERTED to, so the direct
+// counter-attacking roles were the only ones in the game that had to be bought
+// or grown rather than coached. An asymmetry that big has to be a rule the
+// player can read, and "every class has a center" is the readable rule.
+//
+// ── The two things a center does ──────────────────────────────────────────
+//   1. `growth` — a percentage uplift on seasonal growth for players who
+//      currently DERIVE that class. An ordinary channel, read by
+//      development.ts through the usual accessor.
+//   2. `convertSpeed` — how much faster the archetype conversion on the
+//      Development → Archetype page runs. Only meaningful once the level-5
+//      capability is unlocked, which is why it is a channel and the unlock
+//      itself is an `unlockAtLevel`: "how fast" is a number, "may I at all" is
+//      not, and modelling the second as a number crossing zero is the mistake
+//      the Scouting Network's filter comment already argues against.
+//
+// The brief's headline for the speed channel: 10% per 6 stars, so 30 stars
+// halves a 2-season conversion to 1. `conversionSeasons` in lib/archetypedev.ts
+// is what turns this percentage into seasons; the 50% that a full staff earns is
+// exactly the "2 years → 1 year" the brief asks for.
+export const ARCHETYPE_DEV_CLASS: { id: FacilityId; cls: ArchetypeClass }[] =
+  ARCHETYPE_CLASS_ORDER.map((cls) => ({
+    // The id is the class's own name, lowercased — derived rather than mapped,
+    // so a new class cannot be added without its center coming with it. The
+    // `FacilityId` union still spells all five out, which is what makes a
+    // mismatch a compile error rather than a runtime one.
+    id: `${cls.toLowerCase()}Development` as FacilityId,
+    cls,
+  }));
+
+/** Is this facility one of the four archetype development centers? Callers use
+ * this rather than naming an id, so the rules file keeps its no-facility-in-a-
+ * conditional guarantee. */
+export function archetypeDevClassOf(id: FacilityId): ArchetypeClass | null {
+  return ARCHETYPE_DEV_CLASS.find((r) => r.id === id)?.cls ?? null;
+}
+
+/** The center that develops a given class. Every class has one, but this still
+ * returns null for an unrecognised string — callers pass a derived archetype's
+ * class, and a player with no derivable archetype has none. */
+export function archetypeDevFacilityFor(cls: string): FacilityId | null {
+  return ARCHETYPE_DEV_CLASS.find((r) => r.cls === cls)?.id ?? null;
+}
+
+function archetypeDevSpec(id: FacilityId, cls: ArchetypeClass): FacilitySpec {
+  return {
+    id,
+    name: `${cls} Archetype Development`,
+    blurb: `Specialist coaching built around the ${cls} game. ${cls}s at the club develop faster — and once the department is complete, it can retrain a player into a ${cls} role outright.`,
+    unlockCost: 200_000_000,
+    upgradeCosts: [40_000_000, 60_000_000, 90_000_000, 130_000_000],
+    // Level:      1  2  3  4  5
+    slotsByLevel: [2, 3, 4, 5, 6],
+    channels: [
+      {
+        id: "growth",
+        label: `${cls.toLowerCase()} growth`,
+        unit: "percent",
+        base: 5,
+        levelEffect: 1,
+        starEffect: 0,
+        badgeEffect: 0.1,
+        badgeTiersPerStep: 1,
+      },
+      {
+        // 10% per 6-star step, so six 5-stars (30 stars) is 50% off the wait —
+        // the brief's "2 seasons becomes 1". No level or badge term: the level
+        // is what unlocks the capability at all, and the speed is the people.
+        id: "convertSpeed",
+        label: "conversion speed",
+        unit: "percent",
+        base: 0,
+        starEffect: 10,
+        badgeEffect: 0,
+        badgeTiersPerStep: 1,
+      },
+      {
+        id: "staffSlots",
+        label: "staff slots",
+        unit: "count",
+        base: 2,
+        levelEffect: 1,
+        starEffect: 0,
+        badgeEffect: 0,
+        badgeTiersPerStep: 1,
+      },
+    ],
+    unlockAtLevel: {
+      level: 5,
+      label: `${cls} retraining`,
+      blurb: `Unlocks the ${cls} section of Development → Archetype: pick a player and retrain him into a ${cls} role. His attributes are reshaped toward it over the course of the programme, and his overall is preserved.`,
+    },
+  };
+}
+
+const ARCHETYPE_DEV_SPECS: FacilitySpec[] = ARCHETYPE_DEV_CLASS.map((r) =>
+  archetypeDevSpec(r.id, r.cls)
+);
 
 /**
  * Elite Training Center — the first facility, and the template for the rest.
@@ -437,6 +550,180 @@ export const FACILITY_SPECS: FacilitySpec[] = [
         "Unlocks the brief auto-filter: set the age, the ability band and the rarity tiers you'll accept, and nothing outside them ever reaches your board.",
     },
   },
+  /**
+   * Club Income Center — the first facility that moves MONEY (v1.93).
+   *
+   * Everything before it changed players. This changes the books, and it does so
+   * through the two levers a commercial department actually has: what the club
+   * earns every week, and what a sponsor is willing to offer for its name.
+   *
+   * Three channels, and they are deliberately different KINDS of number:
+   *
+   *   - `weeklyIncome`   — a percentage uplift on the club's gross weekly
+   *                        income (TV, gate, position bonus, facilities,
+   *                        sponsorship). Read by `economy.ts`.
+   *   - `sponsorOffers`  — a percentage uplift on what major AND minor sponsor
+   *                        offers arrive at. Read by `sponsors.ts` at the moment
+   *                        an offer is generated, so a deal already signed is
+   *                        never retroactively repriced — the uplift is what the
+   *                        department negotiated, not a rewrite of history.
+   *   - `staffSlots`     — see below.
+   *
+   * ── Why `staffSlots` is a CHANNEL here and not a `slotsByLevel` row ───────
+   * It is both, and they must agree. `slotsByLevel` is what the system has
+   * always used and what `slotCount` reads; the channel exists so the card can
+   * show the slot ladder as arithmetic beside the other two, which is how the
+   * brief describes it ("+1 staff slot" per level, exactly like "+2% income").
+   * `verify:facilities` asserts the two never disagree, so this can't drift into
+   * a second source of truth for how many people the building holds.
+   *
+   * Ceiling at level 5 with six legacy-badged 5-stars (30 stars = 5 steps,
+   * 36 badge weight):
+   *   income   5% + 2×4 levels + 2×5 star steps        = +23%/wk
+   *   sponsors 5% + 1×4 levels + 0.5×36 tiers          = +27% on offers
+   *   slots    2 + 1×4                                 = 6
+   */
+  {
+    id: "clubIncomeCenter",
+    name: "Club Income Center",
+    blurb:
+      "A commercial department that works the club's revenue: better weekly receipts across the board, and sponsors who come to the table with more.",
+    unlockCost: 100_000_000,
+    upgradeCosts: [30_000_000, 50_000_000, 75_000_000, 110_000_000],
+    // Level:        1  2  3  4  5
+    slotsByLevel: [2, 3, 4, 5, 6],
+    channels: [
+      {
+        id: "weeklyIncome",
+        label: "weekly income",
+        unit: "percent",
+        base: 5,
+        levelEffect: 2,
+        starEffect: 2,
+        badgeEffect: 0,
+        badgeTiersPerStep: 1,
+      },
+      {
+        id: "sponsorOffers",
+        label: "sponsorship offers",
+        unit: "percent",
+        base: 5,
+        levelEffect: 1,
+        starEffect: 0,
+        badgeEffect: 0.5,
+        badgeTiersPerStep: 1,
+      },
+      {
+        id: "staffSlots",
+        label: "staff slots",
+        unit: "count",
+        base: 2,
+        levelEffect: 1,
+        starEffect: 0,
+        badgeEffect: 0,
+        badgeTiersPerStep: 1,
+      },
+    ],
+  },
+  /**
+   * Club Expense Center — the other half of the books (v1.93).
+   *
+   * Its channels are REDUCTIONS, and they are stored as positive percentages
+   * with the consuming code subtracting them — the same convention
+   * `eliteResistRelief` uses for the HPC. A negative number in a table that
+   * every other row reads as "more is better" is the kind of sign error that
+   * only shows up as a doubled wage bill three seasons into a save.
+   *
+   * Three wage bills, three separate channels, because the brief prices them
+   * separately and because they are genuinely different money: the squad's wages
+   * dwarf the other two put together, so a single blended "wages" channel would
+   * make the academy and staff terms invisible.
+   *
+   * The staff term is the largest (5% base, and the only one with a badge track)
+   * for the obvious reason: this facility is staffed, and a department that
+   * negotiates its own contracts down is the one bit of the building that pays
+   * for itself.
+   *
+   * Ceiling at level 5 with six legacy-badged 5-stars (30 stars = 5 steps,
+   * 36 badge weight):
+   *   squad   3% + 1×4 levels + 0.2×5 stars + 0.25×36 badges = −17%
+   *   academy 3% + 1×4 + 1 + 9                              = −17%
+   *   staff   5% + 1×4 + 1 + 1×36                           = −46%
+   *   slots   2 + 1×4                                       = 6
+   *
+   * Note the squad line is the one that matters in money terms: a top-flight
+   * wage bill dwarfs the other two put together, so −17% of it is worth far
+   * more per week than −46% of the backroom. The percentages read backwards on
+   * purpose — the bill they apply to is what sets their value.
+   */
+  {
+    id: "clubExpenseCenter",
+    name: "Club Expense Center",
+    blurb:
+      "Contract negotiators, payroll and procurement. Everything the club pays out every week costs it a little less — and the backroom bill least of all.",
+    unlockCost: 100_000_000,
+    upgradeCosts: [30_000_000, 50_000_000, 75_000_000, 110_000_000],
+    // Level:        1  2  3  4  5
+    slotsByLevel: [2, 3, 4, 5, 6],
+    channels: [
+      // ── The badge term on these two is not in the design brief ────────────
+      // The brief gives the squad and academy cuts a level term (−1%/level) and
+      // a star term (−0.2% per 6 stars) and no badge track at all. Taken
+      // literally that is 4 points from the BUILDING against 1 from the PEOPLE
+      // — the bought-by-the-level shape v1.79 and v1.82 exist to delete, and
+      // `verify:facilities` refuses it on exactly those grounds.
+      //
+      // The brief's headline numbers are kept unchanged; what is added is a
+      // badge track at the same 0.25%/tier, worth 9 points at a fully
+      // legacy-badged department. That leaves levels 4, staff 10, so the people
+      // buy most of it — and it costs a decade of continuous service, which is
+      // the slowest thing in the game to buy and the right price for the
+      // biggest bill on the books.
+      {
+        id: "squadWageCut",
+        label: "squad wage cut",
+        unit: "percent",
+        base: 3,
+        levelEffect: 1,
+        starEffect: 0.2,
+        badgeEffect: 0.25,
+        badgeTiersPerStep: 1,
+      },
+      {
+        id: "academyWageCut",
+        label: "academy wage cut",
+        unit: "percent",
+        base: 3,
+        levelEffect: 1,
+        starEffect: 0.2,
+        badgeEffect: 0.25,
+        badgeTiersPerStep: 1,
+      },
+      {
+        id: "staffWageCut",
+        label: "staff wage cut",
+        unit: "percent",
+        base: 5,
+        levelEffect: 1,
+        starEffect: 0.2,
+        badgeEffect: 1,
+        badgeTiersPerStep: 1,
+      },
+      {
+        id: "staffSlots",
+        label: "staff slots",
+        unit: "count",
+        base: 2,
+        levelEffect: 1,
+        starEffect: 0,
+        badgeEffect: 0,
+        badgeTiersPerStep: 1,
+      },
+    ],
+  },
+  // The four archetype development centers (v1.93) are generated below rather
+  // than written out four times — see `archetypeDevSpec`.
+  ...ARCHETYPE_DEV_SPECS,
 ];
 
 export const FACILITY_MAP: Record<FacilityId, FacilitySpec> = Object.fromEntries(
@@ -471,6 +758,13 @@ const FACILITY_ART_KEY: Record<FacilityId, string | null> = {
   highPerformanceCenter: null,
   youthAcademy: null,
   scoutingNetwork: null,
+  clubIncomeCenter: null,
+  clubExpenseCenter: null,
+  engineDevelopment: null,
+  creatorDevelopment: null,
+  enforcerDevelopment: null,
+  maverickDevelopment: null,
+  blitzerDevelopment: null,
 };
 
 /** The wide establishing shot used as the facility card's banner. */

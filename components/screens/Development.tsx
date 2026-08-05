@@ -24,9 +24,26 @@
 
 import { useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
-import type { Attributes, PlayerBio, Pos } from "@/lib/types";
+import type { ArchetypeConversion, Attributes, FacilityId, PlayerBio, Pos } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
-import { eliteResistRelief, growthMultiplier } from "@/lib/facilities";
+import {
+  archetypeConversionUnlocked,
+  eliteResistRelief,
+  facilityLevel,
+  growthMultiplier,
+} from "@/lib/facilities";
+import {
+  ARCHETYPE_DEV_CLASS,
+  FACILITY_MAP,
+  STAFF_STARS_PER_STEP,
+} from "@/lib/config/facilities";
+import {
+  archetypeOfPlan,
+  conversionError,
+  conversionOptionsFor,
+  conversionSeasonsRequired,
+  conversionsOf,
+} from "@/lib/archetypedev";
 import {
   archetypeConversionEta,
   devPhase,
@@ -38,7 +55,13 @@ import {
 import { ATTR_FAMILY_LABELS, ATTR_FAMILY_ORDER, ATTR_META, GK_FAMILY_LABELS } from "@/lib/config/attributes";
 import { academyGrowthSummary, prospectGrowth, type ProspectGrowth } from "@/lib/academy";
 import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan, type TrainingPlanDef } from "@/lib/config/training";
-import { ARCHETYPE_BY_PLAN, ARCHETYPE_CLASS_COLOR, deriveArchetype, getArchetype } from "@/lib/config/archetype";
+import {
+  ARCHETYPE_BY_PLAN,
+  ARCHETYPE_CLASS_COLOR,
+  deriveArchetype,
+  getArchetype,
+  type ArchetypeClass,
+} from "@/lib/config/archetype";
 import { POS_ORDER } from "@/lib/config/positions";
 import { Card, ClassDot, displayFullName, FitnessBar, Flag, GhostButton, GoldButton, Modal, Ovr, ArchetypeIcon, PlayerCard, PlayerGrid, PosBadge, Select, Tabs, usePlayerView, ViewToggle, type SelectOption } from "../ui";
 
@@ -264,7 +287,7 @@ export function planOptions(pos: Pos, attrs: Attributes, bestId: string): Select
   });
 }
 
-type Tab = "plans" | "growth";
+type Tab = "plans" | "growth" | "archetype";
 
 export default function DevelopmentScreen() {
   const [tab, setTab] = useState<Tab>("plans");
@@ -272,17 +295,25 @@ export default function DevelopmentScreen() {
     <div>
       {/* v1.72: Training Facilities and Development Staff moved off this screen
           to the Facilities/Staff page. They are club-level concerns; Development
-          is about individual players and where their growth is going. */}
+          is about individual players and where their growth is going.
+          v1.93 adds Archetype — the retraining programmes the four class
+          development centers unlock. It sits beside Growth rather than inside
+          Training Plans deliberately: a plan is a bet on future growth, a
+          programme redistributes ability the player already has, and conflating
+          the two is what made "change his archetype" read as impossible for any
+          settled player. */}
       <Tabs
         tabs={[
           { id: "plans", label: "Training Plans" },
           { id: "growth", label: "Growth" },
+          { id: "archetype", label: "Archetype" },
         ]}
         active={tab}
         onChange={setTab}
       />
       {tab === "plans" && <TrainingPlansTab />}
       {tab === "growth" && <GrowthTab />}
+      {tab === "archetype" && <ArchetypeTab />}
     </div>
   );
 }
@@ -1125,5 +1156,329 @@ function AttrProjection({ p, delta, plan }: { p: PlayerBio; delta: number; plan:
           : "No growth expected this season, so no attribute movement projected."}
       </p>
     </div>
+  );
+}
+
+// ── Archetype retraining (v1.93) ───────────────────────────────────────────
+//
+// What the four class development centers unlock at level 5: pick a player,
+// pick a role he could hold, and put him through a programme that reshapes his
+// attributes toward it while holding his overall.
+//
+// The tab is organised BY CLASS rather than as one flat player list, because
+// the unlock is per class — a manager who has built the Creator center and
+// nothing else should see one section that works and three that explain what
+// building them would buy, rather than a list that silently omits three
+// quarters of the options.
+//
+// Every rule shown here comes from `lib/archetypedev.ts`: the option list is
+// `conversionOptionsFor`, the refusal text is `conversionError`, and the season
+// count is `conversionSeasonsRequired`. The screen never re-derives one, so it
+// can't offer a programme the store would reject.
+
+function ArchetypeTab() {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const start = useGame((s) => s.startArchetypeConversion);
+  const cancel = useGame((s) => s.cancelArchetypeConversion);
+  const viewPlayer = useGame((s) => s.viewPlayer);
+  // null = closed. "" = open with no player chosen yet (the section button);
+  // an id = open on that player.
+  const [picking, setPicking] = useState<string | null>(null);
+
+  const team = game.teams[game.userTeamId];
+  const running = conversionsOf(game);
+
+  // Everyone eligible to be put on a programme: the senior squad and the
+  // academy alike, since `conversionError` accepts both and a prospect is
+  // exactly the player a manager most wants to shape.
+  const squad = useMemo(
+    () =>
+      [...team.playerIds, ...(team.academyPlayerIds ?? [])]
+        .map((id) => game.players[id])
+        .filter((p): p is PlayerBio => !!p && !p.retired),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [game, team]
+  );
+
+  return (
+    <div className="mt-4 space-y-4">
+      <Card className="p-3">
+        <p className="text-[11px] leading-snug text-faint">
+          A retraining programme moves a player&apos;s attributes toward another role — it does not wait for him to
+          grow into it, it redistributes the ability he already has, so his <b className="text-dim">overall never
+          changes</b>. That makes it the one route open to a settled player whose training plan would never convert
+          him. Each center runs {TUNING.archetypeConvertSlots} programme
+          {TUNING.archetypeConvertSlots === 1 ? "" : "s"} at a time, takes {TUNING.archetypeConvertSeasons} seasons,
+          and every {STAFF_STARS_PER_STEP} assigned staff stars cuts that by 10%.
+        </p>
+      </Card>
+
+      {ARCHETYPE_DEV_CLASS.map(({ id, cls }) => (
+        <ClassSection
+          key={id}
+          facility={id}
+          cls={cls}
+          squad={squad}
+          running={running.filter((c) => c.facility === id)}
+          onPick={() => setPicking("")}
+          onCancel={cancel}
+          onView={viewPlayer}
+        />
+      ))}
+
+      {picking !== null && (
+        <ConversionPicker
+          playerId={picking}
+          onClose={() => setPicking(null)}
+          onStart={(pid, planId) => {
+            start(pid, planId);
+            setPicking(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** One class's section: its center's status, what's running, and the button. */
+function ClassSection({
+  facility,
+  cls,
+  squad,
+  running,
+  onPick,
+  onCancel,
+  onView,
+}: {
+  facility: FacilityId;
+  cls: string;
+  squad: PlayerBio[];
+  running: ArchetypeConversion[];
+  onPick: () => void;
+  onCancel: (playerId: string) => void;
+  onView: (playerId: string) => void;
+}) {
+  const game = useGame((s) => s.game)!;
+  const team = game.teams[game.userTeamId];
+  const spec = FACILITY_MAP[facility];
+  const unlocked = archetypeConversionUnlocked(game, cls);
+  const level = facilityLevel(team, facility);
+  const gate = spec.unlockAtLevel;
+  const seasons = conversionSeasonsRequired(game, cls, TUNING);
+  const color = ARCHETYPE_CLASS_COLOR[cls as ArchetypeClass];
+  const slotsFree = running.length < TUNING.archetypeConvertSlots;
+
+  // Who could be started here right now — used only to decide whether the
+  // button is worth offering. `conversionOptionsFor` is the same list the
+  // picker shows, so the two can never disagree about whether there's a choice.
+  const anyEligible =
+    unlocked && slotsFree && squad.some((p) => conversionOptionsFor(game, p.id).some((a) => a.cls === cls));
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-line px-3 py-2">
+        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
+        <span className="display flex-1 text-sm font-semibold uppercase tracking-wide">{cls}</span>
+        {unlocked ? (
+          <span className="text-[10px] text-faint">
+            {seasons} season{seasons === 1 ? "" : "s"} · {running.length}/{TUNING.archetypeConvertSlots} in progress
+          </span>
+        ) : (
+          <span className="text-[10px] text-faint">
+            {level > 0 ? `Level ${level} of ${gate?.level ?? 5}` : "Not built"}
+          </span>
+        )}
+      </div>
+
+      {!unlocked ? (
+        <p className="px-3 py-2.5 text-[11px] leading-snug text-faint">
+          {/* Named rather than vague: "build the thing" is only advice if it
+              says which thing and how far. */}
+          Take the <b className="text-dim">{spec.name}</b> to level {gate?.level ?? 5} to retrain players into {cls}{" "}
+          roles.
+        </p>
+      ) : (
+        <>
+          {running.map((c) => (
+            <ProgrammeRow key={c.playerId} conv={c} seasons={seasons} onCancel={onCancel} onView={onView} />
+          ))}
+          {running.length === 0 && <p className="px-3 py-2 text-[11px] text-faint">No programme running.</p>}
+          <div className="border-t border-line px-3 py-2">
+            <GhostButton onClick={onPick} disabled={!anyEligible} className="!py-1 !text-[11px]">
+              {!slotsFree ? "Center is busy" : anyEligible ? `Start a ${cls} programme` : "No eligible players"}
+            </GhostButton>
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+/** One running programme: who, into what, and how far along. */
+function ProgrammeRow({
+  conv,
+  seasons,
+  onCancel,
+  onView,
+}: {
+  conv: ArchetypeConversion;
+  seasons: number;
+  onCancel: (playerId: string) => void;
+  onView: (playerId: string) => void;
+}) {
+  const game = useGame((s) => s.game)!;
+  const p = game.players[conv.playerId];
+  const target = archetypeOfPlan(conv.targetPlanId);
+  if (!p || !target) return null;
+  const now = deriveArchetype(p.attrs, p.positions[0]);
+  const pct = Math.min(100, Math.round((conv.seasonsServed / Math.max(1, seasons)) * 100));
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 text-[11px] odd:bg-raised/30">
+      <button onClick={() => onView(p.id)} className="min-w-0 flex-1 text-left hover:text-gold">
+        <span className="truncate font-semibold">{displayFullName(p)}</span>
+        <span className="ml-1.5 text-faint">{p.positions[0]}</span>
+      </button>
+
+      {/* From → to, by icon, so the change is readable without reading. */}
+      <span className="flex shrink-0 items-center gap-1 text-faint">
+        {now && <ArchetypeIcon archetype={now} size={14} />}
+        <span className="truncate">{now?.name ?? "—"}</span>
+        <span aria-hidden>→</span>
+        <ArchetypeIcon archetype={target} size={14} />
+        <span className="truncate text-dim">{target.name}</span>
+      </span>
+
+      <span className="w-24 shrink-0">
+        <span className="relative block h-1.5 overflow-hidden rounded-full bg-line">
+          <span className="absolute inset-y-0 left-0 gold-grad" style={{ width: `${pct}%` }} />
+        </span>
+        <span className="mt-0.5 block text-right text-[9px] text-faint tnum">
+          {conv.seasonsServed}/{seasons}
+        </span>
+      </span>
+
+      <button
+        onClick={() => onCancel(p.id)}
+        title="End the programme. The training he has already done stays with him."
+        className="shrink-0 text-[10px] text-faint hover:text-loss"
+      >
+        End
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Pick a player, then a role.
+ *
+ * Two steps in one modal rather than two screens, because the second list
+ * depends entirely on the first: which roles are available is a function of the
+ * player's position and which centers are complete.
+ */
+function ConversionPicker({
+  playerId,
+  onClose,
+  onStart,
+}: {
+  /** "" to open on the player list; an id to open straight on that player. */
+  playerId: string;
+  onClose: () => void;
+  onStart: (playerId: string, planId: string) => void;
+}) {
+  const game = useGame((s) => s.game)!;
+  const [chosen, setChosen] = useState<string | null>(playerId || null);
+  const team = game.teams[game.userTeamId];
+
+  const squad = useMemo(
+    () =>
+      [...team.playerIds, ...(team.academyPlayerIds ?? [])]
+        .map((id) => game.players[id])
+        .filter((p): p is PlayerBio => !!p && !p.retired)
+        .filter((p) => conversionOptionsFor(game, p.id).length > 0)
+        .sort((a, b) => b.overall - a.overall),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [game, team]
+  );
+
+  const player = chosen ? game.players[chosen] : undefined;
+  const options = player ? conversionOptionsFor(game, player.id) : [];
+
+  return (
+    <Modal title="Archetype retraining" onClose={onClose} size="lg">
+      {!player ? (
+        <div className="max-h-[60vh] space-y-1 overflow-y-auto">
+          <p className="pb-1 text-[11px] text-faint">
+            Only players with a role available to them are listed — a role needs its class center complete, and it
+            has to be one his position can actually hold.
+          </p>
+          {squad.map((p) => {
+            const a = deriveArchetype(p.attrs, p.positions[0]);
+            return (
+              <button
+                key={p.id}
+                onClick={() => setChosen(p.id)}
+                className="flex w-full items-center gap-2 rounded border border-line px-2 py-1.5 text-left text-[11px] hover:border-gold"
+              >
+                <PosBadge pos={p.positions[0]} />
+                <span className="min-w-0 flex-1 truncate">{displayFullName(p)}</span>
+                {a && <ArchetypeIcon archetype={a} size={14} />}
+                <span className="w-20 truncate text-faint">{a?.name ?? "—"}</span>
+                <span className="w-8 text-right text-faint tnum">{p.age}</span>
+                <Ovr value={p.overall} size="sm" />
+              </button>
+            );
+          })}
+          {squad.length === 0 && (
+            <p className="py-3 text-center text-[11px] text-faint">
+              Nobody is eligible yet. Take a class development center to level 5 first.
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-[11px]">
+            <PosBadge pos={player.positions[0]} />
+            <span className="flex-1 font-semibold">{displayFullName(player)}</span>
+            <Ovr value={player.overall} size="sm" />
+            {!playerId && (
+              <GhostButton onClick={() => setChosen(null)} className="!py-0.5 !text-[10px]">
+                Change
+              </GhostButton>
+            )}
+          </div>
+          <p className="text-[11px] leading-snug text-faint">
+            His overall stays at <b className="text-dim">{player.overall}</b> throughout — the programme moves
+            attribute points from what the new role doesn&apos;t use into what it does.
+          </p>
+          <div className="max-h-[50vh] space-y-1 overflow-y-auto">
+            {options.map((a) => {
+              const seasons = conversionSeasonsRequired(game, a.cls, TUNING);
+              const err = conversionError(game, player.id, a.planId, TUNING);
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => !err && onStart(player.id, a.planId)}
+                  disabled={!!err}
+                  title={err ?? a.desc}
+                  className="flex w-full items-start gap-2 rounded border border-line px-2 py-1.5 text-left text-[11px] hover:border-gold disabled:opacity-40 disabled:hover:border-line"
+                >
+                  <ArchetypeIcon archetype={a} size={18} />
+                  <span className="min-w-0 flex-1">
+                    <span className="font-semibold">{a.name}</span>
+                    <span className="ml-1.5 text-faint">{a.cls}</span>
+                    <span className="block truncate text-faint">{err ?? a.desc}</span>
+                  </span>
+                  <span className="shrink-0 text-faint tnum">
+                    {seasons} season{seasons === 1 ? "" : "s"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }

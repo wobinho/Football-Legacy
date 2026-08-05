@@ -299,6 +299,43 @@ function buildNotes(i: NoteInput): AssistantNote[] {
     }
   }
 
+  // ── "I followed the blueprint and I'm still a C" (v1.93) ────────────────
+  //
+  // The single most confusing thing the report could do, and it did it: the
+  // grade is 55% ATTRIBUTE FIT, 30% style synergy and 15% instruction fit,
+  // while the Squad Blueprint ranks roles on style and dials ALONE. So a
+  // manager who matched every slot to its recommended archetype had addressed
+  // 45% of his grade and been told nothing about the other 55% — which is the
+  // biggest term, and the one that asks whether his players can physically do
+  // what the instructions demand.
+  //
+  // Both halves are right to be what they are: a blueprint has to talk about
+  // ROLES, because a role is a thing you can go and buy, where attribute fit is
+  // a property of the eleven specific players in front of him. What was missing
+  // was anybody saying so. This note is that: when the roles are right and the
+  // grade still isn't, it names the real reason and points at the phase.
+  //
+  // Deliberately conditional on the roles genuinely being good — otherwise it
+  // fires on a badly-picked XI where the blueprint's own advice is still the
+  // thing to act on, and becomes noise on exactly the side that needs the
+  // simpler message.
+  {
+    const rolesAreGood = i.styleFitPct >= 0 && i.roles.every((r) => r.score > -0.5);
+    const worstFit = [...i.fitRows].sort((a, b) => a.score - b.score)[0];
+    if (i.filled >= 9 && rolesAreGood && worstFit && worstFit.score < 0) {
+      tip.push({
+        tone: "tip",
+        title: "Right roles, wrong players",
+        body: `The archetypes out there suit this plan — but our ${FIT_PHASE_LABEL[
+          worstFit.phase
+        ].toLowerCase()} hasn't got the attributes it asks for. That's most of the grade.`,
+        detail: `Attribute fit is the largest term in the grade. ${FIT_PHASE_LABEL[worstFit.phase]} is short on ${worstFit.attrs
+          .slice(0, 3)
+          .join(", ")} — the blueprint ranks ROLES, which is a different question from whether these particular players can execute them.`,
+      });
+    }
+  }
+
   // ── The role most at odds with the dials (v1.78) ────────────────────────
   // Named by ARCHETYPE rather than class, which is the point of moving the
   // advanced instructions to archetype level: "your Sniper is wasted on a slow
@@ -385,6 +422,16 @@ export interface BlueprintSlot {
    * costing him rather than only that something is. */
   actualStylePct: number;
   actualDialsPct: number;
+  /**
+   * What this slot costs against the BEST role available at the position — the
+   * figure `grade` is cut from, and the one the UI prints (v1.93).
+   *
+   * Deliberately not `idealPct - actualPct`. Since v1.93 a slot's `ideal` may be
+   * a differentiated second-choice role picked to give the LINE variety, so that
+   * subtraction would charge a player for not holding a role the blueprint only
+   * asked for to avoid duplicating his neighbour's. See the note at the grade.
+   */
+  gap: number;
   grade: SlotGrade;
 }
 
@@ -423,7 +470,7 @@ function setupScore(a: Archetype, style: Style, view: InstructionView, swing: nu
  * caller keeps ownership of the numbers the engine is actually configured with.
  */
 export function squadBlueprint(
-  slots: { id: string; pos: Pos; label: string }[],
+  slots: { id: string; pos: Pos; label: string; x?: number }[],
   lineup: Record<string, PlayerBio | undefined>,
   tactic: Tactic,
   instructionFitSwing: number
@@ -431,11 +478,76 @@ export function squadBlueprint(
   const view = instructionViewOf(tactic);
   const score = (a: Archetype) => setupScore(a, tactic.style, view, instructionFitSwing);
 
+  // ── Role variety within a line (v1.93) ──────────────────────────────────
+  //
+  // The blueprint used to pick, for every slot independently, the single
+  // best-scoring archetype at that position. Since the style term (±15) dwarfs
+  // the dial term (±6 × swing), the best archetype at a position is very nearly
+  // a function of the STYLE alone — so every slot sharing a position got the
+  // identical answer. Measured across three formations and all six styles, a
+  // 4-3-3 returned 7 distinct roles out of 11 and a 4-4-2 only 6: two Architect
+  // centre backs, two Constructor full backs, two Maestro centre mids, two
+  // Planner wingers, every time.
+  //
+  // That is not a blueprint, it is a style lookup printed eleven times, and as
+  // advice it is actively wrong: a back four of two identical ball-playing
+  // centre backs has nobody to defend the box, and no real side is built that
+  // way. The engine agrees — `CLASS_STYLE_ROW` sums to zero per class, so a
+  // whole line of one class earns the side nothing it couldn't get from a
+  // balanced one, while giving up everything the other classes cover.
+  //
+  // So a POSITION GROUP is now solved together rather than slot by slot. The
+  // group takes the best-scoring role first and then, for each further slot,
+  // the best role NOT ALREADY USED in that group — a greedy assignment, which
+  // is optimal here because the slots within a group are interchangeable and
+  // the scores don't interact.
+  //
+  // Ordering inside the group is by `x` (left to right) so the recommendation
+  // is stable and reads down the pitch the way the formation draws it, rather
+  // than jumping when the slot list happens to be reordered.
+  //
+  // The cost is deliberately bounded: a second-choice role at a position is by
+  // construction within a few points of the first, because they are drawn from
+  // the same five-archetype set and the style row is shared by class. The gap
+  // it opens is what `idealPct` reports, so a slot given a differentiated role
+  // is still graded against the role the blueprint actually asks for.
+  const groupIdeal = new Map<string, Archetype>();
+  {
+    const byPos = new Map<Pos, typeof slots>();
+    for (const s of slots) {
+      const list = byPos.get(s.pos) ?? [];
+      list.push(s);
+      byPos.set(s.pos, list);
+    }
+    for (const [pos, group] of byPos) {
+      const options = archetypesForPosition(pos);
+      const ordered = [...group].sort((a, b) => (a.x ?? 0) - (b.x ?? 0) || a.id.localeCompare(b.id));
+      const used = new Set<string>();
+      for (const s of ordered) {
+        // Prefer an unused role; fall back to the outright best once a group is
+        // deeper than the position's option list (five archetypes per position,
+        // so this can only bite on a shape with six of one position — which no
+        // formation has, but the fallback keeps it total rather than undefined).
+        const pool = options.filter((a) => !used.has(a.id));
+        const from = pool.length ? pool : options;
+        const pick = from.reduce((best, a) => (score(a).total > score(best).total ? a : best), from[0]);
+        if (pick) {
+          used.add(pick.id);
+          groupIdeal.set(s.id, pick);
+        }
+      }
+    }
+  }
+
   const rows: BlueprintSlot[] = slots.map((slot) => {
     // Ranked among the archetypes REACHABLE at this position — recommending a
     // Sniper at centre back would be advice no player could ever act on.
     const options = archetypesForPosition(slot.pos);
-    const ideal = options.reduce((best, a) => (score(a).total > score(best).total ? a : best), options[0]);
+    // The group solve above owns the pick; this is only the fallback for a
+    // position with no options at all.
+    const ideal =
+      groupIdeal.get(slot.id) ??
+      options.reduce((best, a) => (score(a).total > score(best).total ? a : best), options[0]);
     const idealPct = ideal ? score(ideal).total : 0;
 
     // Ties on the dial term are common (many roles are indifferent to a given
@@ -453,6 +565,27 @@ export function squadBlueprint(
     const actual = incumbent?.attrs ? deriveArchetype(incumbent.attrs, slot.pos) : undefined;
     const act = actual ? score(actual) : { style: 0, dials: 0, total: 0 };
 
+    // ── What the gap is measured against (v1.93) ────────────────────────────
+    //
+    // The GRADE is measured against the best role available at the position,
+    // not against this slot's differentiated `ideal`. Those are the same number
+    // for the first slot of a group and differ for the rest, and grading
+    // against the differentiated pick would be unfair in a way that reads as a
+    // bug: with two centre backs, the blueprint asks for an Architect and a
+    // Stopper, so a side fielding TWO Architects would see its second one
+    // marked down — even though he holds a role the blueprint explicitly wants
+    // in that line, and swapping the two players between the slots would flip
+    // which one was flagged.
+    //
+    // So `idealPct` still reports what this slot is being asked for (that is
+    // the advice), while the grade asks the fairer question: is this player a
+    // sensible option for this position at all? Variety is a recommendation,
+    // not a rule the manager is penalised for missing.
+    const bestAtPos = options.length
+      ? options.reduce((best, a) => (score(a).total > score(best).total ? a : best), options[0])
+      : undefined;
+    const bestPct = bestAtPos ? score(bestAtPos).total : idealPct;
+
     // A gap, not an absolute: what this slot COSTS you against the best you
     // could field there. `fine` covers the "0 is neutral, not a trap" reading —
     // a role that simply isn't what the style is built around is not a mistake.
@@ -464,7 +597,7 @@ export function squadBlueprint(
     // "your whole team is wrong" and is therefore advice about nothing. At >20
     // only the genuinely mismatched quarter is flagged, which is what makes a ✗
     // worth reacting to.
-    const gap = idealPct - act.total;
+    const gap = bestPct - act.total;
     const grade: SlotGrade = !actual ? "poor" : gap <= 4 ? "ideal" : gap <= 20 ? "fine" : "poor";
 
     return {
@@ -480,16 +613,21 @@ export function squadBlueprint(
       actualPct: act.total,
       actualStylePct: act.style,
       actualDialsPct: act.dials,
+      gap,
       grade,
     };
   });
 
+  // Both rankings below sort on `gap` — the same figure the grade was cut from
+  // (v1.93). They used to recompute `idealPct - actualPct` inline, which is a
+  // DIFFERENT number now that a slot's `ideal` may be a differentiated
+  // second-choice role: a slot could be ranked the weakest link on a shortfall
+  // its own ✓ said it didn't have. One number, read once.
+
   // Only a filled slot can be "the weakest link": an empty one is a lineup
   // problem the pitch already shows, and naming it here would crowd out the
   // real advice on a half-picked side.
-  const weakest = rows
-    .filter((r) => r.grade === "poor" && r.actual)
-    .sort((a, b) => b.idealPct - b.actualPct - (a.idealPct - a.actualPct))[0];
+  const weakest = rows.filter((r) => r.grade === "poor" && r.actual).sort((a, b) => b.gap - a.gap)[0];
 
   // The shopping list: one entry per distinct archetype, biggest gain first.
   // Deduped because a 4-3-3 asks for the same full back twice, and two identical
@@ -497,7 +635,7 @@ export function squadBlueprint(
   const seen = new Set<string>();
   const wants = rows
     .filter((r) => r.grade === "poor" && r.ideal)
-    .sort((a, b) => b.idealPct - b.actualPct - (a.idealPct - a.actualPct))
+    .sort((a, b) => b.gap - a.gap)
     .filter((r) => !seen.has(r.ideal.id) && (seen.add(r.ideal.id), true))
     .map((r) => ({ archetype: r.ideal, pos: r.slotPos }));
 

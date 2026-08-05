@@ -2260,7 +2260,30 @@ function u21TeamPerfFactor(state: GameState): number {
  *            the "starring" pivot.
  *   • Focus: u21FocusGrowthBonus (focus already earns it in the dev pass; this
  *            keeps the whole youth boost in one place so the two never double up).
+ *   • Youth: academyYouthGrowthBonus (v1.93), the age-ramped edge that being IN
+ *            the academy is worth on its own — see `academyYouthAgeBonus`.
  */
+/**
+ * What being IN the academy is worth to a prospect of a given age (v1.93).
+ *
+ * Returns a multiplier ≥ 1: `academyYouthGrowthBonus` at or below
+ * `academyYouthPeakAge`, decaying linearly to exactly 1 at `academyMaxAge`, and
+ * 1 for anyone past it. Age-ramped rather than flat on purpose — see the tuning
+ * note. A flat bonus would make promoting anyone strictly wrong; a ramp makes
+ * "hold him for the coaching or promote him for the minutes" a real decision
+ * whose answer changes with his age.
+ *
+ * Exported because the Academy and Development screens both quote it, and a
+ * screen must never re-derive a growth number the rollover computes elsewhere.
+ */
+export function academyYouthAgeBonus(age: number, cfg: TuningConfig): number {
+  const peak = cfg.academyYouthPeakAge;
+  const end = cfg.academyMaxAge;
+  if (age >= end || end <= peak) return 1;
+  const ramp = age <= peak ? 1 : (end - age) / (end - peak);
+  return 1 + cfg.academyYouthGrowthBonus * ramp;
+}
+
 export function academyDevBonuses(state: GameState, cfg: TuningConfig): Record<string, number> {
   const team = userTeam(state);
   const academy = new Set(team.academyPlayerIds ?? []);
@@ -2290,6 +2313,13 @@ export function academyDevBonuses(state: GameState, cfg: TuningConfig): Record<s
         cfg.academyU21RatingBonus * ratingFactor;
     }
     if (focus.has(id)) mult *= 1 + cfg.u21FocusGrowthBonus;
+    // The academy's own edge (v1.93). Applied to every prospect on the roster
+    // regardless of which route he took this season — loan, U21 or neither —
+    // because it is what the age-group coaching is worth, not a reward for
+    // having played. It is the only bonus here a prospect who never featured
+    // gets at all, which is the point: a 15-year-old is in the academy to be
+    // coached, and before this a season of that was worth exactly nothing.
+    mult *= academyYouthAgeBonus(p.age, cfg);
     if (mult !== 1) out[id] = mult;
   }
   return out;

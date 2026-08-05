@@ -414,12 +414,35 @@ export interface PlayerCareer {
  * numbers on a tab of their own; now the level buys staff slots and the staff
  * buy the numbers, like every other facility. Both produce more than one
  * quantity, which is why a spec carries `channels` rather than a single
- * base/star/badge triple. */
+ * base/star/badge triple.
+ *
+ * `clubIncomeCenter` / `clubExpenseCenter` (v1.93) are the commercial pair —
+ * the first facilities whose channels move MONEY rather than players. They are
+ * two buildings rather than one net-cash lever on purpose: income scales with
+ * how big the club already is (a percentage of a large revenue is a large
+ * number) while the expense side is worth most to a club whose wage bill is
+ * outrunning it, so the same £100M buys different things at different points in
+ * a save.
+ *
+ * The five `*Development` centers (v1.93) are one facility per archetype CLASS.
+ * Each does two distinct things: it speeds up growth for players of its class
+ * (an ordinary channel), and at level 5 it unlocks that class's section of the
+ * Development → Archetype page, where a player can be converted onto one of
+ * that class's archetypes over a couple of seasons. The set is exactly
+ * `ARCHETYPE_CLASSES` — see ARCHETYPE_DEV_CLASS in config/facilities.ts, which
+ * asserts the two never drift apart. */
 export type FacilityId =
   | "eliteTrainingCenter"
   | "highPerformanceCenter"
   | "youthAcademy"
-  | "scoutingNetwork";
+  | "scoutingNetwork"
+  | "clubIncomeCenter"
+  | "clubExpenseCenter"
+  | "engineDevelopment"
+  | "creatorDevelopment"
+  | "enforcerDevelopment"
+  | "maverickDevelopment"
+  | "blitzerDevelopment";
 
 /** Badge tiers, best last. A staff member earns the next tier by completing
  * another qualifying run of seasons assigned to the SAME facility — see
@@ -469,6 +492,42 @@ export interface StaffPerson {
 export interface FacilityState {
   /** 1–`maxLevel`. Level only ever buys staff slots. */
   level: number;
+}
+
+/**
+ * One archetype retraining programme in progress (v1.93).
+ *
+ * The player is being reshaped toward `targetPlanId` — the training plan that
+ * IS the target archetype, since the two are 1:1 — over a number of seasons the
+ * responsible development center's staff can shorten.
+ *
+ * Two things about the shape are load-bearing:
+ *
+ *   - Progress is `seasonsServed`, a COUNT, not a target season. The centre's
+ *     staff can change mid-programme, so a stored completion date would be a
+ *     promise the simulation might not keep; a count re-reads the current speed
+ *     every summer and is honest about it.
+ *   - `startOverall` is stored so the reshaping can be checked against where he
+ *     began. Conversion preserves overall by construction, but a player also
+ *     GROWS during the programme, and the two effects have to be separable or
+ *     the UI can't say which of them moved him.
+ */
+export interface ArchetypeConversion {
+  playerId: string;
+  /** The training plan (and therefore archetype) he is being retrained onto. */
+  targetPlanId: string;
+  /** The facility running it — which is to say, the target archetype's class
+   * center. Stored rather than re-derived so a programme survives the target
+   * archetype being re-classed by a future balance change. */
+  facility: FacilityId;
+  /** Season the programme began, for the UI's "started in S4". */
+  startSeason: number;
+  /** His overall when it began — see above. */
+  startOverall: number;
+  /** Whole seasons completed. The programme finishes when this reaches the
+   * requirement `conversionSeasonsRequired` reports for the centre as it stands
+   * TODAY, which is why this is a count and not a deadline. */
+  seasonsServed: number;
 }
 
 /** EA-FC-style on-pitch responsibilities (v6). Each holds a playerId from the
@@ -656,6 +715,44 @@ export interface SponsorBonusTerms {
    * each season is settled, so a 3-year deal has three chances at it. Absent on
    * an offer (it is `seasons` until signed). */
   seasonsRemaining?: number;
+}
+
+// ── Dynamic rivalries (v1.94) ─────────────────────────────────────────────
+
+/** Why two clubs became rivals. Stored rather than re-derived: the record book
+ * gets compacted and the fixtures that made the case are gone a few seasons
+ * later, so the reason has to be captured at the moment it is recognised — the
+ * same rule `cupRunnerUp` and `europeanWinners` follow. */
+export type RivalryCause = "cupFinal" | "titleRace";
+
+/**
+ * One modern rivalry: the manager's club against one other.
+ *
+ * Always between the USER's club and an AI club — `rivalId` is the other party.
+ * A world-wide rivalry graph is a different (and much larger) feature; this one
+ * exists to give the manager's own save a narrative, so it is deliberately
+ * one-sided in scope even though the football that formed it was not.
+ */
+export interface Rivalry {
+  rivalId: string;
+  /** Denormalised so a rivalry still reads right if the club is renamed or the
+   * record book is compacted — the same reason award winners store a name. */
+  rivalName: string;
+  /** Season the rivalry was declared. */
+  formedSeason: number;
+  cause: RivalryCause;
+  /** One line for the inbox and the club card, written when it formed. */
+  story: string;
+  /** Meetings since the rivalry formed, and how they went for the USER. Kept as
+   * a running tally rather than derived from fixtures, because the fixtures of
+   * a season five years ago no longer exist to count. */
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  /** Season the two last met. Used to let a rivalry go quiet — see
+   * `rivalryDormantSeasons`. */
+  lastMetSeason: number;
 }
 
 /** A pending offer for an empty sponsor slot. */
@@ -1634,6 +1731,29 @@ export interface GameState {
    * turns over so the shortlists don't go stale. Optional for old saves. */
   marketRefreshDay?: number;
   simResults: SimLeagueResult[]; // latest per sim league
+  /**
+   * Archetype retraining programmes currently running (v1.93).
+   *
+   * The Development → Archetype tab's whole state. Unlocked one class at a time
+   * by taking that class's development center to level 5; each center runs
+   * `archetypeConvertSlots` programme at once, so the list is short and the
+   * choice of who to retrain is the decision.
+   *
+   * Progress is measured in SEASONS SERVED rather than in a completion date,
+   * because the staff assigned to the center — and therefore the speed — can
+   * change while a programme runs. See `lib/archetypedev.ts`.
+   *
+   * Optional so every existing save migrates in with nothing running.
+   */
+  archetypeConversions?: ArchetypeConversion[];
+  /**
+   * Modern rivalries (v1.94) — clubs the save's own history has turned into
+   * enemies. Formed by `lib/rivalry.ts` at the rollover, never by worldgen: a
+   * rivalry is meant to be a thing the manager EARNED, so a fresh save has none
+   * and a long one has several. Optional, so every existing save loads with an
+   * empty rivalry list and starts building its own.
+   */
+  rivalries?: Rivalry[];
   academy: AcademyState; // Youth Academy (§18, v4)
   recordBook: RecordBook;
   pendingMatchFixtureId: string | null; // set when Continue stops on a matchday

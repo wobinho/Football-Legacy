@@ -21,6 +21,7 @@
 // Run: npx tsx scripts/verify-facilities.ts
 
 import {
+  ARCHETYPE_DEV_CLASS,
   BADGE_HIRE_ABSOLUTE_MAX_TIER,
   BADGE_LADDER,
   FACILITY_MAP,
@@ -30,9 +31,12 @@ import {
   STAFF_HIRE_MIN_AGE,
   STAFF_MAX_AGE,
   STAFF_MAX_STARS,
+  archetypeDevClassOf,
+  archetypeDevFacilityFor,
   facilityMaxLevel,
   seasonsForTier,
 } from "../lib/config/facilities";
+import { ARCHETYPE_CLASS_ORDER } from "../lib/config/archetype";
 import {
   academyFocusSlots,
   academySquadSize,
@@ -131,6 +135,27 @@ check(
 //
 // The list is by NAME, so widening it is an edit someone makes on purpose and
 // argues for in a diff — never a habit that creeps back one row at a time.
+//
+// ── Widened again in v1.93, and here is the argument ─────────────────────
+// Six facilities landed at once and every one of them carries a level term,
+// which looks exactly like the habit this check exists to stop. It is not, and
+// the test that separates the two is the same one v1.87 used: does the LEVEL buy
+// capacity and the STAFF buy quality?
+//
+//   · `staffSlots` on all six is a capacity in the purest sense — it is the
+//     slot ladder itself, restated as a channel so the card can show it as
+//     arithmetic. The check below asserts it never disagrees with
+//     `slotsByLevel`, so it cannot become a second source of truth.
+//   · The Club Income Center's two rate channels and the Club Expense Center's
+//     three are the genuine widening. A commercial department is the same KIND
+//     of thing as the Scouting Network — a department whose REACH is bought
+//     (more staff, more offices, more of the club's commercial operation) as
+//     well as staffed. The quality-dominance check below polices the line.
+//   · The archetype centers' `growth` takes a level term for the reason
+//     `youthAcademy/prospectValue` does: it is what gives a £200M unlock a
+//     visible effect on day one. It is the SMALLEST of its terms and the
+//     conversion-speed channel — the facility's real prize — takes no level
+//     term at all, so the people still buy everything that matters.
 {
   const SANCTIONED = [
     "scoutingNetwork/maxScouts",
@@ -138,6 +163,18 @@ check(
     "youthAcademy/squadSize",
     "youthAcademy/focusSlots",
     "youthAcademy/prospectValue",
+    // v1.93 — the commercial pair.
+    "clubIncomeCenter/weeklyIncome",
+    "clubIncomeCenter/sponsorOffers",
+    "clubIncomeCenter/staffSlots",
+    "clubExpenseCenter/squadWageCut",
+    "clubExpenseCenter/academyWageCut",
+    "clubExpenseCenter/staffWageCut",
+    "clubExpenseCenter/staffSlots",
+    // v1.93 — the archetype development centers, one per class. Listed via the
+    // same table the specs are generated from: spelling five pairs out by hand
+    // would mean a sixth class ships a facility this check has never seen.
+    ...ARCHETYPE_DEV_CLASS.flatMap(({ id }) => [`${id}/growth`, `${id}/staffSlots`]),
   ];
   const withLevels = FACILITY_SPECS.flatMap((spec) =>
     spec.channels.filter((ch) => (ch.levelEffect ?? 0) > 0).map((ch) => `${spec.id}/${ch.id}`)
@@ -147,12 +184,104 @@ check(
     withLevels.length === SANCTIONED.length && withLevels.every((k) => SANCTIONED.includes(k)),
     `got ${withLevels.join(", ") || "none"}`
   );
-  // The two facilities that own a growth-by-level channel, spelled out — the
-  // check above would pass a re-homing onto the ETC that kept the count the same.
+  // The two facilities that must NEVER own one, spelled out. The check above
+  // would pass a re-homing onto the ETC that happened to keep the count the
+  // same, and those two are the system's thesis in its purest form: growth and
+  // elite relief are bought entirely with people.
   check(
-    "only the Scouting Network and the Youth Academy have level terms",
-    withLevels.every((k) => k.startsWith("scoutingNetwork/") || k.startsWith("youthAcademy/"))
+    "the Elite Training Center and High Performance Center have no level terms",
+    withLevels.every(
+      (k) => !k.startsWith("eliteTrainingCenter/") && !k.startsWith("highPerformanceCenter/")
+    ),
+    `got ${withLevels.filter((k) => k.startsWith("eliteTrainingCenter/") || k.startsWith("highPerformanceCenter/")).join(", ") || "none"}`
   );
+
+  // A `staffSlots` channel is a RESTATEMENT of the slot ladder for the card to
+  // draw, never a second source of truth for it (v1.93). If the two ever
+  // disagree, the screen quotes a slot count the engine won't honour — which is
+  // the one thing `facilityEffect` exists to make impossible.
+  for (const spec of FACILITY_SPECS) {
+    const ch = spec.channels.find((c) => c.id === "staffSlots");
+    if (!ch) continue;
+    const fromChannel = Array.from({ length: facilityMaxLevel(spec) }, (_, i) =>
+      Math.floor(ch.base + (ch.levelEffect ?? 0) * i)
+    );
+    check(
+      `${spec.name}: the staffSlots channel matches slotsByLevel`,
+      fromChannel.every((v, i) => v === spec.slotsByLevel[i]),
+      `channel ${fromChannel.join(",")} vs ladder ${spec.slotsByLevel.join(",")}`
+    );
+  }
+
+  // The quality-dominance rule, applied to every v1.93 channel that is a RATE
+  // rather than a capacity. This is the line between "a level buys you room"
+  // and the bought-by-the-level ladder the whole system replaced: a rate whose
+  // level term outgrows its staff term is exactly the shape v1.79 deleted.
+  //
+  // The archetype centers' `growth` is deliberately exempt and listed as such:
+  // it is the day-one-visibility term (the `prospectValue` argument), it is
+  // tiny in absolute terms, and the facility's real prize — `convertSpeed` — is
+  // bought entirely with stars.
+  {
+    const RATE_CHANNELS = [
+      ["clubIncomeCenter", "weeklyIncome"],
+      ["clubIncomeCenter", "sponsorOffers"],
+      ["clubExpenseCenter", "squadWageCut"],
+      ["clubExpenseCenter", "academyWageCut"],
+      ["clubExpenseCenter", "staffWageCut"],
+    ] as const;
+    for (const [facility, channel] of RATE_CHANNELS) {
+      const ch = FACILITY_MAP[facility].channels.find((c) => c.id === channel)!;
+      const fromLevels = (ch.levelEffect ?? 0) * 4;
+      const fromStaff = ch.starEffect * 5 + ch.badgeEffect * (36 / ch.badgeTiersPerStep);
+      check(
+        `${facility}/${channel}: the people buy at least as much as the building`,
+        fromStaff >= fromLevels,
+        `levels ${fromLevels}, staff ${fromStaff}`
+      );
+    }
+  }
+
+  // EVERY archetype class has a center, and no center belongs to a class that
+  // doesn't exist. The first cut of v1.93 shipped four centers for five classes,
+  // which made Blitzer the one class a player could never be retrained INTO —
+  // an asymmetry invisible in the facility table and only obvious on the
+  // Development → Archetype page, where one class's section simply wasn't there.
+  {
+    const covered = ARCHETYPE_DEV_CLASS.map((r) => r.cls);
+    check(
+      `every archetype class has a development center (${ARCHETYPE_CLASS_ORDER.join(", ")})`,
+      ARCHETYPE_CLASS_ORDER.every((cls) => covered.includes(cls)) &&
+        covered.length === ARCHETYPE_CLASS_ORDER.length,
+      `centers cover ${covered.join(", ") || "nothing"}`
+    );
+    check(
+      "every development center resolves back to its class",
+      ARCHETYPE_DEV_CLASS.every(
+        ({ id, cls }) => archetypeDevFacilityFor(cls) === id && archetypeDevClassOf(id) === cls
+      )
+    );
+    check(
+      "every development center is a real facility in the table",
+      ARCHETYPE_DEV_CLASS.every(({ id }) => !!FACILITY_MAP[id])
+    );
+  }
+
+  // The conversion prize is staff-only: 30 stars must halve a programme, and no
+  // amount of BUILDING may shorten it at all. That is what makes a maxed
+  // archetype center a staffing achievement rather than a purchase.
+  for (const { id, cls } of ARCHETYPE_DEV_CLASS) {
+    const ch = FACILITY_MAP[id].channels.find((c) => c.id === "convertSpeed")!;
+    check(
+      `${cls}: conversion speed is bought with stars alone`,
+      (ch.levelEffect ?? 0) === 0 && ch.badgeEffect === 0 && ch.starEffect > 0
+    );
+    check(
+      `${cls}: six 5-star staff halve the programme`,
+      ch.base + ch.starEffect * 5 === 50,
+      `${ch.base + ch.starEffect * 5}%`
+    );
+  }
   // The staff track still has to DOMINATE the effects that are about quality
   // rather than capacity — that is the line between "a level buys you room" and
   // the bought-by-the-level ladder this system replaced. Prospect value is the

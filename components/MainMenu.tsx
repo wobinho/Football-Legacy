@@ -14,7 +14,7 @@ import {
   type CountryDatabase,
   type PlayerSeed,
 } from "@/lib/database";
-import { libraryClubToSeed } from "@/lib/customdb";
+import { libraryClubToSeed, type WorldPreset } from "@/lib/customdb";
 import { divisionSeed, teamIdFor, MAX_TAKEOVER_AMOUNT } from "@/lib/worldgen";
 import { formatMoney } from "@/lib/value";
 import {
@@ -847,9 +847,41 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
 
       {/* Step 3: other countries to include (view-only) */}
       <div>
-        <span className="display text-xs font-semibold tracking-widest text-faint">
-          OTHER COUNTRIES TO INCLUDE (view-only, shopping allowed)
-        </span>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="display text-xs font-semibold tracking-widest text-faint">
+            OTHER COUNTRIES TO INCLUDE (view-only, shopping allowed)
+          </span>
+          {/* World presets (v1.93). Deliberately anchored here rather than in a
+              section of their own: a preset IS this block plus the European
+              setup below it, and putting the control anywhere else would make
+              the manager guess what it covers. */}
+          <WorldPresetBar
+            current={{
+              viewCountries,
+              divisionDepths,
+              europeanTiers,
+              europeanSlots,
+              cupWinnerQualifies: euroCupWinnerQualifies,
+            }}
+            onApply={(preset) => {
+              // Only countries this build still offers — a preset saved when a
+              // country shipped and later removed must not resurrect a code
+              // worldgen can't resolve.
+              const known = preset.viewCountries.filter(
+                (code) => OPTION_MAP[code] && code !== playableCountry
+              );
+              setViewCountries(known);
+              setDivisionDepths({ ...preset.divisionDepths });
+              setEuropeanTiers(preset.europeanTiers);
+              setEuropeanSlots({ ...preset.europeanSlots });
+              setEuroCupWinnerQualifies(preset.cupWinnerQualifies);
+              // Created players whose destination country just left the world
+              // would otherwise be spliced into a country that isn't there.
+              prunePlayers([playableCountry, ...known]);
+              showToast(`Loaded "${preset.name}".`);
+            }}
+          />
+        </div>
         <div className="mt-2 flex flex-wrap gap-2">
           {COUNTRY_OPTIONS.filter((c) => c.code !== playableCountry).map((c) => {
             const on = viewCountries.includes(c.code);
@@ -1434,5 +1466,131 @@ function CustomDbGuide({ onClose }: { onClose: () => void }) {
         </div>
       </div>
     </Modal>
+  );
+}
+
+// ── World presets (v1.93) ──────────────────────────────────────────────────
+//
+// Which other countries a legacy includes, how deep each pyramid runs, and the
+// European qualification design — saved once, reused on every new legacy.
+//
+// Those are the two most laborious parts of setup (twenty countries to toggle,
+// then a finishing-position grid per country) and the two least likely to
+// change between saves. Everything a preset stores is BACKDROP; nothing about
+// the career — the playable country, the club, the starting tier, the takeover
+// — is in it, because those are the choices a new legacy exists to make.
+//
+// Storage is the existing custom-content library (`lib/customdb.ts`), which is
+// already owner-scoped IndexedDB with a save/persist pair. A second store would
+// have been a second thing to namespace, migrate and clear on key switch.
+
+function WorldPresetBar({
+  current,
+  onApply,
+}: {
+  current: Omit<WorldPreset, "id" | "name" | "updatedAt">;
+  onApply: (preset: WorldPreset) => void;
+}) {
+  const library = useGame((s) => s.library);
+  const savePreset = useGame((s) => s.saveWorldPreset);
+  const removePreset = useGame((s) => s.removeWorldPreset);
+  const showToast = useGame((s) => s.showToast);
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+
+  const presets = library.worldPresets ?? [];
+
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <GhostButton onClick={() => setOpen(true)} className="!py-1 !text-[11px]">
+          World presets{presets.length ? ` (${presets.length})` : ""}
+        </GhostButton>
+      </div>
+
+      {open && (
+        <Modal title="World presets" onClose={() => setOpen(false)} size="lg">
+          <p className="text-[11px] leading-snug text-faint">
+            A preset saves the countries you include, how many divisions each of them runs, and your European
+            qualification design. It deliberately does <b className="text-dim">not</b> save your club, your country or
+            your starting division — those are the parts of a new legacy worth choosing every time.
+          </p>
+
+          {/* Save the setup as it stands. */}
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface px-3 py-2">
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Name this world…"
+              maxLength={40}
+              className="min-w-0 flex-1 rounded border border-line bg-raised px-2 py-1 text-sm outline-none focus:border-gold-lo"
+            />
+            <GoldButton
+              onClick={() => {
+                const trimmed = name.trim();
+                if (!trimmed) {
+                  showToast("Give the preset a name first.");
+                  return;
+                }
+                // Same name overwrites rather than duplicating: a manager
+                // tweaking a world and re-saving it means "update this", and a
+                // list of five identically-named presets is a list of none.
+                const existing = presets.find((p) => p.name.toLowerCase() === trimmed.toLowerCase());
+                savePreset({ ...current, id: existing?.id ?? "", name: trimmed });
+                setName("");
+                showToast(existing ? `Updated "${trimmed}".` : `Saved "${trimmed}".`);
+              }}
+              className="!py-1 !text-[11px]"
+            >
+              Save current
+            </GoldButton>
+          </div>
+
+          <div className="mt-3 space-y-1.5">
+            {presets.length === 0 && (
+              <p className="py-4 text-center text-[11px] text-faint">
+                No presets saved yet. Set your countries and European qualification up the way you like them, then
+                save them here.
+              </p>
+            )}
+            {[...presets]
+              .sort((a, b) => b.updatedAt - a.updatedAt)
+              .map((p) => (
+                <div
+                  key={p.id}
+                  className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface px-3 py-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold">{p.name}</div>
+                    <div className="truncate text-[11px] text-faint">
+                      {p.viewCountries.length} countr{p.viewCountries.length === 1 ? "y" : "ies"} ·{" "}
+                      {p.europeanTiers === 0
+                        ? "no European cups"
+                        : `${p.europeanTiers} European cup${p.europeanTiers === 1 ? "" : "s"}`}
+                      {Object.keys(p.europeanSlots).length > 0 ? " · custom qualification" : ""}
+                    </div>
+                  </div>
+                  <GhostButton
+                    onClick={() => {
+                      onApply(p);
+                      setOpen(false);
+                    }}
+                    className="!py-1 !text-[11px]"
+                  >
+                    Load
+                  </GhostButton>
+                  <button
+                    onClick={() => removePreset(p.id)}
+                    className="text-[11px] text-faint hover:text-loss"
+                    title="Delete this preset"
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))}
+          </div>
+        </Modal>
+      )}
+    </>
   );
 }

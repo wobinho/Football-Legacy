@@ -32,6 +32,12 @@ import {
   upgradeFacility,
 } from "@/lib/facilities";
 import { FACILITY_MAP } from "@/lib/config/facilities";
+import {
+  archetypeOfPlan,
+  cancelConversion,
+  conversionSeasonsRequired,
+  startConversion,
+} from "@/lib/archetypedev";
 import { hireScout, fireScout, dismissScoutCandidate } from "@/lib/scouts";
 import { acceptSponsor, buyoutSponsor, declineSponsor, type SponsorPayoutChoice } from "@/lib/sponsors";
 import {
@@ -75,7 +81,13 @@ import type { GcnFacility } from "@/lib/types";
 import { setKitNumber } from "@/lib/kitnumbers";
 import { syncProgress, achievementTitles } from "@/lib/achievements";
 import { saveTactic, loadSavedTactic, deleteSavedTactic, renameSavedTactic, autoAssignRoles } from "@/lib/tactics";
-import { deleteInboxItem, clearInbox } from "@/lib/inbox";
+import {
+  deleteInboxItem,
+  clearInbox,
+  clearInboxGroup,
+  markGroupRead,
+  type InboxGroupId,
+} from "@/lib/inbox";
 import { optimalTrainingPlan } from "@/lib/config/training";
 import type { FacilityId, TeamAssignments } from "@/lib/types";
 import {
@@ -114,6 +126,7 @@ import {
   type CustomLibrary,
   type LibraryClub,
   type LibraryPlayer,
+  type WorldPreset,
 } from "@/lib/customdb";
 
 /**
@@ -310,11 +323,21 @@ interface GameStore {
   unlockFacility: (facility: FacilityId) => void;
   /** Take a built facility up a level — which buys staff slots, nothing else. */
   upgradeFacility: (facility: FacilityId) => void;
+  // ── Archetype retraining (v1.93) ──
+  /** Put a player on a programme to retrain him into `targetPlanId`'s role. */
+  startArchetypeConversion: (playerId: string, targetPlanId: string) => void;
+  /** Pull a player off his programme. Reshaping already done is kept. */
+  cancelArchetypeConversion: (playerId: string) => void;
   upgrade: (facility: Facility) => void;
   markRead: (inboxId: string) => void;
   markAllRead: () => void;
   deleteMail: (inboxId: string) => void;
   deleteAllMail: () => void;
+  /** Mark/clear one inbox FOLDER (v1.94). The per-group versions exist because
+   * the whole-inbox ones are too blunt once the mail is filed: clearing fifty
+   * read scout reports must not also delete a live bid. */
+  markGroupReadAction: (group: InboxGroupId) => void;
+  deleteGroupMail: (group: InboxGroupId) => void;
 
   // Sponsors / investments (v6)
   signSponsor: (offerId: string, payout?: SponsorPayoutChoice) => void;
@@ -428,6 +451,10 @@ interface GameStore {
   /** Add a new player (no id) or update an existing one (id set). Returns the id. */
   saveLibraryPlayer: (player: Omit<LibraryPlayer, "updatedAt">) => string;
   removeLibraryPlayer: (id: string) => void;
+  /** Save a new-game world setup — included countries, pyramid depths and the
+   * European qualification design (v1.93). Returns the id. */
+  saveWorldPreset: (preset: Omit<WorldPreset, "updatedAt">) => string;
+  removeWorldPreset: (id: string) => void;
 }
 
 // ── Autosave plumbing ──────────────────────────────────────────────────────
@@ -1273,6 +1300,31 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
+  startArchetypeConversion: (playerId, targetPlanId) => {
+    const g = get().game;
+    if (!g) return;
+    const err = startConversion(g, playerId, targetPlanId, TUNING);
+    if (err) get().showToast(err);
+    else {
+      const target = archetypeOfPlan(targetPlanId);
+      const seasons = conversionSeasonsRequired(g, target?.cls ?? "", TUNING);
+      get().showToast(
+        `${g.players[playerId]?.name} has begun retraining as a ${target?.name ?? "new role"} — ${seasons} season${seasons === 1 ? "" : "s"}.`
+      );
+    }
+    get().bump(true);
+  },
+
+  cancelArchetypeConversion: (playerId) => {
+    const g = get().game;
+    if (!g) return;
+    const err = cancelConversion(g, playerId);
+    if (err) get().showToast(err);
+    // The reshaping already done is deliberately kept — see `cancelConversion`.
+    else get().showToast("Programme ended. The training he has already done stays with him.");
+    get().bump(true);
+  },
+
   signSponsor: (offerId, payout = "guaranteed") => {
     const g = get().game;
     if (!g) return;
@@ -1547,6 +1599,20 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
+  markGroupReadAction: (group) => {
+    const g = get().game;
+    if (!g) return;
+    markGroupRead(g, group);
+    get().bump(false);
+  },
+
+  deleteGroupMail: (group) => {
+    const g = get().game;
+    if (!g) return;
+    clearInboxGroup(g, group);
+    get().bump(true);
+  },
+
   // ── Youth Academy (§18): thin wrappers, rules live in lib/academy ──
   academyPromote: (playerId) => {
     const g = get().game;
@@ -1781,6 +1847,26 @@ export const useGame = create<GameStore>((set, get) => ({
   removeLibraryPlayer: (id) => {
     const lib = get().library;
     const next = { ...lib, players: lib.players.filter((p) => p.id !== id) };
+    set({ library: next });
+    persistLibrary(next).catch(() => {});
+  },
+
+  saveWorldPreset: (preset) => {
+    const lib = get().library;
+    const id = preset.id || libraryId("world");
+    const entry: WorldPreset = { ...preset, id, updatedAt: Date.now() };
+    const list = lib.worldPresets ?? [];
+    const exists = list.some((w) => w.id === id);
+    const worldPresets = exists ? list.map((w) => (w.id === id ? entry : w)) : [...list, entry];
+    const next = { ...lib, worldPresets };
+    set({ library: next });
+    persistLibrary(next).catch(() => get().showToast("Couldn't save that world preset."));
+    return id;
+  },
+
+  removeWorldPreset: (id) => {
+    const lib = get().library;
+    const next = { ...lib, worldPresets: (lib.worldPresets ?? []).filter((w) => w.id !== id) };
     set({ library: next });
     persistLibrary(next).catch(() => {});
   },

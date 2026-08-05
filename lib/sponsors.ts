@@ -27,6 +27,8 @@ import {
   marketabilityOfferAnnual,
   marketabilityStarRating,
 } from "./marketability";
+import { sponsorOfferMultiplier } from "./facilities";
+import { RIVALRY_OFFER_TIER, tableRivalryOffers, upcomingRivalryFixture } from "./rivalry";
 
 export {
   facilityProgress,
@@ -129,7 +131,14 @@ function majorAnnualAmount(
   const share = cfg.sponsorSlotShare[slot] ?? 0.5;
   const tierMult = cfg.sponsorTierMults[tierIndex] ?? 1.0;
   const noise = 0.9 + rng() * 0.2;
-  return Math.round((marketabilityOfferAnnual(score, cfg) * share * tierMult * noise) / 1000) * 1000;
+  // The Club Income Center's negotiating uplift (v1.93), applied at the moment
+  // the offer is GENERATED. A deal already signed is never repriced: the
+  // facility is what the commercial department talked a sponsor up to, not a
+  // retroactive rewrite of terms the club agreed to years ago.
+  const facility = sponsorOfferMultiplier(state, teamId);
+  return (
+    Math.round((marketabilityOfferAnnual(score, cfg) * share * tierMult * noise * facility) / 1000) * 1000
+  );
 }
 
 /** Weekly amount for a fresh MINOR offer in a given slot at a given tier.
@@ -153,7 +162,9 @@ function minorWeeklyAmount(state: GameState, teamId: string, slot: SponsorSlot, 
   const tierMult = cfg.sponsorTierMults[tierIndex] ?? 1.0;
   const marketMult = marketabilityBreakdown(state, teamId, cfg).valueMult;
   const noise = 0.9 + rng() * 0.2;
-  return Math.round((base * tierMult * marketMult * noise) / 1000) * 1000;
+  // Same uplift as the majors (v1.93) — the brief prices both alike.
+  const facility = sponsorOfferMultiplier(state, teamId);
+  return Math.round((base * tierMult * marketMult * noise * facility) / 1000) * 1000;
 }
 
 /** Pick an offer tier, weighted upward by reputation + marketability so bigger,
@@ -424,6 +435,36 @@ export function refreshSponsorOffers(state: GameState, cfg: TuningConfig) {
     );
   }
   team.sponsorOffers = team.sponsorOffers.filter((o) => o.expiresDay > state.currentDay);
+
+  // ── Derby week (v1.94) ──────────────────────────────────────────────────
+  //
+  // A fixture against a current rival brings one-off partners to the table at a
+  // premium, expiring with the fixture itself. Tabled BEFORE the ordinary pass
+  // below so they take the open slots first — a derby offer that lost its slot
+  // to a routine regional partner tabled the same morning would be the event
+  // arriving and then not happening.
+  //
+  // They are exempt from the live-offer cap for the same reason: the cap exists
+  // to stop the routine market becoming an inbox, and a derby is by definition
+  // not routine. `upcomingRivalryFixture` bounds how often this can fire — only
+  // within `rivalryOfferLeadDays` of an actual fixture against an actual rival.
+  const derby = upcomingRivalryFixture(state, cfg);
+  if (derby && !team.sponsorOffers.some((o) => o.tier === RIVALRY_OFFER_TIER)) {
+    // Priced off the club's OWN ordinary minor rate, so a derby is worth
+    // proportionally the same to a fourth-tier club as to a giant. The slot and
+    // tier passed here only set the scale; the actual slots are chosen inside.
+    const rng = mulberry32(deriveSeed(state.seed, `rivalrybase:${derby.id}`));
+    const base = minorWeeklyAmount(state, state.userTeamId, "sleeve", 1, cfg, rng);
+    for (const offer of tableRivalryOffers(state, derby, base, cfg)) {
+      team.sponsorOffers.push(offer);
+      const def = SPONSOR_SLOTS.find((d) => d.slot === offer.slot);
+      state.news.unshift(
+        `${offer.brand} want in on the derby — ${formatOfferMoney(offer.weeklyAmount)}/wk for the ${
+          def?.title.toLowerCase() ?? offer.slot
+        }, on the table until kick-off.`
+      );
+    }
+  }
 
   for (const def of SPONSOR_SLOTS) {
     // A slot with capacity for several deals keeps attracting suitors until it

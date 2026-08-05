@@ -12,6 +12,7 @@ import { simulateMatch } from "./engine/match";
 import { generateLeagueFixtures, drawCupRound, applyPromotionRelegation, initCup } from "./season";
 import { regenFromRetiree, replenishFreeAgents, replenishYouth } from "./worldgen";
 import { collectSeasonFinishes, driftClubReputations } from "./reputation";
+import { formRivalries, recordRivalryMeeting } from "./rivalry";
 import {
   EURO_KO_ROUND_NAMES,
   applyEuropeanPrizes,
@@ -65,7 +66,10 @@ import {
   growthMultiplier,
   eliteResistRelief,
   staffWageMultiplier,
+  archetypeClassGrowthMultiplier,
 } from "./facilities";
+import { deriveArchetype } from "./config/archetype";
+import { rolloverConversions } from "./archetypedev";
 import { FACILITY_MAP } from "./config/facilities";
 import { scoutMarketTick, refreshScoutMarketFull } from "./scouts";
 import {
@@ -289,7 +293,14 @@ export function applyMatchResult(state: GameState, fixture: Fixture, result: Mat
     // the Performance Bonus for the result. Banked here, when the fixture is
     // played, rather than on the weekly tick — they're per-match lump sums, and
     // a club plays a varying number of matches in a week.
-    state.teams[state.userTeamId].budget += matchUpgradeIncome(state, state.userTeamId, userIsHome, own, opp, cfg);
+    // The fixture is passed so a derby can pay (v1.94): a rivalry multiplies
+    // these two upgrade tracks and nothing else. `rivalryMatchMultiplier` is 1
+    // for every ordinary match, so this is unchanged for a save with no rivals.
+    state.teams[state.userTeamId].budget += matchUpgradeIncome(state, state.userTeamId, userIsHome, own, opp, cfg, fixture);
+    // Keep the head-to-head ledger. Stored rather than counted off fixtures,
+    // because the fixtures of a season five years ago are long gone — and it is
+    // what stamps `lastMetSeason`, which keeps a live rivalry out of dormancy.
+    recordRivalryMeeting(state, userIsHome ? fixture.awayId : fixture.homeId, own, opp);
     syncProgress(state);
   }
 }
@@ -860,6 +871,17 @@ export function runSeasonRollover(state: GameState) {
   state.recordBook.seasons.push(summary);
   graduateAwardNews(state);
 
+  // Modern rivalries (v1.94). Runs immediately after the summary is filed and
+  // never before: `formRivalries` reads the record book's LAST season, so
+  // running it any earlier would judge the rivalry on the season before this
+  // one. Nothing else in the rollover depends on it, which is why it can sit
+  // here rather than being threaded through the market passes below — a rivalry
+  // formed this summer starts paying on the fixtures of the season about to
+  // begin, which is exactly when the manager will be looking for it.
+  for (const formed of formRivalries(state, cfg)) {
+    pushInbox(state, "news", formed.title, formed.rivalry.story);
+  }
+
   // Manager accolades (v1.45): fold this season's honours into the manager's
   // ledger while the summary is fresh and the club is still in the division it
   // just played. `syncProgress` (run below, after values settle) then unlocks any
@@ -916,16 +938,38 @@ export function runSeasonRollover(state: GameState) {
   for (const p of activePlayers(state)) {
     const isUser = p.clubId === state.userTeamId;
     const inAcademy = academySet.has(p.id);
-    const facilityMult = isUser || inAcademy ? userFacilityMult : 1;
+    // The archetype development centers (v1.93) multiply into the SAME facility
+    // term the Elite Training Center uses, rather than opening a channel of
+    // their own. That is the point of the shape: the ETC is what the club does
+    // for everybody, a class center is what it does for one kind of player, and
+    // both are answers to "how fast does he grow" — so they belong on one lever.
+    //
+    // Read off the player's DERIVED archetype, not his training plan. This is
+    // the same distinction the growth-emphasis rule makes in reverse: emphasis
+    // reads the plan (deriving it would entrench an identity training can never
+    // move), but a coaching department coaches the player it actually has, and a
+    // Creator being retrained as an Engine is still a Creator until he isn't.
+    const cls = deriveArchetype(p.attrs, p.positions[0])?.cls;
+    const classMult =
+      isUser || inAcademy ? archetypeClassGrowthMultiplier(state, state.userTeamId, cls) : 1;
+    const facilityMult = (isUser || inAcademy ? userFacilityMult : 1) * classMult;
     const eliteRelief = isUser || inAcademy ? userEliteRelief : 0;
     // Academy development boosts (v1.55): loan (base + per-appearance), U21-league
     // participation (with team + individual performance), and focus, all computed
     // in academyPreDevRollover while loans/youth stats were still present. Focus
     // is folded into that map, so the old inline focus/U21-squad bumps are gone.
     let extraGrowth = academyBonuses[p.id] ?? 1;
-    // A tagged-but-unboosted U21-squad prospect who never actually featured still
-    // gets the small squad-attention nudge he always did.
-    if (inAcademy && !academyBonuses[p.id] && u21SquadSet.has(p.id)) extraGrowth *= 1 + cfg.u21SquadGrowthBonus;
+    // A U21-squad prospect who never actually FEATURED still gets the small
+    // squad-attention nudge he always did.
+    //
+    // The test is "did he play", read off `youthStats`, not "does he have a
+    // bonus entry" (v1.93). Those were the same question until the academy's
+    // own age-ramped bonus landed, which gives essentially every prospect an
+    // entry — so the old `!academyBonuses[p.id]` guard would have quietly
+    // stopped paying this nudge to anyone. `youthStats` is cleared later in the
+    // rollover, but this loop runs before that, so it is still readable here.
+    const featured = (p.youthStats?.apps ?? 0) > 0;
+    if (inAcademy && !featured && u21SquadSet.has(p.id)) extraGrowth *= 1 + cfg.u21SquadGrowthBonus;
     if ((isUser || inAcademy) && p.age <= cfg.growthEndAge) extraGrowth *= 1 + userMentorBonus;
     const wasOverall = p.overall;
     // training plans steer only the user's own senior + academy players
@@ -949,6 +993,36 @@ export function runSeasonRollover(state: GameState) {
   for (const r of regens) state.players[r.id] = r;
   if (retiredNotable.length) {
     pushInbox(state, "news", "End of an era", `Retiring this summer: ${retiredNotable.slice(0, 6).join(", ")}.`);
+  }
+
+  // Archetype retraining (v1.93). Deliberately AFTER the development pass: the
+  // reshaping settles onto the overall the player finished the season with, and
+  // the summer's growth has already redistributed his attributes. Run before,
+  // the growth pass would be the last writer and would silently undo part of
+  // the conversion every year.
+  //
+  // It is safe against the `seasonStartOverall` baseline stamped in the loop
+  // above because a conversion PRESERVES overall by construction — it moves
+  // attribute points between attributes, never the rating they sum to.
+  for (const done of rolloverConversions(state, cfg)) {
+    if (done.completed) {
+      const became = done.derived?.id === done.target.id;
+      pushInbox(
+        state,
+        "academy",
+        `Retraining complete: ${done.playerName}`,
+        became
+          ? `${done.playerName} has finished his ${done.target.name} programme and now plays the role. His training plan has been set to match.`
+          : `${done.playerName} has finished his ${done.target.name} programme. His attributes have been reshaped toward the role, though he still reads as ${done.derived?.name ?? "his old role"} — a player pinned near his limits can only be moved so far.`
+      );
+    } else {
+      pushInbox(
+        state,
+        "academy",
+        `Retraining: ${done.playerName}`,
+        `Season ${done.seasonsServed} of ${done.seasonsRequired} of ${done.playerName}'s ${done.target.name} programme is complete.`
+      );
+    }
   }
 
   // Top the free-agent market back up where the world is genuinely short of

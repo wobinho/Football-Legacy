@@ -15,6 +15,19 @@ design session before changing, `[FUTURE]` must not be built but must not be blo
 - `npm run verify:conversion` — measure that a training plan actually converts a player's derived archetype (youth steers, settled squads don't)
 - `npm run verify:formations` — structural check on `config/formations.ts` (11 slots, one GK, label==pos, picker coverage) + the AI formation mix
 - `npm run verify:facilities` — facility-table invariants, the badge ladder, and the ETC's worked example (the 33% ceiling)
+- `npm run verify:v193` — drives a real world through the v1.93 features: the academy's
+  age-ramped youth bonus, both commercial facilities reaching the actual books, the four
+  archetype centers (including that a class's growth doesn't leak to another and that
+  Blitzer having no center is harmless), and a full retraining programme run through the
+  real rollover asserting the overall-preserving invariant
+- `npm run verify:inbox` — the inbox grouping contract: that the folders are a true
+  partition of every message type (unfiled mail would never render at all), that every
+  folder is returned empty rather than vanishing, and that the per-folder actions touch only
+  their own folder
+- `npm run verify:rivalry` — drives the dynamic rivalry feature: both formation triggers and
+  the near-misses that must NOT fire, that a derby multiplies only the two bonus tracks and
+  only for the user, that the one-off sponsors expire with the fixture and are deterministic,
+  dormancy and revival, and that a save with no rivalries computes exactly what it always did
 - `npm run verify:quicksell` — drive a real world into an academy quick sell; asserts the prospect leaves the world and no club receives him
 - `npm run verify:gcn` — drive a real world into a live network; asserts owned clubs keep non-zero books that match what the tick banks, that net rises with reputation, and that the relaxed ring fence permits exactly the right moves
 - `npm run verify:squads [seasons]` — drive a real world N seasons (default 12) and assert every club can still field its formation naturally, that squads haven't decayed toward the matchday minimum, and that the free-agent market survives the AI's own rollover top-up. A measured sweep, not a table check — the v1.89 defects were all invisible in the tables
@@ -67,6 +80,16 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
 - `lib/livescores.ts` — the final-day scoreboard (§15.4): which other fixtures are in play,
   what minute each already-scored goal is revealed on, and the division's table as it stands
   at that minute. A read over fixtures the engine has already played — it never simulates.
+- `lib/archetypedev.ts` — archetype RETRAINING (v1.93): the Development → Archetype tab's
+  rules. Reshapes a player's 35 attributes toward a target archetype over a couple of
+  seasons while HOLDING his overall — the redistribute-what-he-has route, as against a
+  training plan's grow-into-it route. `conversionError` is the single ruling the UI greys
+  options out with; `rolloverConversions` is what the season rollover calls.
+- `lib/rivalry.ts` — dynamic rivalries (v1.94): which clubs this save's own history has
+  turned into enemies, and what a derby is worth. Formation reads the record book;
+  `isRival` is the single question every consumer asks (it answers "currently", so a
+  dormant rivalry confers nothing while keeping its record). New rivalry rules go here,
+  not in a screen.
 - `lib/gcn.ts` — Global Club Network (§19, v34, end-game): funds/unlock, treasury, found/buy clubs (sim leagues only), inter-club moves & feeder loans, Operations upgrades. Rules only — the store calls in.
 - `lib/assistant.ts` — everything the Tactics screen *says*: `assistantReport()` (the grade
   and its notes) and `squadBlueprint()` (the ideal role per slot, the ✓/~/✗ against the
@@ -705,6 +728,151 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   opened and re-saved the club. `npm run verify:squadfile` drives the round trip through the
   real `materializePlayer` — that the JSON round-trips and that worldgen can BUILD the club
   are different claims.
+- **Ten facilities now, and the level term is no longer the exception (v1.93).** Six
+  landed at once: the commercial pair (**Club Income Center**, **Club Expense Center**) and
+  four **archetype development centers**, one per class. The `verify:facilities` sanctioned-
+  level-channel list therefore had to be widened a long way, which is exactly the creep the
+  list exists to prevent — so the guard was **strengthened as it was widened**, and the new
+  checks are the ones to keep:
+  the ETC and HPC are asserted to have **no** level term (they are the thesis in its purest
+  form — growth and elite relief are bought entirely with people); every `staffSlots`
+  channel must **equal `slotsByLevel`** (it is a restatement for the card to draw, never a
+  second source of truth); and every v1.93 channel that is a RATE rather than a capacity
+  must take **at least as much from staff as from levels**. That last check found a real
+  defect in the design brief's own numbers — the squad and academy wage cuts were specified
+  4-from-levels against 1-from-staff, the bought-by-the-level shape v1.79 exists to delete
+  — and a badge track was added to both to fix it. Conversion speed is **stars only**, so a
+  maxed archetype center is a staffing achievement, not a purchase.
+  There are **four** archetype centers, not five: `Blitzer` has none, so a player can never
+  be retrained INTO a Blitzer. Deliberate (it is already the class with the sharpest style
+  edges, winning two of six styles outright) and handled by resolving the class through
+  `archetypeDevFacilityFor`, which returns null — no path special-cases it.
+- **Every archetype class has a development center (v1.94).** The v1.93 cut shipped
+  FOUR for five classes, leaving `Blitzer` the one class a player could never be retrained
+  INTO — so the direct counter-attacking roles were the only ones in the game that had to
+  be bought or grown rather than coached. An asymmetry that big has to be a rule the player
+  can read, and "every class has a center" is the readable one. `ARCHETYPE_DEV_CLASS` is now
+  DERIVED from `ARCHETYPE_CLASS_ORDER` rather than hand-listed (the id is the class name
+  lowercased + `Development`), so a class can never exist without its center; the
+  `FacilityId` union still spells all five out, which makes a mismatch a compile error.
+  `verify:facilities` asserts the coverage both ways and that every center round-trips
+  through `archetypeDevFacilityFor`/`archetypeDevClassOf`. What must still hold — and is
+  checked — is that an UNRECOGNISED class resolves to no effect rather than throwing:
+  callers pass a *derived* archetype's class, and a player with no derivable archetype has
+  none at all.
+- **The inbox is FOLDERS, pre-declared and collapsed (v1.94).** `lib/inbox.ts` owns the
+  grouping; the Home screen renders it and never decides what "Transfers" means. Two
+  properties make it an organised mailbox rather than a list with headings, and both are
+  asserted by `verify:inbox`: the folders are a true PARTITION of `InboxItem["type"]` (a
+  type nobody filed would be mail that never appears on screen — the worst failure here and
+  one clicking around would not reliably reveal), and **every folder is returned whether or
+  not it holds mail**, so the shape of the screen doesn't move under the cursor as post
+  arrives. Grouping is by TYPE, not by week: the type is already what `INBOX_TAG_META`
+  colours and already what the manager is scanning for, and a date grouping just reproduces
+  the flat list with extra steps. The cap is now PER FOLDER (40) rather than 30 across the
+  whole inbox — the old shape let a busy transfer window push every academy report out of
+  view entirely. The per-folder mark-read/clear actions exist because the whole-inbox ones
+  are too blunt once mail is filed: clearing fifty read scout reports must not also delete a
+  live bid.
+- **A rivalry is EARNED, and it multiplies an investment rather than paying out (v1.94).**
+  `lib/rivalry.ts`. Nothing is seeded by worldgen or authored in a database — two clubs
+  become enemies because of football that happened in this save. Two triggers: a shared cup
+  final (one match, settled on the spot), or both clubs inside `rivalryTitleRaceTop` for
+  `rivalryTitleRaceSeasons` **consecutive** seasons. Three seasons is doing real work — in a
+  division where the same six clubs share the top places, two is a coincidence and three is
+  a pattern — and the user has to have been up there every one of those seasons too, since a
+  rivalry is mutual. Both read `state.recordBook.seasons`, the same derived-not-stored
+  discipline the roll of honour follows; what IS stored is the rivalry, for the reason
+  `cupRunnerUp` is stored (the record book gets compacted and the fixtures behind it are
+  gone). Three rules are load-bearing:
+  **The payout multiplies the Performance and Stadium Bonus TRACKS** (`rivalryMatchBonusMult`,
+  3×) and nothing else in the books — so it pays a manager who invested in them, and a club
+  that bought neither earns nothing extra from hating anybody. Flat derby cash would be a
+  windfall; this is a return on a decision. `rivalryMatchMultiplier` returns exactly 1 for
+  every ordinary match and for `undefined`, so a save with no rivalries is arithmetically
+  untouched and every existing `matchUpgradeIncome` caller is unchanged.
+  **The one-off sponsors are OFFERS, not payments** — priced off the club's own minor rate
+  (so a derby is worth proportionally the same to a fourth-tier club as to a giant), tabled
+  before the ordinary market pass so they take the open slots first, exempt from the
+  live-offer cap (that cap exists to stop the ROUTINE market becoming an inbox), and
+  expiring with the fixture. A derby offer that outlived the derby is just an ordinary minor
+  at a better rate.
+  **A rivalry goes dormant but is never deleted** (`rivalryDormantSeasons`). A club relegated
+  three divisions is not your rival, and without this a rivalry pays forever on a fixture
+  that can never happen. Keeping the record means a promoted club resumes the rivalry it
+  already had, head-to-head intact, rather than starting a fresh three-season count.
+  A title race must also be ONE division: three top-three finishes spread across a promotion
+  are three finishes in two different races, and the derby they'd create can't even be
+  scheduled. `verify:rivalry` drives all of it, including that an AI club never earns derby
+  money and that a pre-v1.94 save (no `rivalries` field) loads as having none.
+  **Measured, and the number to know:** across four played worlds (14/14/14/10 seasons) a
+  save carried 1–3 rivalries and 0–61 derbies — but **every one formed on the cup final and
+  none on the title race**, because no world produced three CONSECUTIVE top-three finishes
+  (best run 1,4,3). The trigger is correct; the pattern is rarer than it sounds. If the
+  title-race route should actually fire, the lever is `rivalryTitleRaceTop` or counting N of
+  the last M seasons — NOT lowering `rivalryTitleRaceSeasons`, which is the thing that makes
+  it a pattern rather than a coincidence. See the measurement note in `lib/rivalry.ts`.
+- **Retraining redistributes; a training plan grows (v1.93).** `lib/archetypedev.ts`. The
+  two routes to a new identity answer different questions and must not be collapsed.
+  `verify:conversion` measures what a PLAN costs: 41% of 16–18s convert, 17% of 22–24s, 2%
+  of 29–33s — correct, because a plan is a bet on growth and a finished player has nothing
+  to bet with. Retraining is the route the money buys: it moves attribute points from what
+  the target role doesn't use into what it does, so it works on a settled 30-year-old.
+  The invariant is **structural, not checked**: the reshape ends in
+  `fitAttrsToOverall(..., his current overall)`, so whatever the interpolation did to his
+  rating the settle puts back. Two things that look optional and are not — completing a
+  programme **sets his training plan** to the target's (otherwise the next summer's growth
+  steers him back and the feature quietly reverses itself), and `rolloverConversions` runs
+  **after** the development pass (growth redistributes attributes too, and the last writer
+  wins). Cancelling **keeps** the reshaping already done: it is real training, and undoing
+  it would let a manager probe the system for free.
+- **The squad blueprint gives a LINE variety, and the grade doesn't punish you for it
+  (v1.93).** The blueprint used to pick each slot's best archetype independently, and since
+  the style term (±15) dwarfs the dial term (±6 × swing) the answer was very nearly a
+  function of the STYLE alone — so every slot sharing a position got the identical role.
+  Measured: a 4-3-3 returned **7 distinct roles of 11** and a 4-4-2 only 6 (two Architect
+  centre backs, two Constructor full backs, two Maestro centre mids, every time). A
+  position GROUP is now solved together, greedily taking the best role not already used in
+  that line; measured after, **9–10 of 11** across five formations × six styles.
+  The load-bearing companion change: the ✓/~/✗ is graded against the **best role available
+  at the position**, not against the slot's differentiated `ideal`. Grading against the
+  latter would mark down a side fielding two Architects — a role the blueprint explicitly
+  wants in that line — and swapping the two players between slots would flip which one was
+  flagged. `BlueprintSlot.gap` is that figure; `weakest` and `wants` sort on it, and
+  nothing may recompute `idealPct - actualPct` inline again.
+  Note LB/RB and LW/RW still share a role, correctly: they are different `Pos` values, so
+  they are separate groups of one. Mirrored flanks share a job; paired central slots don't.
+- **"I followed the blueprint and I'm still a C" was a real gap, not a misunderstanding
+  (v1.93).** The grade is 55% attribute fit, 30% style synergy, 15% instruction fit, while
+  the blueprint ranks roles on style and dials ALONE — so a manager who matched every slot
+  had addressed 45% of his grade and been told nothing about the largest term. Both halves
+  are right to be what they are (a blueprint must talk about ROLES, which are things you
+  can go and buy; attribute fit is a property of the eleven specific players). What was
+  missing was anyone saying so, which is the "Right roles, wrong players" note in
+  `assistant.ts`. It fires only when the roles ARE good, or it becomes noise on the side
+  that needs the simpler message.
+- **The academy is a better place to be YOUNG (v1.93).** `academyYouthAgeBonus` in
+  `lib/academy.ts`, folded into the same `extraGrowth` term every other academy lever uses.
+  An AGE ramp, not a flat bonus: full value at `academyYouthPeakAge` (16), decaying to
+  exactly 1 at `academyMaxAge` (21). Flat, it would say "the academy is simply better",
+  making promotion always a mistake and the age-out a punishment; ramped, the real decision
+  — hold him for the coaching or promote him for the senior minutes that drive everything
+  else — is live and its answer changes with his age. It is also the only academy bonus a
+  prospect who never featured gets at all, which is the point: a 15-year-old is there to be
+  coached, and a season of that used to be worth nothing.
+  One trap this sprang: the gameloop's U21-squad nudge was gated on `!academyBonuses[p.id]`,
+  which was "did he play" only because almost nobody had an entry. Now nearly everyone does,
+  so it reads `youthStats.apps` directly.
+- **World presets save the BACKDROP, never the career (v1.93).** `WorldPreset` in
+  `lib/customdb.ts`, stored in the existing owner-scoped library record. It holds the
+  included countries, their pyramid depths and the European qualification design — the two
+  most laborious parts of setup and the two least likely to change between saves. It
+  deliberately omits the playable country, club, start tier and takeover: those are the
+  choices a new legacy exists to make, and a preset that picked your club would be a saved
+  game. `LIBRARY_SCHEMA` was **not** bumped — the field is optional and defaults to empty,
+  and bumping would have discarded every saved club and player on the device to add it.
+  Applying a preset filters to countries this build still offers, so a removed country
+  can't resurrect a code worldgen cannot resolve.
 - Interim implementations pending owner design sessions (marked in-file): transfer market
   AI (§10), trait pool. `emergencyIntake()` in gameloop is a stopgap until the Youth
   Academy ships.
