@@ -12,7 +12,7 @@ import { TUNING } from "./config/tuning";
 import { transferWindowState } from "./calendar";
 import { mulberry32, deriveSeed, pickWeighted, uid } from "./rng";
 import { valueWithYouthPr } from "./economy";
-import { grantDefaultContract, makeContract } from "./contracts";
+import { aiLetsExpire, grantDefaultContract, makeContract } from "./contracts";
 import { assignKitNumber, clearKitNumber } from "./kitnumbers";
 import { activePlayers } from "./archive";
 import { trackUserTransfer, syncProgress } from "./achievements";
@@ -1232,11 +1232,68 @@ function positionAdjacent(from: Pos, to: Pos): boolean {
  * key player drifting toward a free exit. Purely a bookkeeping renewal (no fee,
  * wage at demand); it just resets the expiry so the player stays put.
  */
+/**
+ * Let the players who have aged out of an AI club's plans go (v1.92).
+ *
+ * The last cause of long-save squad decay. Nothing in the world ever declined to
+ * re-sign an ageing player: `rolloverContracts` renewed every expiring AI deal
+ * unconditionally, and `ensureContracts` backfilled anyone still missing one, so
+ * a 37-year-old squad filler was under contract every summer until the day he
+ * retired at 39. Measured with the youth pyramid otherwise fixed, the 34+
+ * population grew 23 → 594 over nine seasons with **561 of them on club books**
+ * — those are the squad places a new generation needs, and the wage bill that
+ * stops a club buying anyone better.
+ *
+ * `aiLetsExpire` holds the conditions (past `aiExpireAge`, not among the club's
+ * best `aiExpireProtectBest`, squad stays at or above `aiSquadFloor`, and a
+ * roll). Every one of them is about being SURPLUS rather than about being old,
+ * so a veteran who is still one of his club's better players is never touched.
+ *
+ * A released veteran becomes a free agent rather than vanishing: he is then
+ * usually passed over, accrues inactivity, and retires the following summer via
+ * `retireUnattachedDays` — a realistic wind-down, and one that gives a club
+ * short of bodies a last chance to sign him.
+ */
+export function releaseAgedOut(state: GameState, club: Team, cfg: TuningConfig) {
+  // Snapshot: `completeTransfer` mutates `playerIds` as it goes.
+  for (const id of [...club.playerIds]) {
+    const p = state.players[id];
+    if (!p || p.retired || p.loan) continue;
+    if (!aiLetsExpire(state, p, cfg)) continue;
+    completeTransfer(state, p.id, null, 0);
+  }
+}
+
+/**
+ * Run the ageing-out pass over EVERY AI club in the world (v1.92), sim leagues
+ * included. Called once at the rollover.
+ *
+ * The sim world is where most of the world's clubs live — a dozen foreign
+ * leagues against one playable pyramid — so a rule applied only to the playable
+ * divisions leaves the great majority of the accumulation untouched. Squad
+ * quality is a property of the whole world: the user shops in it, and every
+ * league feeds the same player population.
+ */
+export function releaseAgedOutWorldwide(state: GameState, cfg: TuningConfig) {
+  for (const club of Object.values(state.teams)) {
+    if (!club || club.id === state.userTeamId) continue;
+    releaseAgedOut(state, club, cfg);
+  }
+}
+
 function aiRenewContracts(state: GameState, rng: RNG, cfg: TuningConfig) {
   const clubs = Object.values(state.teams).filter(
     (t) => t.id !== state.userTeamId && state.leagues[t.leagueId]?.playable
   );
   for (const club of clubs) {
+    // Before renewing anybody, let the players who have aged out of the club's
+    // plans go (v1.92). This has to happen HERE rather than only at the
+    // rollover's expiry sweep: measured, no AI contract ever reached that sweep
+    // in an expired state — every one had already been renewed upstream — so a
+    // rule that only ran there fired zero times and the 33+ population went on
+    // growing. See `aiLetsExpire` for the conditions, all of which are about
+    // being surplus rather than being old.
+    releaseAgedOut(state, club, cfg);
     if (rng() >= cfg.aiRenewChance) continue;
     // The most valuable player entering the final year of his deal is the one
     // worth locking down first.

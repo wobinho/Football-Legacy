@@ -189,6 +189,22 @@ export interface TuningConfig {
    * as a fraction of selection score per unit of deficit. */
   roleMinutesSelectionWeight: number;
 
+  // ── Blooding prospects (v1.92) ──
+  // Selection ranks on current ability, so a prospect never out-rates the
+  // veteran ahead of him; development needs minutes, so he never improves. The
+  // squad ages in place. See `rotationMultiplier` in lib/rotation.ts. Applies
+  // only in matches where rotation is already cheap.
+  /** Oldest a player may be to count as a prospect for blooding. */
+  youthBloodingMaxAge: number;
+  /** Growth headroom he needs before a club bothers — this is about players with
+   * a future, not about being young. */
+  youthBloodingMinHeadroom: number;
+  /** Headroom at which the boost is at full strength. */
+  youthBloodingFullHeadroom: number;
+  /** Selection boost at full headroom. Deliberately modest: enough to win a
+   * close call in a cup tie, never enough to hand over the shirt. */
+  youthBloodingSelectionWeight: number;
+
   // Fitness
   fitnessDrainPerMatch: number; // full 90 at age 27
   fitnessDrainAgeFactor: number; // extra drain per year over 30
@@ -271,7 +287,15 @@ export interface TuningConfig {
   growthEliteAbove: number; // overall at/below which there is no damping (1×)
   growthEliteCeiling: number; // overall at which damping reaches its floor
   growthEliteMultFloor: number; // the smallest multiplier the damping applies
-  growthEliteCurve: number; // >1 pushes the damping toward the top of the band
+  growthEliteCurve: number;
+  /** Headroom (potential − overall) at which elite resistance is eased by the
+   * full `growthHeadroomReliefMax` (v1.92). Below it the relief scales down. */
+  growthHeadroomFullRelief: number;
+  /** Share of the elite-resistance PENALTY waived for a player with full
+   * headroom. The curve is keyed on current overall alone and so cannot tell a
+   * future superstar from a journeyman at his ceiling; without this an elite
+   * successor is arithmetically impossible. See `eliteResistMult`. */
+  growthHeadroomReliefMax: number; // >1 pushes the damping toward the top of the band
   // Age → growth-rate curve (v17). Growth used to scale linearly with how far a
   // player sat below growthEndAge, which made the YOUNGEST player the fastest
   // developer — a 12-year-old projected +19 in a season. That is backwards:
@@ -306,6 +330,15 @@ export interface TuningConfig {
    * Scaled by how far past the tolerance he fell and by minutes played, so a
    * benchwarmer's bad numbers barely register. */
   primeBadSeasonMaxLoss: number;
+  /** Age at which an ORDINARY prime season starts costing a little (v1.92).
+   * Before this a player holds his level exactly as v1.52 intended; after it he
+   * drifts down, ramping to `latePrimeDriftMax` at decline onset. Without this a
+   * player held his PEAK rating from 27 to 35 and no prospect could ever
+   * displace him — see `developPlayer`. */
+  latePrimeAge: number;
+  /** Overall an ordinary season costs at the top of the ramp (just before
+   * decline onset). Small: this is a fade, not a fall. */
+  latePrimeDriftMax: number;
   /** Headroom a prime player is granted above his current overall (v1.51), so a
    * player whose dynamic potential has converged onto his rating can still
    * improve on a strong campaign. Without this, `recalcPotential`'s
@@ -1074,6 +1107,20 @@ export interface TuningConfig {
    * cap let clubs hoard until the median squad reached 44. A club with a full
    * book needs to play the prospects it has, not sign more. */
   aiYouthSquadCeiling: number;
+
+  // ── Ageing out of an AI club's plans (v1.92) ──
+  // Every expiring AI contract used to be renewed unconditionally, so no club
+  // ever declined to re-sign anybody and veterans accumulated on club books
+  // until they retired at 36–39. See `aiLetsExpire` in lib/contracts.ts.
+  /** Age from which an AI club may simply let a deal run out. */
+  aiExpireAge: number;
+  /** Players (by overall) a club protects whatever their age — a veteran still
+   * among the club's best is not surplus. */
+  aiExpireProtectBest: number;
+  /** Chance an eligible ageing player is allowed to leave. A roll, not a rule,
+   * so clubs keep some veterans and a division doesn't shed its over-33s all in
+   * the same summer. */
+  aiExpireChance: number;
   aiSimDealsPerLeaguePerWindow: number; // intra-league AI↔AI deals each sim league does per window (v1.44)
   aiSimCrossLeagueDealsPerWindow: number; // cross-league AI↔AI deals across the whole sim world per window (v1.44)
 
@@ -1718,6 +1765,14 @@ export const TUNING: TuningConfig = {
   roleMinutesTargetRotation: 0.4,
   roleMinutesTargetImpactSub: 0.18,
   roleMinutesSelectionWeight: 0.12,
+  // 23 and 6 points of headroom: a genuine prospect rather than a finished
+  // squad player. 0.25 at full headroom is worth ~4 rating points to a 70-rated
+  // prospect, which wins him a cup start over an equal veteran without ever
+  // displacing a materially better player.
+  youthBloodingMaxAge: 23,
+  youthBloodingMinHeadroom: 6,
+  youthBloodingFullHeadroom: 18,
+  youthBloodingSelectionWeight: 0.25,
 
   fitnessDrainPerMatch: 22,
   fitnessDrainAgeFactor: 0.8,
@@ -1778,7 +1833,10 @@ export const TUNING: TuningConfig = {
   // "nobody over 24 develops" complaint. Players past this age still develop, on
   // the prime curve. This lifts squad quality world-wide, so
   // `baseChancesPerSegment` is re-calibrated alongside it to hold ~2.7 goals.
-  growthEndAge: 26,
+  // v1.92: 26 → 27. A footballer's peak is his late twenties, and the window has
+  // to be long enough for a wonderkid to actually ARRIVE at his ceiling — see
+  // `growthOldFalloffPerYear` below and `eliteResistMult`'s headroom relief.
+  growthEndAge: 27,
   primeEndAge: 34,
   // v1.52 — automatic decline starts at 35, not the early thirties.
   //
@@ -1827,6 +1885,14 @@ export const TUNING: TuningConfig = {
   growthEliteCeiling: 92,
   growthEliteMultFloor: 0.08,
   growthEliteCurve: 1.25,
+  // 20 points of headroom is a genuine wonderkid, and 0.75 waives three quarters
+  // of the brake for him. Worked through the full arc: a regen born at 54 with
+  // 91 potential now reaches the high 80s inside his growth window instead of
+  // topping out at 76.9 — he can actually succeed the player he was born from.
+  // A player AT his ceiling has zero headroom and zero relief, so the curve's
+  // real job (no 19-year-old 90s) is untouched.
+  growthHeadroomFullRelief: 20,
+  growthHeadroomReliefMax: 0.55,
   // Peaked age curve (v17). 17 is the breakout year at full strength; each year
   // below that costs 0.16 (so a 14-year-old sits at 1.0 − 0.48 → 0.52 of a
   // 17-year-old's rate) and each year above costs 0.09,
@@ -1834,7 +1900,14 @@ export const TUNING: TuningConfig = {
   growthPeakAge: 17,
   growthPeakMult: 1.35,
   growthYoungFalloffPerYear: 0.16,
-  growthOldFalloffPerYear: 0.09,
+  // v1.92: 0.09 → 0.05. This, not the elite-resistance curve, was the binding
+  // constraint on ever producing a new star: at 0.09 the age multiplier had
+  // collapsed by 22, so a regen born with 91 potential peaked at 76.9 however
+  // much headroom relief he was given. Swept across the growth window and the
+  // falloff together, (28, 0.05) lands that same regen at ~84 — a genuine
+  // successor — while an ordinary player with a 70 ceiling still stops at 70,
+  // because headroom, not age, is what the brake reads.
+  growthOldFalloffPerYear: 0.06,
   growthAgeMultFloor: 0.35,
   // v1.51: prime growth loosened so players over 24 visibly develop. The pivot
   // drops to 6.7 (a solid regular now improves, not only a standout), the per-
@@ -1855,6 +1928,12 @@ export const TUNING: TuningConfig = {
   // he sheds at most 1.5 in a season — noticeable, recoverable next year.
   primeDeclineTolerance: 0.25,
   primeBadSeasonMaxLoss: 1.5,
+  // 30, ramping to 1.2 by decline onset (~35). A 29-year-old is untouched, a
+  // 31-year-old sheds a few tenths, and a 34-year-old about a point — enough
+  // that a growing 21-year-old closes on him over three or four seasons, which
+  // is exactly how a squad renews itself.
+  latePrimeAge: 30,
+  latePrimeDriftMax: 1.2,
   // A 6-point floor tapering out at 92 keeps a mid-70s pro improving for several
   // seasons on good form, while a 90-rated star has almost nothing left — the
   // last few points of a great career have to come from the youth curve.
@@ -1865,8 +1944,17 @@ export const TUNING: TuningConfig = {
   // could retire at the very age decline was starting, so the veteran phase was
   // over before it began; 36–39 leaves a real two-to-four-season tail in which
   // an ageing pro visibly fades before hanging them up.
-  retirementAgeMin: 36,
-  retirementAgeMax: 39,
+  // v1.92: 36–39 → 34–38. The v1.52 band was set when an ordinary prime season
+  // cost nothing and decline began at 35, which combined to keep a player at
+  // PEAK ability from 27 until he retired — measured, the top flight's average
+  // starter aged 25.3 → 33.4 over thirteen seasons and 135 of 220 starters were
+  // 32 or older. With ~350 players a year reaching 34 and ~3.5 years of career
+  // left apiece, the standing 34+ population settles near 1,225 whatever the
+  // market does; the band itself is the only lever on that arithmetic. Widened
+  // downward rather than narrowed, so a durable pro can still play to 38 and the
+  // spread between the early- and late-retiring stays real.
+  retirementAgeMin: 34,
+  retirementAgeMax: 38,
   // A declining player nobody has signed for a year hangs them up (v1.92). Age
   // retirement only bites at 36+, so without this a faded pro sat unsigned in
   // the free-agent list for years, ageing and never playing: measured, the 34+
@@ -2434,16 +2522,33 @@ export const TUNING: TuningConfig = {
   // which is the honest target: it is not a boost, it is the absence of the
   // decay. Measured against the same 15-season sweep that found the problem.
   youthIntakeAge: [16, 19],
-  youthIntakeCohortShare: 0.3,
+  // 0.22, not 0.30. The share must be sized to what the world can EMPLOY, not to
+  // the shape worldgen happens to start with. Development is driven by minutes,
+  // so a prospect nobody signs grows 1.6 overall a season against 4.6 for one
+  // playing regularly — measured, a tracked cohort with a mean potential of 80.8
+  // gained 1.1 a season because 70% of them sat unsigned. Generating more
+  // teenagers than clubs will sign does not replenish the world; it manufactures
+  // a permanent underclass that never develops and drags every average down.
+  youthIntakeCohortShare: 0.27,
   youthIntakeCohortMaxAge: 22,
   // A raw teenager. `overallIsAgeAdjusted` is NOT used here — the generator's
   // maturity curve is wanted, so a 16-year-old reads as unfinished.
   youthIntakeOverall: [46, 60],
   // Most of a generation are squad players and lower-league pros; the elite
   // slice below is what keeps the top of the game stocked a decade out.
-  youthIntakePotential: [62, 80],
-  youthIntakeEliteShare: 0.08,
-  youthIntakeElitePotential: [82, 93],
+  // Matched to the band worldgen itself seeds youth in (`youthPotentialFloor`
+  // 72 → `youthPotentialBandTop` 92). This was [62, 80] with an 8% elite slice,
+  // and that single mistuning was the deepest cause of long-save decay: every
+  // generation the world minted was materially WORSE than the one it replaced,
+  // so quality fell however well the intake, recruitment and ageing systems
+  // worked. Measured at season 11 with the rest of the pipeline fixed, the best
+  // under-23 in the entire world rated 74 against top-flight starters averaging
+  // 79.6, and the top fifty prospects had a mean POTENTIAL of 75.9 — they could
+  // not have replaced those starters even fully developed. An intake band below
+  // the world's own is a slow dilution, not a replenishment.
+  youthIntakePotential: [72, 88],
+  youthIntakeEliteShare: 0.1,
+  youthIntakeElitePotential: [88, 95],
   // ~150/season holds the cohort at a world of ~2200. Cap sized with headroom so
   // a save recovering from an inverted pyramid can catch up over a few seasons
   // rather than being pinned by the cap forever.
@@ -2468,13 +2573,22 @@ export const TUNING: TuningConfig = {
   // free-agent pool grew without limit and most of a generation never played.
   // At 10 a squad of ~27 carries a third of itself in developing players, which
   // is what a real academy-fed club looks like, and the pool clears.
-  aiYouthProspectsHeld: 10,
+  aiYouthProspectsHeld: 12,
   aiYouthRecruitAgeDiscount: 1.5,
   aiYouthRecruitNewsChance: 0.02,
   // 32: a first team, a full bench and a developing group behind them. Sits
   // above `aiSquadFloor` (24) with real room, and well under `squadCap` (50) so
   // youth recruitment can never be what pushes a club to its registration limit.
   aiYouthSquadCeiling: 32,
+
+  // Ageing out. 33 is where a fringe player stops being part of a club's plans
+  // while a good one is still first choice — which is why the top 14 (an XI plus
+  // cover) are protected by ability regardless. 55% of the eligible each summer
+  // clears the accumulated block over a couple of seasons without any division
+  // visibly emptying at once.
+  aiExpireAge: 33,
+  aiExpireProtectBest: 14,
+  aiExpireChance: 0.55,
   // Sim leagues each churn a handful of players between their own clubs per
   // window (v1.44) so browsing a foreign league across seasons shows real squad
   // movement, not a frozen roster. Runs once per window, not weekly, so the

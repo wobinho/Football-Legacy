@@ -46,6 +46,7 @@ import {
   ensureFieldableSquad,
   ensureAiSquads,
   aiRecruitYouth,
+  releaseAgedOutWorldwide,
 } from "./transfers";
 import { activePlayers, pruneRetired } from "./archive";
 import { tickInactivity } from "./consent";
@@ -1103,6 +1104,13 @@ export function runSeasonRollover(state: GameState) {
   // Academy new-season pass (§18): age-outs (ages are +1 now), AI intake to
   // keep the world stocked, and a fresh U21 season on the new schedule.
   academyPostDevRollover(state, cfg);
+
+  // Every AI club in the world lets its aged-out players go (v1.92). Runs BEFORE
+  // the contract passes below, because both of those hand a deal to anyone
+  // without one — released here and renewed there, the pass would undo itself.
+  // It is also before the squad and youth passes further down, so the places it
+  // frees are ones this summer's signings can actually fill.
+  releaseAgedOutWorldwide(state, cfg);
 
   // Contracts (§10 v5): settle the user's expiries from the dead-week contract
   // round (v1.51), auto-renew for AI clubs, then backfill contract-less newcomers.

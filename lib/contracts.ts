@@ -492,6 +492,70 @@ function releaseToFreeAgency(state: GameState, p: PlayerBio) {
  * A final-year warning goes out for the user's own players still under contract.
  * Returns the list of released user player names for the review inbox.
  */
+/**
+ * Does this AI club simply let an ageing player's deal run out (v1.92)?
+ *
+ * Exported because the decision has to be made everywhere a contract is
+ * renewed, not only here — `ensureContracts` backfills anyone left without one
+ * and would otherwise hand a deal straight back to the player this just
+ * released. Measured, that is not a hypothetical: with the rule applied only at
+ * the rollover's own sweep, ZERO AI contracts were ever found expired (they had
+ * all been renewed upstream) and the 33+ population went on growing exactly as
+ * before.
+ *
+ * Until now every expiring AI contract was renewed unconditionally — the line
+ * below this one said "so no AI club loses a player to admin", which is the
+ * right instinct and the wrong rule. It meant no club in the world ever declined
+ * to re-sign anybody, so a 37-year-old squad filler was re-signed every summer
+ * until the day he retired at 39.
+ *
+ * That is the last cause of long-save squad decay. With the youth pyramid fixed
+ * and retirement at 36–39, measured over nine seasons the 34+ population grew
+ * 23 → 594 with 561 of them ON CLUB BOOKS — not unsigned veterans the market had
+ * passed over (only 33 of those), but players clubs were contractually obliged
+ * to keep. Those places are the ones a generation coming through needs, and the
+ * wage bill they carry is what stops a club buying anyone better.
+ *
+ * Three conditions, all required, so this can only ever remove a player the club
+ * genuinely has no use for:
+ *
+ *  1. He is past `aiExpireAge` — this is about age, not about being bad. A good
+ *     31-year-old is nobody's problem.
+ *  2. He is NOT one of the club's better players (outside the top
+ *     `aiExpireProtectBest` by overall). A club re-signs its captain at 35; it
+ *     is the fringe thirty-somethings that accumulate.
+ *  3. The club can spare him — squad still at or above `aiSquadFloor` afterwards.
+ *     A thin squad renews everybody, exactly as before, so this can never be the
+ *     reason a club cannot field a side.
+ *
+ * Deliberately a roll (`aiExpireChance`) rather than a rule: clubs keep some
+ * veterans, which is both realistic and what stops every club in a division
+ * shedding its over-33s in the same summer.
+ */
+export function aiLetsExpire(state: GameState, p: PlayerBio, cfg: TuningConfig): boolean {
+  if (p.age < cfg.aiExpireAge) return false;
+  const team = state.teams[p.clubId!];
+  if (!team) return false;
+
+  const squad = team.playerIds
+    .map((id) => state.players[id])
+    .filter((x) => x && !x.retired);
+  if (squad.length - 1 < cfg.aiSquadFloor) return false;
+
+  // Protect the club's best players whatever their age — a veteran who is still
+  // one of the eleven best footballers at the club is not surplus.
+  const rank = squad
+    .slice()
+    .sort((a, b) => b.overall - a.overall)
+    .findIndex((x) => x.id === p.id);
+  if (rank >= 0 && rank < cfg.aiExpireProtectBest) return false;
+
+  // Seeded off the world, club, player and season, so a club's decision is
+  // stable rather than re-rolled by anything that re-runs the rollover.
+  const rng = mulberry32(deriveSeed(state.seed, `expire:${team.id}:${p.id}:${state.season}`));
+  return rng() < cfg.aiExpireChance;
+}
+
 export function rolloverContracts(state: GameState, cfg: TuningConfig): string[] {
   const userId = state.userTeamId;
   // The manager's own decisions first, so anyone he renewed is already back
@@ -514,7 +578,9 @@ export function rolloverContracts(state: GameState, cfg: TuningConfig): string[]
     if (!expired) continue;
 
     if (p.clubId === userId) userLeftovers.push(p);
-    // AI: renew at demand so no AI club loses a player to admin
+    // AI: renew at demand so no AI club loses a player to admin — UNLESS the
+    // player has simply aged out of the club's plans (v1.92).
+    else if (aiLetsExpire(state, p, cfg)) releaseToFreeAgency(state, p);
     else grantDefaultContract(state, p, cfg);
   }
 

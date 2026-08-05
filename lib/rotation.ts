@@ -176,5 +176,31 @@ export function rotationMultiplier(
     mult *= 1 + minutesDeficit(state, p, cfg) * cfg.roleMinutesSelectionWeight;
   }
 
+  // Blood a prospect (v1.92).
+  //
+  // The last cause of long-save squad decay, and the one that hid behind every
+  // other. With intake and recruitment both fixed, the top flight's XI stayed
+  // strong (76.4 → 79.0 over 13 seasons) but its average STARTER aged 25.3 →
+  // 33.4 and its bench fell 75.3 → 69.7. The young players existed and were
+  // signed; they simply never played, because selection ranks on current ability
+  // and a 33-year-old always out-rates a 19-year-old.
+  //
+  // That is a trap, not a preference: development is driven by MINUTES, so a
+  // prospect who never plays never improves, never overtakes the veteran ahead
+  // of him, and never plays. The squad ages in place until the whole generation
+  // retires at once — the original complaint, arriving by a different route.
+  //
+  // Same discipline as the role-minutes term above: only in the matches where
+  // rotation is already cheap (a cup tie, a congested week), and capped so a
+  // prospect is given a chance rather than handed the shirt. A club's best
+  // league XI is untouched.
+  if (ctx.chaseRoles && p.age <= cfg.youthBloodingMaxAge) {
+    const headroom = Math.max(0, p.potential - p.overall);
+    if (headroom >= cfg.youthBloodingMinHeadroom) {
+      const share = Math.min(1, headroom / cfg.youthBloodingFullHeadroom);
+      mult *= 1 + share * cfg.youthBloodingSelectionWeight;
+    }
+  }
+
   return mult;
 }

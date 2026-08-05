@@ -124,12 +124,49 @@ export function catchupMult(overall: number, cfg: TuningConfig): number {
  * every other lever has stopped mattering. See `eliteResistRelief` in
  * lib/facilities.ts.
  */
-export function eliteResistMult(overall: number, cfg: TuningConfig, relief = 0): number {
+export function eliteResistMult(
+  overall: number,
+  cfg: TuningConfig,
+  relief = 0,
+  /** The player's ceiling (v1.92). Supplied, resistance is measured against how
+   * far he still has to GO rather than against his rating alone — see below.
+   * Omitted, the curve behaves exactly as it always did, which is what callers
+   * describing a rating rather than a player (the projection UI) still want. */
+  potential?: number
+): number {
   if (overall <= cfg.growthEliteAbove) return 1;
   const span = Math.max(1, cfg.growthEliteCeiling - cfg.growthEliteAbove);
   const t = Math.min(1, (overall - cfg.growthEliteAbove) / span);
   const decay = Math.pow(t, cfg.growthEliteCurve);
-  const m = Math.max(cfg.growthEliteMultFloor, 1 - (1 - cfg.growthEliteMultFloor) * decay);
+  let m = Math.max(cfg.growthEliteMultFloor, 1 - (1 - cfg.growthEliteMultFloor) * decay);
+
+  // Headroom relief (v1.92) — the fix for "the world's stars are never replaced".
+  //
+  // The curve above is keyed on current overall ALONE, so it cannot tell a
+  // 70-rated future superstar from a 70-rated journeyman standing at his
+  // ceiling, and damps both identically. Worked through, that made an elite
+  // successor arithmetically impossible: a regen born with 91 potential, playing
+  // every minute of every season under ideal conditions, tops out at **76.9** by
+  // `growthEndAge` — he cannot reach the level of the 90-rated player he was
+  // created to replace. Measured in a real world at season 11: 170 new players
+  // with a mean potential of 90.7, 164 of them signed to clubs, sitting at 60.5
+  // overall at age 24+ with a 30-point gap they would never close. The original
+  // world's stars exist only because worldgen creates them directly, so as they
+  // retired the top of the game emptied and nothing could refill it — which is
+  // the real "squads degrade over a long save", and it survived every fix to
+  // intake, recruitment, ageing and selection because none of them touched it.
+  //
+  // Resistance now eases in proportion to REMAINING headroom: a player still far
+  // from his ceiling keeps most of his growth rate, and the brake tightens as he
+  // closes on it. The curve's purpose is preserved exactly — it exists to stop a
+  // 19-year-old reaching 90, and it still does, because a player who has arrived
+  // at his potential has no headroom left and gets no relief at all.
+  if (potential !== undefined) {
+    const headroom = Math.max(0, potential - overall);
+    const share = Math.min(1, headroom / Math.max(1, cfg.growthHeadroomFullRelief));
+    m = m + (1 - m) * share * cfg.growthHeadroomReliefMax;
+  }
+
   // The floor is a floor on the UNRELIEVED curve; relief is allowed to lift a
   // player back off it, which is the whole purchase.
   return 1 - (1 - m) * (1 - Math.max(0, Math.min(1, relief)));
@@ -287,7 +324,7 @@ export function developPlayer(
     const catchup = catchupMult(p.overall, cfg);
     // v1.66: the whole multiplier stack is damped by how good he already is.
     // v1.81: unless the club has built the HPC, which cuts that damping.
-    const elite = eliteResistMult(p.overall, cfg, eliteRelief);
+    const elite = eliteResistMult(p.overall, cfg, eliteRelief, newPotential);
     const base =
       cfg.growthPerSeasonMax *
       (0.35 + 0.65 * minutesFactor) *
@@ -333,7 +370,7 @@ export function developPlayer(
         // 88 can't sidestep the curve by having aged out of the growth phase.
         // This is the branch the HPC exists for — an elite player is usually
         // past growthEndAge, so the prime branch is where his last points live.
-        eliteResistMult(p.overall, cfg, eliteRelief);
+        eliteResistMult(p.overall, cfg, eliteRelief, newPotential);
       delta = Math.min(headroom, earned);
     } else if (primePerf < -cfg.primeDeclineTolerance) {
       // A genuinely poor season — well below the pivot, not merely average — and
@@ -342,8 +379,33 @@ export function developPlayer(
       const severity = Math.min(1, (-primePerf - cfg.primeDeclineTolerance) / 1.0);
       delta = -cfg.primeBadSeasonMaxLoss * severity * minutesFactor * randRange(rng, 0.6, 1.0);
     } else {
-      // An ordinary season at this age: he holds his level. No drift either way.
-      delta = 0;
+      // An ordinary season: he holds his level — until the late prime (v1.92).
+      //
+      // v1.52 made an ordinary prime season cost exactly nothing, to fix
+      // "players start declining at 30". That was right for a 28-year-old and
+      // wrong for a 33-year-old: it meant a player held his PEAK rating from 27
+      // until decline onset at 35, then retired at 36–39. A top player was
+      // therefore at full strength for a decade, and no prospect could ever
+      // displace him.
+      //
+      // That is the deepest cause of long-save squad decay, and it hid behind
+      // every other: with intake and youth recruitment both fixed, the top
+      // flight's XI still aged 25.3 → 33.4 over thirteen seasons while its bench
+      // fell 75.3 → 69.7. The young players existed, were signed, and were good
+      // — they simply had nobody to replace, because nobody ever got worse.
+      //
+      // The drift starts at `lateP­rimeAge` and ramps to `latePrimeDriftMax` by
+      // decline onset, so it joins smoothly onto the decline branch below rather
+      // than arriving as a cliff. A 28-year-old is still untouched, which is the
+      // whole of what v1.52 was protecting.
+      const late = p.age - cfg.latePrimeAge;
+      if (late > 0) {
+        const span = Math.max(1, declineOnset - cfg.latePrimeAge);
+        const ramp = Math.min(1, late / span);
+        delta = -cfg.latePrimeDriftMax * ramp * randRange(rng, 0.6, 1.1);
+      } else {
+        delta = 0;
+      }
     }
   } else {
     phase = "decline";
@@ -581,7 +643,7 @@ export function applyWeeklyProgress(
       (cfg.growthPerSeasonMax * IN_SEASON_GROWTH_SHARE / 38) *
       ageGrowthMult(p.age, cfg) *
       catchupMult(p.overall, cfg) *
-      eliteResistMult(p.overall, cfg, eliteRelief) *
+      eliteResistMult(p.overall, cfg, eliteRelief, p.potential) *
       facility *
       Math.max(0, 0.35 + perf);
     // Fractional rate accumulated as a probability of a whole point, so a rating
@@ -616,7 +678,7 @@ export function applyWeeklyProgress(
     const rate =
       ((cfg.primeGrowthPerSeasonMax * cfg.primeInSeasonShare) / 38) *
       Math.min(1, primePerf) *
-      eliteResistMult(p.overall, cfg, eliteRelief) *
+      eliteResistMult(p.overall, cfg, eliteRelief, p.potential) *
       facilityMult;
     if (rng() < rate) return 1;
     return 0;
@@ -719,7 +781,7 @@ export function seasonGrowthEstimate(
       0.91 *
       facilityMult *
       (plan?.growthMult ?? 1) *
-      eliteResistMult(p.overall, cfg, eliteRelief);
+      eliteResistMult(p.overall, cfg, eliteRelief, p.potential);
     // NOT rounded (v1.85). A prime season earns well under a point at any decent
     // rating — 0.46 at 75 overall, 0.16 at 88 — so rounding here reported every
     // player at 75+ as growing exactly ZERO from the day he turned 27, forever.
@@ -738,7 +800,7 @@ export function seasonGrowthEstimate(
   const ageBoost = ageGrowthMult(p.age, cfg);
   const planMult = plan?.growthMult ?? 1;
   const catchup = catchupMult(p.overall, cfg);
-  const elite = eliteResistMult(p.overall, cfg, eliteRelief);
+  const elite = eliteResistMult(p.overall, cfg, eliteRelief, p.potential);
   const base = cfg.growthPerSeasonMax * (0.35 + 0.65 * minutesFactor) * facilityMult * planMult * catchup * elite;
   // same 0.85 mid-point and 0.55 shape factor developPlayer applies
   const raw = base * ageBoost * 0.85 * 0.55;

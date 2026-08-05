@@ -595,6 +595,30 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   must run BEFORE the promotion shuffle, which makes the fixture-derived tables unreadable.
   Measured (`npm run verify:reputation`): a dominant club going 72 → 84.6 doubled the
   number of 82+ players who would sign for it, 124 → 243.
+- **A world must be able to GROW its own stars (v1.92).** The deepest cause of long-save
+  squad decay, and the one that survived fixes to intake, recruitment, ageing, contracts and
+  selection — because none of them touched it. `eliteResistMult` was keyed on current
+  overall ALONE, so it could not tell a 70-rated future superstar from a 70-rated journeyman
+  standing at his ceiling and damped both identically. Worked through the whole arc, that
+  made an elite successor **arithmetically impossible**: a regen born with 91 potential,
+  signed, and playing every minute of every season under ideal conditions, topped out at
+  **76.9** by `growthEndAge`. Measured in a real world at season 11: 170 new players with a
+  mean potential of 90.7, 164 of them at clubs, sitting at 60.5 overall aged 24+ with a
+  30-point gap they would never close. The original world's 89-rated players exist only
+  because worldgen creates them directly (superstar seeding runs at club creation and
+  nowhere else), so as they retired the top of the game emptied and nothing could refill it
+  — the world's best NEW player after 14 seasons rated 78 against an original top-50 mean of
+  89. **Diagnose this class of bug by tracking the original cohort against the new one**
+  (`ORIG top50` vs `NEW top50`), which separates dilution from decay; every aggregate looked
+  like decay and it was dilution. Two changes, and both are needed: resistance now eases in
+  proportion to REMAINING headroom (`growthHeadroomFullRelief`/`growthHeadroomReliefMax`),
+  and the growth window widened (`growthEndAge` 26→27, `growthOldFalloffPerYear` 0.09→0.06)
+  — the falloff, not the resistance curve, was the binding constraint, since by 22 the age
+  multiplier had collapsed and no amount of relief had anything left to work on. The curve's
+  real purpose is untouched: a player AT his ceiling has zero headroom and gets zero relief,
+  so there is still no 19-year-old 90. Measured after: 85+ population 58 → 137 and sustained,
+  best-10 mean 90 → 93.5, top-flight mean flat instead of falling to 72.8. Re-run
+  `calibrate`, `verify:standings` and `measure:quality` after touching any of the four.
 - **A world is an AGE PYRAMID, not a headcount (v1.92).** The fix for "squads degrade after
   ten seasons and nothing replaces the retirees". `replenishFreeAgents` (v1.89) held the
   population perfectly flat the whole time — the defect was invisible to it because it
@@ -634,8 +658,27 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
      to having no recruitment at all. And the size gate is `aiYouthSquadCeiling` (32), **not**
      `squadCap` (50): the cap almost never binds, so gating on it let clubs hoard until the
      median squad hit 44 players. A club with a full book needs to play the prospects it has.
-  Measured after: top-flight mean 76.3 → 77.2 over 12 seasons (was 76.4 → 72.8 and falling),
-  85+ population 67 → 117, mean age flat at ~26.5. Use `npm run measure:quality` — it asks
+  3. **An AI club lets an ageing player's deal run out** (`aiLetsExpire`, contracts.ts).
+     `rolloverContracts` renewed EVERY expiring AI contract unconditionally — "so no AI
+     club loses a player to admin", the right instinct and the wrong rule: no club in the
+     world ever declined to re-sign anybody, so a 37-year-old squad filler was re-signed
+     every summer until he retired at 39. With the first two halves in place the 34+
+     population still grew 23 → 594 over nine seasons, and **561 of those were ON CLUB
+     BOOKS** — not veterans the market had passed over (33 of those), but players clubs
+     were contractually obliged to keep. Those are the squad places the new generation
+     needs. Three conditions, all required: past `aiExpireAge`, NOT among the club's best
+     `aiExpireProtectBest` by overall (a club re-signs its captain at 35), and the squad
+     stays at or above `aiSquadFloor` — a thin squad renews everybody exactly as before,
+     so this can never be why a club cannot field a side. A roll, not a rule, or every
+     club in a division sheds its over-33s in the same summer. It pairs with
+     `retireUnattachedDays`/`retireUnattachedChance` in development.ts: a released veteran
+     goes unsigned, accrues inactivity and retires the next summer, which is a realistic
+     wind-down rather than a player vanishing off a roster.
+  These two hold the world's SHAPE; the star-growth fix above is what holds its
+  QUALITY, and neither substitutes for the other — with the pyramid healthy but growth
+  still capped, the top flight's average starter aged 25.3 → 33.4 while its bench fell
+  75.3 → 69.7, because the young players existed and were signed but could never become
+  good enough to displace anybody. Use `npm run measure:quality` — it asks
   whether the world still contains world-class FOOTBALLERS, which `verify:squads` (shape)
   and `calibrate` (one match) both pass while it fails.
 - **A cup draw happens when the bracket is known, not on the day (v1.92).** `ensureCupRound`
