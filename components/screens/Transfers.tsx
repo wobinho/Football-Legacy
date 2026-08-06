@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useGame } from "@/store/gameStore";
-import type { PlayerBio, Pos, SeasonSchedule } from "@/lib/types";
+import type { PlayerBio, Pos } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
 import {
   ARCHETYPE_MAP,
@@ -125,7 +125,7 @@ function PlayerRowButton({
   const isMobile = useIsMobile();
   const clubCell = club ? (
     <span className="flex min-w-0 items-center gap-1 truncate text-dim">
-      <Crest colors={club.colors} short={club.short} size={13} />
+      <Crest team={club} size={13} />
       <span className="truncate">{club.name}</span>
     </span>
   ) : (
@@ -234,7 +234,7 @@ function PlayerCardButton({
       stats={
         club ? (
           <span className="flex min-w-0 items-center gap-1 truncate">
-            <Crest colors={club.colors} short={club.short} size={13} />
+            <Crest team={club} size={13} />
             <span className="truncate">{club.name}</span>
           </span>
         ) : (
@@ -638,7 +638,7 @@ function SigningModal({ deal, onClose }: { deal: SignedDeal; onClose: () => void
       {/* The unveiling — the new man in his new club's colours. */}
       <div className="rounded-lg border border-gold-lo/40 bg-gradient-to-br from-gold-lo/[0.14] to-transparent px-4 py-4 text-center">
         <div className="mb-2 flex items-center justify-center gap-2">
-          <Crest colors={club.colors} short={club.short} size={30} />
+          <Crest team={club} size={30} />
           <span className="display text-[11px] uppercase tracking-widest text-faint">{club.name}</span>
         </div>
         <div className="flex items-center justify-center gap-2">
@@ -656,7 +656,7 @@ function SigningModal({ deal, onClose }: { deal: SignedDeal; onClose: () => void
         <div className="mt-3 flex items-center justify-center gap-2 text-[12px] text-faint">
           {from ? (
             <span className="flex items-center gap-1.5">
-              <Crest colors={from.colors} short={from.short} size={16} />
+              <Crest team={from} size={16} />
               <span className="truncate text-dim">{from.name}</span>
             </span>
           ) : (
@@ -664,7 +664,7 @@ function SigningModal({ deal, onClose }: { deal: SignedDeal; onClose: () => void
           )}
           <span aria-hidden>→</span>
           <span className="flex items-center gap-1.5">
-            <Crest colors={club.colors} short={club.short} size={16} />
+            <Crest team={club} size={16} />
             <span className="truncate text-dim">{club.name}</span>
           </span>
         </div>
@@ -1676,15 +1676,15 @@ function TransferNewsTab() {
   const game = useGame((s) => s.game)!;
   const viewPlayer = useGame((s) => s.viewPlayer);
   const [filter, setFilter] = useState<NewsFilter>("all");
-  // Big Money's window scope. Defaults to whichever window is open right now;
-  // out of window, the manager is most likely looking back at the season just
-  // played.
-  const liveWindow = transferWindowState(game.currentDay, game.schedule);
-  const [scope, setScope] = useState<WindowScope>(
-    liveWindow.open ? (windowOf(game.currentDay, game.schedule) ?? "season") : "season"
-  );
 
-  const feed = game.transferNews ?? [];
+  const fullFeed = game.transferNews ?? [];
+
+  // The wire is CURRENT SEASON only (v1.98). A long save accumulates thousands
+  // of completed deals and the wire re-rendered every one of them, grouped into
+  // chapters nobody scrolls to — the market wire is news, and last decade's
+  // window is not news. Big Money still reads the WHOLE feed below, which is
+  // where a historical question belongs.
+  const feed = useMemo(() => fullFeed.filter((n) => n.season === game.season), [fullFeed, game.season]);
 
   // The league the user manages, and a tester for whether a deal touched it: a
   // move is "in your league" when either club currently sits in that league.
@@ -1707,21 +1707,19 @@ function TransferNewsTab() {
     return feed;
   }, [feed, filter, inUserLeague]);
 
-  // Big Money's own rows: the same feed ranked by fee within a window scope.
+  // Big Money is the save's ALL-TIME record board (v1.98): the ten biggest fees
+  // ever paid in this world, and nothing else. It reads `fullFeed`, not the
+  // season-scoped wire — the two views now answer genuinely different questions
+  // (what happened this window / what were the biggest moves ever), which is
+  // why the window scopes are gone: a "top 10 of this summer" is a leaderboard
+  // of whatever happened to be signed in twelve weeks, not a record.
   const bigRows = useMemo(() => {
     // Only paid deals rank — a free transfer has no fee to compare, and loans
     // aren't a sale. Everything else is sorted by fee, biggest first.
-    const paid = feed.filter((n) => n.fee > 0 && n.kind !== "loan");
-    const scoped =
-      scope === "all"
-        ? paid
-        : paid.filter((n) => {
-            if (n.season !== game.season) return false;
-            if (scope === "season") return true;
-            return windowOf(n.day, game.schedule) === scope;
-          });
-    return [...scoped].sort((a, b) => b.fee - a.fee).slice(0, 50);
-  }, [feed, scope, game.season, game.schedule]);
+    return [...fullFeed.filter((n) => n.fee > 0 && n.kind !== "loan")]
+      .sort((a, b) => b.fee - a.fee)
+      .slice(0, 10);
+  }, [fullFeed]);
 
   const bigTotal = useMemo(() => bigRows.reduce((sum, n) => sum + n.fee, 0), [bigRows]);
 
@@ -1749,13 +1747,6 @@ function TransferNewsTab() {
     { id: "big", label: "BIG MONEY" },
   ];
 
-  const SCOPES: { id: WindowScope; label: string }[] = [
-    { id: "summer", label: "SUMMER" },
-    { id: "winter", label: "WINTER" },
-    { id: "season", label: "THIS SEASON" },
-    { id: "all", label: "ALL TIME" },
-  ];
-
   const isBig = filter === "big";
 
   return (
@@ -1768,8 +1759,8 @@ function TransferNewsTab() {
               <>
                 {bigRows.length === 0
                   ? "No paid deals yet"
-                  : `Top ${bigRows.length} fee${bigRows.length === 1 ? "" : "s"} · ${formatMoney(bigTotal)} spent`}
-                {scope === "all" ? " · all seasons" : ` · ${seasonYearLabel(game.season)} season`}
+                  : `Top ${bigRows.length} fee${bigRows.length === 1 ? "" : "s"} · ${formatMoney(bigTotal)} combined`}
+                {" · all seasons"}
               </>
             ) : (
               <>
@@ -1779,29 +1770,12 @@ function TransferNewsTab() {
                   : filter === "league"
                     ? ` in ${userLeagueName ?? "your league"}`
                     : " involving your club"}{" "}
-                · newest first
+                · {seasonYearLabel(game.season)} · newest first
               </>
             )}
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {/* The window scopes only mean anything to the ranking, so they appear
-              beside the filter strip only while Big Money is the view. */}
-          {isBig && (
-            <div className="flex overflow-hidden rounded-md border border-line">
-              {SCOPES.map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => setScope(s.id)}
-                  className={`display px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-                    scope === s.id ? "gold-grad text-black" : "text-faint hover:text-dim"
-                  }`}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-          )}
           <div className="flex overflow-hidden rounded-md border border-line">
             {FILTERS.map((f) => (
               <button
@@ -1823,9 +1797,8 @@ function TransferNewsTab() {
         bigRows.length === 0 ? (
           <Card className="p-8 text-center text-sm text-faint">
             <div className="display mb-2 text-lg text-dim">NO DEALS YET</div>
-            {scope === "all"
-              ? "No club has paid a fee for anyone yet. The biggest signings in the world land here."
-              : "No fees paid in this window yet. When clubs start spending, the record signings rank here."}
+            No club has paid a fee for anyone yet. The ten biggest signings this world has
+            ever seen land here.
           </Card>
         ) : (
           <Card className="divide-y divide-line/50">
@@ -1914,7 +1887,7 @@ function TransferNewsRow({
       <span
         className={`flex min-w-0 flex-1 items-center gap-1.5 ${align === "right" ? "flex-row-reverse text-right" : ""}`}
       >
-        {club ? <Crest colors={club.colors} short={club.short} size={18} /> : <span className="text-faint">—</span>}
+        {club ? <Crest team={club} size={18} /> : <span className="text-faint">—</span>}
         {country && <CountryFlag country={country} size={11} className="shrink-0" />}
         <span className="truncate text-[12px] text-dim">{club?.name ?? fallback}</span>
       </span>
@@ -1968,19 +1941,9 @@ function TransferNewsRow({
 /** Helper alias so the row can type its item without importing the array type. */
 type GameStateTransferNews = import("@/lib/types").GameState["transferNews"];
 
-// ── Big Money (v1.67, folded into the wire in v1.74) ────────────────────────
-// The wire answers "what happened"; Big Money answers "what was it worth". Same
-// feed, ranked by fee instead of recency and scoped to one transfer window — so
-// it is a setting of `TransferNewsTab` rather than a screen of its own.
-
-type WindowScope = "summer" | "winter" | "season" | "all";
-
-/** Which window a deal falls in, from the day it completed. The schedule's own
- * boundaries are the authority, so this stays correct if the calendar moves.
- * Deals outside both windows (free agents sign year-round) count as neither. */
-function windowOf(day: number, sched: SeasonSchedule): "summer" | "winter" | null {
-  if (day >= sched.seasonStartDay && day < sched.summerCloseDay) return "summer";
-  if (day >= sched.winterOpenDay && day < sched.winterCloseDay) return "winter";
-  return null;
-}
+// ── Big Money (v1.67, folded into the wire in v1.74, re-scoped v1.98) ───────
+// The wire answers "what happened THIS SEASON"; Big Money answers "what are the
+// biggest moves this world has ever seen". Same feed, but the two now read
+// different slices of it, which is what makes them worth being two views: the
+// wire stays cheap on a long save, and the record board stays a record.
 

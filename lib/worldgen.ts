@@ -20,6 +20,7 @@ import {
   topUpDivisionClubs,
 } from "./config/divisions";
 import { leagueReputationOf } from "./config/leaguerep";
+import { isFreeAgent } from "./archive";
 import { mulberry32, deriveSeed, pick, pickWeighted, randInt, randNormal, randRange, shuffle, type RNG } from "./rng";
 import { formatMoney, playerValue } from "./value";
 import { buildSeasonSchedule, leagueRoundCount } from "./calendar";
@@ -500,7 +501,7 @@ export function replenishFreeAgents(state: GameState, cfg: TuningConfig, pass = 
   // user's Free Agents tab empty all season. `freeAgentPoolFloor` is a promise
   // about the MARKET, not about the world's population, so it is topped up
   // separately and in the proportions clubs actually need.
-  const unattached = Object.values(state.players).filter((p) => p && !p.retired && !p.clubId).length;
+  const unattached = Object.values(state.players).filter((p) => p && !p.retired && isFreeAgent(p)).length;
   const poolGap = cfg.freeAgentPoolTarget - unattached;
   if (poolGap > 0) {
     for (let i = 0; i < poolGap; i++) {
@@ -618,7 +619,7 @@ export function replenishYouth(state: GameState, cfg: TuningConfig): number {
   // A partial credit throttles intake while the market is full without ever
   // switching it off.
   const waiting = Object.values(state.players).filter(
-    (p) => p && !p.retired && !p.clubId && p.age < cfg.youthIntakeCohortMaxAge
+    (p) => p && !p.retired && isFreeAgent(p) && p.age < cfg.youthIntakeCohortMaxAge
   ).length;
   const credited = Math.round(waiting * cfg.youthIntakeMarketCredit);
 
@@ -1166,6 +1167,12 @@ export function generateWorld(opts: NewGameOptions): GameState {
         short: club.short,
         leagueId: div.id,
         colors: club.colors,
+        // Only an AUTHORED crest/kit is stored (v1.96). A club with neither
+        // still has both — `badgeFor`/`kitsFor` derive them from the identity
+        // above — so leaving these undefined is what keeps a world's worth of
+        // clubs from costing the save a spec each.
+        ...(club.badge ? { badge: club.badge } : {}),
+        ...(club.kits ? { kits: club.kits } : {}),
         reputation: club.rep,
         // An authored starting budget (create-a-club / modded DBs) is honored
         // verbatim; otherwise the reputation curve sets the opening war chest.

@@ -171,7 +171,7 @@ function EuroGroupCard({ cup, groupIndex }: { cup: EuroCupState; groupIndex: num
                 </td>
                 <td className="min-w-0 py-1">
                   <span className={`flex min-w-0 items-center gap-1.5 ${mine ? "font-semibold" : ""}`}>
-                    <Crest colors={t.colors} short={t.short} size={16} />
+                    <Crest team={t} size={16} />
                     <CountryFlag country={game.leagues[t.leagueId]?.country ?? ""} size={10} />
                     <span className="truncate">{t.name}</span>
                   </span>
@@ -230,7 +230,7 @@ function EuroBracket({ cup }: { cup: EuroCupState }) {
                     } ${settled && !isWinner ? "text-faint" : ""}`}
                     title={`View ${team.name}`}
                   >
-                    <Crest colors={team.colors} short={team.short} size={14} />
+                    <Crest team={team} size={14} />
                     <span className="min-w-0 flex-1 truncate">{team.short}</span>
                     <span className="tnum">{agg ?? "–"}</span>
                   </button>
@@ -297,7 +297,7 @@ function EuroFixtures({ cup }: { cup: EuroCupState }) {
                     title={h.name}
                   >
                     <span className="truncate">{h.short}</span>
-                    <Crest colors={h.colors} short={h.short} size={16} />
+                    <Crest team={h} size={16} />
                   </button>
                   <span className="display w-12 shrink-0 text-center tnum font-semibold">
                     {f.played ? `${f.homeGoals}–${f.awayGoals}` : "v"}
@@ -307,7 +307,7 @@ function EuroFixtures({ cup }: { cup: EuroCupState }) {
                     className="flex flex-1 items-center gap-1.5 truncate hover:text-gold"
                     title={a.name}
                   >
-                    <Crest colors={a.colors} short={a.short} size={16} />
+                    <Crest team={a} size={16} />
                     <span className="truncate">{a.short}</span>
                   </button>
                 </div>

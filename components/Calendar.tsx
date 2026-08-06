@@ -7,7 +7,7 @@
 import { useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import type { Fixture } from "@/lib/types";
-import { dayMonth, monthGrid, monthLabel, dayOfMonth, formatDay } from "@/lib/calendar";
+import { dayMonth, monthGrid, monthLabel, dayOfMonth, formatDay, formatDayShort } from "@/lib/calendar";
 import { isSeasonComplete } from "@/lib/gameloop";
 import { Crest } from "./ui";
 import GateModal from "./GateModal";
@@ -60,8 +60,31 @@ export default function Calendar() {
     setView(dayMonth(Math.min(target, game.currentDay, game.schedule.seasonEndDay)));
   };
 
+  // The next ten of the user's unplayed fixtures, in date order (v1.98). The
+  // calendar answers "what does this month look like"; this answers "what is
+  // coming", which is the question a manager actually has and which a month
+  // grid can only answer by paging. Both drive the SAME confirm dialog and the
+  // same `simulateToDay`, so the rail can never fast-forward on terms the
+  // calendar wouldn't.
+  const upcoming = useMemo(() => {
+    return game.fixtures
+      .filter(
+        (f) =>
+          (f.homeId === game.userTeamId || f.awayId === game.userTeamId) &&
+          !f.played &&
+          f.day >= game.currentDay
+      )
+      .sort((a, b) => a.day - b.day)
+      .slice(0, 10);
+  }, [game.fixtures, game.userTeamId, game.currentDay]);
+
   return (
     <div className="rounded-md border border-line bg-surface p-3">
+      {/* 70/30 (v1.98): the month grid keeps the bulk of the width and the
+          upcoming rail takes the remainder. Below `lg` they stack — a 30%
+          column of a phone is not a column. */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[7fr_3fr]">
+        <div>
       {/* month header */}
       <div className="mb-2 flex items-center justify-between">
         <button onClick={() => step(-1)} className="rounded px-2 py-1 text-dim hover:bg-hover hover:text-ink" aria-label="Previous month">
@@ -112,12 +135,17 @@ export default function Calendar() {
                     ? `${isHome ? "vs" : "@"} ${opp?.name}${fixture.played ? "" : isHome ? " (Home)" : " (Away)"}`
                     : formatDay(day)
               }
-              className={`relative flex aspect-square flex-col items-center justify-center rounded border p-0.5 transition-colors ${cell} ${
+              className={`relative flex aspect-square min-h-[3.25rem] flex-col items-center justify-center overflow-hidden rounded border p-0.5 transition-colors ${cell} ${
                 clickable ? "cursor-pointer hover:border-gold-lo hover:bg-hover" : "cursor-default"
               }`}
             >
               {/* On fixture days, the opponent crest is the hero of the cell so
-                  you can read the opponent at a glance; the date tucks up top. */}
+                  you can read the opponent at a glance; the date tucks up top.
+                  Below it (v1.97) the opponent's SHORT CODE and, once the match
+                  has been played, the score — the calendar now sits in the wide
+                  column, and a crest alone in a cell that big was reading the
+                  fixture list through a keyhole. Both lines only ever say what
+                  the fixture already records; nothing here simulates. */}
               {fixture && opp ? (
                 <>
                   <span className="absolute left-1 top-0.5 tnum text-[9px] leading-none text-faint">{dayOfMonth(day)}</span>
@@ -129,10 +157,14 @@ export default function Calendar() {
                   >
                     {isHome ? "H" : "A"}
                   </span>
-                  <Crest colors={opp.colors} short={opp.short} size={22} />
+                  <Crest team={opp} size={22} />
+                  <span className="display mt-0.5 max-w-full truncate text-[9px] font-bold leading-none tracking-wide text-dim">
+                    {opp.short}
+                  </span>
                   {fixture.played && (
-                    <span className="mt-0.5">
+                    <span className="mt-0.5 flex items-center gap-1 leading-none">
                       <ResultDot fixture={fixture} userTeamId={game.userTeamId} />
+                      <ScoreLine fixture={fixture} userTeamId={game.userTeamId} />
                     </span>
                   )}
                 </>
@@ -155,6 +187,84 @@ export default function Calendar() {
           <span className="text-gold">◆ Cup</span>
         </div>
         <button onClick={goToday} className="hover:text-dim">Today</button>
+      </div>
+        </div>
+
+        {/* ── Upcoming fixtures (v1.98) ────────────────────────────────────
+            Ten rows, each the fixture in abbreviation: competition mark, H/A,
+            the opponent's SHORT code, the date. Clicking one simulates up to
+            AND INCLUDING that match, through the same confirmation the
+            calendar uses — the fixture's own day IS the target, so nothing
+            here needs to know how the engine plays a matchday. */}
+        <div className="min-w-0 lg:border-l lg:border-line/60 lg:pl-3">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="display text-sm font-semibold">Upcoming</div>
+            <span className="text-[10px] uppercase tracking-widest text-faint">Next {upcoming.length}</span>
+          </div>
+          <div className="gold-thread mb-2" />
+          {upcoming.length === 0 ? (
+            <div className="rounded border border-line/50 bg-raised p-3 text-center text-[11px] text-faint">
+              No fixtures left this season.
+            </div>
+          ) : (
+            <ul className="space-y-1">
+              {upcoming.map((f) => {
+                const isHome = f.homeId === game.userTeamId;
+                const opp = game.teams[isHome ? f.awayId : f.homeId];
+                const isNext = f.day <= game.currentDay;
+                // The same gate the grid applies: you may only fast-forward to a
+                // FUTURE day, inside the season, and not while a match of yours
+                // is waiting to be played.
+                const clickable =
+                  f.day > game.currentDay &&
+                  f.day <= game.schedule.seasonEndDay &&
+                  !onMatchday &&
+                  !seasonOver;
+                return (
+                  <li key={f.id}>
+                    <button
+                      disabled={!clickable}
+                      onClick={() => clickable && setConfirm(f.day)}
+                      title={
+                        clickable
+                          ? `Simulate through ${isHome ? "vs" : "@"} ${opp?.name} on ${formatDay(f.day)}`
+                          : `${isHome ? "vs" : "@"} ${opp?.name} — ${formatDay(f.day)}`
+                      }
+                      className={`flex w-full items-center gap-2 rounded border px-2 py-1.5 text-left transition-colors ${
+                        isNext ? "border-gold-lo bg-hover" : "border-line/50 bg-raised"
+                      } ${clickable ? "cursor-pointer hover:border-gold-lo hover:bg-hover" : "cursor-default opacity-80"}`}
+                    >
+                      <span
+                        className={`display w-3 shrink-0 text-center text-[9px] font-bold leading-none ${
+                          f.competition === "CUP" ? "text-gold" : "text-faint"
+                        }`}
+                        title={f.competition === "CUP" ? "Cup" : "League"}
+                      >
+                        {f.competition === "CUP" ? "◆" : "·"}
+                      </span>
+                      <span
+                        className={`display w-3 shrink-0 text-[9px] font-bold leading-none ${isHome ? "text-win/80" : "text-dim"}`}
+                        title={isHome ? "Home" : "Away"}
+                      >
+                        {isHome ? "H" : "A"}
+                      </span>
+                      {opp && <Crest team={opp} size={16} />}
+                      <span className="display min-w-0 flex-1 truncate text-[11px] font-bold tracking-wide text-ink">
+                        {opp?.short ?? "—"}
+                      </span>
+                      <span className="tnum shrink-0 text-[10px] leading-none text-faint">{formatDayShort(f.day)}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {!onMatchday && !seasonOver && upcoming.length > 0 && (
+            <div className="mt-2 text-[10px] leading-snug text-faint">
+              Click a fixture to simulate up to and including it.
+            </div>
+          )}
+        </div>
       </div>
 
       {onMatchday && (
@@ -181,7 +291,14 @@ export default function Calendar() {
               Fast-forward to <span className="text-ink">{formatDay(confirm)}</span>.
             </p>
             {confirmFixture && !confirmFixture.played && (
-              <p className="mt-2 text-[13px] text-faint">A match of yours falls on that day and will be played too.</p>
+              <p className="mt-2 text-[13px] text-faint">
+                Your match that day —{" "}
+                <span className="text-dim">
+                  {confirmFixture.homeId === game.userTeamId ? "vs" : "@"}{" "}
+                  {game.teams[confirmFixture.homeId === game.userTeamId ? confirmFixture.awayId : confirmFixture.homeId]?.name}
+                </span>{" "}
+                — is included and will be played too.
+              </p>
             )}
             {autoMatches > 0 && (
               <p className="mt-2 rounded border border-line bg-raised p-2 text-[12px] text-dim">
@@ -204,6 +321,27 @@ export default function Calendar() {
           day. The user acts on it, keeps going, or stays here. */}
       <GateModal />
     </div>
+  );
+}
+
+/**
+ * The score of a played fixture, from the user's side — "2–1" is always
+ * theirs-first, so it reads the same way as the W/D/L colour beside it rather
+ * than needing the manager to work out which end of the fixture they were.
+ *
+ * A cup tie settled on penalties says so (`3–1p`): the goals alone would read as
+ * a draw next to a win-coloured dot.
+ */
+function ScoreLine({ fixture, userTeamId }: { fixture: Fixture; userTeamId: string }) {
+  const isHome = fixture.homeId === userTeamId;
+  const gf = isHome ? fixture.homeGoals! : fixture.awayGoals!;
+  const ga = isHome ? fixture.awayGoals! : fixture.homeGoals!;
+  const pens = fixture.competition === "CUP" && gf === ga && !!fixture.shootoutWinnerId;
+  return (
+    <span className="tnum text-[9px] font-semibold leading-none text-ink" title={`${gf}–${ga}`}>
+      {gf}–{ga}
+      {pens && <span className="text-faint">p</span>}
+    </span>
   );
 }
 

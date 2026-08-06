@@ -36,8 +36,26 @@ await page.screenshot({ path: shot("01-menu.png") });
 // new game flow
 await page.click("text=NEW LEGACY");
 await page.fill('input[placeholder="Your name"]', "Robin Ramirez");
-await page.click("text=Nottingham Foresters");
-await page.click("text=START LEGACY");
+// The club is taken by POSITION, never by name. This used to click
+// "Nottingham Foresters", a club the shipped database renamed to "Nottingham
+// Forest" when the real-club data landed — so the whole harness timed out at
+// the club picker and every check after it stopped running. A hardcoded club
+// name is a standing trap here; ui-test-gcn.mjs takes the same approach for the
+// same reason.
+await page.waitForSelector("text=CHOOSE YOUR CLUB", { timeout: 30000 });
+await page.waitForTimeout(1200);
+await page
+  .locator('div:has(> div.grid[class*="max-h-64"]) div.grid[class*="max-h-64"] > button')
+  .first()
+  .click();
+await page.waitForTimeout(400);
+const startLegacy = page.locator('button:has-text("START LEGACY")').first();
+if (await startLegacy.isDisabled()) {
+  // The first cell is "＋ Create your own club" on some presets.
+  await page.locator('div.grid[class*="max-h-64"] > button').nth(1).click();
+  await page.waitForTimeout(400);
+}
+await startLegacy.click();
 await page.waitForSelector("text=Inbox", { timeout: 60000 });
 await page.screenshot({ path: shot("02-home.png") });
 
@@ -47,10 +65,21 @@ await page.waitForSelector("text=Archetype");
 await page.screenshot({ path: shot("03-squad.png") });
 // v14: clicking a squad row opens the profile with release / transfer-list /
 // loan-list actions.
+//
+// The drift noted in v1.96 is fixed (v1.98): the profile's own actions have been
+// SELL PLAYER / SEND ON LOAN since the sell-suitors rework, and the old
+// transfer-list/loan-list labels are rendered nowhere. Re-derived from the
+// screen, which is what that note asked the next caller to do.
+// The squad actions are behind the profile's MANAGE tab, not on the BIO tab it
+// opens on, and they are SELL PLAYER / SEND ON LOAN since the sell-suitors
+// rework — the old waits were for labels on a tab the harness never opened.
+// Re-derived from the screen, which is what the v1.96 drift note asked for.
 await page.click("table tbody tr");
+await page.waitForSelector('[role="dialog"]');
+await page.click('button:has-text("MANAGE")');
 await page.waitForSelector("text=Actions");
-await page.waitForSelector("text=ADD TO TRANSFER LIST");
-await page.waitForSelector("text=ADD TO LOAN LIST");
+await page.waitForSelector("text=SELL PLAYER");
+await page.waitForSelector("text=SEND ON LOAN");
 await page.screenshot({ path: shot("03b-squad-actions.png") });
 await page.click('button[aria-label="Close"]');
 await page.waitForSelector("text=Actions", { state: "hidden" });
@@ -85,8 +114,19 @@ await page.waitForSelector("text=Top Scorers");
 await page.screenshot({ path: shot("07-competition.png") });
 
 await page.click('button:has-text("Transfers")');
-await page.waitForSelector("text=My Listings");
+// The listings tab is "Sell / Loan"; "My Listings" was its pre-rework name.
+await page.waitForSelector('button:has-text("Sell / Loan")');
 await page.screenshot({ path: shot("08-transfers.png") });
+
+// Transfer News, and the Big Money board folded into its filter strip. The wire
+// is current-season only and Big Money is the all-time top 10 (v1.98), so both
+// settings are worth actually rendering — an empty feed still has to draw.
+await page.click('button:has-text("Transfer News")');
+await page.waitForSelector("text=Market Wire");
+await page.screenshot({ path: shot("08b-transfer-news.png") });
+await page.click('button:has-text("BIG MONEY")');
+await page.waitForSelector("text=Big Money");
+await page.screenshot({ path: shot("08c-big-money.png") });
 
 await page.click('button:has-text("Club")');
 await page.waitForSelector("text=Weekly Breakdown");
@@ -99,22 +139,21 @@ await page.screenshot({ path: shot("10-academy.png") });
 await page.click('button:has-text("U21 League")');
 await page.waitForSelector("text=U21 Table");
 await page.screenshot({ path: shot("11-academy-u21.png") });
+// Scouting owns the whole department now: the assignments AND the hired roster
+// live on this one tab. The Academy's separate Staff tab is gone (staff are a
+// facility concern since v1.79) and so is its Upgrades tab, deleted outright in
+// the v1.87 facilities rework — the waits below were for three ladders the
+// schema no longer has.
 await page.click('button:has-text("Scouting")');
 await page.waitForSelector("text=Scouts on Assignment");
 await page.screenshot({ path: shot("12-academy-scouting.png") });
-// v14: scouts are a hired roster (experience + judgement), on the Staff tab
-await page.click('nav >> button:has-text("Academy")');
-await page.click('button:has-text("Staff")');
+// The hired roster is behind Scouting's own PERSONNEL sub-tab. The Academy's
+// separate Staff tab is gone (staff are a facility concern since v1.79) and so
+// is its Upgrades tab, deleted outright in the v1.87 facilities rework — the
+// waits that used to be here were for three ladders the schema no longer has.
+await page.click('button:has-text("PERSONNEL")');
 await page.waitForSelector("text=Scouting Department");
-await page.waitForSelector("text=Scouts available to hire");
 await page.screenshot({ path: shot("12c-academy-scout-staff.png") });
-// v8: upgrades moved to their own tab (Max Scouts / Academy Squad Size / Focus Slots)
-await page.click('nav >> button:has-text("Academy")');
-await page.click('button:has-text("Upgrades")');
-await page.waitForSelector("text=Max Scouts");
-await page.waitForSelector("text=Academy Squad Size");
-await page.waitForSelector("text=Focus Slots");
-await page.screenshot({ path: shot("12b-academy-upgrades.png") });
 
 // development (§5 v8): training plans tab
 await page.click('nav >> button:has-text("Development")');

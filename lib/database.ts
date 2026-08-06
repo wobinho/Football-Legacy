@@ -10,6 +10,8 @@
 // the world generated.
 
 import type { Pos, Attributes, Foot } from "./types";
+import type { BadgeSpec } from "./visual/badge";
+import type { KitSet } from "./visual/kit";
 import type { ClubDef } from "./config/names";
 import type { CountryDef } from "./config/countries";
 import { getCountry } from "./config/countries";
@@ -87,6 +89,12 @@ export interface ClubSeed extends ClubDef {
    * opens the save with exactly this much rather than the reputation-derived
    * `clubBudget(rep)`. */
   budget?: number;
+  /** An authored crest and kit set (v1.96). Both optional and both normally
+   * absent: a club with neither still has a badge and four jerseys, derived
+   * from its identity — see lib/visual/badge.ts. Authoring one is how a modded
+   * database ships a club that looks like a particular club. */
+  badge?: BadgeSpec;
+  kits?: KitSet;
 }
 
 export interface DivisionSeed {

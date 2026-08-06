@@ -12,6 +12,7 @@
 import type { Attributes, GameState, SimLeagueResult, SimTopAssister, TableRow } from "./types";
 import type { TuningConfig } from "./config/tuning";
 import { teamStrength } from "./selection";
+import { globalFootballMult } from "./gcnexec";
 import { mulberry32, deriveSeed, randNormal, pickWeighted } from "./rng";
 
 /** How likely a player is to be the one who MAKES a goal (v41). The 35-attribute
@@ -32,9 +33,20 @@ export function resolveSimLeagues(state: GameState, half: 0 | 1 | 2, cfg: Tuning
     const games = half === 0 ? 0 : half === 1 ? Math.floor(gamesTotal / 2) : gamesTotal;
 
     // strength + noise → finishing order
+    //
+    // v1.95: a club the network owns has its strength multiplied by the Director
+    // of Global Football, exactly as a playable-league side has its match-day
+    // rating multiplied in `sideInputFor`. Both are the same claim — "this club
+    // is better coached" — and they have to be made in both places or the seat's
+    // effect would depend on which kind of league a holding happens to sit in,
+    // which is nothing the manager chose. `globalFootballMult` returns 1 for
+    // every other club, so the sim world is otherwise untouched.
     const rated = league.teamIds.map((id) => {
       const players = state.teams[id].playerIds.map((pid) => state.players[pid]).filter(Boolean);
-      return { id, score: teamStrength(players, cfg) + randNormal(rng) * cfg.simTableNoise };
+      const score =
+        teamStrength(players, cfg) * globalFootballMult(state, id, cfg) +
+        randNormal(rng) * cfg.simTableNoise;
+      return { id, score };
     });
     rated.sort((a, b) => b.score - a.score);
 

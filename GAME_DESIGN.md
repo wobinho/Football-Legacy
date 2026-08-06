@@ -10,11 +10,6 @@ design record, not an implementation guide: no code, no file paths, no APIs.
 Where a number is quoted it is the designed value, because the number *is* the
 design.
 
-> **Not covered here:** Facilities and Staff. Both systems run underneath the
-> game (training facilities affect development, coaches affect matches and
-> growth) but their front-ends are being redesigned and are deliberately left
-> out of this document.
-
 ---
 
 ## Table of contents
@@ -37,11 +32,15 @@ design.
 16. [AI club behaviour](#16-ai-club-behaviour)
 17. [The Youth Academy](#17-the-youth-academy)
 18. [Scouting](#18-scouting)
-19. [The Global Club Network](#19-the-global-club-network)
-20. [Awards, records and legacy](#20-awards-records-and-legacy)
-21. [Achievements](#21-achievements)
-22. [The screens](#22-the-screens)
-23. [Presentation](#23-presentation)
+19. [Facilities and staff](#19-facilities-and-staff)
+20. [Archetype retraining](#20-archetype-retraining)
+21. [Rivalries](#21-rivalries)
+22. [The Global Club Network](#22-the-global-club-network)
+23. [Awards, records and legacy](#23-awards-records-and-legacy)
+24. [Achievements](#24-achievements)
+25. [Portability: saves, files and presets](#25-portability-saves-files-and-presets)
+26. [The screens](#26-the-screens)
+27. [Presentation](#27-presentation)
 
 ---
 
@@ -121,16 +120,36 @@ the Global Club Network can buy or found a club: membership is a clean edit.
 ### 2.4 Clubs
 
 Every club carries a name, a three-letter short code, colours, a stadium, a
-league, a **reputation (1–100)**, a budget, a squad, a tactic, staff, and a set of
-upgrade levels. Reputation drives gate income, what the club can attract, and how
-the AI values its own players.
+league, a **reputation (1–100)**, a budget, a squad, a tactic, staff, facilities
+and a set of upgrade levels. Reputation drives gate income, what the club can
+attract, and how the AI values its own players.
+
+**Reputation moves.** It was once stamped at worldgen and frozen forever, which
+meant winning the league changed nothing about who would sign for you — every gate
+that decides a transfer read a day-one number. It now drifts once a season toward
+a target blended from three different kinds of evidence: the club's **squad
+quality** (the largest weight, because it is what a target can see for himself),
+its **division's reputation**, and **where it finished**.
+
+Two rules keep it sane. It is a **drift, not an assignment**, hard-capped per
+season — a market gate that snapped to last May's table would let one lucky season
+buy world-class players. And the target is **absolute, never normalised**, so
+every club can improve at once rather than the ladder being zero-sum. Your own
+club is treated exactly like every other one, or the gates become a difficulty
+setting.
+
+It resolves at the rollover *before* the summer market, which is what turns a
+title into signings in the **next** window rather than a season later. Measured: a
+dominant club climbing 72 → 84.6 doubled the number of 82+ players who would sign
+for it, 124 → 243.
 
 ### 2.5 Time
 
-Days are integers. Day 0 is 1 July 2025. A season runs July to June: 38 league
-rounds on Saturdays, six domestic cup rounds, thirteen European midweek dates,
-two transfer windows, a youth intake day in March, and a dead week at the end for
-awards, contracts and the season review.
+Days are integers. Day 0 is 1 July 2025. A season runs July to June: a run of
+league rounds on Saturdays (as many as the division needs — see §10.1), six
+domestic cup rounds, thirteen European midweek dates, two transfer windows, two
+U21 competitions, and a dead week at the end for awards, contracts and the
+season review.
 
 ---
 
@@ -439,8 +458,54 @@ selection, so a tired squad is a worse squad.
 Players retire out of the decline phase. Retired players stay in the save — their
 career rows, their accolades and their Hall of Fame place are permanent — but they
 stop being iterated by the hot passes, and very long saves compact them at the
-rollover. Retirees are replaced by newly generated players, so the world's
-population stays stable across decades.
+rollover.
+
+### 6.8 A world has to sustain itself
+
+Long saves are a design pillar, and the hardest thing about them is that a world
+degrades in **two independent ways** — its shape and its quality — and fixing
+either one alone does nothing.
+
+**A world is an age pyramid, not a headcount.** Holding the population flat is not
+enough, because a population count is blind to *who* is in it. Measured over
+fifteen seasons, the 22–25 cohort fell from 712 players to **27** while the 34+
+cohort climbed from 23 to 871 and the world's mean age went 23.7 → 31.5. The world
+was one cohort ageing together, and when it retired it took the top of the game
+with it. Three obligations hold the shape:
+
+- **The youth cohort is held at a fixed share of the world**, roughly the shape
+  worldgen builds — so this is the absence of decay rather than a boost.
+- **AI clubs sign prospects on potential.** Without this the intake is never
+  signed, and since development is driven by minutes, an unsigned prospect never
+  develops at all — he ages out having become nothing.
+- **AI clubs let an ageing player's deal expire.** Every expiring AI contract used
+  to be renewed unconditionally, so no club in the world ever declined to re-sign
+  anybody and a 37-year-old squad filler was re-signed every summer until he
+  retired. Those are the squad places the new generation needs. It is a roll, not
+  a rule, and it never applies to a club's best players or to a club whose squad
+  is already thin.
+
+**A world must be able to grow its own stars.** This is the deeper problem, and it
+survived fixes to intake, recruitment, ageing, contracts and selection because
+none of them touched it. Elite resistance (§6.3) was keyed on current overall
+*alone*, so it could not tell a 70-rated future superstar from a 70-rated
+journeyman standing at his ceiling and damped both identically. Worked through a
+whole career, that made an elite successor **arithmetically impossible**: a player
+born with 91 potential, signed, and playing every minute under ideal conditions
+topped out at 76.9. The original world's stars existed only because worldgen
+creates them directly, so as they retired the top of the game emptied and nothing
+could refill it.
+
+The fix is that **resistance eases in proportion to remaining headroom**. A player
+*at* his ceiling has zero headroom and gets zero relief, so there is still no
+19-year-old 90 — but a genuine prospect is no longer braked as though he were
+finished. Measured after: the 85+ population went 58 → 137 and stayed there, and
+the top flight's mean stopped falling.
+
+The two halves are not substitutes. With the pyramid healthy but growth still
+capped, the young players existed and were signed and simply never became good
+enough to displace anybody — the top flight's average starter aged from 25 to 33
+while its bench got worse.
 
 ---
 
@@ -529,6 +594,32 @@ Alongside it, a **squad blueprint**: the ideal role for each slot in your
 formation, a ✓/~/✗ against whoever currently occupies it, and a shopping list of
 what you are missing.
 
+**The blueprint gives a line variety.** Each slot used to be solved
+independently, and because the style term dwarfs the instruction term, the answer
+was very nearly a function of your style alone — so every slot sharing a position
+got the identical role. A 4-4-2 returned six distinct roles out of eleven, always
+including two identical centre-backs and two identical central midfielders. A
+position *group* is now solved together, taking the best role not already used in
+that line, which returns 9–10 distinct roles of 11. (Mirrored flanks still
+correctly share a job: left and right back are different positions, so they are
+separate groups of one.)
+
+The companion rule: the ✓/~/✗ grades a player against the **best role available
+at his position**, not against the differentiated ideal for his particular slot.
+Otherwise a side fielding the two centre-backs the blueprint explicitly asked for
+would see one of them marked down, and swapping the two players between slots
+would flip which one was flagged.
+
+**"I followed the blueprint and I'm still a C" is a real gap, not a
+misunderstanding.** The grade is 55% attribute fit, 30% style synergy, 15%
+instruction fit — while the blueprint ranks roles on style and dials *alone*. So a
+manager who matched every slot has addressed 45% of his grade and been told
+nothing about the largest term. Both halves are right to be what they are: a
+blueprint must talk about **roles**, which are things you can go and buy, whereas
+attribute fit is a property of the eleven specific players you own. What was
+missing was anybody saying so — hence a distinct **"right roles, wrong players"**
+note, which fires only when the roles genuinely are good.
+
 Both are computed from the same functions the match engine calls, so the advice
 can never claim something the simulation won't do.
 
@@ -541,7 +632,13 @@ scorer and assist selection on the relevant chances).
 ### 7.8 Selection and rotation
 
 You pick your XI and an ordered bench. Auto-pick scores each player by ability ×
-positional fit × fitness × form.
+positional fit × fitness × form — **and by tactical fit**, through the very same
+lever the match engine applies to his rating. It is not a third channel; it is a
+*read* of the existing two, so the tables move selection and simulation together
+and can never drift apart. Picked on raw ability alone, a club fields the better
+player rather than the better player *for its tactic*, and could play possession
+with a squad of counter-attackers forever. The bench is ranked on the same terms,
+since the in-match substitution pass can only choose from who is on it.
 
 But **the same eleven should not start every match**, so selection layers two more
 considerations on top:
@@ -614,17 +711,63 @@ Your own matches can be played live: kick off, watch the first half, **change th
 tactic at half-time** — the single in-match interaction point — then play the
 second half and see the result finalised. Or simulate it in one shot.
 
+### 8.6 The final day
+
+On the **last league round of the season** — and on no other matchday — a toggle
+opens the rest of the division alongside your own match: every other scoreline,
+and the table re-sorting underneath as goals land.
+
+**It invents no football.** Every other fixture on the final day is already
+settled the moment the panel opens, because the loop plays them before handing
+the matchday back to you (which is what keeps the table current at kick-off).
+Re-simulating them would produce a different set of results from the ones the save
+actually records — two answers to one question.
+
+What *is* invented is only the **clock**: each already-scored goal is assigned a
+minute from its own fixture's seed and revealed as your clock passes it. So at 90'
+the panel *is* the real final table, and reloading shows the same goals at the
+same minutes. It is also free — no second engine pass, on a screen already
+running a match.
+
+The live table is built by handing the ordinary table function a doctored fixture
+list rather than by patching a finished table, so the tie-break stays one rule.
+A live table that broke ties differently from the real one would be the cruellest
+possible bug on the day a title is decided on goal difference.
+
+### 8.7 What a match records
+
 Every match produces: a minute-by-minute event log, the scorers with assists,
 possession, shots, shots on target, per-player ratings and per-player minutes.
 A compact summary is kept on the fixture so match history stays browsable all
 season without storing every event log.
 
-### 8.6 Balance targets
+### 8.8 Balance targets
 
 The engine is calibrated to roughly **2.7 goals per match** and **45% home wins**.
 Every balance number lives in one tuning table, and any change is re-verified
 against those targets before it ships. This is why adding attacking formations to
 the AI's pool requires re-calibration — the world's shape moves the numbers.
+
+**But a match's calibration is not a season's**, and that distinction is the
+hardest-won lesson in the engine's history. The engine once hit every one of those
+targets while producing nonsense league tables: a 67-rated promoted side could win
+a division of 70+ clubs, and a top-flight club could fall to the third tier.
+Goals-per-match and home-win rate describe **a match** and say nothing about **who
+wins**, so the whole dynamic range had collapsed unnoticed — measured, the best
+side in a division beat the worst only 1.51–0.77, and league finish correlated
+just 0.54 with squad quality.
+
+The cause was a single constant defined as "the balance of two equal teams" and
+set to a value two equal teams never produce. An even match therefore already sat
+78% of the way up the scoring curve with almost no headroom left, so superiority
+had nowhere to go.
+
+There are now **two** balance harnesses, and a change has to clear both: one asks
+whether a *match* looks like football, the other plays full seasons and asks
+whether a *table* does — rank correlation, who wins the title, champion points,
+draw rate. Measured over 30 full seasons after the fix: correlation 0.65, champion
+on 89 points, the champion is on average the 2.3rd-best squad, and 3.3% of titles
+go to a bottom-half squad.
 
 ---
 
@@ -649,8 +792,7 @@ before anything important** so you can act on it rather than blowing past it:
 
 - a U21 registration deadline you haven't met,
 - a transfer window about to open (a chance to shop),
-- a transfer window about to close (last chance to act),
-- youth intake day (a class is about to arrive).
+- a transfer window about to close (last chance to act).
 
 Each gate fires once and can be dismissed.
 
@@ -659,14 +801,13 @@ Each gate fires once and can be dismissed.
 | When | What |
 |---|---|
 | 1 July | Season starts; summer window already open |
-| Saturdays | 38 league rounds |
+| Saturdays | The league rounds — 2 × (n − 1) for a division of n clubs |
 | Six dates | Domestic cup rounds |
 | 13 midweek dates | European group and knockout matchdays |
 | 1 September | Summer window closes |
 | Mid-season | Sim leagues resolved (winter table) |
 | 1 January | Winter window opens |
 | 1 February | Winter window closes |
-| Mid-March | Youth intake day |
 | Twice yearly | U21 competitions run, each with its own registration window |
 | After final round | Sim leagues resolved (final tables) |
 | Dead week, day 1 | **Awards ceremony** — every individual honour and Team of the Season |
@@ -858,10 +999,11 @@ base. These income upgrades deliberately do **not** feed Club Marketability — 
 factor reads the staff facilities instead (§13.3), because scoring how much sponsor
 money a club attracts off how much it already collects was a feedback loop.
 
-*(Training, medical, gymnasium, specialist coaching centres, scouting network,
-academy squad size, focus slots, scout speed and Youth PR are also upgrade tracks.
-Academy and scouting upgrades are covered in their own sections; the training and
-medical tracks are part of the Facilities redesign and are out of scope here.)*
+These seven are the **only** bought-by-the-level tracks in the game. Everything
+that used to sit beside them — training, medical, gymnasium, coaching centres,
+scouting network, academy squad size, focus slots, scout speed, Youth PR — is now
+a **facility** (§19), where the level buys capacity and the *people* buy quality.
+See §19 for why that distinction is load-bearing.
 
 ---
 
@@ -943,10 +1085,14 @@ are**, and **how much they pay**. It renders as a 1–5 star rating.
 ### 13.4 What a major deal is worth
 
 A front-of-shirt deal's **annual** value is read straight off the marketability
-score: **£20M at 0, £100M at 100**, on a back-loaded curve (exponent 1.6). Every
+score: **£16M at 0, £80M at 100**, on a back-loaded curve (exponent 1.6). Every
 other major figure is that number scaled by the slot's share and the suitor tier.
-So a maxed club offered a three-season shirt deal is quoted **≈£293M**, and up to
-~£410M from a Global suitor.
+So a maxed club offered a three-season shirt deal is quoted **≈£235M**.
+
+Both ends of that band were cut 20% together in v1.91. A blanket cut has to scale
+*both*: moving only the maximum would flatten the curve and squeeze the gap
+between an ordinary club and an elite one, which is precisely the gap the
+marketability score exists to express.
 
 The curve is back-loaded rather than linear because a straight line makes the
 middle of the ladder far too rich — a mid-table top-flight club with nothing built
@@ -1062,7 +1208,16 @@ You can also sell directly to a specific club. A player who joined a club **this
 season cannot be moved on again until the next one** — a signing can't be flipped
 inside the window it was made in.
 
-Since v1.89 this binds **every club in the world, not just yours.** It began as a
+**Incoming bids have an off switch.** You can silence offers on your own players
+entirely. It silences your inbox; it does not freeze the window — AI-to-AI
+business, loans and the rest of the market carry on exactly as before. Offers
+already on the table keep their deadlines, since switching it on must never void
+a live negotiation, and a **release clause is deliberately not gated**: the clause
+is a term you agreed to, and honouring the toggle there would rewrite a contract
+from a UI switch.
+
+Since v1.89 the same-season lock binds **every club in the world, not just
+yours.** It began as a
 rule about the manager, which meant AI squads could churn the same player through
 three clubs in a single window while you were held to one move — and the transfer
 wire read as noise rather than business. It applies to selling, listing, accepting
@@ -1202,7 +1357,44 @@ Two obligations fix it, both at the rollover and both non-discretionary:
 - **Distressed clubs** sell to survive.
 - **Surplus is reinvested** rather than hoarded.
 
-### 16.5 Matchday AI
+### 16.5 A club keeps its key players
+
+An AI club protects its **six most tactically valuable players who have also
+played enough to have become key** — roughly two seasons' worth of appearances.
+Both tests are needed: ability alone protects a summer signing nobody has seen,
+appearances alone protect a loyal squad player the club would happily sell.
+
+It is a reluctance, not a ban — a roll can still open the door — but that roll is
+derived from the world seed, so **a rejected bidder cannot re-roll it by bidding
+again.**
+
+Without this, you could hollow out a rival by buying his best XI one player per
+window, since the players a club should least want to lose are precisely the ones
+that clear a buyer's upgrade bar. One wrinkle came out of measuring rather than
+theorising: worldgen seeds no appearance history, so at kickoff nobody cleared the
+appearances gate and season one was an open raiding window. A club that has not
+played yet falls back to judging on ability alone.
+
+### 16.6 An AI club builds toward a tactic
+
+Two halves pull deliberately opposite ways. Once a season, at the rollover and
+after squads have settled, a club looks for the shape that suits **the players it
+has**. But all season long it shops for players **its current tactic wants**.
+
+The hysteresis is the feature. A club only switches when the alternative wins by a
+clear margin, because the search wins by a fraction of a percent on noise most
+seasons — and without a threshold every club re-picks its shape every year and
+none is ever *building* toward anything.
+
+**A formation change rewrites what a club needs**, so coverage is re-checked after
+it. The rollover once ran the squad top-up and *then* the tactic review, which
+meant the coverage pass was answering a question about a shape the club was about
+to abandon: a side switching to a 4-2-3-1 suddenly requires two defensive
+midfielders where its old shape asked for none, with no signing pass left to run.
+Measured, that left a club starting a season with **zero DMs against two slots
+while ten unsigned DMs sat in the free-agent pool.**
+
+### 16.7 Matchday AI
 
 Every AI club picks its own XI and bench each matchday, using the same
 rotation-aware selection you get, against its own formation and tactic. AI clubs
@@ -1227,7 +1419,7 @@ inbox.
 ### 17.1 How prospects arrive (v1.89)
 
 **There is no annual intake day.** Every prospect in your academy got there
-because you chose him and paid for him — a scout's find (§17 scouting) or a U21
+because you chose him and paid for him — a scout's find (§18) or a U21
 opponent's prospect you bought out. The mid-March intake class that used to
 arrive on its own was removed: a roster that grows players the manager never
 picked is the same complaint the graduate queue answers at the other end of the
@@ -1349,16 +1541,48 @@ Every player who came through your academy is permanently tagged with it — whi
 what the **Academy DNA** ledger is built from. A squad full of your own graduates
 is a legacy you can point at.
 
-### 17.7 Academy upgrades
+### 17.7 What the academy costs
 
-| Upgrade | Effect |
+The academy is not free, and every price is keyed to the prospect tier ladder, so
+a rarer prospect is dearer at every stage of his life at the club:
+
+| Cost | Scale |
 |---|---|
-| **Academy squad size** | How many prospects the academy can hold at once |
-| **Focus slots** | How many prospects can be flagged focus |
-| **Scouting network** | How many scouts you may employ |
-| **Scout speed** | Shortens the gap between a scout's reports |
-| **Scout filter** | Unlocks the scouting brief's auto-filter |
-| **Youth PR** | Commercial and media work around the academy that lifts the market value of every prospect on the roster |
+| **Sending a scout** | £100k–£250k upfront by travel band, plus £50k–£100k weekly on an open-ended brief (§18.2) |
+| **Signing a find** | £1M Bronze → £10M Legacy |
+| **Youth wages** | £500/wk Bronze → £5k/wk Legacy |
+| **Upkeep** | A weekly running cost per level of the Youth Academy facility |
+
+Youth signings were free until v1.85, which made a scouting board something to
+empty rather than to choose from. Wages are priced on the **badge, not the
+overall**: two 15-year-olds rate about the same however far apart their ceilings
+are, so pricing on current ability made the rarest prospects the cheapest thing
+in the game to hoard.
+
+### 17.8 Quick sell
+
+A prospect can be cashed in immediately for **80% of the best offer on the
+table** rather than negotiated with a specific suitor. The 20% haircut is what
+the convenience costs, so picking a buyer properly always pays more.
+
+**Quick sell deletes the prospect** — he is erased from the world rather than
+transferred, and nobody receives him. That is the feature, not an optimisation:
+an academy turns over dozens of prospects a season, and releasing or selling them
+all would push your castoffs into rivals' squads, letting one manager quietly
+decide who everybody else signs. Only the money is real.
+
+### 17.9 The academy is a better place to be *young*
+
+A prospect gets a growth bonus simply for being in the academy — **+25% at 16 and
+below, decaying linearly to nothing at 21.**
+
+It is an age ramp rather than a flat bonus for a specific reason. Flat, it would
+say "the academy is simply better", which makes promotion always a mistake and
+the age-out a punishment. Ramped, the real decision stays live and its answer
+changes as he grows: **coaching wins for a teenager who would sit on a senior
+bench; senior minutes win for one ready to start.** It is also the only academy
+bonus a prospect who never plays a match gets at all — a 15-year-old is there to
+be coached, and a season of that used to be worth nothing.
 
 ---
 
@@ -1377,9 +1601,10 @@ A sharp judge of a player also reads potential more tightly, so his reports carr
 less fog. Scouts are priced on both ratings together — a 5★/5★ talent-finder is the
 expensive one; a lopsided scout costs somewhere in between.
 
-How many scouts you may **employ** is the Scouting Network upgrade cap. Headcount
-is in turn the ceiling on **concurrent assignments** — buying the upgrade without
-hiring anyone changes nothing.
+How many scouts you may **employ** is set by the Scouting Network facility (§19)
+— 2 with no facility, 3 on unlocking it, rising to 7. Headcount is in turn the
+ceiling on **concurrent assignments**, so building the department without hiring
+anyone into it changes nothing.
 
 ### 18.2 Assignments
 
@@ -1393,15 +1618,23 @@ You send a scout on an assignment with a brief:
   Africa, excluding Egypt" is not.
 - **What.** Broad groups (GK / DEF / MID / ATT / ANY) or **a specific position** —
   which is what makes "find me a right-back" a brief you can actually give.
-- **How long.** An assignment runs for a duration you set.
+- **How long.** An assignment runs for a duration you set — or open-ended.
+
+**A trip costs money, and the shape of the deal is a choice.** A fixed-duration
+brief pays its whole retainer up front; an open-ended one pays a smaller upfront
+and then bills weekly until you recall him. The price is set by how far he
+travels — home, region, continent or overseas — measured from your own country,
+so a new country prices itself with no table to maintain. A deliberately broad
+target (a whole continent, or Worldwide) is priced at the **dearest band it could
+reach**, so "Worldwide" can't be both the widest net and the cheapest.
 
 Reports arrive in batches on the scout's own cadence — faster with experience and
-with the Scout Speed upgrade — and accumulate on the board, grouped by batch, so
-you can see which trip turned up whom.
+with the Scouting Network's scouting-speed channel — and accumulate on the board,
+grouped by batch, so you can see which trip turned up whom.
 
 ### 18.3 The auto-filter
 
-Once unlocked, a brief can carry filter clauses: age bounds, ability bounds, and
+Once unlocked (Scouting Network level 5), a brief can carry filter clauses: age bounds, ability bounds, and
 which rarity tiers you'll accept. Anything failing a set clause is **discarded
 rather than reported**, so the board only holds prospects worth your attention.
 
@@ -1425,12 +1658,219 @@ senior players, and the shortlist is where you collect targets.
 
 ---
 
-## 19. The Global Club Network
+## 19. Facilities and staff
+
+Facilities and staff are **one system, not two.** A facility holds an effect; the
+staff assigned to it amplify that effect. Nothing else in the game does either
+job. That single rule replaced a predecessor of twelve independent building
+levels plus eight named staff slots, in which the two halves could be bought
+separately and neither explained the other.
+
+### 19.1 How a facility works
+
+A facility is **unlocked** for a one-off cost, then **upgraded** through five
+levels. Every facility produces its numbers the same four ways:
+
+| Term | What buys it |
+|---|---|
+| **Base** | Unlocking the facility at all |
+| **Level** | Each level above the first |
+| **Stars** | Each complete step of 6 assigned staff stars |
+| **Badges** | Each badge tier held *at that facility* by the staff in it |
+
+Because every facility scales identically, a new one is a row in a table rather
+than new machinery. And the screen shows the arithmetic — base, stars and badges
+listed separately — from the same function the engine reads, so the UI can never
+quote you a number the simulation won't use.
+
+**A staff member has no intrinsic effect.** Unassigned, they contribute exactly
+nothing but their wage. Hiring is not the achievement; posting them somewhere is.
+
+Some facilities produce **several quantities at once** — a headcount and a rate,
+say — each running that same four-way scaling, and each labelled with its unit so
+a number of beds is never printed as a percentage. A facility may also gate a
+**capability** rather than a number, for the cases where the answer is on/off
+rather than a quantity that crosses zero.
+
+### 19.2 The slot grid
+
+Each facility shows its staff slots as a grid, and **an empty slot opens the
+picker in place** — filling a facility never sends you to another screen. The
+grid always draws the slot count the facility would have at level 5, with the
+ones a future level unlocks shown as padlocks. That is what makes an upgrade
+legible *before* you buy it.
+
+The staff shortlist refreshes on the game loop's own clock, every 10 days.
+
+### 19.3 Badges — the loyalty ladder
+
+A staff member earns a **badge** by serving whole seasons at one facility:
+
+**Bronze (1) → Silver (2) → Gold (3) → Diamond (5) → Obsidian (7) → Legacy (10)**
+
+Badges are **per facility** and a person can hold at most **three** of them, so a
+long-serving coach is a specialist rather than a universal bonus. A badge is
+worth real effect at the facility it was earned at, which makes keeping someone a
+strategy in its own right.
+
+**The market barely ever sells a badge.** Only about 8% of candidates arrive with
+one at all, capped at silver unless a further roll clears, and diamond is the
+absolute ceiling — **obsidian and legacy are only ever earned at your own club.**
+A shortlist you can simply buy pedigree from would make the whole ladder
+pointless.
+
+Two age numbers sit deliberately far apart: the market generates candidates aged
+**21–35**, while a person retires at **65**. A new hire has decades ahead of him,
+which is what makes the ten seasons a legacy badge costs a bet somebody can
+actually take.
+
+### 19.4 The ten facilities
+
+They are deliberately different *kinds* of lever. What a number does is the
+consuming system's business, not the table's.
+
+| Facility | What it produces |
+|---|---|
+| **Elite Training Center** | A plain multiplier on how fast players approach their potential (ceiling ~33%) |
+| **High Performance Center** | A cut to the *elite-resistance penalty* (§6.3), ceiling ~61% |
+| **Youth Academy** | Academy squad size (15 → 50), focus slots (3 → 8), and prospect value (up to +43%) |
+| **Scouting Network** | Max scouts (2 → 7), scouting speed (up to +67%), and the level-5 auto-filter unlock |
+| **Club Income Center** | Weekly income, and how good the sponsorship offers you see are |
+| **Club Expense Center** | A cut to the squad wage bill and to academy wages |
+| **Creator / Engine / Enforcer / Blitzer / Maverick Archetype Development** | Growth for players of that class, and the retraining programmes of §20 |
+
+**The two growth facilities do not collapse into each other,** and that is the
+point of having both. The Elite Training Center is a straight growth multiplier.
+The High Performance Center is the only thing in the game that weakens elite
+resistance — and since that penalty is *zero* below the elite threshold, it does
+nothing at all for a prospect. The ETC stays strictly necessary; the HPC is what
+makes 90 → 95 a reachable arc rather than an asymptote.
+
+**The level term is for capacity; the people are for quality.** Where a facility
+grows with its building, what grows is a *capacity* — how many scouts you may
+employ, how many teenagers you can house, how many you may focus. A five-star
+director doesn't conjure a job and a five-star coach doesn't conjure a bed. The
+quality numbers still come overwhelmingly from people: scouting speed takes 42 of
+its 67 points from staff, prospect value 28 of its 43, and archetype conversion
+speed is **stars only**, so a maxed development center is a staffing achievement
+rather than a purchase. A bought-by-the-level track for anything that isn't a
+capacity is exactly the shape this system exists to remove.
+
+**Every archetype class has a development center.** The first cut shipped four
+for five classes, which left Blitzer the one class a player could never be
+retrained *into* — an asymmetry too large to be anything but a rule the player
+can read. "Every class has a center" is the readable rule.
+
+### 19.5 Three effects with no facility yet
+
+Match-day rating, fitness recovery and youth coaching all deliberately run at
+**baseline** until a facility is designed to own them. Each is a named seam
+waiting for a lever, rather than an effect quietly wired to something else.
+
+---
+
+## 20. Archetype retraining
+
+A player's identity is normally earned through training plans, over years, on the
+back of growth (§4.1). Retraining is the second route, and the two answer
+genuinely different questions:
+
+|  | Training plan | Retraining programme |
+|---|---|---|
+| **What it does** | Grows him *into* the role | Redistributes what he already has |
+| **Who it works on** | The young — 41% of 16–18s convert, 2% of 29–33s | Anyone, including a settled 30-year-old |
+| **What it costs** | Seasons of growth headroom | An Archetype Development center, and a slot in it |
+
+A plan is a bet on growth, so a finished player has nothing to bet with. That is
+correct, not a defect — and retraining is the route the money buys instead.
+
+### 20.1 How a programme runs
+
+You pick a target archetype and the class's development center runs the
+programme. It reshapes his 35 attributes toward the target's shape over about
+**two seasons**, closing roughly 60% of the remaining gap each summer so the
+first season already moves him most of the way and the completion is still worth
+waiting for. Each center runs **one programme at a time**, so a club with all
+five built can retrain five players — one per class — not five in one class.
+
+**His overall is held throughout.** The reshape ends by re-settling the attribute
+line at the overall he already had, so whatever the redistribution did to his
+rating is put back. Retraining changes *what kind* of footballer he is, never how
+good he is.
+
+### 20.2 The rules
+
+A target must be a role he could actually hold — retraining a centre-back into a
+Sniper is advice nobody could act on — and the relevant class's center must be
+complete. The screen greys out what you can't do and tells you why, from the same
+single ruling the engine enforces.
+
+Two consequences are deliberate:
+
+- **Completing a programme sets his training plan** to the target's. Otherwise
+  the next summer's growth steers him straight back and the whole feature quietly
+  reverses itself.
+- **Cancelling keeps the reshaping already done.** It is real training the player
+  did, and undoing it would let a manager probe the system for free.
+
+---
+
+## 21. Rivalries
+
+Rivalries are **earned in the save**, never authored. Nothing in worldgen or in
+any database seeds one: two clubs become enemies because of football that
+actually happened between them.
+
+### 21.1 How one forms
+
+Two triggers, both read off the record book:
+
+- **A shared cup final.** One match, settled on the spot.
+- **A sustained title race** — both clubs inside the division's **top three for
+  three consecutive seasons**, in the *same* division.
+
+Three seasons is doing real work. In a division where the same six clubs share
+the top places, two seasons is a coincidence and three is a pattern. You have to
+have been up there for every one of them too, because a rivalry is mutual.
+
+*Measured across four played worlds: a save carries 1–3 rivalries and up to 61
+derbies, and in practice every one formed on the cup final — no world produced
+three consecutive top-three finishes. The trigger is right; the pattern is rarer
+than it sounds.*
+
+### 21.2 What a derby is worth
+
+**A rivalry multiplies an investment; it does not pay out.** A derby triples what
+your **Performance Bonus** and **Stadium Bonus** tracks (§12) pay for that
+fixture, and touches nothing else in the books. So it rewards a manager who
+bought those tracks, and a club that bought neither earns nothing extra from
+hating anybody. Flat derby cash would be a windfall; this is a return on a
+decision you made.
+
+Derbies also bring **one-off sponsorship offers** — priced off the club's own
+minor-deal rate, so a derby is worth proportionally the same to a fourth-tier
+club as to a giant. They are tabled a week ahead, take the open slots before the
+routine market does, are exempt from the ordinary live-offer cap, and **expire
+with the fixture**. A derby offer that outlived the derby would just be an
+ordinary deal at a better rate.
+
+AI clubs never earn derby money. This is a manager's mechanic.
+
+### 21.3 Dormancy
+
+A rivalry whose fixture stops happening — a club relegated three divisions — goes
+**dormant** after three seasons and confers nothing. But it is never deleted: a
+promoted club **resumes the rivalry it already had**, head-to-head record intact,
+rather than starting a fresh three-season count from zero.
+
+---
+
+## 22. The Global Club Network
 
 The end-game. Having built something enormous, you stop being a manager with a club
 and become the head of a **network of clubs you own**.
 
-### 19.1 Unlocking
+### 22.1 Unlocking
 
 You deposit money from your club's budget into a **GCN Funds** pool over time. When
 it reaches the threshold — **£5 billion** — you may name your network and unlock
@@ -1438,13 +1878,13 @@ it. **The pool is spent** to unlock: it is the entry cost, not seed capital.
 
 Until then, the GCN screen doesn't exist.
 
-### 19.2 The treasury
+### 22.2 The treasury
 
 Once unlocked, GCN runs its own purse, entirely separate from any club's budget.
 It is funded by explicit deposits from your main club (and withdrawals back), plus
 its own commercial income. It pays for everything the network does.
 
-### 19.3 Owning clubs
+### 22.3 Owning clubs
 
 **Buying.** Any club in a **sim (non-playable) league** may be bought. Price is
 driven by the squad's total value plus premiums for the league's reputation and the
@@ -1464,22 +1904,49 @@ upgrade — up to 8 levels, so a fully-invested network can hold 20 clubs.
 worth, but not until a **minimum hold of 5 seasons** after acquisition. No
 flipping.
 
-### 19.4 Ring-fencing
+### 22.4 An owned club keeps its own books
+
+A club in a sim league still has a real squad on real wages, so it keeps a real
+balance sheet: income by tier and position, wages out, the lot. Before v1.88 the
+Finance panel on an owned club read **£0 in / £0 out**, which left "fund this
+club" with no shortfall to fund against.
+
+Two rules turned out to be load-bearing, and both were wrong in the first cut:
+
+- **Income scales with club reputation.** Every sim league is a top flight, so
+  the tier-keyed income lines are nearly flat across them (1.26× from the weakest
+  to the strongest) while wage bills run **5:1**. Unscaled, 38% of owned clubs
+  ran at a loss — and it was the *giants* losing money while the minnows
+  profited, which is backwards for an empire.
+- **A ring-fenced club gets no books at all.** It still draws the ordinary
+  central AI subsidy, and that subsidy *is* its abstracted week. Paying both
+  would be double income.
+
+### 22.5 Ring-fencing
 
 A club the network owns **in your own country** is held at arm's length. You get
-the ownership — the standing, the balance sheet, the achievement — and **none of
-the levers**:
+the ownership — the standing, the balance sheet, the achievement — without the
+levers that would let you use it on your own league.
 
-- No treasury funding and no standing orders.
-- No network commercial income.
-- No player movement in either direction.
-- No feeder loans.
+**The rule is about the manager's squad, not about the border.** The original cut
+banned every lever on a domestic holding, which also stopped two domestic
+holdings from dealing with *each other* — a move that confers nothing on the team
+you actually pick. The invariants are narrower now:
+
+- **Money never crosses the fence** — no funding, no standing orders, no network
+  commercial income.
+- **Players never move between your own squad and a ring-fenced club**, in either
+  direction, and a ring-fenced club may not import across a border.
+- **Two ring-fenced clubs in one country may trade with each other**, priced at
+  full market value so a free intra-pyramid transfer stays impossible.
+- **Selling to the open market is allowed** — the player leaves the network
+  entirely, so it strengthens nobody.
+- **Feeder loans stay banned**, because they move *your* players.
 
 That is what stops owning a domestic club from becoming a way to fix your own
-league — you can't prop up a rival, and you can't asset-strip one. A ring-fenced
-club keeps the ordinary central subsidies every other AI club gets.
+league: you can't prop up a rival, and you can't asset-strip one.
 
-### 19.5 What the network does
+### 22.6 What the network does
 
 **Player movement.** Players can be moved between owned clubs at a discount to
 market value — the whole point of a multi-club structure. A club must retain a
@@ -1498,7 +1965,85 @@ comes to the treasury.
 Owned clubs remain **AI-run.** You oversee; you don't manage. They keep playing on
 the sim machinery, with their own stances and their own markets.
 
-### 19.6 Operations upgrades
+### 22.7 The boardroom — Global Executives
+
+Three seats, each driving exactly **one** network-wide effect:
+
+| Seat | What it does |
+|---|---|
+| **Football** | Lifts match performance and development at every owned club |
+| **Commerce** | Lifts the network's commercial income |
+| **Scouting** | Cuts scouting costs and speeds scouting up |
+
+**An executive is a seat, not a hire.** This is deliberately *not* the club's
+backroom repeated at network scale. A club's staff system is a staffing puzzle —
+many people, ten buildings, an assignment grid, three badge slots each — and
+playing that same game again with bigger numbers would add work rather than
+depth. Here it is one appointment, one salary, one blanket effect, and the only
+question is what pedigree the treasury can carry.
+
+What it *does* share is the scaling — a base, plus per star, plus per badge tier
+— because that is the same idea at a different altitude, and one vocabulary beats
+a bespoke curve.
+
+**The split between stars and badges is the design.** A brand-new five-star
+appointment reaches only about half of what a seat can be worth; the rest is
+earned solely by **keeping someone**. Without that split, re-hiring whoever tops
+the shortlist each month would strictly dominate loyalty and a decade-long
+appointment would be a rounding error. The badge ladder here is its own —
+1/2/4/6/9/13 seasons — because an executive holds one seat rather than competing
+for three badge slots, so the tiers have to be reachable inside a single career.
+As with club staff, the top tiers are only ever earned at your own network.
+
+Three rules matter:
+
+- **A vacant seat is worth exactly nothing** — every multiplier returns 1. These
+  run on every match and every development pass in the world, so a save that
+  never unlocked the network computes precisely what it always did.
+- **The Football seat never reaches your own club.** You manage that one yourself,
+  with its own facilities and its own staff. Letting the boardroom multiply it too
+  would make the network the best available way to improve the team you actually
+  pick.
+- **It moves both kinds of match** — real fixtures and sim resolution alike — or a
+  seat's worth would depend on which kind of league a holding happened to sit in,
+  which is nothing you chose.
+
+### 22.8 International Scouting Hubs
+
+The end-game counterpart to club scouting. Where a scout is a **trip** — hire,
+send, pay the travel, get him back — a hub is a **permanent presence** that files
+reports forever, at a standard no hireable scout reaches.
+
+Hubs are built in the same **26 sub-regions** the scouting brief already uses, so
+a region added to the scouting tree becomes a hub site by construction and a brief
+and a hub can never disagree about where a place is. A hub costs £180M to build,
+upgrades through five levels, carries weekly upkeep, and is **cheaper to build in
+a region where the network already owns a club**.
+
+Its level buys judgement (well past anything hireable), report cadence, batch
+size, how many prospects it can hold, and how fast they grow while there.
+
+Four rules, each because the obvious version collapses the feature back into a
+bigger academy:
+
+- **A signed hub prospect belongs to the network and to no club.** That is what
+  makes the placement decision the thing the feature is *about*: keep him
+  developing at the hub, promote him into your own academy, or place him at an
+  owned club in his region.
+- **Placement is regional.** An owned club in one of the hub's own countries, and
+  nothing else. A hub that could feed the whole empire would be a talent
+  teleporter that makes owning clubs anywhere else pointless; a hub that feeds its
+  own region is a reason to own clubs *there* — the one rule tying the two halves
+  of the network together. Promotion into your own academy is always allowed: it
+  costs the region its player, and it is the reward for having built the thing.
+- **Loans out of a hub don't exist.**
+- **Closing a hub refunds nothing** and releases everyone it held. That is the
+  honest shape for a building you put up abroad, and it is what makes the upkeep
+  decision real. Its prospects are *released*, not deleted — the academy's
+  quick-sell deletion exists so your castoffs can't stock your domestic rivals,
+  and a 15-year-old let go in Ghana is not that.
+
+### 22.9 Operations upgrades
 
 Three tracks, bought from the treasury:
 
@@ -1517,9 +2062,9 @@ can get, and how it pays for itself.
 
 ---
 
-## 20. Awards, records and legacy
+## 23. Awards, records and legacy
 
-### 20.1 The awards ceremony
+### 23.1 The awards ceremony
 
 On the dead-week awards day — after the last match, before the rollover — every
 honour is handed out at once.
@@ -1545,7 +2090,7 @@ honour is handed out at once.
 Awards are stamped permanently onto the players who win them and **survive
 retirement**, so a legend's trophy cabinet is forever.
 
-### 20.2 The record book
+### 23.2 The record book
 
 A per-season museum. Each season stores champions of every league, the cup winner,
 all three European winners, every final table, top scorers, the full accolade set,
@@ -1557,7 +2102,7 @@ with goals-for breaking ties between equal margins.
 
 The season review modal at the rollover presents all of it.
 
-### 20.3 The roll of honour
+### 23.3 The roll of honour
 
 The record book is stored one season at a time, which answers "what happened in
 2029/30" and not "who has won this league, and how often" — a question that meant
@@ -1578,13 +2123,13 @@ ten seasons contains its own honours list, it simply had no reader. Because both
 views render the same rows, the roll of honour and the season review can never
 disagree.
 
-### 20.4 The Hall of Fame
+### 23.4 The Hall of Fame
 
 A hand-curated honour roll. From any player's profile you can enshrine him:
 living, retired, sold, or still at the club. It changes nothing in the world — it
 just collects the legends you want remembered.
 
-### 20.5 Manager accolades
+### 23.5 Manager accolades
 
 A permanent, passively-recorded ledger of your own career:
 
@@ -1601,7 +2146,7 @@ A permanent, passively-recorded ledger of your own career:
 
 ---
 
-## 21. Achievements
+## 24. Achievements
 
 One-off milestones, evaluated against live state, unlocked permanently the first
 time they're met and stamped with the season they were earned. Unlocked
@@ -1660,12 +2205,83 @@ Achievements are scoped to the save and export with it.
 
 ---
 
-## 22. The screens
+## 25. Portability: saves, files and presets
+
+Four different things can leave a save, and they are deliberately four different
+things rather than one export button.
+
+### 25.1 A player file — a character
+
+Export one player to a file and sign him into another save. "Alternate
+universes": the striker you developed in one legacy turns up in the next.
+
+Three rules, each because the obvious version is wrong:
+
+- **Nothing world-bound travels.** Club, kit number, contract, loan — these point
+  at teams and seasons the destination has never heard of.
+- **An import always gets a new identity**, so re-importing a file, or importing
+  it into the world it came from, can never overwrite a real player.
+- **His history travels by name, not by reference.** The record already stores
+  club *names* beside the ids, so his career renders correctly in a world where
+  those clubs don't exist.
+
+Importing is deliberately **not a transfer**: no fee, no wage negotiation, no
+consent roll. A continuity tool that can fail for reasons you cannot act on
+defeats its own purpose. It does respect the squad cap and the same-season resale
+lock, so it can't be used to dodge either.
+
+### 25.2 A squad file — a design
+
+Export your whole squad as a club: an authored roster the Database Editor imports
+like any other custom club, which any new legacy can then be started with.
+
+It deliberately **throws career history away**, which is the exact opposite of the
+player file — and correctly so. A career belongs to a world, and this club is
+going to exist in a different one from its very first fixture. A player file
+preserves history precisely because a character *is* his record; a squad file is
+a design.
+
+### 25.3 A world preset — a backdrop
+
+A preset saves the **setup** of a world: which countries are in it, how deep each
+pyramid runs, and the European qualification design. Those are the two most
+laborious parts of starting a save and the two least likely to change between
+them.
+
+It deliberately omits the playable country, the club, the starting tier and the
+takeover. Those are the choices a new legacy exists to make — a preset that
+picked your club for you would just be a saved game.
+
+### 25.4 Cloud saves
+
+Saves sync to the cloud automatically, compressed, and only when something has
+actually changed. Local storage is written on every autosave regardless, and the
+cloud copy is forced current whenever you leave the page — so the copy is up to
+date at every moment you could realistically pick up another device.
+
+*(A 9-season save is ~9 MB raw and compresses about 10×, which took metered
+transfer from roughly 1.09 GB/hr of play to 0.027 GB/hr — a 41× cut, round trip
+byte-identical.)*
+
+---
+
+## 26. The screens
 
 ### Home
 The dashboard. Next fixture, league position, the Continue button, recent results,
 the inbox and the news ticker. The screen you spend the most time on because it's
 where Continue lives.
+
+**The inbox is folders, not a list with headings** — Transfers, Matches & Awards,
+Academy & Scouting, Club & News, each collapsed by default. Two properties make it
+an organised mailbox: every kind of mail is filed in exactly one folder (mail
+nobody filed would never appear on screen at all), and **every folder is shown
+whether or not it has anything in it**, so the shape of the screen doesn't shift
+under the cursor as post arrives. Grouping is by type rather than by date, because
+the type is already what you are scanning for. The cap is per folder rather than
+across the whole inbox — otherwise a busy transfer window pushes every academy
+report out of view. Mark-read and clear are per folder too: clearing fifty read
+scout reports must not also delete a live bid.
 
 ### Squad
 The senior roster. Sortable by everything, with class colours, archetype badges,
@@ -1697,24 +2313,34 @@ Six tabs:
 - **News** — the world transfer wire.
 
 ### Club
-Six tabs:
+Five tabs:
 - **Finances** — the itemised weekly breakdown, every line in and out.
 - **Income** — the seven upgrade tracks, each with its full ladder priced.
 - **Investments** — sponsorship offers, signed deals, and the Marketability
-  breakdown with its four factors shown.
-- **History** — the record book, season by season.
-- **Players** — squad-level club views.
-- **Save** — export, import, backups.
+  breakdown with all six factors shown.
+- **History** — the record book season by season, plus the Trophy Cabinet and the
+  Roll of Honour.
+- **Save** — export, import, backups, and the player/squad/world-preset files of
+  §25.
+
+### Facilities
+Two tabs:
+- **Facilities** — the ten facilities, their levels, their channels with the
+  arithmetic shown, and the slot grid where staff are assigned in place.
+- **Staff** — everyone you employ, their stars, their badges and where they are
+  posted, alongside the shortlist you hire from.
 
 ### Development
-Two tabs:
+Three tabs:
 - **Plans** — training plan per player, with auto-assign and the plan's primary
   and secondary attributes laid out.
 - **Growth** — the season-by-season development history of every player, and where
   their attributes have actually moved.
+- **Archetype** — the retraining programmes of §20: pick a target role, see what
+  your centers can run, and track a programme to completion.
 
 ### Academy
-Seven tabs:
+Six tabs:
 - **Squad** — the prospect roster, tiers, focus flags.
 - **Development** — youth growth.
 - **Growth** — prospect progression history.
@@ -1723,7 +2349,9 @@ Seven tabs:
   (whose prospects you can buy).
 - **Scouting** — your scouts, their assignments, briefs and filters, and the report
   board.
-- **Upgrades** — the academy and scouting upgrade tracks.
+
+*(The old Upgrades tab is gone. Academy squad size, focus slots and everything
+scouting are facilities now — §19.)*
 
 ### Player Profile
 The full picture: all 35 attributes grouped, the six card faces, derived archetype
@@ -1736,15 +2364,23 @@ Every achievement grouped by category — earned ones with their season, locked 
 with progress — alongside the full manager accolades ledger and the Hall of Fame.
 
 ### Global Club Network
-Four tabs, and only visible once unlocked:
-- **HQ** — treasury, deposits and withdrawals, network overview.
-- **Clubs** — owned clubs, buying, founding, selling, funding and standing orders.
-- **Operations** — the three upgrade tracks.
-- **Staff** — network personnel.
+Six tabs, and only visible once unlocked. **Each tab answers exactly one
+question**, and an action lives on the tab that owns its subject:
+- **Headquarters** — how is the network doing? Read-only; no actions at all.
+- **Clubs** — the holdings, and founding, buying and selling them.
+- **Players** — every player the network owns, filterable.
+- **Intl Scouting Hub** — the region map, building and upgrading hubs, the report
+  pipeline and where a signed prospect goes.
+- **Treasury** — all money: deposits, withdrawals, funding, standing orders.
+- **Operations** — the boardroom seats and the three upgrade tracks.
+
+The predecessor had four tabs, with Headquarters serving as both the dashboard
+*and* the launcher for all seven network actions — so "how is my empire doing"
+and "buy a club" shared one page and neither had room.
 
 ---
 
-## 23. Presentation
+## 27. Presentation
 
 **Dark theme** built on near-black (#0b0c0f), with a subtle **gold gradient**
 reserved strictly for the active or important thing — never decoration. The
@@ -1760,7 +2396,3 @@ a player appears. Archetype artwork uses the same palette on its hex frames, so
 badge and label never teach contradictory associations.
 
 The game is fully playable at a phone viewport as well as on desktop.
-
----
-
-*Facilities and Staff are excluded from this document pending their redesign.*

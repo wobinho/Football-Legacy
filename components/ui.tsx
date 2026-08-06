@@ -30,6 +30,8 @@ import {
   type ArchetypeClass,
 } from "@/lib/config/archetype";
 import { flagForNat, flagForCountry, nameForNat } from "@/lib/config/flags";
+import { badgeFor, type BadgeSpec } from "@/lib/visual/badge";
+import { ClubBadge } from "./visual/ClubBadge";
 import { potentialView } from "@/lib/academy";
 import { TRAIT_MAP } from "@/lib/config/traits";
 import { TUNING } from "@/lib/config/tuning";
@@ -192,32 +194,50 @@ export function FormChip({ form }: { form: number }) {
   return <span className={`tnum text-xs ${color}`} title="Form">{label}</span>;
 }
 
-/** Club identity chip: initials on club colors. */
-export function Crest({ colors, short, size = 24 }: { colors: [string, string]; short: string; size?: number }) {
-  return (
-    <span
-      className="display inline-flex shrink-0 items-center justify-center rounded-sm font-bold"
-      style={{
-        // Fixed, box-sized square so the crest is exactly `size`×`size`
-        // regardless of the flex/grid row it sits in — a taller sibling (e.g. a
-        // two-line league label) must never stretch or shrink the badge.
-        flex: "0 0 auto",
-        boxSizing: "border-box",
-        width: size,
-        height: size,
-        minWidth: size,
-        minHeight: size,
-        lineHeight: 1,
-        overflow: "hidden",
-        background: colors[0],
-        color: colors[1],
-        fontSize: size * 0.38,
-        border: "1px solid rgba(255,255,255,0.12)",
-      }}
-    >
-      {short}
-    </span>
+/**
+ * Club identity chip — the club's actual crest (v1.96).
+ *
+ * Every call site passes `colors` and `short` because that is all the old chip
+ * needed, and all of them keep working: with no `name` the badge is derived
+ * from the short code and the colours, which is still a stable, club-specific
+ * crest rather than a coloured square. Pass `team` (or `name` + `badge`) where
+ * the club object is to hand and the crest becomes the club's own — including
+ * one the manager designed.
+ *
+ * Note it renders through `ClubBadge`, the same component the creator previews
+ * with, so a badge can never look one way in the editor and another in a table.
+ */
+export type CrestClub = {
+  name: string;
+  short: string;
+  colors: [string, string];
+  badge?: BadgeSpec;
+};
+
+export function Crest(
+  props: { size?: number } & (
+    | { team: CrestClub; colors?: never; short?: never; name?: never; badge?: never }
+    | { team?: never; colors: [string, string]; short: string; name?: string; badge?: BadgeSpec }
+  )
+) {
+  const { size = 24 } = props;
+  const club: CrestClub = props.team ?? {
+    // With no name to seed on, the short code and the colours still produce a
+    // stable club-specific crest — just one two clubs sharing a code would
+    // share. Every call site that has the club object passes `team`.
+    name: props.name ?? props.short,
+    short: props.short,
+    colors: props.colors,
+    badge: props.badge,
+  };
+  const spec = useMemo(
+    () => badgeFor(club),
+    // The identity fields are what the crest is a function of; the object
+    // itself is rebuilt on every render and would defeat the memo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [club.name, club.short, club.colors[0], club.colors[1], club.badge]
   );
+  return <ClubBadge spec={spec} size={size} title={`${club.name} badge`} />;
 }
 
 export function Stars({ n }: { n: number }) {

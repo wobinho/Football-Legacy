@@ -26,6 +26,8 @@ import { clubBudget, defaultTactic, generateClubSquad, teamIdFor } from "./world
 import { grantDefaultContract } from "./contracts";
 import { assignKitNumber } from "./kitnumbers";
 import { ensureProgress } from "./achievements";
+import { execMarketTick, execWageBill, globalCommerceMult } from "./gcnexec";
+import { hubUpkeepWeekly, hubWageBill } from "./gcnhub";
 
 // ── Funds & unlock ─────────────────────────────────────────────────────────
 
@@ -68,8 +70,18 @@ export function unlockGcn(state: GameState, name: string, cfg: TuningConfig): st
     treasury: 0,
     clubIds: [],
     ops: {},
+    executives: {},
+    hubs: {},
+    hubProspectIds: [],
+    hubReports: [],
   };
   state.gcn = gcn;
+  // Seed the executive shortlist AT UNLOCK (v1.95), not on the next daily tick.
+  // `execMarketTick` runs inside `advanceDay`, so a network founded mid-week
+  // would open its Operations tab on an empty boardroom market and stay that way
+  // until the manager happened to advance the clock — which reads as a broken
+  // feature rather than as a market that hasn't opened yet.
+  execMarketTick(state, cfg);
 }
 
 // ── Treasury ───────────────────────────────────────────────────────────────
@@ -477,6 +489,20 @@ export function gcnWeeklyTick(state: GameState, cfg: TuningConfig) {
 
   gcn.treasury += brandDealsWeekly(state, cfg);
 
+  // The network's own payroll (v1.95): the boardroom's wages, the hubs' upkeep
+  // and the wages of every prospect on a hub's books. All three are paid from
+  // the TREASURY rather than any club's budget, because the network employs
+  // them — a club that happens to sit near a hub must not be billed for it.
+  //
+  // Unlike a standing order these are NOT skipped when the treasury is short:
+  // a wage bill is owed whether or not it can be covered, and letting the
+  // treasury go negative is the honest signal that the empire has overreached.
+  // The manager's remedy is to dismiss, downsize or fund — all of which are one
+  // click away on the same screen.
+  gcn.treasury -= execWageBill(state);
+  gcn.treasury -= hubUpkeepWeekly(state, cfg);
+  gcn.treasury -= hubWageBill(state, cfg);
+
   // An owned club's own trading week (v1.88). This runs for RING-FENCED clubs
   // too: a home-country holding is cut off from network money, not from its own
   // gate receipts. It is the network money below that the ring fence stops.
@@ -784,22 +810,34 @@ function weeklyTrackAt(level: number, base: number, perLevel: number): number {
   return level <= 0 ? 0 : base + (level - 1) * perLevel;
 }
 
-/** What Brand Deals pays the treasury each week at the current level. */
+/** What Brand Deals pays the treasury each week at the current level.
+ *
+ * The Director of Global Commerce multiplies it (v1.95). He is the seat that
+ * "acts as the financial engine", and this is the engine: a track the manager
+ * already chose to buy, made to pay back more. Deliberately a multiplier on an
+ * investment rather than a flat payment — an executive who prints money
+ * regardless of what the network has built would make the Operations tracks
+ * pointless, which is the opposite of a director's job. */
 export function brandDealsWeekly(state: GameState, cfg: TuningConfig, level?: number): number {
-  return weeklyTrackAt(
+  const raw = weeklyTrackAt(
     level ?? gcnLevelOf(state, "brandDeals"),
     cfg.gcnBrandDealsBase,
     cfg.gcnBrandDealsPerLevel
   );
+  return Math.round(raw * globalCommerceMult(state, cfg));
 }
 
-/** What GCN Deals pays *each* owned club each week at the current level. */
+/** What GCN Deals pays *each* owned club each week at the current level. Also
+ * multiplied by the Director of Global Commerce — it is the other half of the
+ * network's passive income, and the two must scale together or the seat quietly
+ * becomes a reason to prefer one Operations track over the other. */
 export function gcnDealsWeekly(state: GameState, cfg: TuningConfig, level?: number): number {
-  return weeklyTrackAt(
+  const raw = weeklyTrackAt(
     level ?? gcnLevelOf(state, "gcnDeals"),
     cfg.gcnDealsBase,
     cfg.gcnDealsPerLevel
   );
+  return Math.round(raw * globalCommerceMult(state, cfg));
 }
 
 /** True when the network is at its owned-club cap and can't take on another. */
@@ -988,7 +1026,17 @@ export function gcnEmpire(state: GameState, cfg: TuningConfig): GcnEmpire {
     }
   }
 
-  const treasuryNet = brandDealsWeekly(state, cfg) - totalAutoFunding(state);
+  // The treasury's own week (v1.95): Brand Deals in, everything the network is
+  // committed to out. It must name the SAME four outflows `gcnWeeklyTick` debits
+  // or the Headquarters dashboard reports a solvency the simulation doesn't
+  // honour — which was the whole point of `gcnSimBooks` in v1.88, one function
+  // behind both the banking and the panel.
+  const treasuryNet =
+    brandDealsWeekly(state, cfg) -
+    totalAutoFunding(state) -
+    execWageBill(state) -
+    hubUpkeepWeekly(state, cfg) -
+    hubWageBill(state, cfg);
   // Insolvency first: it's the only one of the three that ends with a club the
   // network can no longer run.
   const order: Record<GcnAlert["kind"], number> = { insolvent: 0, thin: 1, sliding: 2 };

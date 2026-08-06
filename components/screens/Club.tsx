@@ -50,9 +50,10 @@ import { gcnFundsOf, gcnOverview } from "@/lib/gcn";
 import { isRival, rivalriesOf, rivalryRecordLine } from "@/lib/rivalry";
 import { Card, Crest, Flag, GhostButton, GoldButton, MoneyInput, Section, Stars, Tabs } from "../ui";
 import SeasonDetailModal from "./SeasonDetailModal";
+import IdentityTab from "./Identity";
 
 // v7: staff moved to Development → Staff, so the Club page no longer has a Staff tab.
-type Tab = "finances" | "income" | "investments" | "history" | "save";
+type Tab = "finances" | "income" | "investments" | "identity" | "history" | "save";
 
 export default function ClubScreen() {
   const [tab, setTab] = useState<Tab>("finances");
@@ -63,6 +64,7 @@ export default function ClubScreen() {
           { id: "finances", label: "Finances" },
           { id: "income", label: "Income" },
           { id: "investments", label: "Investments" },
+          { id: "identity", label: "Identity" },
           { id: "history", label: "History & Records" },
           { id: "save", label: "Save" },
         ]}
@@ -72,6 +74,7 @@ export default function ClubScreen() {
       {tab === "finances" && <FinancesTab />}
       {tab === "income" && <IncomeTab />}
       {tab === "investments" && <InvestmentsTab />}
+      {tab === "identity" && <IdentityTab />}
       {tab === "history" && <HistoryTab />}
       {tab === "save" && <SaveTab />}
     </div>
@@ -1610,7 +1613,7 @@ function RivalsPanel() {
                   className="flex w-full items-center gap-2 text-left"
                   onClick={() => viewTeam(r.rivalId)}
                 >
-                  {club && <Crest colors={club.colors} short={club.short} size={26} />}
+                  {club && <Crest team={club} size={26} />}
                   <span className="min-w-0 flex-1">
                     <span className="display block truncate text-sm font-bold">{r.rivalName}</span>
                     <span className="block text-[11px] text-faint">
@@ -1735,7 +1738,7 @@ function RollOfHonour() {
             return (
               <div key={t.teamId} className="flex items-center gap-2 px-1 py-1 text-sm">
                 <span className="w-4 shrink-0 tnum text-right text-faint">{i + 1}</span>
-                {team && <Crest colors={team.colors} short={team.short} size={18} />}
+                {team && <Crest team={team} size={18} />}
                 <span className="min-w-0 flex-1 truncate">{t.teamName}</span>
                 <span
                   className="display tnum font-semibold"
@@ -1763,7 +1766,7 @@ function RollOfHonour() {
                   className={`flex items-center gap-2 px-1 py-1 text-sm ${isUser ? "text-gold" : ""}`}
                 >
                   <span className="w-16 shrink-0 tnum text-faint">{w.yearLabel}</span>
-                  {team && <Crest colors={team.colors} short={team.short} size={18} />}
+                  {team && <Crest team={team} size={18} />}
                   <span className="min-w-0 flex-1 truncate">{w.teamName}</span>
                 </div>
               );

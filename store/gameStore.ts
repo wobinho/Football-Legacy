@@ -48,6 +48,7 @@ import {
   valueWithYouthPr,
   describeIncomeLevel,
   incomeUpgradeLevel,
+  academySquadCap,
   FACILITY_TITLE,
   type Facility,
 } from "@/lib/economy";
@@ -76,8 +77,28 @@ import {
   GCN_FACILITY_SPEC,
   type GcnClubEdit,
 } from "@/lib/gcn";
+import { setClubIdentity, type ClubIdentityEdit } from "@/lib/visual/identity";
+import {
+  GCN_EXEC_ROLE_MAP,
+  dismissExecutive,
+  executiveIn,
+  hireExecutive,
+} from "@/lib/gcnexec";
+import {
+  buildHub,
+  closeHub,
+  dismissHubReport,
+  hubBuildCost,
+  hubIn,
+  hubRegion,
+  placeHubProspect,
+  promoteHubProspect,
+  releaseHubProspect,
+  signHubProspect,
+  upgradeHub,
+} from "@/lib/gcnhub";
 import { formatMoney } from "@/lib/value";
-import type { GcnFacility } from "@/lib/types";
+import type { GcnExecRole, GcnFacility } from "@/lib/types";
 import { setKitNumber } from "@/lib/kitnumbers";
 import { syncProgress, achievementTitles } from "@/lib/achievements";
 import { saveTactic, loadSavedTactic, deleteSavedTactic, renameSavedTactic, autoAssignRoles } from "@/lib/tactics";
@@ -391,6 +412,11 @@ interface GameStore {
   gcnSellPlayer: (playerId: string) => void;
   /** Re-brand an owned club (name, abbreviation, colours, stadium). */
   gcnEditClub: (clubId: string, edit: GcnClubEdit) => void;
+  /** Store an authored crest / kit set on a club you run (v1.96). Passing
+   * `undefined` for either half clears it back to the generated one.
+   * `allowAny` (v1.97) waives the ownership check for the Identity screen's
+   * cosmetic "edit other clubs" mode — see `lib/visual/identity.ts`. */
+  setClubIdentity: (clubId: string, edit: ClubIdentityEdit, opts?: { allowAny?: boolean }) => void;
   /** Bring an existing sim club into the network, paid from the treasury. */
   gcnBuyClub: (clubId: string) => void;
   /** Found a fresh club in a sim league's lowest division. */
@@ -403,6 +429,30 @@ interface GameStore {
   upgradeGcn: (facility: GcnFacility) => void;
   /** Re-run the achievement check after a network action, toasting any unlock. */
   gcnSyncAchievements: () => void;
+
+  // ── Global Executives (v1.95) ──
+  /** Appoint a candidate to their seat, paid from the treasury. */
+  gcnHireExec: (candidateId: string) => void;
+  /** Dismiss the holder of a seat; the wage simply stops. */
+  gcnDismissExec: (role: GcnExecRole) => void;
+
+  // ── International Scouting Hubs (v1.95) ──
+  /** Establish a hub in a SCOUT_WORLD sub-region, paid from the treasury. */
+  gcnBuildHub: (region: string) => void;
+  /** Take a hub to its next level. */
+  gcnUpgradeHub: (region: string) => void;
+  /** Close a hub down — no refund; its prospects go to free agency. */
+  gcnCloseHub: (region: string) => void;
+  /** Sign a hub find onto that hub's books, paid from the treasury. */
+  gcnSignHubProspect: (reportId: string) => void;
+  /** Pass on a hub find. */
+  gcnDismissHubReport: (reportId: string) => void;
+  /** Place a hub prospect at an owned club in his own region. */
+  gcnPlaceHubProspect: (playerId: string, clubId: string) => void;
+  /** Promote a hub prospect into the manager's own academy. */
+  gcnPromoteHubProspect: (playerId: string) => void;
+  /** Let a hub prospect go. */
+  gcnReleaseHubProspect: (playerId: string) => void;
 
   // ── Academy graduates awaiting a senior decision (v1.51) ──
   graduateSign: (playerId: string, terms?: { wage: number; years: number; releaseClause?: number }) => void;
@@ -1499,6 +1549,14 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
+  setClubIdentity: (clubId, edit, opts) => {
+    const g = get().game;
+    if (!g) return;
+    const err = setClubIdentity(g, clubId, edit, opts);
+    if (err) get().showToast(err);
+    get().bump(true);
+  },
+
   gcnBuyClub: (clubId) => {
     const g = get().game;
     if (!g) return;
@@ -1567,6 +1625,123 @@ export const useGame = create<GameStore>((set, get) => ({
       };
       get().showToast(`${GCN_FACILITY_SPEC[facility].label} upgraded — ${effect[facility]}.`);
     }
+    get().bump(true);
+  },
+
+  // ── Global Executives (v1.95) ──
+
+  gcnHireExec: (candidateId) => {
+    const g = get().game;
+    if (!g) return;
+    const cand = (g.gcn?.execMarket ?? []).find((c) => c.id === candidateId);
+    const err = hireExecutive(g, candidateId, TUNING);
+    if (err) get().showToast(err);
+    else if (cand) {
+      get().showToast(`${cand.name} appointed ${GCN_EXEC_ROLE_MAP[cand.role].title}.`);
+    }
+    get().bump(true);
+  },
+
+  gcnDismissExec: (role) => {
+    const g = get().game;
+    if (!g) return;
+    const name = executiveIn(g, role)?.name;
+    const err = dismissExecutive(g, role);
+    if (err) get().showToast(err);
+    else get().showToast(`${name} leaves the network — the seat is vacant.`);
+    get().bump(true);
+  },
+
+  // ── International Scouting Hubs (v1.95) ──
+
+  gcnBuildHub: (region) => {
+    const g = get().game;
+    if (!g) return;
+    const cost = hubBuildCost(g, region, TUNING);
+    const err = buildHub(g, region, TUNING);
+    if (err) get().showToast(err);
+    else {
+      get().showToast(
+        `${hubRegion(region)?.label ?? region} hub established for ${formatMoney(cost)}.`
+      );
+      get().gcnSyncAchievements();
+    }
+    get().bump(true);
+  },
+
+  gcnUpgradeHub: (region) => {
+    const g = get().game;
+    if (!g) return;
+    const err = upgradeHub(g, region, TUNING);
+    if (err) get().showToast(err);
+    else {
+      const hub = hubIn(g, region);
+      get().showToast(
+        `${hubRegion(region)?.label ?? region} hub is now level ${hub?.level ?? "?"}.`
+      );
+    }
+    get().bump(true);
+  },
+
+  gcnCloseHub: (region) => {
+    const g = get().game;
+    if (!g) return;
+    const err = closeHub(g, region);
+    if (err) get().showToast(err);
+    else get().showToast(`The ${hubRegion(region)?.label ?? region} hub has been closed.`);
+    get().bump(true);
+  },
+
+  gcnSignHubProspect: (reportId) => {
+    const g = get().game;
+    if (!g) return;
+    const report = (g.gcn?.hubReports ?? []).find((r) => r.id === reportId);
+    const err = signHubProspect(g, reportId, TUNING);
+    if (err) get().showToast(err);
+    else if (report) {
+      get().showToast(`${report.player.name} joins the network for ${formatMoney(report.fee)}.`);
+      get().gcnSyncAchievements();
+    }
+    get().bump(true);
+  },
+
+  gcnDismissHubReport: (reportId) => {
+    const g = get().game;
+    if (!g) return;
+    dismissHubReport(g, reportId);
+    get().bump(true);
+  },
+
+  gcnPlaceHubProspect: (playerId, clubId) => {
+    const g = get().game;
+    if (!g) return;
+    const name = g.players[playerId]?.name;
+    const err = placeHubProspect(g, playerId, clubId);
+    if (err) get().showToast(err);
+    else get().showToast(`${name} joins ${g.teams[clubId]?.name}.`);
+    get().bump(true);
+  },
+
+  gcnPromoteHubProspect: (playerId) => {
+    const g = get().game;
+    if (!g) return;
+    const name = g.players[playerId]?.name;
+    // The academy's own cap is a club-side rule, so it is read here and passed
+    // in — `promoteHubProspect` deliberately doesn't reach into the economy
+    // module for it.
+    const err = promoteHubProspect(g, playerId, academySquadCap(g, g.userTeamId, TUNING));
+    if (err) get().showToast(err);
+    else get().showToast(`${name} joins your academy.`);
+    get().bump(true);
+  },
+
+  gcnReleaseHubProspect: (playerId) => {
+    const g = get().game;
+    if (!g) return;
+    const name = g.players[playerId]?.name;
+    const err = releaseHubProspect(g, playerId);
+    if (err) get().showToast(err);
+    else get().showToast(`${name} has been released.`);
     get().bump(true);
   },
 

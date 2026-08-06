@@ -78,7 +78,7 @@ export function SellPlayerModal({ playerId, onClose }: { playerId: string; onClo
               key={s.clubId}
               className="flex items-center gap-3 rounded-md border border-line bg-surface px-3 py-2"
             >
-              <Crest colors={s.colors} short={s.short} size={30} />
+              <Crest team={s} size={30} />
               <div className="min-w-0 flex-1">
                 <div className="truncate font-medium text-ink">{s.name}</div>
                 <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-faint">
@@ -155,7 +155,7 @@ export function LoanOfferModal({ playerId, onClose }: { playerId: string; onClos
                 key={s.clubId}
                 className="flex items-center gap-3 rounded-md border border-line bg-surface px-3 py-2"
               >
-                <Crest colors={s.colors} short={s.short} size={30} />
+                <Crest team={s} size={30} />
                 <div className="min-w-0 flex-1">
                   {/* Suitors come from every league in the world, so the country
                       flag is what separates a loan down the road from a loan

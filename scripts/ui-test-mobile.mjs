@@ -26,7 +26,11 @@ const page = await (
 page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 page.on("pageerror", (e) => errors.push(String(e)));
 
-await page.goto("http://localhost:3000", { waitUntil: "networkidle", timeout: 60000 });
+// Next picks the next free port when 3000 is taken, so allow an override rather
+// than failing against whatever else happens to be on 3000 (same convention as
+// ui-test.mjs and ui-test-facilities.mjs).
+const BASE = process.env.UI_TEST_BASE || "http://localhost:3000";
+await page.goto(BASE, { waitUntil: "networkidle", timeout: 60000 });
 const keyInput = page.locator('input[spellcheck="false"]');
 if (await keyInput.count()) {
   await keyInput.fill("SANTI-001");
@@ -37,8 +41,24 @@ await page.waitForSelector("text=NEW LEGACY", { timeout: 30000 });
 
 await page.click("text=NEW LEGACY");
 await page.fill('input[placeholder="Your name"]', "Robin Ramirez");
-await page.click("text=Nottingham Foresters");
-await page.click("text=START LEGACY");
+// The club is taken by POSITION, never by name — the same standing trap
+// ui-test.mjs documents: this clicked "Nottingham Foresters", which the shipped
+// database renamed to "Nottingham Forest" when the real-club data landed, so
+// the whole harness timed out here and nothing after it ran.
+await page.waitForSelector("text=CHOOSE YOUR CLUB", { timeout: 30000 });
+await page.waitForTimeout(1200);
+await page
+  .locator('div:has(> div.grid[class*="max-h-64"]) div.grid[class*="max-h-64"] > button')
+  .first()
+  .click();
+await page.waitForTimeout(400);
+const startLegacy = page.locator('button:has-text("START LEGACY")').first();
+if (await startLegacy.isDisabled()) {
+  // The first cell is "＋ Create your own club" on some presets.
+  await page.locator('div.grid[class*="max-h-64"] > button').nth(1).click();
+  await page.waitForTimeout(400);
+}
+await startLegacy.click();
 await page.waitForSelector("text=Inbox", { timeout: 60000 });
 await page.screenshot({ path: shot("m01-home.png") });
 
@@ -56,36 +76,35 @@ await page.waitForSelector("text=U21 Table");
 await page.waitForTimeout(300);
 await page.screenshot({ path: shot("m04-academy-u21.png"), fullPage: true });
 
-// Scouting tab = assignments + reports. The scout ROSTER (hiring, "Scouting
-// Department") lives on the Staff tab, so assert each against its own tab.
+// The Scouting tab owns the whole department, split across its own OPERATIONS
+// (assignments + reports) and PERSONNEL (the hired roster) sub-tabs. The
+// Academy's separate Staff tab is gone — staff are a facility concern since
+// v1.79 — and so is its Upgrades tab, deleted outright in the v1.87 facilities
+// rework, so the "Max Scouts" wait here was for a ladder the schema dropped.
 await page.click('button:has-text("Scouting")');
 await page.waitForSelector("text=Scouts on Assignment");
 await page.waitForTimeout(300);
 await page.screenshot({ path: shot("m05-academy-scouting.png"), fullPage: true });
 
-await page.click('button:has-text("Staff")');
+await page.click('button:has-text("PERSONNEL")');
 await page.waitForSelector("text=Scouting Department");
 await page.waitForTimeout(400);
 await page.screenshot({ path: shot("m06-academy-staff.png"), fullPage: true });
 
-await page.click('button:has-text("Upgrades")');
-await page.waitForSelector("text=Max Scouts");
-await page.waitForTimeout(300);
-await page.screenshot({ path: shot("m07-academy-upgrades.png"), fullPage: true });
-
 // hire a scout (two-step confirm) and send them out, to exercise the dense
 // scouting layouts: assignment rows + the send-a-scout modal
-await page.click('button:has-text("Staff")');
-await page.waitForSelector("text=Available to appoint");
-await page.locator('button:has-text("Appoint")').last().click();
+await page.waitForSelector("text=Scouts available to hire");
+await page.locator('button:has-text("Hire")').last().click();
 await page.locator('button:has-text("Confirm?")').first().click();
 await page.waitForTimeout(400);
-await page.click('button:has-text("Scouting")');
+await page.click('button:has-text("OPERATIONS")');
 await page.waitForSelector("text=SEND A SCOUT");
 await page.click("text=+ SEND A SCOUT");
 await page.waitForSelector("text=Position focus");
 await page.screenshot({ path: shot("m08-send-scout-modal.png"), fullPage: true });
-await page.click("text=SEND SCOUT");
+// The submit carries the quoted trip cost ("SEND · £1.2M") since scouting
+// became billable in v1.85, so match the prefix rather than a bare label.
+await page.locator('button:has-text("SEND ·")').first().click();
 await page.waitForTimeout(400);
 await page.screenshot({ path: shot("m09-scouting-active.png"), fullPage: true });
 

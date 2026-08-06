@@ -751,7 +751,7 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
         </div>
         {customClub && (
           <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-gold-lo/50 bg-surface px-3 py-2">
-            <Crest colors={customClub.colors} short={customClub.short} size={24} />
+            <Crest team={customClub} size={24} />
             <span className="min-w-0 flex-1 truncate text-sm font-medium">{customClub.name}</span>
             <span className="text-[11px] text-faint">
               in {previewLadder.find((d) => d.id === (customClub.divisionId ?? originalTopDiv?.id))?.name ?? "your division"}
@@ -790,7 +790,7 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
                     clubIndex === i ? "border-gold bg-hover" : "border-line bg-surface hover:bg-hover"
                   }`}
                 >
-                  <Crest colors={c.colors} short={c.short} size={30} />
+                  <Crest team={c} size={30} />
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium">{c.name}</div>
                     <div className="text-[11px] text-faint">

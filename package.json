@@ -29,6 +29,7 @@
     "measure:quality": "tsx scripts/measure-quality.ts",
     "verify:cloud": "tsx scripts/verify-cloud.ts",
     "verify:livescores": "tsx scripts/verify-livescores.ts",
+    "verify:visual": "tsx scripts/verify-visual.ts",
     "smoke:facilities": "tsx scripts/smoke-facilities.ts",
     "verify:archetypes:tactics": "tsx scripts/verify-archetype-tactics.ts"
   },

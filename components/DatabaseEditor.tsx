@@ -214,7 +214,7 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
             <div className="space-y-2">
               {shownClubs.map((c) => (
                 <div key={c.id} className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface px-3 py-2">
-                  <Crest colors={c.colors} short={c.short} size={30} />
+                  <Crest team={c} size={30} />
                   <div className="min-w-0 flex-1 basis-40">
                     <div className="truncate text-sm font-medium">{c.name}</div>
                     <div className="text-[11px] text-faint">

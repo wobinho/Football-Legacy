@@ -19,7 +19,6 @@ import { useGame } from "@/store/gameStore";
 import type { BadgeTier, FacilityId, StaffCandidate, StaffPerson } from "@/lib/types";
 import {
   BADGE_COLOR,
-  BADGE_LADDER,
   FACILITY_SPECS,
   FACILITY_MAP,
   STAFF_BADGE_SLOTS,
@@ -36,9 +35,7 @@ import {
   facilityLevel,
   isUnlocked,
   rosterOf,
-  seasonsToNextBadge,
   slotCount,
-  totalBadgeWeight,
   upgradeCost,
   type FacilityEffect,
 } from "@/lib/facilities";
@@ -201,7 +198,7 @@ function BadgeRow({
 // ── Facilities tab ────────────────────────────────────────────────────────
 
 /**
- * Four facilities per row (v1.93; was two in v1.83).
+ * Three facilities per row (v1.97; was four in v1.93, two in v1.83).
  *
  * The v1.83 note argued for two columns because four buildings stacked
  * full-width made the page a scroll — the fourth was three screens below the
@@ -210,16 +207,16 @@ function BadgeRow({
  * is exactly why the count had to rise with the table: at TEN facilities, two
  * columns is five rows and the same scroll is back.
  *
- * Four across at 2xl, three at xl, two at lg, one on a phone. The ladder
- * matters more than the top number — a facility card carries several channels
- * of arithmetic and a star bar, so it has a floor width below which the
- * arithmetic wraps into noise, and the breakpoints are where each count still
- * clears it.
+ * Three is the resting point between those two failures. A facility card
+ * carries several channels of arithmetic, a star bar and — once the slot grid
+ * is open — a row of crests, so it has a floor width below which the arithmetic
+ * wraps into noise; the fourth column at 2xl sat under it. Three across from xl,
+ * two at lg, one on a phone.
  */
 function FacilitiesTab() {
   useGame((s) => s.rev);
   return (
-    <div className="mt-4 grid grid-cols-1 items-start gap-x-5 gap-y-0 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+    <div className="mt-4 grid grid-cols-1 items-start gap-x-5 gap-y-0 lg:grid-cols-2 xl:grid-cols-3">
       {FACILITY_SPECS.map((spec) => (
         <FacilityPanel key={spec.id} id={spec.id} />
       ))}
@@ -872,15 +869,20 @@ function AssignPicker({ facility, onClose }: { facility: FacilityId; onClose: ()
  *
  * So the card is now stacked rather than side-by-side, and the badge is the top
  * of it: centred, at `SLOT_BADGE_SIZE`, with the tier named directly underneath
- * in its own colour. Everything else — who this is, what they cost, when the
- * next tier lands — reads below as the caption to it. The empty state occupies
- * exactly the same block, so a facility filling up doesn't reflow: the outline
- * simply becomes a crest.
+ * in its own colour and the seasons served under that. Everything else — who
+ * this is and what they cost — reads below as the caption to it. The empty state
+ * occupies exactly the same block, so a facility filling up doesn't reflow: the
+ * outline simply becomes a crest.
+ *
+ * Trimmed in v1.97 to the two things that are about THIS PERSON. The card used
+ * to also quote what the badge is worth and how many seasons the next tier
+ * costs, both of which are properties of the FACILITY — identical on every slot
+ * of the same building, already stated once on the facility card's own
+ * arithmetic rows, and between them the widest text on the card.
  */
 function AssignedCard({ person, facility }: { person: StaffPerson; facility: FacilityId }) {
   const assign = useGame((s) => s.assignStaff);
   const badge = person.badges.find((b) => b.facility === facility);
-  const next = badge ? seasonsToNextBadge(badge.seasons) : BADGE_LADDER[0].seasons;
   const spec = FACILITY_MAP[facility];
 
   return (
@@ -927,11 +929,15 @@ function AssignedCard({ person, facility }: { person: StaffPerson; facility: Fac
             No badge yet
           </div>
         )}
+        {/* Seasons served, and nothing else (v1.97). What the badge is WORTH is
+            already on the facility card's own arithmetic rows above the grid,
+            where it belongs — repeated once per slot it was the same figure
+            three or six times over, crowding the one number that is actually
+            about THIS person. */}
         <div className="tnum mt-0.5 text-center text-[10px] text-mute">
           {badge ? (
             <>
-              {badge.seasons} season{badge.seasons === 1 ? "" : "s"} served ·{" "}
-              <span className="text-gold">{describeBadgeWorth(spec, badge.tier)}</span>
+              {badge.seasons} season{badge.seasons === 1 ? "" : "s"}
             </>
           ) : (
             <>Contributing stars only</>
@@ -939,26 +945,19 @@ function AssignedCard({ person, facility }: { person: StaffPerson; facility: Fac
         </div>
       </div>
 
-      {/* Who is earning it. */}
-      <div className="mt-2.5 flex items-center justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <Flag nat={person.nationality} size={11} />
-          <span className="truncate text-sm font-semibold text-ink">{person.name}</span>
-        </span>
+      {/* Who is earning it — the name on its own line, the star rating stacked
+          under it (v1.97). Side by side, a long name squeezed the bar into an
+          unreadable width and the two competed for the same eye; stacked, the
+          name reads at full width and the stars are the caption to it. */}
+      <div className="mt-2.5 flex min-w-0 items-center gap-1.5">
+        <Flag nat={person.nationality} size={11} />
+        <span className="truncate text-sm font-semibold text-ink">{person.name}</span>
+      </div>
+      <div className="mt-1">
         <Stars n={person.stars} />
       </div>
 
-      <div className="mt-1 text-[11px] leading-snug text-dim">
-        {next === null ? (
-          <span className="text-gold">Legacy — the top of the ladder.</span>
-        ) : (
-          <>
-            {next} more season{next === 1 ? "" : "s"} here for the next badge
-            {spec ? <span className="text-faint"> ({describeBadgeStep(spec)})</span> : null}.
-          </>
-        )}
-      </div>
-      <div className="mb-2.5 mt-1 text-[11px] text-mute">
+      <div className="mb-2.5 mt-1.5 text-[11px] text-mute">
         <span className="tnum font-medium text-ink/85">{formatMoney(person.wage)}</span>/wk
       </div>
 
@@ -1286,27 +1285,13 @@ function CandidateCard({
   affordable: boolean;
   onHire: () => void;
 }) {
-  const weight = totalBadgeWeight(cand);
   return (
     <PersonPlate
       person={cand}
-      // Only the candidates who actually bring something say anything (v1.87).
-      // "No record yet" was printed on ~12 cards in 13 — a caption that is
-      // almost always the same word is not information, it is furniture, and on
-      // the half-size plate it was furniture crowding the badge tray. The empty
-      // slots in that tray already say "no record" far more directly.
-      note={
-        weight > 0 ? (
-          <span
-            className="text-win/85"
-            title={`Arrives with a record — productive from day one at ${joinList(
-              cand.badges.map((b) => FACILITY_MAP[b.facility]?.name).filter((n): n is string => !!n)
-            )}.`}
-          >
-            Arrives with a record
-          </span>
-        ) : undefined
-      }
+      // No caption at all (v1.97). v1.87 had already cut this to the one card in
+      // thirteen that brings a badge; the line that remained was still saying in
+      // words what the filled crest in the tray above it says in art, on the one
+      // card where the tray is already the loudest thing on the page.
       footer={
         <>
           <div className="mb-1.5 flex items-baseline justify-between gap-1 text-[10px] text-mute">
@@ -1371,21 +1356,6 @@ function describeBadgeStep(spec: FacilitySpec): string {
       return `${formatChannel(ch.unit, ch.badgeEffect)} ${ch.label} ${per}`;
     });
   return parts.length ? joinList(parts) : "nothing — this one runs on stars alone";
-}
-
-/** What a badge at this tier is actually worth right now, across every channel
- * it moves. Quoted on the assigned card under the crest, where the manager is
- * looking at one person's contribution rather than the building's total. */
-function describeBadgeWorth(spec: FacilitySpec | undefined, tier: BadgeTier): string {
-  if (!spec) return "";
-  const weight = badgeWeight(tier);
-  const parts = spec.channels
-    .filter((ch) => ch.badgeEffect > 0)
-    .map((ch) => {
-      const steps = Math.floor(weight / ch.badgeTiersPerStep);
-      return `${formatChannel(ch.unit, steps * ch.badgeEffect)} ${ch.label}`;
-    });
-  return parts.length ? joinList(parts) : "stars only";
 }
 
 /** "a", "a and b", "a, b and c". */

@@ -558,6 +558,14 @@ export function migrateSave(state: GameState): GameState {
     migrateV46toV47(state);
     state.schemaVersion = 47;
   }
+  if (state.schemaVersion < 48) {
+    migrateV47toV48(state);
+    state.schemaVersion = 48;
+  }
+  if (state.schemaVersion < 49) {
+    migrateV48toV49(state);
+    state.schemaVersion = 49;
+  }
   // future migrations chain here
   state.schemaVersion = SCHEMA_VERSION;
   return state;
@@ -1603,6 +1611,63 @@ function migrateV46toV47(state: GameState): void {
       "The Academy screen's upgrades are gone. In their place are two new buildings on the Facilities screen — the Youth Academy and the Scouting Network — which work like every other facility: you build them, you staff them, and the people you assign are what raise the numbers. Squad size, focus slots, prospect value, how many scouts you may employ and how fast they file all come from those two buildings now. Both start unbuilt."
     );
   }
+}
+
+/**
+ * v47 → v48: the Global Club Network rework (v1.95).
+ *
+ * Every field the rework adds is OPTIONAL and defaults to "nothing built" —
+ * vacant executive seats, no hubs, no hub prospects — so a v47 save is already a
+ * valid v48 one and there is nothing to convert. It carries a schema bump rather
+ * than riding in silently because the save format is the modding format: a file
+ * that can hold hubs should say so in its version.
+ *
+ * A save with no `gcn` at all (the network was never unlocked) is untouched
+ * entirely, which is most of them.
+ */
+function migrateV47toV48(state: GameState): void {
+  const gcn = state.gcn;
+  if (!gcn) return;
+  // Seed the collections rather than leave them absent, so nothing downstream has
+  // to distinguish "migrated save" from "network that has built nothing yet" —
+  // there is no such distinction, and code that tested for one would be wrong.
+  gcn.executives ??= {};
+  gcn.hubs ??= {};
+  gcn.hubProspectIds ??= [];
+  gcn.hubReports ??= [];
+  pushInboxItem(
+    state,
+    "board",
+    "The network reorganises",
+    "The Global Club Network has been restructured. Three Global Executive seats now sit at the top of the operation — Football, Commerce and Scouting — each hired from an elite market and paid from the treasury, each driving one network-wide effect. Alongside them, the network can now build International Scouting Hubs: permanent academies in regions around the world that find and develop talent continuously, at a level ordinary club scouting can't reach. Both are on the GCN screen, and both start empty."
+  );
+}
+
+/**
+ * v48 → v49: club badges and kits (v1.96).
+ *
+ * There is nothing to convert, and that is the design rather than an accident.
+ * A badge and a kit set are DERIVED from a club's own name, short code and
+ * colours unless somebody edited them (`badgeFor` / `kitsFor`), so every club
+ * in a v48 save already has a crest and four jerseys the moment this build
+ * loads it — stable ones, identical on every machine and in every session,
+ * because they are a pure function of identity the save already stores.
+ *
+ * Writing a spec onto all ~800 clubs here would be the opposite trade: it would
+ * add ~250KB to every autosave to record what the hash computes for free, and
+ * it would freeze the generated look, so improving the generator could never
+ * reach a club that already existed.
+ *
+ * The bump exists because the save format is the modding format: a file that
+ * can hold an authored `badge` and `kits` should say so in its version.
+ */
+function migrateV48toV49(state: GameState): void {
+  pushInboxItem(
+    state,
+    "board",
+    "The club shop opens",
+    "Every club in the world now has a crest and a full set of four kits — home, away, third and goalkeeper — drawn from its own name and colours. Yours are yours to change: the Club screen has an Identity panel where you can design the badge and all four jerseys, and whatever you make there is what the game draws everywhere it draws your club."
+  );
 }
 
 /** True if the save is a version this build knows how to bring up to date. */

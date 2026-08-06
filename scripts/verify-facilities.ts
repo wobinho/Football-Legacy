@@ -22,7 +22,10 @@
 
 import {
   ARCHETYPE_DEV_CLASS,
-  BADGE_HIRE_ABSOLUTE_MAX_TIER,
+  BADGE_HIRE_EXTRA_TIER_WEIGHT,
+  BADGE_HIRE_SECOND_CHANCE,
+  BADGE_HIRE_THIRD_CHANCE,
+  BADGE_HIRE_TIER_CHANCE,
   BADGE_LADDER,
   FACILITY_MAP,
   FACILITY_SPECS,
@@ -34,7 +37,6 @@ import {
   archetypeDevClassOf,
   archetypeDevFacilityFor,
   facilityMaxLevel,
-  seasonsForTier,
 } from "../lib/config/facilities";
 import { ARCHETYPE_CLASS_ORDER } from "../lib/config/archetype";
 import {
@@ -804,9 +806,13 @@ console.log("\nScouting Network — the design brief's worked example (v1.85)");
 //      is a different and much narrower thing than the retirement age (65). A
 //      hire has to have a career ahead of them, or the ten seasons a legacy
 //      badge costs is a bet nobody can take.
-//   2. A badge on the shortlist is rare, and a gold-or-better one is rarer
-//      still. The market must never sell what the ladder exists to make you
-//      earn — nothing above `BADGE_HIRE_ABSOLUTE_MAX_TIER`, ever.
+//   2. A badge on the shortlist is rare, and the rarer tiers are rarer still —
+//      the market must never sell what the ladder exists to make you earn. As
+//      of v1.97 that is defended by the RATE rather than by a hard ceiling
+//      (`BADGE_HIRE_ABSOLUTE_MAX_TIER`, deleted), so every tier is reachable
+//      and each is asserted against its own stated probability. That is a
+//      stronger check than the cap was: it catches a table edit that makes gold
+//      common, which the ceiling never could.
 {
   // A big sample across many seeds: these are probabilistic gates, so one
   // shortlist proves nothing.
@@ -831,30 +837,93 @@ console.log("\nScouting Network — the design brief's worked example (v1.85)");
 
   const badged = all.filter((c) => c.badges.length > 0);
   const badgedPct = (badged.length / all.length) * 100;
+  // The headline rate is now the SUM of the per-tier table (v1.97) rather than a
+  // single base constant, so it is asserted against that sum rather than against
+  // a hand-written bound: the tables and the generator can't drift apart.
+  const expectedBadgedPct =
+    BADGE_LADDER.reduce((s, r) => s + (BADGE_HIRE_TIER_CHANCE[r.tier] ?? 0), 0) * 100;
   check(
-    `arriving with a badge is rare (${badgedPct.toFixed(1)}% of candidates)`,
+    `arriving with a badge is rare (${badgedPct.toFixed(1)}%, table says ~${expectedBadgedPct.toFixed(2)}%)`,
+    Math.abs(badgedPct - expectedBadgedPct) < 1.5,
+    `${badgedPct.toFixed(2)}% against a table of ${expectedBadgedPct.toFixed(2)}%`
+  );
+  check(
+    "the market still can't be shopped for badges",
     badgedPct < 12,
     `${badgedPct.toFixed(1)}% — the market is selling what the ladder should make you earn`
   );
 
-  // Nothing above the hard ceiling, and gold-or-better is a genuine event.
-  const ceiling = seasonsForTier(BADGE_HIRE_ABSOLUTE_MAX_TIER);
-  const overCeiling = badged.filter((c) => c.badges.some((b) => b.seasons > ceiling));
-  check(
-    `no candidate ever exceeds a ${BADGE_HIRE_ABSOLUTE_MAX_TIER} badge`,
-    overCeiling.length === 0,
-    `${overCeiling.length} above the ceiling`
+  // Every tier is REACHABLE now — obsidian and legacy included, which reverses
+  // the old hard ceiling (v1.97). The defence is the rate, not a cap, so what
+  // has to hold is that the rare tiers stay rare AND stay possible: a tier
+  // nothing ever generates is dead code, and one that shows up often is the
+  // ladder for sale.
+  for (const row of BADGE_LADDER) {
+    const rate = BADGE_HIRE_TIER_CHANCE[row.tier] ?? 0;
+    const held = all.filter((c) => c.badges.some((b) => b.tier === row.tier)).length;
+    const pct = (held / all.length) * 100;
+    check(
+      `${row.tier} is reached and stays rare (${pct.toFixed(2)}%, first-badge rate ${(rate * 100).toFixed(2)}%)`,
+      held > 0 && pct < rate * 100 + 1.5,
+      `${held} of ${all.length}`
+    );
+  }
+
+  // A badge is per FACILITY, the same rule the earning side enforces — a
+  // candidate holding two records at one building would resume the wrong one the
+  // moment he was assigned there.
+  const dupeFacility = badged.filter(
+    (c) => new Set(c.badges.map((b) => b.facility)).size !== c.badges.length
   );
-  const goldPlus = seasonsForTier("gold");
-  const gold = all.filter((c) => c.badges.some((b) => b.seasons >= goldPlus));
-  const goldPct = (gold.length / all.length) * 100;
   check(
-    `a gold-or-better hire is a rare event (${goldPct.toFixed(2)}% of candidates)`,
-    goldPct < 1.5,
-    `${goldPct.toFixed(2)}%`
+    "no candidate holds two badges at the same facility",
+    dupeFacility.length === 0,
+    `${dupeFacility.length} with a duplicate facility`
   );
-  // …but not impossible: a ceiling nothing ever reaches is dead code.
-  check("a gold-or-better hire does still happen", gold.length > 0);
+  const overSlots = badged.filter((c) => c.badges.length > STAFF_BADGE_SLOTS);
+  check(
+    `no candidate arrives past the ${STAFF_BADGE_SLOTS}-badge cap`,
+    overSlots.length === 0,
+    `${overSlots.length} over the cap`
+  );
+
+  // Seasons and tier must agree: the card quotes the seasons and the effect
+  // reads the tier, so a badge whose seasons don't produce its own tier would
+  // display one thing and compute another.
+  const mismatched = badged.filter((c) => c.badges.some((b) => badgeTierFor(b.seasons) !== b.tier));
+  check(
+    "every generated badge's seasons produce its own tier",
+    mismatched.length === 0,
+    `${mismatched.length} mismatched`
+  );
+
+  // Multi-badge candidates: conditional on having one at all, and rare.
+  const multi = badged.filter((c) => c.badges.length >= 2).length;
+  const triple = badged.filter((c) => c.badges.length >= 3).length;
+  const multiPct = (multi / badged.length) * 100;
+  const triplePct = (triple / badged.length) * 100;
+  check(
+    `a second badge is ~${(BADGE_HIRE_SECOND_CHANCE * 100).toFixed(0)}% of badged candidates (${multiPct.toFixed(1)}%)`,
+    Math.abs(multiPct - BADGE_HIRE_SECOND_CHANCE * 100) < 5,
+    `${multiPct.toFixed(1)}%`
+  );
+  check(
+    `a third is ~${(BADGE_HIRE_THIRD_CHANCE * 100).toFixed(0)}% of them and does happen (${triplePct.toFixed(2)}%)`,
+    triple > 0 && triplePct < BADGE_HIRE_THIRD_CHANCE * 100 + 3,
+    `${triple} of ${badged.length} badged candidates`
+  );
+  // The extra badges use the FLATTER table, which is the whole reason it exists
+  // — bronze must dominate them where the first-badge table barely favours it.
+  const extras = badged.flatMap((c) => c.badges.slice(1));
+  const extraBronze = extras.filter((b) => b.tier === "bronze").length;
+  const bronzeShare =
+    BADGE_HIRE_EXTRA_TIER_WEIGHT.bronze /
+    BADGE_LADDER.reduce((s, r) => s + BADGE_HIRE_EXTRA_TIER_WEIGHT[r.tier], 0);
+  check(
+    `extra badges follow the flat table (${((extraBronze / Math.max(1, extras.length)) * 100).toFixed(0)}% bronze, table says ${(bronzeShare * 100).toFixed(0)}%)`,
+    extras.length > 20 && Math.abs(extraBronze / extras.length - bronzeShare) < 0.15,
+    `${extraBronze} of ${extras.length}`
+  );
 
   // Determinism, same as everything else seeded in this codebase.
   check(

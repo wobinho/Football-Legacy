@@ -27,6 +27,9 @@ import { TIER_COLOR, TIER_LABEL, migrateProspectTier } from "@/lib/scouts";
 import type { Accolade, AccoladeType, GameState, PlayerBio } from "@/lib/types";
 import { ARCHETYPE_CLASS_COLOR, deriveArchetype, describePrefs, profileOf, rankArchetypes } from "@/lib/config/archetype";
 import { styleLabel } from "@/lib/config/formations";
+import { badgeFor } from "@/lib/visual/badge";
+import { kitsFor } from "@/lib/visual/kit";
+import { ClubKit } from "../visual/ClubKit";
 import { ArchetypeIcon, AttrGrid, BackButton, ClassPill, AttrSheet, Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, FitnessBar, FormChip, GhostButton, GoldButton, GrowthBadge, Ovr, PosBadge, PotentialBadge, Section, Tabs, TraitChip, useEscapeKey } from "../ui";
 import ContractModal from "./ContractModal";
 import { LoanOfferModal, SellPlayerModal } from "./SquadMoveModals";
@@ -208,7 +211,38 @@ export default function PlayerProfileModal() {
               own line above, then value / wage / potential side by side, which
               is the shape the data actually has (three small labelled numbers)
               and costs one line instead of three. */}
-          <div className="flex shrink-0 flex-col items-end gap-2">
+          <div className="flex shrink-0 items-start gap-4">
+            {/* The shirt THIS player wears, with his own number on the back
+                (v1.97). One kit, not the set: the club card is where a manager
+                compares them, and here the question is what he wears. The back
+                view is why the number is worth drawing at all — it is the only
+                place in the game the two facts meet.
+                A keeper gets the KEEPER shirt (v1.98) — he is the one player in
+                the side who never wears the home kit, and drawing him in it is
+                the profile stating something the pitch contradicts. Read off
+                his PRIMARY position, the same field every other line of this
+                header is keyed on. */}
+            {club && (() => {
+              const kitSlot = p.positions[0] === "GK" ? "gk" : "home";
+              const kitLabel = `${club.name} ${kitSlot === "gk" ? "goalkeeper" : "home"} kit`;
+              return (
+                <button
+                  onClick={() => viewTeam(club.id)}
+                  title={kitLabel}
+                  className="hidden shrink-0 rounded-md border border-line bg-raised p-1.5 transition-colors hover:border-faint sm:block"
+                >
+                  <ClubKit
+                    spec={kitsFor(club)[kitSlot]}
+                    badge={badgeFor(club)}
+                    size={62}
+                    view={typeof p.kitNumber === "number" ? "back" : "front"}
+                    number={p.kitNumber ?? ""}
+                    title={kitLabel}
+                  />
+                </button>
+              );
+            })()}
+            <div className="flex flex-col items-end gap-2">
             {club && (
               // Clicking through to the club opens its team card ON TOP of this
               // profile (v1.91), with the profile pushed onto the back-stack —
@@ -218,7 +252,7 @@ export default function PlayerProfileModal() {
                 className="flex items-center gap-2 text-sm transition-colors hover:text-gold"
                 title={`View ${club.name}`}
               >
-                <Crest colors={club.colors} short={club.short} size={20} />
+                <Crest team={club} size={20} />
                 <span className="truncate">{club.name}</span>
               </button>
             )}
@@ -253,6 +287,7 @@ export default function PlayerProfileModal() {
                   </div>
                 </div>
               )}
+            </div>
             </div>
           </div>
           {/* The ways out of the profile now that the backdrop no longer
@@ -845,7 +880,7 @@ function AcademyOriginSection({ game, p }: { game: GameState; p: PlayerBio }) {
         {club && (
           <span className="flex min-w-0 items-center gap-2 text-sm text-dim">
             <span className="text-faint">·</span>
-            <Crest colors={club.colors} short={club.short} size={20} />
+            <Crest team={club} size={20} />
             <CountryFlag country={game.leagues[club.leagueId]?.country ?? ""} size={12} />
             <span className="truncate">{club.name} Youth Academy</span>
           </span>

@@ -2,7 +2,13 @@
 // Single source of truth for all game data shapes. Schema-versioned so the
 // save/export format doubles as the modding format (GAME_DESIGN.md §2, §13).
 
-export const SCHEMA_VERSION = 47;
+export const SCHEMA_VERSION = 49;
+
+// Visual identity (v1.96). Types only — the rules and the defaults live in
+// lib/visual/, and nothing in the schema depends on them at runtime.
+import type { BadgeSpec } from "./visual/badge";
+import type { KitSet } from "./visual/kit";
+export type { BadgeSpec, KitSet };
 
 export type Pos = "GK" | "CB" | "LB" | "RB" | "DM" | "CM" | "LM" | "RM" | "AM" | "LW" | "RW" | "ST";
 
@@ -198,6 +204,14 @@ export interface PlayerBio {
    * Set on rival prospects so youth scouting can price and badge them; the elite
    * tiers are what make a kid genuinely hard to buy. */
   u21Tier?: ProspectTier;
+  /** The International Scouting Hub this prospect is developing at (v1.95) — a
+   * SCOUT_WORLD sub-region id. Present ONLY while he is on the hub's books:
+   * placing him at a club, or promoting him into the manager's own academy,
+   * clears it. It is a LOCATION, not a badge, which is why it is cleared rather
+   * than kept as a record — `academyClubId` is where his origin story lives.
+   *
+   * A hub prospect has no `clubId`: the network holds him, and no club does. */
+  gcnHubRegion?: string;
   /** Current-season U21-league + loan stats. Raw (unweighted); the rollover
    * folds them into development at the §18 minute weights. Optional (v4). */
   youthStats?: SeasonPlayerStats;
@@ -552,6 +566,16 @@ export interface Team {
   short: string; // 3-letter
   leagueId: string;
   colors: [string, string];
+  /** An AUTHORED crest (v1.96). Absent — which it is for almost every club in
+   * the world — the badge is derived from the club's identity by `badgeFor()`
+   * in lib/visual/badge.ts. Read it through that function, never directly:
+   * a spec stored on all ~800 clubs would cost every autosave ~64KB to say
+   * what a hash of the name already says. Only a club somebody edited stores
+   * one. */
+  badge?: BadgeSpec;
+  /** An AUTHORED kit set (v1.96), same contract as `badge` — derived by
+   * `kitsFor()` unless somebody drew one. */
+  kits?: KitSet;
   reputation: number; // 1-100, drives gate income + AI valuation attitude
   budget: number;
   playerIds: string[];
@@ -1607,6 +1631,13 @@ export interface UserAccolades {
   gcnPeakTreasury: number;
   /** Feeder loans sent to network-owned clubs across the save. */
   gcnFeederLoans: number;
+  /** International Scouting Hubs established across the save (v1.95). Optional
+   * with a 0 default so an existing progress block backfills without a
+   * migration — every accolade in this block is a running tally, and a tally
+   * that has never been incremented is legitimately zero. */
+  gcnHubsBuilt?: number;
+  /** Prospects signed onto a hub's books across the save (v1.95). */
+  gcnHubProspects?: number;
   /** WHO the record signing / sale was (v1.7). The fees above are the numbers;
    * these carry the player behind them so the cabinet can put a name and a face
    * to the record instead of a bare figure. Snapshotted at the moment of the
@@ -1822,6 +1853,109 @@ export interface GlobalClubNetwork {
    * club every Monday, keyed by club id. Absent/0 = no standing order. Entries
    * for clubs that leave the network are ignored and cleaned up on sale. */
   autoFunding?: Record<string, number>;
+  /** The three Global Executive seats (v1.95), keyed by role. An absent key is a
+   * vacant seat, which is the state a network starts in and returns to on a
+   * dismissal — never a null placeholder, so "is this seat filled" is one
+   * question with one answer. See lib/gcn/executives.ts. */
+  executives?: Partial<Record<GcnExecRole, GcnExecutive>>;
+  /** The elite executive shortlist (v1.95). Cycles on the same
+   * `marketRefreshDays` clock the club's staff market uses — there is
+   * deliberately no second refresh constant. */
+  execMarket?: GcnExecCandidate[];
+  /** Day the executive shortlist last cycled. */
+  execMarketDay?: number;
+  /** International Scouting Hubs (v1.95), keyed by SCOUT_WORLD sub-region id.
+   * An absent key is a region with no hub — the hub grid renders every region
+   * either way, so this map only ever holds what has actually been built. */
+  hubs?: Record<string, GcnHub>;
+  /** Prospects the hubs have turned up and the network has signed, held at the
+   * hub rather than at any club. Ids into `state.players`; the player carries
+   * `gcnHubRegion` so his home is a property of him, not only of this list. */
+  hubProspectIds?: string[];
+  /** Live hub reports awaiting a sign/pass decision, across every hub. */
+  hubReports?: ProspectReport[];
+}
+
+/** The three Global Executive seats (v1.95).
+ *
+ * Deliberately three, and deliberately not a roster: the club's backroom is a
+ * staffing problem (many people, many buildings, an assignment grid), and
+ * repeating it at network scale would be the same game played twice with bigger
+ * numbers. An executive is a SEAT — one hire, one salary, one blanket effect —
+ * so the decision is which pedigree the network can afford rather than how to
+ * arrange twelve people.
+ *
+ * Each seat drives exactly one channel, and the three are the three things a
+ * network of clubs actually owns: the football, the money, and the pipeline. */
+export type GcnExecRole = "football" | "commerce" | "scouting";
+
+/** A hired Global Executive (v1.95).
+ *
+ * Shares the club staff model's two quality axes — `stars` and a badge earned by
+ * SERVING — because they are the same idea at a different scale, and one
+ * vocabulary across the game is worth more than a bespoke ladder here. The
+ * difference is that a badge is earned for the SEAT rather than for a facility:
+ * an executive holds at most one, and moving seats is starting over. */
+export interface GcnExecutive {
+  id: string;
+  name: string;
+  nationality: string; // 3-letter code
+  age: number;
+  /** 1–5. */
+  stars: number;
+  /** Weekly wage, paid from the TREASURY (never a club's budget) — the network
+   * employs these people, not any one club. */
+  wage: number;
+  /** Season they took the seat, for the record and for the badge count. */
+  hiredSeason: number;
+  /** Completed seasons served in this seat, across all spells at this network.
+   * `tier` is derived from it via the shared badge ladder. */
+  seasonsServed: number;
+  /** Derived from `seasonsServed`; stored so the save and the UI agree. Absent
+   * until the first full season completes. */
+  badge?: BadgeTier;
+}
+
+/** An executive on the elite shortlist (v1.95). A hired executive plus the
+ * one-off signing fee, and the badge they arrive carrying — pedigree earned at
+ * whatever network employed them before. */
+export interface GcnExecCandidate {
+  id: string;
+  name: string;
+  nationality: string;
+  age: number;
+  stars: number;
+  wage: number;
+  fee: number;
+  /** Seasons of prior service, which is what any arriving badge is derived
+   * from — an executive's record travels with them. */
+  seasonsServed: number;
+  badge?: BadgeTier;
+  /** The seat this candidate is a candidate FOR. The shortlist is per-seat: a
+   * Director of Global Commerce is not an interchangeable body. */
+  role: GcnExecRole;
+}
+
+/** An International Scouting Hub (v1.95) — a physical academy the network builds
+ * in one SCOUT_WORLD sub-region.
+ *
+ * The end-game counterpart to club scouting: instead of sending a scout on a
+ * trip, the network owns the ground and the pipeline runs continuously. A hub
+ * files its own reports on its own clock, at a quality the club academy can't
+ * reach, and the prospects it signs live AT THE HUB rather than in the club
+ * academy — which is what makes the "keep or place" decision the feature's
+ * actual choice. */
+export interface GcnHub {
+  /** SCOUT_WORLD sub-region id — the hub IS its region, so this is the key. */
+  region: string;
+  /** 1–`gcnHubMaxLevel`. Level buys report quality and cadence. */
+  level: number;
+  foundedSeason: number;
+  /** Day the next report batch is due. */
+  nextReportDay: number;
+  /** How many batches this hub has filed, stamped onto reports so a hub's finds
+   * stay distinguishable as they accumulate. */
+  reportsFiled?: number;
 }
 
 /** A GCN Operations upgrade track (v34). Table-driven like TrainingFacility —

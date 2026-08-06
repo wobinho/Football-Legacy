@@ -29,7 +29,29 @@ design session before changing, `[FUTURE]` must not be built but must not be blo
   only for the user, that the one-off sponsors expire with the fixture and are deterministic,
   dormancy and revival, and that a save with no rivalries computes exactly what it always did
 - `npm run verify:quicksell` — drive a real world into an academy quick sell; asserts the prospect leaves the world and no club receives him
-- `npm run verify:gcn` — drive a real world into a live network; asserts owned clubs keep non-zero books that match what the tick banks, that net rises with reputation, and that the relaxed ring fence permits exactly the right moves
+- `npm run verify:visual` — club badges and kits (v1.96): that derivation is stable and
+  distinct, that a hand-edited spec degrades instead of blanking a crest, that a fresh
+  world stores NO specs at all (the claim the whole design rests on — it also prints the
+  KB avoided), that clearing an authored crest goes back to derived rather than freezing
+  a copy, and that no generated away kit clashes with its own home shirt
+- `node scripts/ui-test-identity.mjs` — drives the badge and kit creators through the
+  real UI: both mount, all 51 patterns draw (including the tiled textures), an edit
+  survives a save and a reload, and the crest reaches every other screen. Extended
+  v1.97: re-branding a club the manager does NOT run, a whole division through the
+  bulk editor (and that a row commits with no Save button), the club card's three
+  kits and its inline editor, and the home shirt on a player's profile. Asserts only
+  that things render and nothing throws — `verify:visual` owns the rules
+- `npm run verify:gcn` — drive a real world into a live network; asserts owned clubs
+  keep non-zero books that match what the tick banks, that net rises with reputation, and
+  that the relaxed ring fence permits exactly the right moves. Extended v1.95: the three
+  executive seats (a vacant seat is worth zero, service is a large share of a seat's
+  ceiling, the football seat reaches owned clubs and NOT the manager's own), the hub
+  pipeline end to end (build → file → sign → place → close), and — the section that
+  matters most — that a save with **no network computes exactly what it always did**
+- `node scripts/ui-test-gcn.mjs` — drives the GCN screen itself: unlocks the network
+  through the real UI, then clicks every tab, builds a hub and appoints an executive.
+  Asserts only that things render and nothing throws (the numbers are `verify:gcn`'s
+  job) — which is the failure a rules verifier structurally cannot see
 - `npm run verify:squads [seasons]` — drive a real world N seasons (default 12) and assert every club can still field its formation naturally, that squads haven't decayed toward the matchday minimum, and that the free-agent market survives the AI's own rollover top-up. A measured sweep, not a table check — the v1.89 defects were all invisible in the tables
 - `npm run verify:standings [seasons]` — play N full 38-game seasons with the real engine and assert that squad quality actually decides the table (rank correlation, who wins it, champion points, draw rate). The companion to `calibrate`: that one asks whether a MATCH looks like football, this one asks whether a SEASON does. The v1.91 defect passed calibration cleanly
 - `npm run verify:reputation [seasons]` — assert that club reputation drifts with squad,
@@ -91,12 +113,37 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   dormant rivalry confers nothing while keeping its record). New rivalry rules go here,
   not in a screen.
 - `lib/gcn.ts` — Global Club Network (§19, v34, end-game): funds/unlock, treasury, found/buy clubs (sim leagues only), inter-club moves & feeder loans, Operations upgrades. Rules only — the store calls in.
+- `lib/gcnexec.ts` — the GCN boardroom (v1.95): three Global Executive seats, their
+  elite market, and the three multipliers they produce. `globalFootballMult`,
+  `globalCommerceMult` and `globalScoutingCostMult`/`globalScoutingSpeedMult` are the
+  only exports the engine consumes, and every one returns exactly 1 (or full price)
+  when its seat is vacant.
+- `lib/gcnhub.ts` — International Scouting Hubs (v1.95): the region map (derived from
+  `SCOUT_WORLD`), build/upgrade/close, the report pipeline, and the three routes a hub
+  prospect can leave by. `hubPlacementError` is the single ruling the UI greys
+  destinations out with.
+- `lib/visual/` — club badges and kits (v1.96). `patterns.ts` is the shared
+  pattern engine and all the colour maths (both consumers import it — the two
+  creators shipped with a copy each, which is how a pattern added to a kit ends
+  up silently not existing on a crest); `badge.ts` and `kit.ts` are the two
+  specs, their generators and their rules; `identity.ts` is who may re-brand
+  what. Rules only — `components/visual/` draws.
 - `lib/assistant.ts` — everything the Tactics screen *says*: `assistantReport()` (the grade
   and its notes) and `squadBlueprint()` (the ideal role per slot, the ✓/~/✗ against the
   incumbent, and the shopping list). Both derive from the same functions the engine calls, so
   the UI can never claim something the simulation won't do. New advice goes here, not in the
   component — React must never implement rules.
 - `components/screens/` — the screens (§14); `Gcn.tsx` is the GCN page (below Achievements, unlocked only); `components/ui.tsx` — design primitives
+  **The GCN screen is SIX tabs, and each answers one question (v1.95):** Headquarters
+  (how is the network doing — read-only, no actions), Clubs (the holdings, and
+  founding/buying/selling them), Players (every player the network owns, filterable),
+  Intl Scouting Hub, Treasury (all money), Operations (the boardroom and the upgrade
+  tracks). The old four-tab shape had Headquarters be both a dashboard AND the launcher
+  for all seven network actions, so "how is my empire doing" and "buy a club" shared one
+  page and neither had room. **An action belongs on the tab that owns its subject** — put
+  a new one there, not back on Headquarters.
+  Note `.gold-thread` is a 1px DIVIDER element (it sets its own `height`), never a
+  modifier on a container: applied to a card it collapses the whole card to a hairline.
 
 ## Rules that matter
 
@@ -180,12 +227,28 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   (21–35) is the band the MARKET generates in; `STAFF_MAX_AGE` (65) is when a person retires.
   A hire has decades ahead, which is what makes the ten seasons a legacy badge costs a bet
   someone can actually take. Don't collapse them back into one constant.
-  **The market barely ever sells a badge.** ~8% of candidates arrive with one, capped at
-  `BADGE_HIRE_MAX_TIER` (silver) unless a `BADGE_HIRE_HIGH_TIER_CHANCE` roll clears, and
-  `BADGE_HIRE_ABSOLUTE_MAX_TIER` (diamond) is the hard stop — obsidian and legacy are only
-  ever earned at your own club. A shortlist you can buy pedigree off makes the ladder
-  pointless; `verify:facilities` asserts the rate, the ceiling, and that gold+ is still
-  reachable at all.
+  **The market barely ever sells a badge, and as of v1.97 the RATE is what defends that,
+  not a ceiling.** `BADGE_HIRE_TIER_CHANCE` states one probability per tier directly —
+  bronze 3%, silver 2%, gold 1%, diamond 0.5%, obsidian 0.25%, legacy 0.1%, so 6.85% of
+  candidates hold one at all — rolled highest-first, since the tiers are a ladder rather
+  than six alternatives. Every tier is now reachable on the shortlist, which deletes
+  `BADGE_HIRE_MAX_TIER`/`BADGE_HIRE_HIGH_TIER_CHANCE`/`BADGE_HIRE_ABSOLUTE_MAX_TIER`: at
+  1-in-1000 a legacy hire is rarer than the old "gold is a genuine event" case ever was, so
+  nothing became more purchasable. A small number does the cap's job better and is readable
+  off the table, where the predecessor's real odds could only be recovered by multiplying a
+  base rate by an age term by a star term by a cap roll by a uniform draw over seasons.
+  Nothing about the candidate moves the odds — the old experience and star terms were
+  near-inert (the hiring band is only 21–35) and made a badge read as a property of the
+  person rather than luck of the shortlist. A further badge is conditional on the first
+  (`BADGE_HIRE_SECOND_CHANCE` 10%, `BADGE_HIRE_THIRD_CHANCE` 1% — siblings off the same
+  base, so the third is the rarer case *inside* the 10%, never a chain), and its tier comes
+  off the flatter `BADGE_HIRE_EXTRA_TIER_WEIGHT` (40/30/20/5/2.5/1): once he demonstrably
+  has a record, the question is only which tier the extra one is. Extra badges go at
+  facilities he doesn't already hold one at — a badge is per facility, the same rule the
+  earning side enforces. A shortlist you can buy pedigree off makes the ladder pointless;
+  `verify:facilities` asserts every tier against its own stated probability (which catches
+  a table edit that makes gold common — something a ceiling never could), that each is
+  still reached at all, the multi-badge rates, and that seasons and tier always agree.
   Four facilities ship, and they are deliberately different KINDS of lever — what a
   channel's number *does* is the consuming function's business, not the table's:
   **Elite Training Center** (ceiling 33%) → `growthMultiplier()`, a plain multiplier on
@@ -346,6 +409,73 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   at `gcnDomesticTransferPriceFactor` × value so a free intra-pyramid transfer stays
   impossible. Selling to the open market is allowed (the player leaves the network, so it
   strengthens nobody); feeder loans to a ring-fenced club stay banned (they move YOUR players).
+- **A Global Executive is a SEAT, not a hire (v1.95).** `lib/gcnexec.ts`. Three of them —
+  Football, Commerce, Scouting — each driving exactly ONE network-wide channel. The shape
+  is deliberately not the club's backroom: a club's staff system is a staffing PUZZLE
+  (many people, ten buildings, an assignment grid, three badge slots each), and repeating
+  it at network scale would be the same game played twice with bigger numbers. One hire,
+  one salary, one blanket effect, and the only question is what pedigree the treasury can
+  carry.
+  What it DOES share is the scaling — `base` + per-STAR + per-BADGE-TIER — because that is
+  the same idea at a different altitude, and one vocabulary beats a bespoke curve. **The
+  split between the last two terms is the design**, and `verify:gcn` asserts it as a band
+  (35–70% of a seat's ceiling must come from the badge): a brand-new 5-star appointment
+  reaches about half a seat, and the rest is only ever earned by KEEPING someone. Without
+  that split, re-hiring whoever tops the shortlist each month strictly dominates loyalty,
+  and a decade-long appointment is a rounding error.
+  Three rules are load-bearing. Every multiplier returns **exactly 1 when the seat is
+  vacant** (the empty-board section of `verify:gcn` exists because these run on every
+  match and every development pass in the world — a save that never unlocked the GCN must
+  compute what it always did). The football seat **never reaches the manager's own club**:
+  he runs that one himself with its own facilities and staff, and letting the boardroom
+  multiply it too would make the GCN the best way to improve the team you actually pick.
+  And the effect rides levers that ALREADY EXIST — `coachMult` in gameloop's
+  `sideInputFor` (the named seam v1.79 left for exactly this), the sim resolver's strength
+  read, and the development pass's facility multiplier — never a new channel. The football
+  seat must move BOTH match sites or its worth would depend on which kind of league a
+  holding happens to sit in, which is nothing the manager chose.
+  The badge ladder is `gcnExecBadgeSeasons` (1/2/4/6/9/13), separate from the club staff
+  ladder because an executive holds ONE seat rather than competing for three badge slots —
+  the tiers have to be reachable inside a single career. Diamond and above are only ever
+  earned at your own network, the same rule the club staff market follows.
+- **A hub prospect belongs to the NETWORK, and no club (v1.95).** `lib/gcnhub.ts`. The
+  International Scouting Hub is the end-game counterpart to club scouting: where a scout
+  is a TRIP (hire, send, pay the travel, get him back), a hub is a permanent presence that
+  files forever at a standard no hireable scout reaches. Its region grid IS `SCOUT_WORLD`'s
+  26 sub-regions, derived and never hand-listed, so a region added to the scouting tree
+  becomes a hub site by construction and a brief and a hub can't disagree about where a
+  place is.
+  Four rules, each because the obvious version collapses the feature back into a bigger
+  academy:
+  **A signed prospect has no `clubId`.** That is what makes the placement decision — keep
+  him developing at the hub, promote him into your academy, or place him at an owned club
+  in his region — the thing the feature is about. It is also a **trap**, and the one that
+  had to be found by measuring: until v1.95, "no club" and "free agent" were the same
+  statement, encoded in ~5 passes (`aiSignFreeAgent`, `aiRecruitYouth`, both worldgen
+  replenishment counts, the inactivity retirement). Left alone, an AI club signs the
+  prospect the treasury just paid for, and one nobody moved retires himself for inactivity
+  inside a building you are paying upkeep on. `isFreeAgent(p)` in `lib/archive.ts` is now
+  the single predicate — **use it, never `!p.clubId`** — so a future "held but not at a
+  club" state is one clause there rather than another six-site sweep.
+  **Placement is REGIONAL.** An owned club in one of the hub's own countries, and nothing
+  else. A hub that could feed the whole empire is a talent teleporter that makes owning
+  clubs anywhere else pointless; a hub that feeds its own region is a reason to own clubs
+  THERE, which is the one rule tying the two halves of the network together. Same reason
+  local presence discounts a build (`gcnHubPresenceDiscount`). Promotion into the
+  manager's own academy is always allowed — it costs the region its player, and it is the
+  reward for having built the thing. Loans out of a hub don't exist.
+  **The tier roll goes through `rollProspectTier`**, with the hub's LEVEL expressed as an
+  effective judgement (`gcnHubJudgementBase` 3.0 → 5.4 at level 5, past anything
+  hireable). A second tier-rolling routine here would be a second answer to one question
+  and the elite rates would drift apart.
+  **Closing a hub refunds nothing** and releases who it held — the honest shape for a
+  building put up abroad, and what makes the upkeep decision real. Its prospects are
+  RELEASED, not deleted: the academy's quick-sell deletion exists so a manager's castoffs
+  can't stock his domestic rivals, and a 15-year-old let go in Ghana is not that.
+  Note `League.country` holds a DISPLAY NAME ("Spain") while every hub region holds a CODE
+  ("ESP") — `countryCodeOf` is the bridge, and comparing the two directly (as the first
+  cut did) makes every presence and placement check silently fail on a world where both
+  are true.
 - **Marketability is six 0–1 scores × six weights (v1.86).** `lib/marketability.ts`.
   A factor answers only "how well is this club doing at this thing, 0 to 1";
   `marketabilityWeights` alone says what that is worth, so re-balancing is one line and
@@ -873,6 +1003,128 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   and bumping would have discarded every saved club and player on the device to add it.
   Applying a preset filters to countries this build still offers, so a removed country
   can't resurrect a code worldgen cannot resolve.
+- **A badge is DERIVED unless somebody drew one (v1.96).** `badgeFor` / `kitsFor` in
+  `lib/visual/` are the single question every consumer asks — **never read `club.badge`
+  or `club.kits` directly**, or an unedited club renders as nothing. A club with no
+  stored spec still has a crest and four jerseys, hashed from its name, short code and
+  colours. That is what makes the feature affordable: storing a spec on all ~800 clubs
+  would add ~85KB to every autosave (measured, `verify:visual`) to record what a hash
+  computes for free, and it would FREEZE the generated look, so improving the generator
+  could never reach a club that already existed. For the same reason, clearing an
+  authored crest **deletes the field** rather than storing a copy of the generated one.
+  The seed is the club's NAME, not its id: identity travels between worlds (a squad
+  file materialised into a new save), ids don't. Schema v49 adds both fields as
+  optional and the migration converts NOTHING — a v48 save is already a valid v49 one.
+  **The clash rule compares what a shirt READS as, not every colour on it.** A blue-and-
+  white striped home shirt against a white-and-blue away shirt is the classic real change
+  kit; comparing all visible colours makes them clash because blue appears on both, and
+  that left **67 of 72 generated clubs unable to field their own away kit**. `kitsClash`
+  reads the BODY colour, plus the pattern colour only for `EVEN_SPLIT_PATTERNS` (halves,
+  stripes, hoops…) where the shirt genuinely is two colours. The companion rule is in the
+  generator: when the home kit is even-split the away shirt takes a NEUTRAL body rather
+  than inverting the pair, since inverting produces a colour already on the opposition —
+  that was the residual 24 clubs. Both numbers came from measuring a real world, neither
+  was visible in the tables. Run `npm run verify:visual` after touching either.
+  `ClubBadge`'s `inline` prop exists solely for the kit's chest badge: the component
+  otherwise sizes itself in CSS pixels, which a parent SVG's viewBox does not scale, so
+  a `size` prop or a `<g transform>` puts the crest at screen size somewhere off the
+  shirt. `node scripts/ui-test-identity.mjs` is the render check a rules verifier
+  structurally cannot make.
+- **Re-branding a rival is a COSMETIC authority, and it is asked for (v1.97).**
+  `setClubIdentity` still refuses any club the manager doesn't run; the Identity
+  screen's "edit other clubs" and "bulk by division" modes, and the club card's
+  editor, pass `{ allowAny: true }`. The split is kept rather than collapsed because
+  nothing in the simulation reads a badge or a kit — so this can't be an exploit —
+  but a future consequence of a re-brand would be, and `runsClub` is the predicate it
+  must gate on. `verify:visual` asserts BOTH directions (the default path is still
+  closed, `allowAny` opens it, and an unknown club is refused either way): if the flag
+  ever became the default, only the first of those would fail.
+- **The bulk editor trades depth for width, and it commits per row (v1.97).**
+  `components/visual/BulkIdentityEditor.tsx`. The creators are the right tool for one
+  crest and the wrong one for twenty, where the job is "make this league look right"
+  rather than "perfect this badge" — so a division is a TABLE of dropdowns, one row
+  per club, drawing through the same two components and normalising through the same
+  two functions, so it can express nothing the creators can't. There is deliberately
+  no page-wide Save: twenty unsaved clubs behind one button either writes all of them
+  or loses all of them, where a row is small enough that "changed it, it's changed" is
+  honest, and `Reset` puts it back to derived.
+  Both this and every other identity surface must take `rev` in their `badgeFor`/
+  `kitsFor` memo deps. The store mutates a club IN PLACE, so the object identity is
+  the same before and after a commit and a memo keyed on the club alone never
+  invalidates — measured, that made a committed bulk row go on drawing (and its
+  dropdowns go on REPORTING) the identity it had before the edit.
+- **The calendar and the fixture rail ask different questions, through ONE gate
+  (v1.98).** `components/Calendar.tsx` is a 70/30 split: the month grid answers "what
+  does this month look like", the Upcoming rail answers "what is coming", which is the
+  question a manager actually has and which a month grid can only answer by paging. The
+  rail lists the next ten of the user's UNPLAYED fixtures in abbreviation (competition
+  mark, H/A, crest, short code, date) and clicking one simulates up to **and including**
+  that match — the fixture's own `day` IS the target, so the rail needs to know nothing
+  about how the engine plays a matchday. Both surfaces set the SAME `confirm` state and
+  run the SAME `simulateToDay`, and both apply the same gate (a future day, inside the
+  season, not while a match of yours is pending), so the rail can never fast-forward on
+  terms the grid wouldn't. Adding a third way to skip ahead goes through that state too,
+  not through a second dialog.
+- **The wire is THIS SEASON; Big Money is ALL TIME (v1.98).** `TransferNewsTab` in
+  `Transfers.tsx` reads two slices of one feed and the split is the point. The Market
+  Wire filters to `n.season === game.season`: a long save accumulates thousands of
+  completed deals and the wire re-rendered every one of them, grouped into season
+  chapters nobody scrolls to — a market wire is NEWS, and last decade's window is not
+  news. Big Money reads the unfiltered feed and ranks the **top 10 fees ever paid** in
+  the world. The window scopes (SUMMER/WINTER/THIS SEASON/ALL TIME) are deleted along
+  with `WindowScope`/`windowOf`: a "top 10 of this summer" is a leaderboard of whatever
+  happened to be signed in twelve weeks, not a record, and once the two views answer
+  genuinely different questions there is nothing left for a scope to pick between.
+- **A kit shows where the question it answers is being asked (v1.97).** The club card
+  carries the three OUTFIELD shirts — a club card is about the team you'd face, and
+  those are the three a referee chooses between; the keeper is in the editor, where it
+  is a thing being designed rather than read. The player profile carries ONE, his
+  club's home shirt, turned to the BACK with his own `kitNumber` on it: that is the
+  only place in the game the two facts meet, and it is why the number is worth drawing
+  at all. Pass `title` to `ClubKit` itself and not just to a wrapping button — the
+  `aria-label` is the kit's own, and a title on the parent leaves every jersey in the
+  app labelled "Club jersey".
+  **A keeper wears the KEEPER shirt there (v1.98)** — he is the one player in the side
+  who never wears the home kit, so drawing him in it made the profile state something
+  the pitch contradicts. Keyed on `p.positions[0]`, the same primary-position field
+  every other line of that header reads; `kitsFor(club)` already returns all four, so
+  this is a slot choice and not a second source of kits.
+- **The pitch token is a HEXAGON, and every reading lives inside it (v1.98).**
+  `PitchToken` / `PitchMarkings` in `Tactics.tsx` are ONE definition each, used by both
+  the desktop board and the phone's read-only diagram — the two had drifted into
+  separate copies of the same token, which is how a change to one silently missed the
+  other. Four facts, four channels, none of them floating off the glyph: the border is
+  position fit, the whole node's OPACITY repeats it (`fitOpacity`), a radial wash of
+  `ARCHETYPE_CLASS_COLOR` behind the rating is his archetype class, and the rating is
+  the display face. The v1.77 corner dot is gone — parked at the top-right with its own
+  glow it read as an unread-message badge, i.e. as a transient alert rather than as
+  what the player permanently IS. So is the red "ADAPTED"/"OUT OF POS" caption: the
+  ring above it already said so, and three of them under a back four was the loudest
+  thing on a screen whose whole job is to be scanned. The fade is what replaces the
+  words, which is a reading a manager already has for "less effective here".
+  Two mechanical traps, both found by rendering rather than by reading the diff:
+  a hexagon is a `clip-path`, and **`ring-*` is a box-shadow, which is NOT clipped with
+  the box** — the drag guide had to become a filled hex behind the token rather than a
+  ring on it. And the name plate must carry `max-w-full` + `overflow-hidden` against
+  the slot's own `w-16`, or a long surname widens its pill into the pill of whoever is
+  standing beside him (the midfield of a 5-3-2 is close enough for that to overlap).
+  The phone board also needed the desktop's compressed `6 + slot.y * 0.88` band: the
+  token is taller than the circle it replaced and the pitch clips its overflow, so a
+  keeper at `y=4%` loses his plate off the bottom edge.
+- **`scripts/ui-test.mjs` and `ui-test-mobile.mjs` drive the app end to end again
+  (v1.98).** Both had been failing early for long enough that everything behind the
+  failure point went unmeasured — the v1.96 note in `ui-test.mjs` said as much and
+  asked the next caller to re-derive its selectors, which is now done. The rot was all
+  the same kind: labels and tabs that moved and a harness nobody could run to notice.
+  The squad actions are behind the profile's **MANAGE** tab and are **SELL PLAYER /
+  SEND ON LOAN**; Transfers' listings tab is **Sell / Loan**; the Academy's Staff and
+  Upgrades tabs **do not exist** (staff became a facility concern in v1.79 and the
+  upgrade ladders were deleted outright in v1.87) — the scout roster is behind
+  Scouting's own **PERSONNEL** sub-tab; and the send-scout submit is **`SEND · £…`**,
+  since the trip became billable in v1.85. `ui-test-mobile.mjs` also picked its club by
+  the hardcoded name "Nottingham Foresters" — the exact trap `ui-test.mjs` documents —
+  and now takes it by POSITION, and honours `UI_TEST_BASE` like every other harness so
+  a busy port 3000 doesn't fail the run.
 - Interim implementations pending owner design sessions (marked in-file): transfer market
   AI (§10), trait pool. `emergencyIntake()` in gameloop is a stopgap until the Youth
   Academy ships.

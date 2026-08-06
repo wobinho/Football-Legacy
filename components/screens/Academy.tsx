@@ -1584,7 +1584,7 @@ function LoanedTab() {
               <div className="col-span-3 mt-1 flex items-center gap-2 md:col-span-1 md:mt-0">
                 {dest ? (
                   <>
-                    <Crest colors={dest.colors} short={dest.short} size={24} />
+                    <Crest team={dest} size={24} />
                     <div className="min-w-0 leading-tight">
                       <div className="truncate text-sm text-ink">{dest.name}</div>
                       <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-faint">

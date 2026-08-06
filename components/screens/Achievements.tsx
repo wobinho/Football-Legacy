@@ -102,7 +102,7 @@ function ClubLine({
   const t = game.teams[teamId];
   const body = (
     <span className="flex min-w-0 items-center gap-1.5">
-      {t && <Crest colors={t.colors} short={t.short} size={size} />}
+      {t && <Crest team={t} size={size} />}
       <span className={`truncate ${bold ? "font-semibold text-ink" : "text-dim"}`}>{teamName}</span>
     </span>
   );
@@ -424,7 +424,7 @@ function Inductee({ p }: { p: PlayerBio }) {
                 <>
                   <span>·</span>
                   <span className="flex items-center gap-1.5">
-                    <Crest colors={club.colors} short={club.short} size={16} />
+                    <Crest team={club} size={16} />
                     {club.name}
                   </span>
                 </>
@@ -490,7 +490,7 @@ function Inductee({ p }: { p: PlayerBio }) {
                       const t = c.id ? game.teams[c.id] : undefined;
                       return (
                         <span key={`${c.name}-${i}`} className="flex items-center gap-1.5">
-                          {t && <Crest colors={t.colors} short={t.short} size={14} />}
+                          {t && <Crest team={t} size={14} />}
                           {c.name}
                         </span>
                       );
@@ -876,7 +876,7 @@ function ManagerHero({ a }: { a: UserAccolades }) {
           one with the tallies from `sm` up — at 390px the two side by side
           truncated the manager's name to make room for two single digits. */}
       <div className="relative flex flex-wrap items-center gap-x-6 gap-y-4 p-5">
-        {club && <Crest colors={club.colors} short={club.short} size={52} />}
+        {club && <Crest team={club} size={52} />}
         <div className="min-w-0 flex-1 basis-[60%] sm:basis-auto">
           <div className="text-[10px] uppercase tracking-widest text-faint">Manager</div>
           <div className="display truncate text-2xl font-bold text-ink">

@@ -968,7 +968,7 @@ function shootoutLabel(fixture: Fixture, userTeamId: string): string | null {
 function TeamSide({ crest, mine, align }: { crest: { name: string; short: string; colors: [string, string] }; mine: boolean; align: "left" | "right" }) {
   return (
     <div className={`flex flex-1 items-center gap-3 ${align === "right" ? "flex-row-reverse text-right" : ""}`}>
-      <Crest colors={crest.colors} short={crest.short} size={44} />
+      <Crest team={crest} size={44} />
       <div className={`display text-lg font-bold leading-tight ${mine ? "gold-text" : ""}`}>{crest.name}</div>
     </div>
   );

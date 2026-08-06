@@ -39,6 +39,8 @@ import {
   matchUpgradeIncome,
 } from "./economy";
 import { gcnWeeklyTick } from "./gcn";
+import { execMarketTick, execSeasonRollover, globalFootballMult, GCN_EXEC_ROLE_MAP } from "./gcnexec";
+import { dailyHubTick, hubGrowthMult, hubRolloverAgeOuts, hubIn } from "./gcnhub";
 import {
   aiWeeklyTransferTick,
   refreshValues,
@@ -202,9 +204,15 @@ function sideInputFor(
   // players out on loan (§18) are away and can't be fielded by their owner
   const players = t.playerIds.map((id) => state.players[id]).filter((p) => p && !p.retired && !p.loan);
   // v1.79: the Head/Assistant Coach match-day edge went with the old staff
-  // system. Match-day rating has no facility yet, so every side plays on its
-  // merits until one is designed to own it.
-  const coachMult = 1;
+  // system. Match-day rating still has no CLUB facility, so a club side plays on
+  // its merits until one is designed to own it.
+  //
+  // v1.95: a club the NETWORK owns is the exception, and the only one. The
+  // Director of Global Football is precisely a match-day-rating lever, and this
+  // is the seam already built for one — so it rides here rather than opening a
+  // second channel. Returns exactly 1 for the manager's own club and for every
+  // club outside the network, so a save with no GCN is untouched.
+  const coachMult = globalFootballMult(state, teamId, cfg);
   // Only the user sets assignments (captain + set-piece takers); AI sides field none.
   const assignments = teamId === state.userTeamId ? t.assignments : undefined;
   // Only the user picks a bench (v25); AI sides auto-derive theirs.
@@ -590,6 +598,10 @@ function advanceDay(state: GameState): StopReason | null {
   // Youth Academy (§18): all background — none of this stops the loop
   runU21MatchDay(state, cfg);
   dailyScoutTick(state, cfg);
+  // The network's own pipelines (v1.95), on the same daily beat as the club's.
+  // Both no-op instantly when the GCN isn't unlocked, which is most saves.
+  dailyHubTick(state, cfg);
+  execMarketTick(state, cfg);
   if (isMonday(day)) weeklyLoanTick(state, cfg);
   // No annual intake class (v1.89): the academy is filled only by moves the
   // manager makes — a scout's find or a U21 opponent's prospect, both paid for.
@@ -952,7 +964,24 @@ export function runSeasonRollover(state: GameState) {
     const cls = deriveArchetype(p.attrs, p.positions[0])?.cls;
     const classMult =
       isUser || inAcademy ? archetypeClassGrowthMultiplier(state, state.userTeamId, cls) : 1;
-    const facilityMult = (isUser || inAcademy ? userFacilityMult : 1) * classMult;
+    // The network's two growth levers (v1.95), both riding the facility
+    // multiplier rather than opening channels of their own — it is already "how
+    // fast does this player grow", which is exactly what each of them answers.
+    //
+    //   The Director of Global Football covers every player at an owned club
+    //   (his brief is the group's development pathway, and it must be the same
+    //   number the match-day seam uses, or the seat means two different things).
+    //
+    //   A hub prospect instead takes his HUB's own multiplier: he is not at a
+    //   club at all, so no club facility reaches him, and the hub is the thing
+    //   coaching him. The two never both apply — a player is at a club or at a
+    //   hub, never both — so this is one lever with two sources, not a stack.
+    const hubRegionOf = p.gcnHubRegion;
+    const hubLevel = hubRegionOf ? hubIn(state, hubRegionOf)?.level ?? 0 : 0;
+    const networkMult = hubLevel > 0
+      ? hubGrowthMult(hubLevel, cfg)
+      : globalFootballMult(state, p.clubId ?? "", cfg);
+    const facilityMult = (isUser || inAcademy ? userFacilityMult : 1) * classMult * networkMult;
     const eliteRelief = isUser || inAcademy ? userEliteRelief : 0;
     // Academy development boosts (v1.55): loan (base + per-appearance), U21-league
     // participation (with team + individual performance), and focus, all computed
@@ -1065,6 +1094,34 @@ export function runSeasonRollover(state: GameState) {
       "board",
       "Backroom retirements",
       `${retiredStaff.map((s) => s.name).join(", ")} ${retiredStaff.length === 1 ? "has" : "have"} retired from the game. Their facility slots are now free.`
+    );
+  }
+
+  // ── The network's boardroom and its hubs (v1.95) ─────────────────────────
+  // Credited here for exactly the reason the backroom is: the season just played
+  // was worked at the badge the executive held going into it, so a badge earned
+  // this summer pays from next season on.
+  for (const promo of execSeasonRollover(state, cfg)) {
+    const seat = GCN_EXEC_ROLE_MAP[promo.role];
+    pushInbox(
+      state,
+      "board",
+      `${promo.exec.name} earns a ${promo.newTier} GCN badge`,
+      `After ${promo.exec.seasonsServed} ${promo.exec.seasonsServed === 1 ? "season" : "seasons"} as ${seat.title}, ${promo.exec.name} has been awarded a ${promo.newTier} badge. Their standing now counts for more across the whole network.`
+    );
+  }
+
+  // A hub prospect who has aged out and was never placed, promoted or released
+  // goes now — the same thing the academy does to a graduate left undecided.
+  // Deliberately after the development pass: he gets the season's growth he was
+  // owed before the network stops housing him.
+  const agedOut = hubRolloverAgeOuts(state, cfg);
+  if (agedOut.length) {
+    pushInbox(
+      state,
+      "academy",
+      `${agedOut.length} hub ${agedOut.length === 1 ? "prospect has" : "prospects have"} aged out`,
+      `${agedOut.join(", ")} ${agedOut.length === 1 ? "has" : "have"} passed the age limit for the network's scouting hubs and been released. Place a prospect at an owned club in his region, or promote him into your own academy, before he gets this far.`
     );
   }
 

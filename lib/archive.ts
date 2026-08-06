@@ -183,3 +183,25 @@ export function activePlayers(state: GameState): PlayerBio[] {
   }
   return out;
 }
+
+/**
+ * True when a player with no `clubId` is genuinely on the open market (v1.95).
+ *
+ * Until the International Scouting Hubs, "no club" and "free agent" were the
+ * same statement, and roughly six passes across the codebase encode that
+ * equivalence — the AI's free-agent signing pool, its youth recruitment, the
+ * two worldgen replenishment counts, and the inactivity retirement. A hub
+ * prospect breaks it: the NETWORK holds him and no club does, so every one of
+ * those passes would otherwise treat him as unsigned. Left alone that is not a
+ * cosmetic bug — an AI club would sign the prospect the treasury just paid for,
+ * and a hub prospect nobody moved would eventually retire himself for
+ * inactivity while sitting in a building the manager is paying upkeep on.
+ *
+ * This is the single predicate, so a future "held but not at a club" state is
+ * one clause here rather than another six-site sweep. Callers ask
+ * `isFreeAgent(p)` instead of `!p.clubId`; the two differ only for hub
+ * prospects, so every existing behaviour is unchanged.
+ */
+export function isFreeAgent(p: PlayerBio): boolean {
+  return !p.clubId && !p.gcnHubRegion;
+}

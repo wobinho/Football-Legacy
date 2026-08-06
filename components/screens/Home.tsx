@@ -62,7 +62,12 @@ export default function HomeScreen() {
 
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-      <div className="xl:col-span-2">
+      {/* The wide column is inbox THEN calendar (v1.97). The calendar used to sit
+          in the narrow sidebar, where a month of seven columns left each day cell
+          barely wide enough for a crest — so a fixture day could show who, but
+          never the score. Below the inbox it has two thirds of the page, which is
+          what buys the abbreviation and the result inside the cell. */}
+      <div className="space-y-6 xl:col-span-2">
         <Section
           title="Inbox"
           right={
@@ -106,7 +111,7 @@ export default function HomeScreen() {
               the resting state of this column is four rows and a count — the
               manager opens the folder they came for. The whole column still
               scrolls inside itself (v1.67) so the page stays one screen tall. */}
-          <div className="max-h-[calc(100vh-13rem)] min-h-[18rem] space-y-2 overflow-y-auto pr-1">
+          <div className="max-h-[calc(100vh-22rem)] min-h-[18rem] space-y-2 overflow-y-auto pr-1">
             {groups.map((group) => (
               <InboxFolder
                 key={group.id}
@@ -141,13 +146,13 @@ export default function HomeScreen() {
             )}
           </div>
         </Section>
-      </div>
 
-      <div className="space-y-6">
         <Section title="Calendar">
           <Calendar />
         </Section>
+      </div>
 
+      <div className="space-y-6">
         <Section title="Next Fixture">
           {next ? (
             <Card className="p-4">
@@ -168,7 +173,7 @@ export default function HomeScreen() {
               <div className="flex items-center justify-between gap-2 py-2">
                 {[game.teams[next.homeId], game.teams[next.awayId]].map((t, i) => (
                   <div key={i} className={`flex flex-1 items-center gap-2 ${i === 1 ? "flex-row-reverse text-right" : ""}`}>
-                    <Crest colors={t.colors} short={t.short} size={34} />
+                    <Crest team={t} size={34} />
                     <div className={`display text-sm font-bold leading-tight ${t.id === game.userTeamId ? "gold-text" : ""}`}>
                       {t.name}
                     </div>
@@ -198,7 +203,7 @@ export default function HomeScreen() {
                       <td className="w-8 py-1.5 pl-3 tnum text-faint">{pos}</td>
                       <td className="py-1.5">
                         <span className={`flex items-center gap-2 ${mineRow ? "font-semibold" : ""}`}>
-                          <Crest colors={t.colors} short={t.short} size={18} />
+                          <Crest team={t} size={18} />
                           <span className="truncate">{t.short}</span>
                         </span>
                       </td>

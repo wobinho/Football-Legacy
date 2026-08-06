@@ -21,7 +21,13 @@ import { TUNING } from "@/lib/config/tuning";
 import { selectionScore } from "@/lib/selection";
 import { ensureUserLineup } from "@/lib/gameloop";
 import { bestForRole, MAX_SAVED_TACTICS, savedTactics, tacticSummary } from "@/lib/tactics";
-import { deriveArchetype, ARCHETYPE_CLASS_BLURB, ARCHETYPE_CLASS_COLOR, ARCHETYPE_CLASS_ORDER } from "@/lib/config/archetype";
+import {
+  deriveArchetype,
+  ARCHETYPE_CLASS_BLURB,
+  ARCHETYPE_CLASS_COLOR,
+  ARCHETYPE_CLASS_ORDER,
+  type ArchetypeClass,
+} from "@/lib/config/archetype";
 import { assistantReport, instructionViewOf, squadBlueprint, type BlueprintSlot, type NoteTone, type ReportSlot, type SlotGrade } from "@/lib/assistant";
 import { ConfirmButton, displayFullName, Flag, GhostButton, GoldButton, Modal, Ovr, ArchetypeIcon, ArchetypeLabel, PlayerSelect, PosBadge, Section, Select, Tabs, useIsMobile, type SelectOption } from "../ui";
 import TacticsHelp from "./TacticsHelp";
@@ -831,46 +837,202 @@ function DragGhost({ p, x, y }: { p: PlayerBio; x: number; y: number }) {
 }
 
 /**
- * The archetype-class marker on a pitch token (v1.77).
+ * The pitch token's shape (v1.98).
  *
- * The class mix used to be a stacked bar chart in the right-hand column, which
- * told you the squad contained three Creators but never which three. Putting the
- * colour on the token itself answers the question you actually have while
- * picking a side — "what kind of player is standing here?" — and does it without
- * costing a single row of vertical space.
+ * A hexagon, not a circle. The archetype artwork is drawn on a hex frame
+ * everywhere else in the game, so a pitch of circles was the one surface that
+ * didn't speak the game's own visual language. Expressed as a CSS clip-path on
+ * a plain box, so the token stays a normal flow element — a real SVG polygon
+ * would mean re-plumbing the drag hit-testing, which measures bounding boxes.
+ */
+const HEX_CLIP = "polygon(50% 0%, 95% 25%, 95% 75%, 50% 100%, 5% 75%, 5% 25%)";
+
+/**
+ * The archetype class a player reads as in the slot he is FILLING (v1.77),
+ * resolved exactly as the engine and the assistant's report do so all three
+ * agree about what he is being asked to be. Null when no archetype derives.
+ */
+function classOf(p: PlayerBio, slotPos: Pos): ArchetypeClass | null {
+  return deriveArchetype(p.attrs, slotPos)?.cls ?? null;
+}
+
+/**
+ * The class colour INSIDE the token (v1.98), not a badge floating off it.
  *
- * A DOT rather than a ring because the ring is already spoken for: it carries
- * position fit, and overloading one glyph with two unrelated meanings is how
- * both stop being readable. The dot sits on the token's edge with a soft glow in
- * its own colour, which is enough to read at a glance against the dark pitch
- * without competing with the rating in the middle.
+ * The v1.77 corner dot answered the right question in the wrong glyph: parked
+ * at the token's top-right with its own glow it read as an unread-message
+ * badge, i.e. as a transient alert rather than as what the player permanently
+ * IS. It is now a fill — a soft radial wash of the class colour behind the
+ * rating — so being a Creator is a property of the node rather than something
+ * stuck to it. Low opacity on purpose: the rating is still the thing the eye
+ * lands on, and five of these on a pitch at full strength is a fruit salad.
  *
  * The palette is the shared one every other surface uses (ARCHETYPE_CLASS_COLOR),
  * so the association a manager learns in the squad list is the same one here.
- * A player whose archetype cannot be resolved simply gets no dot.
  */
-function ClassMarker({ p, slotPos }: { p: PlayerBio; slotPos: Pos }) {
-  // Read against the slot he is FILLING, exactly as the engine and the
-  // assistant's report do, so all three agree about what he is being asked
-  // to be.
-  const cls = deriveArchetype(p.attrs, slotPos)?.cls;
-  if (!cls) return null;
-  const color = ARCHETYPE_CLASS_COLOR[cls];
+function classFill(cls: ArchetypeClass | null): string {
+  if (!cls) return "transparent";
+  const c = ARCHETYPE_CLASS_COLOR[cls];
+  return `radial-gradient(circle at 50% 35%, ${c}2e 0%, ${c}14 55%, transparent 100%)`;
+}
+
+/**
+ * Colour a player token by how well he fits the slot he's standing in.
+ *
+ * The rings carry the fit ALONE now (v1.98) — the red "ADAPTED" caption under
+ * every misplaced player is gone. Three tokens' worth of loud red text under a
+ * back four said nothing the ring above it hadn't already, and it was the
+ * noisiest thing on a screen whose job is to be scanned. To make the ring able
+ * to carry it unaided the border is thicker and an out-of-position token is
+ * also FADED (see `fitOpacity`), which is the reading a manager already has for
+ * "this man is less effective here".
+ */
+function fitRing(fit: number): string {
+  if (fit >= 1) return "border-2 border-gold-lo";
+  if (fit > TUNING.outOfPositionFloor) return "border-2 border-draw/80";
+  return "border-2 border-loss";
+}
+
+/** Out-of-position players are drawn faded — the wordless version of the
+ * caption this replaced. An adapted player is only slightly dimmed; a genuine
+ * out-of-position one drops far enough to read as a problem at a glance. */
+function fitOpacity(fit: number): string {
+  if (fit >= 1) return "";
+  if (fit > TUNING.outOfPositionFloor) return "opacity-80";
+  return "opacity-60";
+}
+
+/**
+ * The pitch markings (v1.98), shared by the desktop board and the phone's
+ * read-only diagram so the two can never drift apart.
+ *
+ * A spotlight and dashed lines rather than a flat box of hairlines: a radial
+ * wash lifts the centre a shade above the page black and falls away to nothing
+ * at the corners, which puts the eye on the formation rather than on the frame.
+ * The lines are dashed and faint with a soft glow, so the pitch reads as a
+ * tactical screen being drawn on rather than as a vector clip-art football
+ * pitch. Purely decorative — `aria-hidden`, pointer-transparent, and never a
+ * drop target.
+ */
+const PITCH_LINE = "rgba(255,255,255,0.15)";
+const PITCH_GLOW = "drop-shadow(0 0 3px rgba(226,181,63,0.16))";
+
+function PitchMarkings() {
   return (
-    <span
-      className="pointer-events-none absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border border-black/40"
-      style={{ background: color, boxShadow: `0 0 5px ${color}` }}
-      title={`${cls} — ${ARCHETYPE_CLASS_BLURB[cls]}`}
+    <div
       aria-hidden
-    />
+      className="pointer-events-none absolute inset-0"
+      style={{ filter: PITCH_GLOW }}
+    >
+      {/* Spotlight: brightest over the centre circle, black at the corners. */}
+      <div
+        className="absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(ellipse 70% 55% at 50% 50%, rgba(120,190,150,0.10) 0%, rgba(20,40,30,0.05) 45%, rgba(0,0,0,0.55) 100%)",
+        }}
+      />
+      <div
+        className="absolute inset-x-[12%] top-0 h-[14%] rounded-b border border-t-0"
+        style={{ borderColor: PITCH_LINE, borderStyle: "dashed" }}
+      />
+      <div
+        className="absolute inset-x-[12%] bottom-0 h-[14%] rounded-t border border-b-0"
+        style={{ borderColor: PITCH_LINE, borderStyle: "dashed" }}
+      />
+      <div
+        className="absolute inset-x-0 top-1/2 border-t"
+        style={{ borderColor: PITCH_LINE, borderStyle: "dashed" }}
+      />
+      <div
+        className="absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full border"
+        style={{ borderColor: PITCH_LINE, borderStyle: "dashed" }}
+      />
+    </div>
   );
 }
 
-/** Colour a player token by how well he fits the slot he's standing in. */
-function fitRing(fit: number): string {
-  if (fit >= 1) return "border-gold-lo bg-raised";
-  if (fit > TUNING.outOfPositionFloor) return "border-draw/60 bg-raised";
-  return "border-loss/70 bg-raised";
+/**
+ * A player (or an empty slot) as drawn on the pitch — the one definition both
+ * boards use (v1.98).
+ *
+ * Four readings from one node, and every one of them is now INSIDE the glyph
+ * rather than hung off it: the hexagon's border is position fit, its whole
+ * opacity repeats that fit, the wash behind the rating is his archetype class,
+ * and the rating itself is the display face. Underneath, the position and the
+ * surname sit on a dark pill so they read as a label on a tactical board rather
+ * than text floating in the dark.
+ */
+function PitchToken({
+  p,
+  slot,
+  fit,
+  isTarget,
+  isSource,
+}: {
+  p: PlayerBio | null;
+  slot: { label: string; pos: Pos };
+  fit: number;
+  isTarget?: boolean;
+  isSource?: boolean;
+}) {
+  const cls = p ? classOf(p, slot.pos) : null;
+  return (
+    <>
+      {p ? (
+        <span
+          className={`display relative flex h-11 w-11 items-center justify-center text-sm font-bold transition-all ${fitRing(fit)} ${fitText(fit)} ${
+            isSource ? "opacity-30" : fitOpacity(fit)
+          } ${isTarget ? "scale-110 !border-gold" : ""}`}
+          style={{ clipPath: HEX_CLIP, background: "#16181d" }}
+          title={cls ? `${cls} — ${ARCHETYPE_CLASS_BLURB[cls]}` : undefined}
+        >
+          {/* The class wash, behind the number and clipped to the same hex. */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-0"
+            style={{ background: classFill(cls) }}
+          />
+          <span className="relative">{p.overall}</span>
+        </span>
+      ) : (
+        <span
+          className={`display flex h-11 w-11 items-center justify-center border border-dashed border-line text-sm font-bold text-faint transition-all ${
+            isTarget ? "scale-110 border-solid !border-gold" : ""
+          }`}
+          style={{ clipPath: HEX_CLIP, background: "#101216" }}
+        >
+          {slot.label}
+        </span>
+      )}
+      {/* Name plate. A pill grounds the text against the pitch, and the two
+          facts are ranked: the position is muted grey, the surname crisp. A
+          40px token is the one place a full name genuinely will not go — the
+          surname alone is what a shirt carries.
+          `max-w-full` against the slot's own 4rem box, so a long surname
+          truncates INSIDE its plate rather than widening it into the plate of
+          whoever is standing beside him — the midfield of a 5-3-2 puts three
+          tokens close enough together for that to overlap. */}
+      <span
+        className={`mt-1 flex max-w-full items-center gap-1 overflow-hidden rounded-full border border-line/70 bg-[#16181d]/90 px-1.5 py-0.5 leading-none ${
+          p ? fitOpacity(fit) : ""
+        }`}
+      >
+        <span
+          className={`display shrink-0 text-[8px] font-bold uppercase leading-none tracking-wider ${
+            !p || fit >= 1 ? "text-faint" : fit > TUNING.outOfPositionFloor ? "text-draw" : "text-loss"
+          }`}
+        >
+          {slot.label}
+        </span>
+        {p && (
+          <span className="min-w-0 truncate text-[10px] font-semibold leading-none text-ink">
+            {p.name.split(" ").slice(-1)[0]}
+          </span>
+        )}
+      </span>
+    </>
+  );
 }
 
 /** Colour the RATING inside a token by position fit (v1.66) — the ring already
@@ -991,10 +1153,7 @@ function MobileLineup({
           className="relative mx-auto aspect-[3/4] w-full max-w-md select-none overflow-hidden rounded-md border border-line"
           style={{ background: "linear-gradient(180deg, #0e1512 0%, #0c110e 100%)" }}
         >
-          <div className="absolute inset-x-[12%] top-0 h-[14%] rounded-b border border-t-0 border-white/10" />
-          <div className="absolute inset-x-[12%] bottom-0 h-[14%] rounded-t border border-b-0 border-white/10" />
-          <div className="absolute inset-x-0 top-1/2 h-px bg-white/10" />
-          <div className="absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/10" />
+          <PitchMarkings />
 
           {formation.slots.map((slot) => {
             const pid = game.lineup[slot.id];
@@ -1006,31 +1165,17 @@ function MobileLineup({
               <div
                 key={slot.id}
                 className="absolute -translate-x-1/2 translate-y-1/2"
-                style={{ left: `${slot.x}%`, bottom: `${slot.y}%` }}
+                // Same compressed 6–94% band as the desktop board: the token is
+                // a hex plus a name plate, and the pitch clips its overflow, so
+                // a keeper at y=4% loses his plate off the bottom edge.
+                style={{ left: `${slot.x}%`, bottom: `${6 + slot.y * 0.88}%` }}
               >
                 <button
                   onClick={() => onPickSlot(slot.id)}
                   title={p ? `${displayFullName(p)} — tap to change` : `Tap to pick a ${slot.label}`}
                   className="flex w-16 cursor-pointer flex-col items-center"
                 >
-                  <span className="relative inline-flex">
-                    <span
-                      className={`display flex h-10 w-10 items-center justify-center rounded-full border text-sm font-bold ${
-                        p ? `${fitRing(fit)} text-ink` : "border-dashed border-line bg-surface text-faint"
-                      }`}
-                    >
-                      {p ? p.overall : slot.label}
-                    </span>
-                    {p && <ClassMarker p={p} slotPos={slot.pos} />}
-                  </span>
-                  <span className="mt-0.5 w-full truncate text-center text-[10px] leading-tight text-dim">
-                    {p ? p.name.split(" ").slice(-1)[0] : slot.label}
-                  </span>
-                  {p && fit < 1 && (
-                    <span className="text-[8px] uppercase leading-none tracking-wide text-loss">
-                      {fit <= TUNING.outOfPositionFloor ? "out of pos" : "adapted"}
-                    </span>
-                  )}
+                  <PitchToken p={p} slot={slot} fit={fit} />
                 </button>
               </div>
             );
@@ -1039,13 +1184,13 @@ function MobileLineup({
 
         <div className="mt-2 flex flex-wrap items-center justify-center gap-3 text-[10px] text-faint">
           <span className="flex items-center gap-1">
-            <span className="inline-block h-2.5 w-2.5 rounded-full border border-gold-lo" /> natural
+            <span className="inline-block h-3 w-3 border-2 border-gold-lo" style={{ clipPath: HEX_CLIP }} /> natural
           </span>
           <span className="flex items-center gap-1">
-            <span className="inline-block h-2.5 w-2.5 rounded-full border border-draw/60" /> adapted
+            <span className="inline-block h-3 w-3 border-2 border-draw/80 opacity-80" style={{ clipPath: HEX_CLIP }} /> adapted
           </span>
           <span className="flex items-center gap-1">
-            <span className="inline-block h-2.5 w-2.5 rounded-full border border-loss/70" /> out of position
+            <span className="inline-block h-3 w-3 border-2 border-loss opacity-60" style={{ clipPath: HEX_CLIP }} /> out of position
           </span>
         </div>
       </Section>
@@ -1337,11 +1482,7 @@ function MatchdayBoard({
               className="relative mx-auto aspect-[3/4] w-full max-w-md select-none overflow-hidden rounded-md border border-line xl:max-w-none"
               style={{ background: "linear-gradient(180deg, #0e1512 0%, #0c110e 100%)" }}
             >
-              {/* pitch markings */}
-              <div className="absolute inset-x-[12%] top-0 h-[14%] rounded-b border border-t-0 border-white/10" />
-              <div className="absolute inset-x-[12%] bottom-0 h-[14%] rounded-t border border-b-0 border-white/10" />
-              <div className="absolute inset-x-0 top-1/2 h-px bg-white/10" />
-              <div className="absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/10" />
+              <PitchMarkings />
 
               {formation.slots.map((slot) => {
                 const pid = game.lineup[slot.id];
@@ -1367,13 +1508,17 @@ function MatchdayBoard({
                 // Drawn as a halo BEHIND the token rather than a ring on it: the
                 // condition arc is an opaque disc, so a ring on the inner token
                 // would be hidden underneath it exactly when it matters.
+                // Clipped to a hexagon (v1.98), so `ring-*` — which draws a
+                // box-shadow, and a box-shadow is not clipped with the box —
+                // can't be used. A filled hex behind the token says the same
+                // thing and survives the clip.
                 const guideHalo =
                   guide === null || isTarget
                     ? ""
                     : guide >= 1
-                      ? "animate-pulse bg-win/25 ring-2 ring-win/80"
+                      ? "animate-pulse bg-win/45"
                       : guide > TUNING.outOfPositionFloor
-                        ? "bg-draw/15 ring-1 ring-draw/50"
+                        ? "bg-draw/25"
                         : "";
                 return (
                   <div
@@ -1399,64 +1544,28 @@ function MatchdayBoard({
                       }
                       className={`flex w-16 touch-none flex-col items-center ${drag ? "cursor-grabbing" : p ? "cursor-grab" : "cursor-pointer"}`}
                     >
-                      {/* The token. Three readings from one glyph: the ring is
-                          position fit, the number's colour repeats it where the
-                          eye actually lands, and the corner dot is his archetype
-                          class (v1.77). The drag halo sits behind. */}
+                      {/* The drag halo sits BEHIND the token (v1.69's reason
+                          still holds: the token is opaque, so a ring drawn on it
+                          would be hidden underneath exactly when it matters).
+                          It is clipped to the same hexagon so the guide reads as
+                          the slot lighting up rather than as a stray circle. */}
                       <span className="relative inline-flex items-center justify-center">
                         {guideHalo && (
                           <span
-                            className={`pointer-events-none absolute h-[3.4rem] w-[3.4rem] rounded-full ${guideHalo}`}
+                            className={`pointer-events-none absolute h-[3.6rem] w-[3.6rem] ${guideHalo}`}
+                            style={{ clipPath: HEX_CLIP }}
                           />
                         )}
-                        {p ? (
-                          <span className="relative inline-flex">
-                            <span
-                              className={`display flex h-10 w-10 items-center justify-center rounded-full border text-sm font-bold transition-all ${fitRing(fit)} ${fitText(fit)} ${
-                                isTarget
-                                  ? "scale-110 border-gold ring-2 ring-gold/60"
-                                  : isSource
-                                    ? "opacity-30"
-                                    : ""
-                              }`}
-                            >
-                              {p.overall}
-                            </span>
-                            {!isSource && <ClassMarker p={p} slotPos={slot.pos} />}
-                          </span>
-                        ) : (
-                          <span
-                            className={`display flex h-10 w-10 items-center justify-center rounded-full border border-dashed border-line bg-surface text-sm font-bold text-faint transition-all ${
-                              isTarget ? "scale-110 border-solid border-gold ring-2 ring-gold/60" : ""
-                            }`}
-                          >
-                            {slot.label}
-                          </span>
-                        )}
-                      </span>
-                      {/* A position label under every occupied token, so who is
-                          playing where reads off the pitch without cross-
-                          referencing a list. Empty slots already show theirs in
-                          the token itself. */}
-                      {p && (
-                        <span
-                          className={`display mt-0.5 text-[9px] font-bold uppercase leading-none tracking-wider ${
-                            fit >= 1 ? "text-faint" : fit > TUNING.outOfPositionFloor ? "text-draw" : "text-loss"
-                          }`}
-                        >
-                          {slot.label}
+                        <span className="relative flex flex-col items-center">
+                          <PitchToken
+                            p={p}
+                            slot={slot}
+                            fit={fit}
+                            isTarget={isTarget}
+                            isSource={isSource}
+                          />
                         </span>
-                      )}
-                      {/* A 40px token is the one place a full name genuinely will
-                          not go — the surname alone is what a shirt carries. */}
-                      <span className="mt-0.5 w-full truncate text-center text-[10px] leading-tight text-dim">
-                        {p ? p.name.split(" ").slice(-1)[0] : slot.label}
                       </span>
-                      {p && fit < 1 && (
-                        <span className="text-[8px] uppercase leading-none tracking-wide text-loss">
-                          {fit <= TUNING.outOfPositionFloor ? "out of pos" : "adapted"}
-                        </span>
-                      )}
                     </button>
                   </div>
                 );
@@ -1467,13 +1576,13 @@ function MatchdayBoard({
                 warning rather than decoration. */}
             <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] text-faint">
               <span className="flex items-center gap-1">
-                <span className="inline-block h-2.5 w-2.5 rounded-full border border-gold-lo" /> natural
+                <span className="inline-block h-3 w-3 border-2 border-gold-lo" style={{ clipPath: HEX_CLIP }} /> natural
               </span>
               <span className="flex items-center gap-1">
-                <span className="inline-block h-2.5 w-2.5 rounded-full border border-draw/60" /> adapted
+                <span className="inline-block h-3 w-3 border-2 border-draw/80 opacity-80" style={{ clipPath: HEX_CLIP }} /> adapted
               </span>
               <span className="flex items-center gap-1">
-                <span className="inline-block h-2.5 w-2.5 rounded-full border border-loss/70" /> out of position
+                <span className="inline-block h-3 w-3 border-2 border-loss opacity-60" style={{ clipPath: HEX_CLIP }} /> out of position
               </span>
             </div>
           </Section>

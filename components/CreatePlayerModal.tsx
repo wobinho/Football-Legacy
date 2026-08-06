@@ -137,7 +137,7 @@ export default function CreatePlayerModal({
               <span className="tnum">· Potential {effectivePotential}</span>
             </div>
           </div>
-          {club && <Crest colors={club.colors} short={club.short} size={30} />}
+          {club && <Crest team={club} size={30} />}
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">

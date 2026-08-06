@@ -399,7 +399,7 @@ function TableCard({
                 </td>
                 <td className="min-w-0 py-1.5">
                   <span className={`flex min-w-0 items-center gap-2 ${mine ? "font-semibold" : ""}`}>
-                    <Crest colors={t.colors} short={t.short} size={20} />
+                    <Crest team={t} size={20} />
                     <CountryFlag country={game.leagues[t.leagueId]?.country ?? ""} size={11} />
                     <span className="truncate">{t.name}</span>
                     {flag && <span className="shrink-0 text-[10px] text-faint">{flag}</span>}
@@ -606,13 +606,13 @@ function FixtureList({ fixtures }: { fixtures: import("@/lib/types").Fixture[] }
             <span className="w-12 shrink-0 tnum text-[11px] text-faint">{formatDayShort(f.day)}</span>
             <button onClick={() => openTeam(f.homeId)} className="flex flex-1 items-center justify-end gap-1.5 truncate hover:text-gold" title={h.name}>
               <span className="truncate">{h.short}</span>
-              <Crest colors={h.colors} short={h.short} size={16} />
+              <Crest team={h} size={16} />
             </button>
             <span className="display w-12 shrink-0 text-center tnum font-semibold">
               {f.played ? `${f.homeGoals}–${f.awayGoals}` : "v"}
             </span>
             <button onClick={() => openTeam(f.awayId)} className="flex flex-1 items-center gap-1.5 truncate hover:text-gold" title={a.name}>
-              <Crest colors={a.colors} short={a.short} size={16} />
+              <Crest team={a} size={16} />
               <span className="truncate">{a.short}</span>
             </button>
           </div>
@@ -732,9 +732,9 @@ function CupTieRow({ f }: { f: Fixture }) {
         } ${lost ? "text-faint" : ""} ${won ? "font-semibold text-ink" : ""}`}
         title={t.name}
       >
-        {align === "left" && <Crest colors={t.colors} short={t.short} size={18} />}
+        {align === "left" && <Crest team={t} size={18} />}
         <span className="truncate">{t.name}</span>
-        {align === "right" && <Crest colors={t.colors} short={t.short} size={18} />}
+        {align === "right" && <Crest team={t} size={18} />}
       </button>
     );
   };
@@ -883,13 +883,13 @@ function HistoryRow({ f, styles, onOpen }: { f: Fixture; styles: Record<string, 
       <CompDot s={s} />
       <span className="flex flex-1 items-center justify-end gap-1.5 truncate">
         <span className="truncate">{h.name}</span>
-        <Crest colors={h.colors} short={h.short} size={16} />
+        <Crest team={h} size={16} />
       </span>
       <span className={`display w-14 shrink-0 text-center tnum font-semibold ${tone}`}>
         {f.homeGoals}–{f.awayGoals}
       </span>
       <span className="flex flex-1 items-center gap-1.5 truncate">
-        <Crest colors={a.colors} short={a.short} size={16} />
+        <Crest team={a} size={16} />
         <span className="truncate">{a.name}</span>
       </span>
       {f.shootoutWinnerId && (
@@ -949,7 +949,7 @@ function MatchDetailModal({ f, styles, onClose }: { f: Fixture; styles: Record<s
       {/* Scoreline */}
       <div className="flex items-center gap-3 rounded-md border border-line bg-raised px-4 py-3">
         <div className="flex flex-1 flex-col items-center gap-1.5 text-center">
-          <Crest colors={h.colors} short={h.short} size={30} />
+          <Crest team={h} size={30} />
           <span className="text-[12px] leading-tight">{h.name}</span>
         </div>
         <div className="text-center">
@@ -961,7 +961,7 @@ function MatchDetailModal({ f, styles, onClose }: { f: Fixture; styles: Record<s
           )}
         </div>
         <div className="flex flex-1 flex-col items-center gap-1.5 text-center">
-          <Crest colors={a.colors} short={a.short} size={30} />
+          <Crest team={a} size={30} />
           <span className="text-[12px] leading-tight">{a.name}</span>
         </div>
       </div>

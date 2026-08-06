@@ -18,7 +18,7 @@ import { TRAIT_MAP } from "./config/traits";
 import { resolveTrainingPlan, type TrainingPlanDef } from "./config/training";
 import { randRange, type RNG } from "./rng";
 import { valueWithYouthPr } from "./economy";
-import { activePlayers } from "./archive";
+import { activePlayers, isFreeAgent } from "./archive";
 
 const FULL_SEASON_MINUTES = 3000; // ~33 full matches
 
@@ -436,10 +436,15 @@ export function developPlayer(
   // he must be in DECLINE, have no club, and have gone a full
   // `retireUnattachedDays` without one. A rebuilding veteran between contracts
   // is unaffected, and no player on a club's books can ever be retired by it.
+  // `isFreeAgent`, not `!clubId` (v1.95). A hub prospect has no club either, and
+  // retiring him for inactivity while the network pays his wages and his upkeep
+  // would be the system deleting a player the manager is actively investing in.
+  // (He is 13–21 and so never in decline, but the guard belongs on the rule
+  // rather than on an age coincidence.)
   if (
     !retired &&
     phase === "decline" &&
-    !p.clubId &&
+    isFreeAgent(p) &&
     (p.inactiveDays ?? 0) >= cfg.retireUnattachedDays
   ) {
     retired = rng() < cfg.retireUnattachedChance;

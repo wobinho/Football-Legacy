@@ -14,7 +14,7 @@ import { mulberry32, deriveSeed, pickWeighted, uid } from "./rng";
 import { valueWithYouthPr } from "./economy";
 import { aiLetsExpire, grantDefaultContract, makeContract } from "./contracts";
 import { assignKitNumber, clearKitNumber } from "./kitnumbers";
-import { activePlayers } from "./archive";
+import { activePlayers, isFreeAgent } from "./archive";
 import { trackUserTransfer, syncProgress } from "./achievements";
 import { purgePlayerFromTactics } from "./tactics";
 import type { RNG } from "./rng";
@@ -946,7 +946,9 @@ function trySimDeal(
  */
 function aiSignFreeAgent(state: GameState, buyer: Team, need: PositionNeed, cfg: TuningConfig) {
   if (buyer.playerIds.length >= cfg.squadCap) return;
-  const pool = activePlayers(state).filter((p) => !p.clubId && !p.loan);
+  // `isFreeAgent`, not `!clubId` (v1.95): a prospect on an International
+  // Scouting Hub's books has no club either, and he is not for sale.
+  const pool = activePlayers(state).filter((p) => isFreeAgent(p) && !p.loan);
   // A club that cannot field this position naturally is filling a hole, not
   // shopping (v1.89), and the two rules below are both about keeping ordinary
   // business tidy rather than about squad legality — so neither applies to it.
@@ -1131,7 +1133,7 @@ export function aiRecruitYouth(state: GameState, cfg: TuningConfig) {
   // sign the same prospect, and the strongest recruiters get first pick.
   const pool = activePlayers(state).filter(
     (p) =>
-      !p.clubId &&
+      isFreeAgent(p) &&
       !p.loan &&
       p.age <= cfg.aiYouthRecruitMaxAge &&
       p.potential - p.overall >= cfg.aiYouthRecruitMinHeadroom

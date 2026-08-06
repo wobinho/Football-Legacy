@@ -845,32 +845,72 @@ export const STAFF_HIRE_MAX_AGE = 35;
 export const STAFF_MAX_AGE = 65;
 
 /**
- * How rare a candidate arriving WITH a prior-club badge is.
+ * How rare a candidate arriving WITH a prior-club badge is (reworked v1.97).
  *
  * The market's job is to sell you stars; badges are what your own club grows.
  * A shortlist where a third of the names already hold a record makes the ten
- * seasons a legacy badge costs pointless — you'd just buy one. So the base
- * chance is small, experience within the (now narrow, 21–35) hiring band moves
- * it only a little, and the tier is capped hard: see `BADGE_HIRE_MAX_TIER`.
+ * seasons a legacy badge costs pointless — you'd just buy one.
+ *
+ * The odds are now stated DIRECTLY, one probability per tier, rather than
+ * derived from a "does he have one at all" roll and then a capped season draw.
+ * That predecessor could only ever express "rare, and rarer above silver" as two
+ * gates plus a hard ceiling, so the actual chance of meeting a gold hire wasn't
+ * readable anywhere — you had to multiply a base rate by an age term by a star
+ * term by a cap roll by a uniform draw over seasons. Here it's the table:
+ *
+ *   bronze 3%  ·  silver 2%  ·  gold 1%  ·  diamond 0.5%  ·  obsidian 0.25%
+ *   ·  legacy 0.1%      — 6.85% of candidates hold a badge at all.
+ *
+ * Obsidian and legacy are reachable on the market now, which reverses the old
+ * `BADGE_HIRE_ABSOLUTE_MAX_TIER` rule (deleted). At 1-in-400 and 1-in-1000 a
+ * top-tier hire is rarer than the old "gold is a genuine event" case ever was,
+ * so the ladder is no more purchasable than before — the ceiling was doing the
+ * work a small number does better.
+ *
+ * Nothing about the candidate moves these odds. The old experience and star
+ * terms were near-inert by construction (the hiring band is only 21–35, so the
+ * age term spanned a few points of a percent) and they made a badge read as a
+ * property of the person rather than as luck of the shortlist.
  */
-export const BADGE_HIRE_BASE_CHANCE = 0.03;
-/** Added across the full hiring age band (21 → 35). */
-export const BADGE_HIRE_EXPERIENCE_CHANCE = 0.05;
-/** Added per star above `STAFF_MIN_STARS`. */
-export const BADGE_HIRE_STAR_CHANCE = 0.01;
+export const BADGE_HIRE_TIER_CHANCE: Record<BadgeTier, number> = {
+  bronze: 0.03,
+  silver: 0.02,
+  gold: 0.01,
+  diamond: 0.005,
+  obsidian: 0.0025,
+  legacy: 0.001,
+};
 
 /**
- * The best tier the market will ever offer, and the odds of clearing the bar.
+ * Having earned one badge elsewhere, the chance of a second and a third.
  *
- * Silver is the ceiling in the ordinary case — two seasons somewhere else. A
- * gold-or-better hire exists (it should be a genuine event when one appears),
- * but it takes a second roll at `BADGE_HIRE_HIGH_TIER_CHANCE`, and even then
- * `BADGE_HIRE_ABSOLUTE_MAX_TIER` keeps `diamond` the hard ceiling — obsidian
- * and legacy have to be earned at your club, full stop.
+ * Conditional on the first, so a two-badge candidate is 6.85% × 10% ≈ 0.7% of
+ * the shortlist and a three-badge one 6.85% × 1% ≈ 0.07%. Someone who has served
+ * whole seasons at two different buildings for a previous employer is a career,
+ * not a candidate — it should be a thing you notice.
  */
-export const BADGE_HIRE_MAX_TIER: BadgeTier = "silver";
-export const BADGE_HIRE_HIGH_TIER_CHANCE = 0.08;
-export const BADGE_HIRE_ABSOLUTE_MAX_TIER: BadgeTier = "diamond";
+export const BADGE_HIRE_SECOND_CHANCE = 0.1;
+export const BADGE_HIRE_THIRD_CHANCE = 0.01;
+
+/**
+ * The tier distribution for the SECOND and THIRD badges — relative weights,
+ * normalised at the point of use, so they read as the shares they are.
+ *
+ * Flatter and far more bottom-heavy than the first-badge table, and
+ * deliberately a different shape: the first badge answers "does this candidate
+ * have a record at all", where the honest answer is almost always no. Once he
+ * demonstrably does, the question is only which tier the extra one is, and a
+ * long second career is much likelier to have been a short spell somewhere than
+ * another decade. 40/30/20/5/2.5/1 bronze → legacy.
+ */
+export const BADGE_HIRE_EXTRA_TIER_WEIGHT: Record<BadgeTier, number> = {
+  bronze: 40,
+  silver: 30,
+  gold: 20,
+  diamond: 5,
+  obsidian: 2.5,
+  legacy: 1,
+};
 
 /** Cumulative seasons a tier is worth — the ladder read backwards, used to turn
  * a tier cap into the season cap that produces it. */

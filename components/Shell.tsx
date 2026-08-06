@@ -93,7 +93,7 @@ export default function Shell() {
         }`}
       >
         <div className="flex items-center gap-2.5 p-4">
-          <Crest colors={team.colors} short={team.short} size={34} />
+          <Crest team={team} size={34} />
           <div className="min-w-0 flex-1">
             <div className="display truncate text-sm font-bold leading-tight">{team.name}</div>
             <div className="flex items-center gap-1.5 text-[11px] text-faint">

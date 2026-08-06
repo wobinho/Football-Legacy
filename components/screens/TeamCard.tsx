@@ -5,8 +5,14 @@
 // squad (each player opens the full profile). Read-only: it's a scouting glance
 // at any club in the world, not a management surface.
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
+import { badgeFor, type BadgeSpec } from "@/lib/visual/badge";
+import { kitsFor, type KitSet } from "@/lib/visual/kit";
+import { ClubKit } from "../visual/ClubKit";
+import { ClubBadge } from "../visual/ClubBadge";
+import { BadgeCreator } from "../visual/BadgeCreator";
+import { KitCreator } from "../visual/KitCreator";
 import { computeTable } from "@/lib/season";
 import { formatDayShort } from "@/lib/calendar";
 import { POS_ORDER, POS_GROUP, POS_GROUP_COLORS, type PosGroup } from "@/lib/config/positions";
@@ -15,7 +21,7 @@ import { getFormation } from "@/lib/config/formations";
 import { squadWageBill } from "@/lib/value";
 import { TUNING } from "@/lib/config/tuning";
 import type { Fixture } from "@/lib/types";
-import { BackButton, Card, Crest, Flag, Money, Ovr, ArchetypeLabel, PosBadge, useEscapeKey } from "../ui";
+import { BackButton, Card, Crest, Flag, GhostButton, GoldButton, Money, Ovr, ArchetypeLabel, PosBadge, Tabs, useEscapeKey } from "../ui";
 
 // Plural department names for the strength tiles. POS_GROUP_COLORS carries the
 // singular ("Goalkeeper"), which is right for a legend and wrong for a column
@@ -51,14 +57,48 @@ export default function TeamCard({ teamId, onClose }: { teamId?: string; onClose
 
 function TeamCardBody({ teamId, onClose }: { teamId: string; onClose: () => void }) {
   const game = useGame((s) => s.game)!;
-  useGame((s) => s.rev);
+  const rev = useGame((s) => s.rev);
   const viewPlayer = useGame((s) => s.viewPlayer);
+  const saveIdentity = useGame((s) => s.setClubIdentity);
   const canBack = useGame((s) => s.overlayStack.length > 0);
   const back = useGame((s) => s.overlayBack);
   useEscapeKey(onClose);
 
   const team = game.teams[teamId];
   const league = game.leagues[team.leagueId];
+
+  // Identity (v1.97). The card was read-only by design — a scouting glance, not
+  // a management surface — and that still holds for everything the simulation
+  // reads. A crest and a kit are the exception: nothing in the engine reads
+  // either, so editing one here changes no result, and the club card is where a
+  // manager is already looking at the club whose shirt he wants to fix.
+  const [editing, setEditing] = useState<null | "badge" | "kits">(null);
+  const [draftBadge, setDraftBadge] = useState<BadgeSpec | null>(null);
+  const [draftKits, setDraftKits] = useState<KitSet | null>(null);
+
+  // `rev` is in the deps because the store mutates `team` in place — the object
+  // identity is unchanged across a commit, so `team` alone never invalidates.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const liveBadge = useMemo(() => badgeFor(team), [team, rev]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const liveKits = useMemo(() => kitsFor(team), [team, rev]);
+  const shownBadge = draftBadge ?? liveBadge;
+  const shownKits = draftKits ?? liveKits;
+  const dirty = draftBadge !== null || draftKits !== null;
+
+  const commitIdentity = () => {
+    saveIdentity(
+      teamId,
+      { ...(draftBadge ? { badge: draftBadge } : {}), ...(draftKits ? { kits: draftKits } : {}) },
+      { allowAny: true }
+    );
+    setDraftBadge(null);
+    setDraftKits(null);
+  };
+  const revertIdentity = () => {
+    setDraftBadge(null);
+    setDraftKits(null);
+  };
 
   const squad = useMemo(
     () =>
@@ -151,7 +191,14 @@ function TeamCardBody({ teamId, onClose }: { teamId: string; onClose: () => void
       role="dialog"
       aria-modal="true"
     >
-      <div className="relative my-auto w-full max-w-2xl rounded-lg border border-line bg-surface p-5 shadow-2xl">
+      {/* The card widens while the identity editor is open: the creators are a
+          two-column layout (preview + controls) that folds to one at 2xl, which
+          puts a 168px crest above a scrolling wall of swatches. */}
+      <div
+        className={`relative my-auto w-full rounded-lg border border-line bg-surface p-5 shadow-2xl ${
+          editing ? "max-w-5xl" : "max-w-2xl"
+        }`}
+      >
         {/* The ✕ (and Escape) dismiss the card — a backdrop click no longer
             does, so a stray click can't close it. ← steps back to whatever
             overlay the user opened this club FROM (v1.91), and only appears
@@ -169,8 +216,10 @@ function TeamCardBody({ teamId, onClose }: { teamId: string; onClose: () => void
         </div>
 
         {/* header */}
-        <div className="mb-5 flex items-center gap-4 rounded-lg border border-line bg-raised p-5 pr-14 sm:pr-28">
-          <Crest colors={team.colors} short={team.short} size={56} />
+        <div className="mb-3 flex items-center gap-4 rounded-lg border border-line bg-raised p-5 pr-14 sm:pr-28">
+          {/* Through the spec rather than <Crest team>, so the header follows
+              the draft while the editor is open. */}
+          <ClubBadge spec={shownBadge} size={56} title={`${team.name} badge`} />
           <div className="min-w-0 flex-1">
             <div className="display text-2xl font-bold leading-tight">{team.name}</div>
             <div className="mt-0.5 flex flex-wrap items-center gap-2 text-sm text-dim">
@@ -188,6 +237,83 @@ function TeamCardBody({ teamId, onClose }: { teamId: string; onClose: () => void
               <span>{team.stadium}</span>
             </div>
           </div>
+        </div>
+
+        {/* KITS — the three outfield shirts (v1.97). The keeper is deliberately
+            not on the strip: a club card is about the team you'd face, and the
+            three a referee chooses between are that. The full set is in the
+            editor below, where it is a thing being designed rather than a thing
+            being read. */}
+        <div className="mb-5 rounded-lg border border-line bg-raised p-3">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-end gap-4">
+              {(["home", "away", "third"] as const).map((slot) => (
+                <div key={slot} className="text-center">
+                  <ClubKit spec={shownKits[slot]} size={54} badge={shownBadge} title={`${team.name} ${slot} kit`} />
+                  <div className="display mt-1 text-[9px] uppercase tracking-wider text-faint">{slot}</div>
+                </div>
+              ))}
+            </div>
+            <div className="flex-1" />
+            <div className="flex flex-wrap items-center gap-2">
+              {(team.badge || team.kits) && !dirty && (
+                <GhostButton
+                  title="Discard the authored crest and kits — back to the ones this club's name and colours generate"
+                  onClick={() => saveIdentity(teamId, { badge: undefined, kits: undefined }, { allowAny: true })}
+                >
+                  Reset
+                </GhostButton>
+              )}
+              <GhostButton
+                onClick={() => {
+                  revertIdentity();
+                  setEditing(editing ? null : "badge");
+                }}
+              >
+                {editing ? "Close editor" : "Edit identity"}
+              </GhostButton>
+            </div>
+          </div>
+
+          {editing && (
+            <div className="mt-4 border-t border-line pt-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <Tabs
+                  className="!mb-0 !border-0"
+                  tabs={[
+                    { id: "badge" as const, label: "Badge" },
+                    { id: "kits" as const, label: "Kits" },
+                  ]}
+                  active={editing}
+                  onChange={setEditing}
+                />
+                <div className="flex items-center gap-2">
+                  {dirty && <GhostButton onClick={revertIdentity}>Discard</GhostButton>}
+                  <GoldButton
+                    onClick={commitIdentity}
+                    disabled={!dirty}
+                    title={dirty ? undefined : "Nothing has changed yet"}
+                  >
+                    Save identity
+                  </GoldButton>
+                </div>
+              </div>
+              {editing === "badge" ? (
+                <BadgeCreator
+                  value={shownBadge}
+                  onChange={setDraftBadge}
+                  club={{ name: team.name, short: team.short, colors: team.colors }}
+                />
+              ) : (
+                <KitCreator
+                  value={shownKits}
+                  onChange={setDraftKits}
+                  badge={shownBadge}
+                  club={{ name: team.name, short: team.short, colors: team.colors }}
+                />
+              )}
+            </div>
+          )}
         </div>
 
         {/* stats */}
@@ -287,7 +413,7 @@ function TeamCardBody({ teamId, onClose }: { teamId: string; onClose: () => void
                       {badge}
                     </span>
                     <span className="w-10 shrink-0 text-[10px] uppercase text-faint">{home ? "vs" : "at"}</span>
-                    <Crest colors={opp.colors} short={opp.short} size={16} />
+                    <Crest team={opp} size={16} />
                     <span className="min-w-0 flex-1 truncate">{opp.name}</span>
                     <span className="shrink-0 tnum text-[10px] text-faint">{formatDayShort(f.day)}</span>
                     <span className="display w-12 shrink-0 text-center tnum font-semibold">

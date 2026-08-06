@@ -32,7 +32,7 @@ const VISIBLE_DIVISION_TABS = 4;
 function TeamCrest({ game, teamId, size = 16 }: { game: GameState; teamId?: string; size?: number }) {
   const t = teamId ? game.teams[teamId] : undefined;
   if (!t) return null;
-  return <Crest colors={t.colors} short={t.short} size={size} />;
+  return <Crest team={t} size={size} />;
 }
 
 /**
@@ -345,7 +345,7 @@ export default function SeasonDetailModal({ summary, onClose }: { summary: Seaso
                   <td className={`py-1.5 pl-3 tnum ${i === 0 ? "gold-text font-bold" : "text-faint"}`}>{i + 1}</td>
                   <td className="min-w-0 py-1.5">
                     <span className={`flex min-w-0 items-center gap-2 ${mine ? "font-semibold" : ""}`}>
-                      {t && <Crest colors={t.colors} short={t.short} size={18} />}
+                      {t && <Crest team={t} size={18} />}
                       <span className="truncate">{t?.name ?? row.teamId}</span>
                     </span>
                   </td>

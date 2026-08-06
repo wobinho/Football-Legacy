@@ -2,7 +2,7 @@
 // Every balance number lives here. Tuning never means editing engine code.
 // Adjust only via the calibration harness (npm run calibrate).
 
-import type { Mentality, ProspectTier, ScoutTravelBand, Style } from "../types";
+import type { GcnExecRole, Mentality, ProspectTier, ScoutTravelBand, Style } from "../types";
 
 /** How far a club went in a European cup — the axis the continental prize table
  * is keyed on. Every qualifier banks at least the `groupStage` figure. */
@@ -1672,6 +1672,123 @@ export interface TuningConfig {
    * good players, which is the opposite of what owning it should mean. */
   gcnSimWageFactor: number;
 
+  // ── Global Executives (v1.95) ─────────────────────────────────────────────
+  // Three seats, each driving exactly one network-wide channel. The scaling
+  // mirrors the club facility system on purpose — a base for holding the seat at
+  // all, a per-star term, and a per-badge-tier term — because it is the same
+  // idea ("who is in the job, and how long have they been in it") at network
+  // scale, and one vocabulary is worth more than a bespoke curve here.
+  //
+  // Every effect below is a PERCENT. The split between the stars term and the
+  // badge term is the design's load-bearing part: an executive you hire today at
+  // 5 stars gets most of the way, and the last stretch is only available to one
+  // you KEEP. That is what makes a ten-season appointment a bet worth taking,
+  // and it is asserted by `verify:gcn`.
+  /** Effect for holding the seat at all, before stars or badges. */
+  gcnExecBaseEffect: Record<GcnExecRole, number>;
+  /** Effect per star (1–5), so a 5-star hire is worth 5× this. */
+  gcnExecStarEffect: Record<GcnExecRole, number>;
+  /** Effect per single badge tier held in the seat (bronze 1 … legacy 6). */
+  gcnExecBadgeEffect: Record<GcnExecRole, number>;
+  /** Seasons served for each badge tier — the executive's own ladder. Kept
+   * separate from the club staff ladder because an executive serves the NETWORK
+   * and there is only one seat: the tiers have to be reachable inside one
+   * career, which the facility ladder (10 seasons at one building, competing
+   * with two other badge slots) is not designed for. */
+  gcnExecBadgeSeasons: number[];
+  /** Weekly wage of a 1-star executive, and what each further star adds. Paid
+   * from the treasury, never a club budget. */
+  gcnExecWageBase: number;
+  gcnExecWagePerStar: number;
+  /** What a badge tier the candidate ARRIVES with adds to their weekly wage.
+   * Pedigree is bought, not given. */
+  gcnExecWagePerBadgeTier: number;
+  /** One-off signing fee as a multiple of the weekly wage. */
+  gcnExecFeeWeeks: number;
+  /** How many candidates the shortlist holds per seat. Small on purpose: this is
+   * an elite market, not a job board. */
+  gcnExecMarketPerRole: number;
+  /** Star distribution on the executive market, as cumulative weights from 1★ up.
+   * Weighted toward the middle — a 5-star director is a genuine find. */
+  gcnExecMarketStarWeights: number[];
+  /** Chance a candidate arrives carrying a badge at all, and the ceiling on what
+   * that badge may be. As with club staff, the top of the ladder is only ever
+   * EARNED: an executive who has served a legacy term is not on the market. */
+  gcnExecBadgeHireChance: number;
+  gcnExecBadgeHireMaxSeasons: number;
+
+  // ── International Scouting Hubs (v1.95) ───────────────────────────────────
+  // The end-game counterpart to club scouting. A hub is a BUILDING in one
+  // SCOUT_WORLD sub-region: bought once, upgraded by level, and thereafter
+  // filing reports continuously without a scout being sent anywhere.
+  //
+  // The whole point is that it out-finds the club academy, so the tier roll is
+  // biased upward by level rather than by a scout's judgement. What it costs is
+  // the treasury and the wait.
+  /** Cost to establish a hub, by the region's own difficulty band. A region the
+   * network already has a club in is cheaper — see `gcnHubPresenceDiscount`. */
+  gcnHubBuildCost: number;
+  /** Per-level upgrade costs after the build, index 0 = level 1 → 2. */
+  gcnHubUpgradeCost: number[];
+  gcnHubMaxLevel: number;
+  /** Weekly running cost per hub level, billed to the treasury. A hub is an
+   * ongoing commitment, not a one-off purchase — an empire of half-staffed hubs
+   * should hurt. */
+  gcnHubUpkeepPerLevel: number;
+  /** Discount on the build cost when the network already owns a club in that
+   * region's country. Local presence is the thing that makes a hub cheap to
+   * open, and it is the one rule tying the two halves of the network together. */
+  gcnHubPresenceDiscount: number;
+  /** Days between report batches at level 1, and what each further level cuts. */
+  gcnHubReportDays: number;
+  gcnHubReportDaysPerLevel: number;
+  /** How many prospects one batch may contain, at level 1 and per level above. */
+  gcnHubBatchBase: number;
+  gcnHubBatchPerLevel: number;
+  /** The hub's tier roll (v1.95). A hub rolls on the same prospect ladder the
+   * club academy does, but the roll is shifted UP by its level — that shift is
+   * the whole reason to build one. Expressed as an effective judgement so the
+   * roll goes through `rollProspectTier`, the one function that decides a tier:
+   * a second tier-rolling routine here would be a second answer to one question.
+   *
+   * `base` is what a level-1 hub rolls at, and it deliberately equals a good
+   * club scout's judgement rather than beating it — a hub's edge at level 1 is
+   * VOLUME and continuity, and quality is what the levels buy. */
+  gcnHubJudgementBase: number;
+  gcnHubJudgementPerLevel: number;
+  /** Signing fee multiplier on a hub find, applied to the ordinary
+   * `prospectSignFeeByTier` price. Above 1: the network pays a premium for
+   * getting there first, which is what stops a hub being a cheaper academy. */
+  gcnHubSignFeeFactor: number;
+  /** Days a hub report stays live before the trail goes cold. */
+  gcnHubReportExpiryDays: number;
+  /** Age band a hub finds in. The same 13–17 band the club academy scouts, so
+   * the two pipelines are comparable and neither is quietly finding a different
+   * kind of player. */
+  gcnHubProspectAgeMin: number;
+  gcnHubProspectAgeMax: number;
+  /** How many prospects a hub may hold on its books at once, per level. Full,
+   * the hub keeps scouting but nothing more can be signed until a prospect is
+   * placed at a club, promoted, or released. */
+  gcnHubCapacityPerLevel: number;
+  /** Growth multiplier a prospect gets for developing AT a hub, at level 1 and
+   * per level above. This is the "you can develop them here" half of the feature
+   * and the reason to leave a prospect in place rather than move him at once.
+   *
+   * It sits ABOVE the club academy's own multiplier deliberately: a hub is the
+   * end-game version, and it costs a treasury to build where an academy comes
+   * free with the club. */
+  gcnHubGrowthBase: number;
+  gcnHubGrowthPerLevel: number;
+  /** Weekly wage per hub prospect, billed to the treasury. Flat rather than
+   * badge-scaled (the academy's own wages are badge-scaled): at hub scale the
+   * decision is how many to carry, not which. */
+  gcnHubProspectWage: number;
+  /** Age at which a hub prospect must be placed, promoted or released — the same
+   * age the club academy ages out at, so a prospect's clock doesn't change
+   * meaning depending on which pipeline found him. */
+  gcnHubMaxAge: number;
+
   // ── AI club solvency (v1.64) ──
   // AI clubs were running multi-million weekly wage bills against tier income
   // that could never cover them. Two subsidies keep the world's clubs solvent.
@@ -3075,6 +3192,79 @@ export const TUNING: TuningConfig = {
   gcnSimIncomeRepPivot: 70,
   gcnSimIncomeRepPower: 2.4,
   gcnSimWageFactor: 0.8,
+
+  // ── Global Executives (v1.95) ──
+  // Read the three rows together: the ceiling of each seat is
+  // base + 5×star + 6×badge, and the split is what the design is about.
+  //   football  — 3 + 5×1.4 + 6×1.5 = 19.0% at the absolute top, of which a
+  //               brand-new 5-star hire can reach 10.0% and the other 9.0% is
+  //               only ever earned by keeping someone for a decade.
+  //   commerce  — 5 + 5×3.0 + 6×3.5 = 41.0% on the network's passive income.
+  //               The biggest headline number, and it should be: it multiplies
+  //               a track the manager already chose to buy, so it pays back an
+  //               investment rather than handing out money.
+  //   scouting  — 4 + 5×2.2 + 6×2.4 = 29.4% off hub costs and onto hub speed.
+  // Football is the smallest because it touches EVERY player at EVERY owned club
+  // and lands on the same effective-rating lever the tactics tables use — a
+  // fifth of a rating point across an empire is already an enormous edge, and
+  // anything larger makes buying clubs strictly better than managing one.
+  gcnExecBaseEffect: { football: 3, commerce: 5, scouting: 4 },
+  gcnExecStarEffect: { football: 1.4, commerce: 3.0, scouting: 2.2 },
+  gcnExecBadgeEffect: { football: 1.5, commerce: 3.5, scouting: 2.4 },
+  // 1/2/4/6/9/13 seasons → bronze…legacy. Deliberately reachable inside one
+  // appointment (the club-staff ladder tops out at 10 seasons at ONE of three
+  // badge slots, which is a different bet) but long enough that a legacy
+  // executive is the mark of a save played out rather than a purchase.
+  gcnExecBadgeSeasons: [1, 2, 4, 6, 9, 13],
+  gcnExecWageBase: 40_000,
+  gcnExecWagePerStar: 55_000,
+  gcnExecWagePerBadgeTier: 30_000,
+  gcnExecFeeWeeks: 26,
+  gcnExecMarketPerRole: 4,
+  // Cumulative weights for 1★…5★: 5% / 20% / 45% / 80% / 100%. A 5-star
+  // candidate is a one-in-five sighting on a four-name shortlist.
+  gcnExecMarketStarWeights: [0.05, 0.2, 0.45, 0.8, 1],
+  gcnExecBadgeHireChance: 0.22,
+  // Caps an arriving badge at gold (6 seasons on the ladder above). Diamond and
+  // beyond are earned at YOUR network or not at all — the same rule the club
+  // staff market follows, and for the same reason: a ladder you can buy the top
+  // of is not a ladder.
+  gcnExecBadgeHireMaxSeasons: 6,
+
+  // ── International Scouting Hubs (v1.95) ──
+  // Priced against the rest of the end game: a club costs £250M to found and the
+  // unlock threshold is £5bn, so a hub at £180M is a real commitment that an
+  // established network can make several of. The upkeep is what stops it being a
+  // one-off purchase you forget about.
+  gcnHubBuildCost: 180_000_000,
+  gcnHubUpgradeCost: [120_000_000, 200_000_000, 320_000_000, 500_000_000],
+  gcnHubMaxLevel: 5,
+  gcnHubUpkeepPerLevel: 45_000,
+  gcnHubPresenceDiscount: 0.25,
+  // Level 1 files every ~24 days, level 5 every ~12 — roughly twice the cadence
+  // of a good club scout at the top, on top of running in a region permanently
+  // rather than for the length of a trip.
+  gcnHubReportDays: 24,
+  gcnHubReportDaysPerLevel: 3,
+  gcnHubBatchBase: 2,
+  gcnHubBatchPerLevel: 0.6,
+  // Judgement 3.0 at level 1 (a solid club scout) rising to 5.4 at level 5 —
+  // past anything hireable, which is the end-game promise. It is passed through
+  // `rollProspectTier` like any other judgement, so the elite-tier rates stay
+  // the single ladder the whole game rolls on.
+  gcnHubJudgementBase: 3.0,
+  gcnHubJudgementPerLevel: 0.6,
+  gcnHubSignFeeFactor: 1.6,
+  gcnHubReportExpiryDays: 30,
+  gcnHubProspectAgeMin: 13,
+  gcnHubProspectAgeMax: 17,
+  gcnHubCapacityPerLevel: 6,
+  // 1.35 at level 1 → 1.75 at level 5. The club academy's Youth Academy tops out
+  // well below this, which is the point of an end-game building.
+  gcnHubGrowthBase: 1.35,
+  gcnHubGrowthPerLevel: 0.1,
+  gcnHubProspectWage: 4_000,
+  gcnHubMaxAge: 21,
 
   // v1.67: both subsidies switched off — they were inflating AI budgets far
   // beyond anything the market could justify by the third season. Zero disables

@@ -16,6 +16,8 @@
 // content came from the library.
 
 import type { Attributes, Foot, Pos } from "./types";
+import type { BadgeSpec } from "./visual/badge";
+import type { KitSet } from "./visual/kit";
 import type { ClubSeed, PlayerSeed } from "./database";
 import { normalizeAttrs, uniformAttrs } from "./config/attributes";
 import { overallFromAttrs } from "./config/positions";
@@ -42,6 +44,10 @@ export interface LibraryClub {
   squadAvgOverall?: number;
   /** Starting transfer budget in pounds (v1.51). */
   budget?: number;
+  /** An authored crest and kit set (v1.96). Absent for a club nobody has
+   * designed — it still has both, derived from its name and colours. */
+  badge?: BadgeSpec;
+  kits?: KitSet;
   players?: PlayerSeed[];
   updatedAt: number;
 }
@@ -135,6 +141,8 @@ export function libraryClubToSeed(c: LibraryClub): ClubSeed {
     ...(c.squadQuality !== undefined ? { squadQuality: c.squadQuality } : {}),
     ...(c.squadAvgOverall !== undefined ? { squadAvgOverall: c.squadAvgOverall } : {}),
     ...(c.budget !== undefined ? { budget: c.budget } : {}),
+    ...(c.badge ? { badge: c.badge } : {}),
+    ...(c.kits ? { kits: c.kits } : {}),
     ...(c.players && c.players.length ? { players: c.players.map((p) => ({ ...p })) } : {}),
   };
 }
@@ -216,6 +224,8 @@ export function seedToLibraryClub(seed: ClubSeed): LibraryClub {
     ...(seed.squadQuality !== undefined ? { squadQuality: seed.squadQuality } : {}),
     ...(seed.squadAvgOverall !== undefined ? { squadAvgOverall: seed.squadAvgOverall } : {}),
     ...(seed.budget !== undefined ? { budget: seed.budget } : {}),
+    ...(seed.badge ? { badge: seed.badge } : {}),
+    ...(seed.kits ? { kits: seed.kits } : {}),
     ...(seed.players?.length ? { players: seed.players.map((p) => ({ ...p })) } : {}),
     updatedAt: Date.now(),
   };

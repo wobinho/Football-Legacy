@@ -290,7 +290,7 @@ export default function CreateClubModal({
                   replaceIndex === i ? "border-gold bg-hover" : "border-line bg-surface hover:bg-hover"
                 }`}
               >
-                <Crest colors={c.colors} short={c.short} size={24} />
+                <Crest team={c} size={24} />
                 <div className="min-w-0">
                   <div className="truncate text-[13px] font-medium">{c.name}</div>
                   <div className="text-[10px] text-faint">Rep {c.rep}</div>

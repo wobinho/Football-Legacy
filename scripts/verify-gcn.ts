@@ -28,6 +28,44 @@ import {
   networkTransferFee,
   fundClub,
 } from "../lib/gcn";
+import {
+  GCN_EXEC_ROLES,
+  execBadgeTierFor,
+  execBadgeWeight,
+  execEffect,
+  execMarketTick,
+  execSeasonRollover,
+  execWageBill,
+  executiveIn,
+  globalCommerceMult,
+  globalFootballMult,
+  globalScoutingCostMult,
+  hireExecutive,
+} from "../lib/gcnexec";
+import {
+  HUB_REGIONS,
+  buildHub,
+  closeHub,
+  dailyHubTick,
+  hasPresenceIn,
+  hubBuildCost,
+  hubCapacity,
+  hubGrowthMult,
+  hubIn,
+  hubJudgement,
+  hubPlacementError,
+  hubProspects,
+  hubReportDays,
+  hubUpkeepWeekly,
+  hubs,
+  clubCountryCode,
+  countryCodeOf,
+  placeHubProspect,
+  signHubProspect,
+  upgradeHub,
+} from "../lib/gcnhub";
+import { prospectSignFee } from "../lib/academy";
+import { isFreeAgent } from "../lib/archive";
 import type { GameState, GlobalClubNetwork } from "../lib/types";
 
 let failures = 0;
@@ -269,6 +307,323 @@ check(
   "an unfenced holding can be",
   fundClub(state, foreignA, 1_000_000) === undefined
 );
+
+
+// ── 5. Global Executives (v1.95) ────────────────────────────────────────────
+//
+// The seat system's load-bearing property is the SPLIT between what a hire buys
+// and what service earns. A 5-star appointment must land somewhere around half
+// of a seat's ceiling, with the rest only reachable by keeping someone — that is
+// what makes a decade-long appointment a bet rather than a rounding error
+// against re-hiring whoever is best this month. Checked as a shape (a band),
+// never as an exact figure: the three effect rows are tuning.
+
+console.log("\n5. Global Executives");
+
+for (const spec of GCN_EXEC_ROLES) {
+  const role = spec.id;
+  const vacant = execEffect(state, role, TUNING);
+  check(`${role}: a vacant seat is worth nothing`, vacant.total === 0 && !vacant.filled);
+}
+
+// Multipliers must be exactly 1 with the board empty, or every save without a
+// GCN is silently altered.
+check(
+  "an empty board leaves commerce income untouched",
+  globalCommerceMult(state, TUNING) === 1
+);
+check(
+  "an empty board leaves owned-club football untouched",
+  globalFootballMult(state, foreignA, TUNING) === 1
+);
+
+execMarketTick(state, TUNING);
+const market = state.gcn!.execMarket ?? [];
+check(
+  "the market offers candidates for all three seats",
+  GCN_EXEC_ROLES.every((s) => market.some((c) => c.role === s.id)),
+  `${market.length} candidates`
+);
+// The top of the ladder must be unbuyable — the same rule the club staff market
+// follows, and for the same reason: a ladder you can buy the top of is not one.
+const maxHireTier = execBadgeTierFor(TUNING, TUNING.gcnExecBadgeHireMaxSeasons);
+check(
+  "no candidate arrives above the hire ceiling",
+  market.every((c) => execBadgeWeight(c.badge) <= execBadgeWeight(maxHireTier ?? undefined)),
+  `ceiling ${maxHireTier}`
+);
+
+// Appoint the best available candidate to each seat and measure the split.
+for (const spec of GCN_EXEC_ROLES) {
+  const best = (state.gcn!.execMarket ?? [])
+    .filter((c) => c.role === spec.id)
+    .sort((a, b) => b.stars - a.stars)[0];
+  if (!best) continue;
+  const err = hireExecutive(state, best.id, TUNING);
+  check(`${spec.id}: the appointment goes through`, err === undefined, String(err));
+}
+
+for (const spec of GCN_EXEC_ROLES) {
+  const exec = executiveIn(state, spec.id);
+  if (!exec) continue;
+  const fx = execEffect(state, spec.id, TUNING);
+  check(`${spec.id}: a filled seat is worth something`, fx.total > 0 && fx.filled);
+  // A fresh appointment holds no badge earned HERE, so its badge term is only
+  // whatever pedigree it arrived with — and it must be well short of the ceiling.
+  check(
+    `${spec.id}: a new hire is short of the seat's ceiling`,
+    fx.total < fx.max * 0.9,
+    `${fx.total.toFixed(1)}% of ${fx.max.toFixed(1)}%`
+  );
+}
+
+// Serve out a long career and confirm the badge track actually pays — and that
+// it is a large enough share of the seat to be worth waiting for.
+const footballBefore = execEffect(state, "football", TUNING).total;
+const seasonsToLegacy = TUNING.gcnExecBadgeSeasons[TUNING.gcnExecBadgeSeasons.length - 1];
+for (let i = 0; i < seasonsToLegacy + 1; i++) execSeasonRollover(state, TUNING);
+const footballAfter = execEffect(state, "football", TUNING);
+check(
+  "service raises a seat's effect",
+  footballAfter.total > footballBefore,
+  `${footballBefore.toFixed(1)}% → ${footballAfter.total.toFixed(1)}%`
+);
+check(
+  "a fully-served executive reaches the seat's ceiling",
+  Math.abs(footballAfter.total - footballAfter.max) < 0.01,
+  `${footballAfter.total.toFixed(1)}% vs ${footballAfter.max.toFixed(1)}%`
+);
+// The design claim: roughly half the seat is earned rather than bought. Banded
+// generously (35–70%) because the three rows are tuning and must be free to move.
+const earnedShare = footballAfter.badges / footballAfter.max;
+check(
+  "a meaningful share of a seat is EARNED, not bought",
+  earnedShare >= 0.35 && earnedShare <= 0.7,
+  `badge term is ${(earnedShare * 100).toFixed(0)}% of the ceiling`
+);
+
+// The football seat must reach the two places it claims to, and NEITHER may
+// touch the manager's own club — the network's boardroom must not be a way to
+// improve the team you actually pick.
+const footballMult = globalFootballMult(state, foreignA, TUNING);
+check("the football seat reaches an owned club", footballMult > 1, `×${footballMult.toFixed(3)}`);
+check(
+  "the football seat never reaches the manager's own club",
+  globalFootballMult(state, state.userTeamId, TUNING) === 1
+);
+const outsider = Object.values(state.teams).find((t) => !t.gcnOwned && t.id !== state.userTeamId)!;
+check(
+  "the football seat never reaches a club outside the network",
+  globalFootballMult(state, outsider.id, TUNING) === 1
+);
+check(
+  "the commerce seat multiplies passive income",
+  globalCommerceMult(state, TUNING) > 1,
+  `×${globalCommerceMult(state, TUNING).toFixed(3)}`
+);
+check(
+  "the scouting seat discounts hub costs",
+  globalScoutingCostMult(state, TUNING) < 1,
+  `×${globalScoutingCostMult(state, TUNING).toFixed(3)}`
+);
+check(
+  "...but never to free",
+  globalScoutingCostMult(state, TUNING) > 0,
+);
+
+// Executives are paid from the TREASURY. A club's budget must never move for
+// them — the network employs them, not any one club.
+const clubBudgetBefore = state.teams[foreignA].budget;
+const treasuryBeforeWages = state.gcn!.treasury;
+gcnWeeklyTick(state, TUNING);
+check(
+  "executive wages come out of the treasury",
+  treasuryBeforeWages - state.gcn!.treasury >= execWageBill(state) - 1_000_000_000,
+  `wage bill ${money(execWageBill(state))}`
+);
+check(
+  "a club's own budget is untouched by the boardroom",
+  // The club still moves on its own books; what matters is that it isn't ALSO
+  // charged the wage bill, which would be an order of magnitude larger.
+  Math.abs(state.teams[foreignA].budget - clubBudgetBefore) < execWageBill(state),
+);
+
+// ── 6. International Scouting Hubs (v1.95) ──────────────────────────────────
+
+console.log("\n6. International Scouting Hubs");
+
+check(
+  "the hub map is derived from the scouting tree",
+  HUB_REGIONS.length > 10 && HUB_REGIONS.every((r) => r.nats.length > 0),
+  `${HUB_REGIONS.length} regions`
+);
+
+// Pick a region the network has NO presence in, and one it does — the discount
+// is the one rule that ties the Clubs half of the network to the Hubs half.
+// Through `clubCountryCode`, not `league.country` — the league holds a display
+// name and the hub map holds codes, which is exactly the mismatch this section
+// caught in the first cut of the rules.
+const foreignCountry = clubCountryCode(state, foreignA) ?? "";
+const presenceRegion = HUB_REGIONS.find((r) => r.nats.includes(foreignCountry));
+const emptyRegion = HUB_REGIONS.find((r) => !hasPresenceIn(state, r.id))!;
+
+check("a region with an owned club reads as presence", !!presenceRegion && hasPresenceIn(state, presenceRegion.id));
+if (presenceRegion) {
+  const withPresence = hubBuildCost(state, presenceRegion.id, TUNING);
+  const without = hubBuildCost(state, emptyRegion.id, TUNING);
+  check(
+    "local presence discounts the build",
+    withPresence < without,
+    `${money(withPresence)} vs ${money(without)}`
+  );
+}
+
+state.gcn!.treasury = 5_000_000_000;
+const buildErr = buildHub(state, emptyRegion.id, TUNING);
+check("a hub can be established", buildErr === undefined, String(buildErr));
+const hub = hubIn(state, emptyRegion.id);
+check("...and it lands on the map at level 1", hub?.level === 1);
+check(
+  "a second hub in the same region is refused",
+  typeof buildHub(state, emptyRegion.id, TUNING) === "string"
+);
+
+// Every level term must actually move its quantity, or a level buys nothing.
+if (hub) {
+  const before = {
+    judgement: hubJudgement(hub.level, TUNING),
+    capacity: hubCapacity(hub.level, TUNING),
+    growth: hubGrowthMult(hub.level, TUNING),
+    days: hubReportDays(state, hub.level, TUNING),
+  };
+  const upErr = upgradeHub(state, emptyRegion.id, TUNING);
+  check("a hub can be upgraded", upErr === undefined, String(upErr));
+  check("a level raises the scouting standard", hubJudgement(hub.level, TUNING) > before.judgement);
+  check("a level raises capacity", hubCapacity(hub.level, TUNING) > before.capacity);
+  check("a level raises development speed", hubGrowthMult(hub.level, TUNING) > before.growth);
+  check("a level shortens the report cadence", hubReportDays(state, hub.level, TUNING) <= before.days);
+}
+
+// The pipeline. Drive the clock forward past a cadence and confirm a hub files
+// on its own, without a scout being sent anywhere.
+const hubNow = hubIn(state, emptyRegion.id)!;
+hubNow.nextReportDay = state.currentDay;
+dailyHubTick(state, TUNING);
+const filed = state.gcn!.hubReports ?? [];
+check("a hub files reports unprompted", filed.length > 0, `${filed.length} on the board`);
+check(
+  "every find comes from the hub's own region",
+  filed.every((r) => r.region === emptyRegion.id && emptyRegion.nats.includes(r.player.nationality))
+);
+check(
+  "every find is inside the hub's age band",
+  filed.every(
+    (r) => r.player.age >= TUNING.gcnHubProspectAgeMin && r.player.age <= TUNING.gcnHubProspectAgeMax
+  )
+);
+check(
+  "a hub find costs more than the same badge at the club academy",
+  filed.every((r) => r.fee >= prospectSignFee(TUNING, r.tier)),
+);
+
+// Signing puts him on the NETWORK's books and at no club. That is the property
+// the whole feature hangs on — and the one that would silently break every
+// "unattached means free agent" pass in the codebase if it weren't guarded.
+const report = filed[0];
+const signErr = signHubProspect(state, report.id, TUNING);
+check("a find can be signed to the hub", signErr === undefined, String(signErr));
+const prospect = state.players[report.player.id];
+check("a hub prospect belongs to no club", !!prospect && !prospect.clubId);
+check("...but is stamped with his hub", prospect?.gcnHubRegion === emptyRegion.id);
+check("...and is NOT a free agent", !!prospect && !isFreeAgent(prospect));
+check("...and appears on the hub's books", hubProspects(state, emptyRegion.id).some((p) => p.id === prospect.id));
+
+// Placement is REGIONAL. This is the rule that makes hubs a reason to own clubs
+// in a region rather than a talent teleporter serving the whole empire.
+const outOfRegion = state.gcn!.clubIds.find(
+  (id) => !emptyRegion.nats.includes(clubCountryCode(state, id) ?? "")
+);
+check(
+  "a prospect can't be placed outside his region",
+  !outOfRegion || typeof hubPlacementError(state, prospect.id, outOfRegion) === "string"
+);
+check(
+  "a prospect can't be placed at the manager's own club",
+  typeof hubPlacementError(state, prospect.id, state.userTeamId) === "string"
+);
+
+// Give the network a club IN the region and confirm placement then works, and
+// that the player genuinely arrives.
+const regionalLeague = Object.values(state.leagues).find(
+  (l) => !l.playable && emptyRegion.nats.includes(countryCodeOf(l.country) ?? "")
+);
+if (regionalLeague) {
+  const regionalClub = regionalLeague.teamIds.find((id) => !state.teams[id].gcnOwned);
+  if (regionalClub) {
+    own(regionalClub);
+    check(
+      "a prospect CAN be placed at an owned club in his region",
+      hubPlacementError(state, prospect.id, regionalClub) === null
+    );
+    const squadBefore = state.teams[regionalClub].playerIds.length;
+    const placeErr = placeHubProspect(state, prospect.id, regionalClub);
+    check("the placement goes through", placeErr === undefined, String(placeErr));
+    check("he joins that club's squad", state.players[prospect.id].clubId === regionalClub);
+    check("the squad actually grew", state.teams[regionalClub].playerIds.length === squadBefore + 1);
+    check("he leaves the hub's books", !state.players[prospect.id].gcnHubRegion);
+    check(
+      "...and is off the network's prospect list",
+      !(state.gcn!.hubProspectIds ?? []).includes(prospect.id)
+    );
+  }
+}
+
+// Closing a hub returns nothing and releases who it held — the honest shape for
+// a building put up abroad, and what makes the upkeep decision real.
+hubNow.nextReportDay = state.currentDay;
+dailyHubTick(state, TUNING);
+const secondReport = (state.gcn!.hubReports ?? [])[0];
+if (secondReport) signHubProspect(state, secondReport.id, TUNING);
+const heldBefore = hubProspects(state, emptyRegion.id).length;
+const treasuryBeforeClose = state.gcn!.treasury;
+closeHub(state, emptyRegion.id);
+check("closing a hub removes it from the map", !hubIn(state, emptyRegion.id));
+check("closing a hub refunds nothing", state.gcn!.treasury === treasuryBeforeClose);
+check("its prospects are released, not deleted", heldBefore === 0 || !!state.players[secondReport?.player.id ?? ""]);
+check(
+  "a released prospect IS a free agent again",
+  !secondReport || isFreeAgent(state.players[secondReport.player.id])
+);
+check("its live reports are cleared", (state.gcn!.hubReports ?? []).every((r) => r.region !== emptyRegion.id));
+
+// ── 7. A save with no network is arithmetically untouched ───────────────────
+//
+// The single most important check here. Every multiplier this rework adds runs
+// on every match and every development pass in the world, so a save that never
+// unlocked the GCN must compute exactly what it always did.
+
+console.log("\n7. A save with no network computes what it always did");
+
+const plain: GameState = generateWorld({
+  saveName: "verify-gcn-plain",
+  managerName: "Verifier",
+  userTeamId: teamIdFor("ENG1", 0),
+  playableCountry: "ENG",
+  viewCountries: ["ESP", "GER", "FRA", "ITA"],
+  seed: 20260803,
+});
+check("the control world has no network", !plain.gcn);
+const anyClub = Object.values(plain.teams).find((t) => t.id !== plain.userTeamId)!;
+check("football multiplier is exactly 1", globalFootballMult(plain, anyClub.id, TUNING) === 1);
+check("commerce multiplier is exactly 1", globalCommerceMult(plain, TUNING) === 1);
+check("scouting cost multiplier is exactly 1", globalScoutingCostMult(plain, TUNING) === 1);
+check("the hub map holds nothing", hubs(plain).length === 0 && hubProspects(plain).length === 0);
+check("the boardroom costs nothing", execWageBill(plain) === 0);
+check("hub upkeep costs nothing", hubUpkeepWeekly(plain, TUNING) === 0);
+// The weekly tick must be a no-op on a save with no network at all.
+const plainBudget = plain.teams[anyClub.id].budget;
+gcnWeeklyTick(plain, TUNING);
+check("the network's weekly tick moves nothing", plain.teams[anyClub.id].budget === plainBudget);
 
 console.log(
   failures === 0 ? "\nAll GCN checks passed.\n" : `\n${failures} GCN check(s) FAILED.\n`

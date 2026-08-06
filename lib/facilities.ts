@@ -36,12 +36,10 @@ import type {
   Team,
 } from "./types";
 import {
-  BADGE_HIRE_ABSOLUTE_MAX_TIER,
-  BADGE_HIRE_BASE_CHANCE,
-  BADGE_HIRE_EXPERIENCE_CHANCE,
-  BADGE_HIRE_HIGH_TIER_CHANCE,
-  BADGE_HIRE_MAX_TIER,
-  BADGE_HIRE_STAR_CHANCE,
+  BADGE_HIRE_EXTRA_TIER_WEIGHT,
+  BADGE_HIRE_SECOND_CHANCE,
+  BADGE_HIRE_THIRD_CHANCE,
+  BADGE_HIRE_TIER_CHANCE,
   BADGE_LADDER,
   FACILITY_MAP,
   FACILITY_SPECS,
@@ -683,44 +681,78 @@ function staffName(rng: RNG): { name: string; nationality: string } {
   return { name: `${pick(rng, pool.first)} ${pick(rng, pool.last)}`, nationality: nat };
 }
 
+/** One tier drawn from a weight table, normalised here so the tables in
+ * `config/facilities.ts` can be written as the shares they describe. Returns
+ * null only if the table is empty or all-zero. */
+function pickTier(rng: RNG, weights: Record<BadgeTier, number>): BadgeTier | null {
+  const total = BADGE_LADDER.reduce((s, r) => s + (weights[r.tier] ?? 0), 0);
+  if (total <= 0) return null;
+  let roll = rng() * total;
+  for (const row of BADGE_LADDER) {
+    roll -= weights[row.tier] ?? 0;
+    if (roll < 0) return row.tier;
+  }
+  return BADGE_LADDER[BADGE_LADDER.length - 1].tier;
+}
+
 /**
- * Prior-club badges for a generated candidate — deliberately rare, and rarer
- * still above silver.
+ * Prior-club badges for a generated candidate — deliberately rare (v1.97).
  *
  * A badge on the market is a shortcut past the ten seasons the ladder asks for,
- * so it has to stay an event rather than a shopping option. Two gates do that,
- * and both live in `config/facilities.ts`:
+ * so it has to stay an event rather than a shopping option. The odds are stated
+ * per tier in `config/facilities.ts` and this function only rolls them:
  *
- *   1. A badge at all is roughly a 1-in-20 candidate — `BADGE_HIRE_BASE_CHANCE`
- *      plus small experience and star terms. The hiring band is now 21–35, so
- *      the experience term can't do much: nobody on the shortlist has had time
- *      for a long career elsewhere.
- *   2. The tier caps at `BADGE_HIRE_MAX_TIER` (silver) unless a second roll at
- *      `BADGE_HIRE_HIGH_TIER_CHANCE` clears, and even then
- *      `BADGE_HIRE_ABSOLUTE_MAX_TIER` (diamond) is the hard stop — obsidian and
- *      legacy are only ever earned at your own club.
+ *   1. Each tier gets its own independent shot at being the candidate's FIRST
+ *      badge (`BADGE_HIRE_TIER_CHANCE`; 6.85% in total). Rolled highest-first,
+ *      so a candidate who clears two of them gets the better one — the tiers
+ *      are a ladder, not six alternatives, and drawing gold means he'd have
+ *      passed through bronze on the way.
+ *   2. Only if one landed is a further badge rolled — 10% of badged candidates
+ *      hold a second and 1% a third (of which the third is the rarer case
+ *      inside the same 10%, so "two or more" is the 10% and "exactly two" is
+ *      9%). Their tiers come off the flatter `BADGE_HIRE_EXTRA_TIER_WEIGHT`
+ *      table, so a two-badge bronze-and-gold candidate is
+ *      3% × 10% × 20% ≈ 0.06% of the shortlist.
  *
- * A candidate's badge is only ever for a facility that EXISTS.
+ * Two constraints the tables can't express and this must hold: a badge is only
+ * ever for a facility that EXISTS, and a person holds at most one badge PER
+ * facility — the same rule the earning side enforces — so extra badges are
+ * placed at buildings he doesn't already hold one at, and simply don't happen
+ * if the world hasn't got enough facilities to put them in. `STAFF_BADGE_SLOTS`
+ * is the hard cap either way.
  */
-function generateBadges(rng: RNG, stars: number, age: number): StaffBadge[] {
-  const span = Math.max(1, STAFF_HIRE_MAX_AGE - STAFF_HIRE_MIN_AGE);
-  const experience = Math.min(1, Math.max(0, (age - STAFF_HIRE_MIN_AGE) / span)); // 0..1
-  const chance =
-    BADGE_HIRE_BASE_CHANCE +
-    experience * BADGE_HIRE_EXPERIENCE_CHANCE +
-    (stars - STAFF_MIN_STARS) * BADGE_HIRE_STAR_CHANCE;
-  if (rng() > chance) return [];
-  const spec = pick(rng, FACILITY_SPECS);
-  // The tier cap, as a season cap: the ordinary ceiling, or the rare one if the
-  // second roll clears. Never the top of the ladder either way.
-  const capTier = rng() < BADGE_HIRE_HIGH_TIER_CHANCE
-    ? BADGE_HIRE_ABSOLUTE_MAX_TIER
-    : BADGE_HIRE_MAX_TIER;
-  const maxSeasons = Math.max(1, seasonsForTier(capTier));
-  const seasons = randInt(rng, 1, maxSeasons);
-  const tier = badgeTierFor(seasons);
-  if (!tier) return [];
-  return [{ facility: spec.id, seasons, tier }];
+function generateBadges(rng: RNG): StaffBadge[] {
+  // Highest tier first: the best one he clears is the one he holds.
+  const first = [...BADGE_LADDER]
+    .reverse()
+    .find((row) => rng() < (BADGE_HIRE_TIER_CHANCE[row.tier] ?? 0))?.tier;
+  if (!first) return [];
+
+  const badges: StaffBadge[] = [];
+  const taken = new Set<FacilityId>();
+  const addAt = (tier: BadgeTier) => {
+    const open = FACILITY_SPECS.filter((s) => !taken.has(s.id));
+    if (open.length === 0) return;
+    const spec = pick(rng, open);
+    taken.add(spec.id);
+    badges.push({ facility: spec.id, seasons: seasonsForTier(tier), tier });
+  };
+
+  addAt(first);
+
+  // How MANY he ends up with, decided in one roll off the first badge rather
+  // than as a chain. The two constants are siblings — 1% of badged candidates
+  // hold three and 10% hold two, both measured against the same base — so
+  // rolling the third only after the second passed would put it at a tenth of
+  // its stated rate.
+  const roll = rng();
+  const extra = roll < BADGE_HIRE_THIRD_CHANCE ? 2 : roll < BADGE_HIRE_SECOND_CHANCE ? 1 : 0;
+  for (let i = 0; i < Math.min(extra, STAFF_BADGE_SLOTS - 1); i++) {
+    const tier = pickTier(rng, BADGE_HIRE_EXTRA_TIER_WEIGHT);
+    if (!tier) break;
+    addAt(tier);
+  }
+  return badges;
 }
 
 function generateCandidate(rng: RNG, tierMult: number): StaffCandidate {
@@ -729,7 +761,7 @@ function generateCandidate(rng: RNG, tierMult: number): StaffCandidate {
   // somewhere in a career, so a hire has decades of badge-earning ahead.
   const age = randInt(rng, STAFF_HIRE_MIN_AGE, STAFF_HIRE_MAX_AGE);
   const { name, nationality } = staffName(rng);
-  const badges = generateBadges(rng, stars, age);
+  const badges = generateBadges(rng);
   return {
     id: uid("stf"),
     name,
