@@ -67,16 +67,43 @@ export function resolveSimLeagues(state: GameState, half: 0 | 1 | 2, cfg: Tuning
     // baseline minutes for every sim player so the shared aging function sees
     // realistic usage (starters grow/decline like their playable peers)
     if (half === 2) {
+      // A sim league's mean quality, so a player's season rating can be scored
+      // against the standard he actually played at. Without it a 78-rated
+      // player rates the same in a weak division as in a strong one, which is
+      // the thing `leagueReputation` exists to say he shouldn't.
+      const all = league.teamIds.flatMap((tid) =>
+        state.teams[tid].playerIds.map((pid) => state.players[pid]).filter((p) => p && !p.retired)
+      );
+      const leagueMean =
+        all.length > 0 ? all.reduce((s, p) => s + p.overall, 0) / all.length : 65;
+
+      // Finishing position per club, so a good player in a winning side rates
+      // above the same player in a relegated one — the sim's counterpart to the
+      // playable engine's goal-difference and clean-sheet terms.
+      const finishShare = new Map<string, number>();
+      table.forEach((row, i) => finishShare.set(row.teamId, n > 1 ? 1 - i / (n - 1) : 0.5));
+
       for (const tid of league.teamIds) {
         const squad = state.teams[tid].playerIds
           .map((pid) => state.players[pid])
           .filter((p) => p && !p.retired)
           .sort((a, b) => b.overall - a.overall);
+        const finish = finishShare.get(tid) ?? 0.5;
         squad.forEach((p, i) => {
           const apps = i < 15 ? Math.round(22 + rng() * 10) : Math.round(4 + rng() * 10);
           p.stats.apps = Math.min(games, apps);
           p.stats.minutes = p.stats.apps * Math.round(60 + rng() * 25);
-          p.stats.ratingSum = p.stats.apps * (6.3 + rng() * 0.5);
+          // v2.0: the same three ideas the playable engine's ratings are built
+          // from — how good he is for this level, what his side achieved, and
+          // luck — rather than a flat 6.3–6.8 band that made every sim player
+          // interchangeable and left the two save-wide legacy awards (whose
+          // pool is every top flight in the world) decided by noise.
+          const quality = (p.overall - leagueMean) * cfg.simRatingPerOverall;
+          const success = (finish - 0.5) * cfg.simRatingFinishSwing;
+          const season = cfg.ratingBase + quality + success + randNormal(rng) * cfg.simRatingNoiseSd;
+          p.stats.ratingSum =
+            p.stats.apps *
+            Math.max(cfg.ratingMin, Math.min(cfg.ratingMax, season));
         });
       }
     }
@@ -114,13 +141,28 @@ export function resolveSimLeagues(state: GameState, half: 0 | 1 | 2, cfg: Tuning
       .map(([playerId, assists]) => ({ playerId, assists }));
 
     // write season stats onto sim players so profiles look alive
+    //
+    // v2.0: goals and assists now ADD to the rating the pass above already
+    // gave the player, rather than replacing it with a bare function of his
+    // goal tally. Replacing it threw away everything the season rating knew —
+    // how good he is for the level, what his side achieved — so the top scorer
+    // in a relegated side rated identically to the top scorer in the champions,
+    // and a 20-goal striker and a 20-goal one in a division 15 points weaker
+    // were the same candidate. Clamped exactly as the per-match ratings are.
+    const bump = (p: (typeof state.players)[string], add: number) => {
+      const cur = p.stats.apps > 0 ? p.stats.ratingSum / p.stats.apps : cfg.ratingBase;
+      p.stats.ratingSum =
+        p.stats.apps * Math.max(cfg.ratingMin, Math.min(cfg.ratingMax, cur + add));
+    };
     for (const [playerId, goals] of scorers) {
       const p = state.players[playerId];
       if (!p) continue;
       p.stats.goals = goals;
-      p.stats.apps = Math.min(games, Math.round(games * (0.6 + rng() * 0.35)));
-      p.stats.minutes = p.stats.apps * 78;
-      p.stats.ratingSum = p.stats.apps * (6.4 + Math.min(1.4, goals / 12));
+      if (p.stats.apps === 0) {
+        p.stats.apps = Math.min(games, Math.round(games * (0.6 + rng() * 0.35)));
+        p.stats.minutes = p.stats.apps * 78;
+      }
+      bump(p, Math.min(cfg.simRatingScorerMax, (goals / Math.max(1, p.stats.apps)) * cfg.ratingPerGoal));
     }
     for (const [playerId, assists] of assisters) {
       const p = state.players[playerId];
@@ -130,8 +172,11 @@ export function resolveSimLeagues(state: GameState, half: 0 | 1 | 2, cfg: Tuning
       if (p.stats.apps === 0) {
         p.stats.apps = Math.min(games, Math.round(games * (0.6 + rng() * 0.35)));
         p.stats.minutes = p.stats.apps * 78;
-        p.stats.ratingSum = p.stats.apps * (6.4 + Math.min(1.0, assists / 12));
       }
+      bump(
+        p,
+        Math.min(cfg.simRatingScorerMax, (assists / Math.max(1, p.stats.apps)) * cfg.ratingPerAssist)
+      );
     }
 
     const result: SimLeagueResult = { leagueId: league.id, season: state.season, half, table, topScorers, topAssists };

@@ -63,6 +63,12 @@ const body = () => page.locator("body").innerText();
 console.log("\nFacilities screen — locked state");
 await page.click("text=Facilities");
 await page.waitForTimeout(700);
+// v2.0: the facility list is split in two — "Your Facilities" holds what the
+// club has built and "Available" holds the site plans. A fresh club has built
+// nothing, so every check in this section lives on the second tab. Clicked by
+// its label rather than by index so a fourth tab wouldn't silently move it.
+await page.locator("button", { hasText: /^Available \(/i }).first().click();
+await page.waitForTimeout(500);
 await page.screenshot({ path: shot("01-locked.png"), fullPage: true });
 
 let text = await body();
@@ -80,9 +86,14 @@ check(
   "the Youth Academy names all three of its channels",
   /academy squad size/i.test(text) && /focus slots/i.test(text) && /prospect value/i.test(text)
 );
+// The pitch quotes what the money BUYS — the channel values at unlock (squad 20,
+// focus 4), not the unbuilt fallbacks (15 and 3) the club already has without
+// paying. This assertion said 15/3 and was stale from before the v1.87
+// re-laddering gave every channel a level term: the card had been quoting the
+// right numbers and the harness had been asserting the wrong ones.
 check(
-  "the Youth Academy's base effects are its brief's numbers",
-  /\b15\b/.test(text) && /\b3\b/.test(text)
+  "the Youth Academy's base effects are what the build buys",
+  /academy squad size\s*20/i.test(text) && /focus slots\s*4/i.test(text)
 );
 check("the Scouting Network is presented", /SCOUTING NETWORK/i.test(text));
 check(
@@ -95,10 +106,38 @@ check(
 );
 
 console.log("\nBuilding it");
-const buildBtn = page.locator("button", { hasText: /^Build/ }).first();
+// The ETC's OWN Build button, found through the card that names it, rather
+// than `Build` at page position 0. Every check from here on is about the Elite
+// Training Center by name — taking the first button on the page silently built
+// whichever facility the table happened to list first, so a re-ordering of
+// FACILITY_SPECS (or the v2.0 tab split, which changed which cards share a
+// page) left the rest of the drive asserting against a building it never built.
+// Each facility renders inside a `Section`, so that is the box to scope to —
+// `div` matched every ancestor as well, and `.last()` on those picks the
+// INNERMOST match, which sits below the Build button and contains no button
+// at all.
+const etcCard = page.locator("section").filter({ hasText: /ELITE TRAINING CENTER/i }).last();
+const buildBtn = etcCard.locator("button").filter({ hasText: /^Build/ }).first();
 check("Build is enabled for a club that can afford it", !(await buildBtn.isDisabled()));
 await buildBtn.click();
 await page.waitForTimeout(800);
+// Building it moves the card off Available and onto Your Facilities — which is
+// the whole point of the v2.0 split, and worth asserting rather than assuming.
+// The tab labels carry the counts, so the move is observable without leaving
+// the page; waited for rather than read straight off, since the click that
+// built it and React's re-render are not the same tick.
+// Matched case-INSENSITIVELY: the tab label is uppercased in CSS by the
+// `display` face, so `innerText` comes back "YOUR FACILITIES (1)" and a
+// case-sensitive regex on the label as written in the source finds nothing.
+const yourTab = page.locator("button", { hasText: /^Your Facilities \(/i }).first();
+await page.waitForFunction(
+  () => /Your Facilities \(1\)/i.test(document.body.innerText),
+  null,
+  { timeout: 5000 }
+).catch(() => {});
+check("building moves the card to Your Facilities", /Your Facilities \(1\)/i.test(await body()));
+await yourTab.click();
+await page.waitForTimeout(500);
 await page.screenshot({ path: shot("02-built.png"), fullPage: true });
 
 text = await body();
@@ -145,23 +184,59 @@ if (await hire.count()) {
   check("the hire lands on the roster", !text.includes("Nobody employed"));
   check("an unassigned hire is flagged as earning nothing", text.includes("Unassigned"));
 
-  const assign = page.locator("button", { hasText: /Elite Training Center/ }).last();
+  // The control is a plain "Assign", which opens the same facility picker the
+  // slot grid opens. It used to be one button per facility, named for it —
+  // this assertion still looked for that and had been failing since the
+  // control was reworked, which is exactly the selector rot the v1.98 note
+  // warns about.
+  const assign = page.locator("button", { hasText: /^Assign$/ }).first();
   check("an assign button is offered", (await assign.count()) > 0);
 
   if (await assign.count()) {
     await assign.click();
+    await page.waitForTimeout(500);
+    // Pick the facility out of the picker by name, so this drive still ends up
+    // at the Elite Training Center it built. `.first()`: the picker offers one
+    // row per built facility and there is exactly one, where `.last()` reached
+    // past the dialog to a stale match behind it.
+    const pick = page.locator("button", { hasText: /Elite Training Center/i }).first();
+    if (await pick.count()) await pick.click();
     await page.waitForTimeout(800);
     text = await body();
-    check("after assigning, they show as working at the facility", text.includes("Working at"));
+    // The roster row reads "Assigned to the Elite Training Center." — it said
+    // "Working at" when this assertion was written.
+    check(
+      "after assigning, they show as working at the facility",
+      /Assigned to the Elite Training Center/i.test(text)
+    );
     await page.screenshot({ path: shot("04-assigned.png"), fullPage: true });
 
     // NB: the sidebar nav also contains "Facilities", so match the tab button
-    // exactly rather than by substring.
-    await page.locator('button', { hasText: /^Facilities$/ }).first().click();
+    // by its own label rather than by substring. v2.0 renamed it "Your
+    // Facilities (n)" when the list was split in two.
+    await page.locator("button", { hasText: /^Your Facilities \(/i }).first().click();
     await page.waitForTimeout(800);
+    // The slot GRID is collapsed behind a disclosure, so the slots (and the
+    // "Stand down" / "Empty slot" controls in them) are not in the DOM until
+    // it is opened. The card's summary line — "1/2 filled · 1 free" — is what
+    // is visible without it, which is why the star-bar assertion below passed
+    // while every slot-level one failed: the assignment had worked all along.
+    check("the card summarises its slots while collapsed", /1\/2 filled/.test(await body()));
+    const disclosure = page.locator("button", { hasText: /STAFF SLOTS/i }).first();
+    if (await disclosure.count()) {
+      await disclosure.click();
+      await page.waitForTimeout(500);
+    }
     text = await body();
     check("the assigned staff member appears in a slot", text.includes("Stand down"));
-    check("badge progress is explained on the card", /for the next badge|No badge here yet/.test(text));
+    // A slot with no badge yet is an EMPTY CREST, not a sentence — so the copy
+    // that explains it lives in the mark's `aria-label`/`title` and never in
+    // `innerText`. This assertion tested the body text and could therefore
+    // never have passed since the crests replaced the text pills.
+    check(
+      "badge progress is explained on the card",
+      (await page.locator('[aria-label="No badge here yet"]').count()) > 0
+    );
     check("the star bar moved off zero once someone is in post", /[1-5]\/6\s*toward the next/i.test(text));
     await page.screenshot({ path: shot("05-facility-staffed.png"), fullPage: true });
 
@@ -179,8 +254,14 @@ if (await hire.count()) {
       if (await c2.count()) await c2.click();
       await page.waitForTimeout(700);
 
-      await page.locator("button", { hasText: /^Facilities$/ }).first().click();
+      await page.locator("button", { hasText: /^Your Facilities \(/i }).first().click();
       await page.waitForTimeout(700);
+      // Same disclosure as above — coming back to the tab re-collapses it.
+      const disc2 = page.locator("button", { hasText: /STAFF SLOTS/i }).first();
+      if (await disc2.count()) {
+        await disc2.click();
+        await page.waitForTimeout(500);
+      }
       const slot2 = page.locator("button", { hasText: /Empty slot/ }).first();
       check("an empty slot is still offered for the second hire", (await slot2.count()) > 0);
       await slot2.click();

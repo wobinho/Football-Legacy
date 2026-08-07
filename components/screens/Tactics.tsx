@@ -1647,7 +1647,12 @@ function MatchdayBoard({
             </p>
             <div
               ref={registerZone({ kind: "squad" })}
-              className={`h-[26rem] space-y-1 overflow-y-auto rounded-md p-1 transition-colors xl:h-[34rem] ${
+              // Height +50% (v2.0): 26→39rem, 34→51rem. The panel is scrolled
+              // internally and fixed-height on purpose (the pitch must never
+              // move out from under a drag), which made it the one list in the
+              // game whose length was a design number rather than the content's
+              // — and at 26rem a 25-man squad was read eight rows at a time.
+              className={`h-[39rem] space-y-1 overflow-y-auto rounded-md p-1 transition-colors xl:h-[51rem] ${
                 poolArmed
                   ? drag?.target?.kind === "squad"
                     ? "bg-hover ring-1 ring-gold/60"
@@ -1734,17 +1739,28 @@ function MatchdayBoard({
 }
 
 /**
- * The bench, under the pitch (v1.99).
+ * The bench, under the pitch (v1.99; drawn as SLOTS in v2.0).
  *
- * The same surface as the pitch above it, in the one form a list of nine will
- * take in a 30% column: every seat is a numbered row, filled seats and empty
- * ones alike, so the shape of the panel is a constant `cap` rows and naming a
- * sub never makes the page move. An empty seat is a real seat rather than one
- * tail-end "drop here" strip — which is what lets it be BOTH a drop target of
- * its own and a tap target that opens the picker.
+ * It was a list of rows, which made the two halves of one decision read as two
+ * different kinds of thing — a board above, a spreadsheet below. Every seat is
+ * a circular token now, the same `PitchToken` the XI is drawn with, laid out as
+ * a wrapping row of dugout places. So the whole matchday squad is one visual
+ * language: a filled seat carries the rating, the class wash and the name plate
+ * exactly as a fielded player does, and an empty one is the same dashed circle
+ * an unfilled position is.
+ *
+ * Every seat is rendered whether or not anyone is in it, so the panel is a
+ * constant `cap` places and naming a sub never moves the page. An empty seat is
+ * a real seat rather than one tail-end "drop here" strip — which is what lets it
+ * be BOTH a drop target of its own and a tap target that opens the picker.
+ *
+ * A bench seat has no position of its own, so the token is handed the player's
+ * OWN primary position as its slot and a fit of 1: a sub is not out of position
+ * on the bench, and colouring him against a pitch slot he isn't standing in
+ * would be a reading the match will not honour.
  *
  * Order is meaningful (auto-subs work down it), so the numbers are not
- * decoration and dragging one row onto another is a reorder.
+ * decoration and dragging one seat onto another is a reorder.
  */
 function BenchSection({
   benched,
@@ -1792,123 +1808,108 @@ function BenchSection({
         </div>
       }
     >
-      <div className="space-y-1">
-        {seats.map((p, i) =>
-          p ? (
-            <BenchRow
-              key={p.id}
-              p={p}
-              index={i}
-              registerZone={registerZone}
-              isTarget={drag?.target?.kind === "bench" && drag.target.index === i}
-              isSource={p.id === dragging}
-              onPointerDown={(e) => begin({ kind: "bench", playerId: p.id, index: i }, e)}
-              onClick={() => onPickBench(i)}
-              onRemove={() => onRemove(p.id)}
-            />
-          ) : (
-            <BenchSeat
-              key={`empty-${i}`}
-              index={i}
-              registerZone={registerZone}
-              isTarget={drag?.target?.kind === "bench" && drag.target.index === i}
-              dragging={!!drag}
-              onClick={() => onPickBench(i)}
-            />
-          )
-        )}
+      {/* The dugout: a wrapping row of places, sized to the same 4rem box a
+          pitch slot uses so the two surfaces line up on any width. */}
+      <div className="flex flex-wrap justify-center gap-x-1 gap-y-3 rounded-md border border-line/50 bg-[#0e1014] px-2 py-3">
+        {seats.map((p, i) => (
+          <BenchSeat
+            key={p ? p.id : `empty-${i}`}
+            p={p}
+            index={i}
+            registerZone={registerZone}
+            isTarget={drag?.target?.kind === "bench" && drag.target.index === i}
+            isSource={!!p && p.id === dragging}
+            dragging={!!drag}
+            onPointerDown={(e) => p && begin({ kind: "bench", playerId: p.id, index: i }, e)}
+            onClick={() => onPickBench(i)}
+            onRemove={() => p && onRemove(p.id)}
+          />
+        ))}
       </div>
       <p className="mt-2 text-[11px] leading-snug text-faint">
-        Tap a seat to name a substitute, or drag one in from the roster. Subs come on in this order — drag a row to
-        move it up.
+        Tap a seat to name a substitute, or drag one in from the roster. Subs come on in this order — drag a seat
+        onto an earlier one to move him up.
       </p>
     </Section>
   );
 }
 
-/** An unfilled bench seat: a drop target and a tap target both (v1.99). */
+/**
+ * One dugout place — filled or empty, one component (v2.0).
+ *
+ * Both states were separate components while the bench was a list of rows, and
+ * the two had already drifted (only one of them was draggable, only one carried
+ * a remove button). As a token they are the same object in two states, which is
+ * how the pitch has always drawn its own slots.
+ *
+ * The seat NUMBER rides above the token rather than in a column of its own:
+ * bench order is meaningful and a circle has no left edge to put it on.
+ */
 function BenchSeat({
-  index,
-  registerZone,
-  isTarget,
-  dragging,
-  onClick,
-}: {
-  index: number;
-  registerZone: (t: Exclude<DropTarget, null>, surface?: string) => (node: HTMLElement | null) => void;
-  isTarget: boolean;
-  dragging: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <div ref={registerZone({ kind: "bench", index }, "bench")}>
-      <button
-        onClick={onClick}
-        title={`Pick substitute ${index + 1}`}
-        aria-label={`Pick substitute ${index + 1}`}
-        className={`flex w-full items-center gap-2 rounded-md border border-dashed px-2.5 py-2 text-left transition-colors sm:gap-3 sm:px-3 ${
-          isTarget
-            ? "border-gold bg-hover text-ink"
-            : dragging
-              ? "border-line/80 text-dim"
-              : "border-line text-faint hover:border-faint hover:text-dim"
-        }`}
-      >
-        <span className="w-4 shrink-0 text-center tnum text-[11px] text-faint">{index + 1}</span>
-        <span className="min-w-0 flex-1 truncate text-[11px]">Empty — tap to pick</span>
-      </button>
-    </div>
-  );
-}
-
-/** One named substitute. Draggable to reorder or to promote into the XI. */
-function BenchRow({
   p,
   index,
   registerZone,
   isTarget,
   isSource,
+  dragging,
   onPointerDown,
   onClick,
   onRemove,
 }: {
-  p: PlayerBio;
+  p: PlayerBio | null;
   index: number;
   registerZone: (t: Exclude<DropTarget, null>, surface?: string) => (node: HTMLElement | null) => void;
   isTarget: boolean;
   isSource: boolean;
+  dragging: boolean;
   onPointerDown: (e: React.PointerEvent) => void;
   onClick: () => void;
   onRemove: () => void;
 }) {
   return (
-    <div
-      ref={registerZone({ kind: "bench", index }, "bench")}
-      className={`flex items-center gap-2 rounded-md border bg-hover px-2.5 py-2 transition-colors sm:gap-3 sm:px-3 ${
-        isTarget ? "border-gold ring-1 ring-gold/50" : "border-gold-lo/50"
-      } ${isSource ? "opacity-30" : ""}`}
-    >
+    <div ref={registerZone({ kind: "bench", index }, "bench")} className="relative">
       <button
         onPointerDown={onPointerDown}
         onClick={onClick}
-        title={`${displayFullName(p)} — drag to reorder, tap to change`}
-        className="flex min-w-0 flex-1 cursor-grab touch-none items-center gap-2 text-left sm:gap-3"
+        title={
+          p
+            ? `${displayFullName(p)} — sub ${index + 1}, ${Math.round(p.fitness)}% condition — drag to reorder, tap to change`
+            : `Pick substitute ${index + 1}`
+        }
+        aria-label={p ? `Substitute ${index + 1}: ${displayFullName(p)}` : `Pick substitute ${index + 1}`}
+        className={`flex w-16 touch-none flex-col items-center ${
+          p ? (dragging ? "cursor-grabbing" : "cursor-grab") : "cursor-pointer"
+        }`}
       >
-        <span className="w-4 shrink-0 text-center tnum text-[11px] text-faint">{index + 1}</span>
-        <PosBadge pos={p.positions[0]} />
-        <Flag nat={p.nationality} size={12} />
-        <span className="min-w-0 flex-1 truncate">{displayFullName(p)}</span>
-        <span className="hidden w-8 shrink-0 text-right tnum text-xs text-dim sm:inline">{Math.round(p.fitness)}%</span>
-        <Ovr value={p.overall} size="sm" />
+        <span
+          className={`display mb-0.5 tnum text-[9px] font-bold leading-none ${
+            p ? "text-gold" : "text-faint"
+          }`}
+        >
+          {index + 1}
+        </span>
+        {/* A sub is not out of position on the bench, so his own primary
+            position is the slot and the fit is a flat 1 — the token then reads
+            as "named and available" rather than being graded against a pitch
+            slot he is not standing in. */}
+        <PitchToken
+          p={p}
+          slot={{ label: p ? p.positions[0] : "—", pos: p ? p.positions[0] : "CM" }}
+          fit={1}
+          isTarget={isTarget}
+          isSource={isSource}
+        />
       </button>
-      <button
-        onClick={onRemove}
-        title="Take him out of the matchday squad"
-        aria-label={`Remove ${displayFullName(p)} from the bench`}
-        className="shrink-0 px-1 text-sm leading-none text-faint hover:text-loss"
-      >
-        ✕
-      </button>
+      {p && (
+        <button
+          onClick={onRemove}
+          title="Take him out of the matchday squad"
+          aria-label={`Remove ${displayFullName(p)} from the bench`}
+          className="absolute -right-0.5 -top-1 rounded-full border border-line bg-surface px-1 text-[10px] leading-none text-faint hover:border-loss hover:text-loss"
+        >
+          ✕
+        </button>
+      )}
     </div>
   );
 }
@@ -2043,16 +2044,28 @@ function BriefRow({
   slot,
   brief,
   incumbent,
+  selected,
+  onSelect,
   onPick,
 }: {
   slot: { id: string; pos: Pos; label: string };
   brief?: string;
   incumbent?: PlayerBio;
+  /** True when the pitch beside this list is pointing at the same slot (v2.0). */
+  selected?: boolean;
+  onSelect?: () => void;
   onPick: (archetypeId: string | undefined) => void;
 }) {
   const options = archetypesForPosition(slot.pos);
   const actual = incumbent?.attrs ? deriveArchetype(incumbent.attrs, slot.pos) : undefined;
   const chosen = brief ? options.find((a) => a.id === brief) : undefined;
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Selecting a slot ON THE PITCH has to bring its row into view, or clicking a
+  // full-back in a 5-3-2 highlights a row that is scrolled out of the list.
+  useEffect(() => {
+    if (selected) ref.current?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
 
   // How this slot currently grades against its own brief — the same three-way
   // verdict the engine applies, so the row can never promise what the match
@@ -2060,20 +2073,36 @@ function BriefRow({
   const verdict = !chosen || !actual ? null : actual.id === chosen.id ? "met" : actual.cls === chosen.cls ? "near" : "miss";
 
   return (
-    <div className="flex items-center gap-2 rounded-md border border-line bg-surface px-2 py-1.5">
-      <div className="w-10 shrink-0">
+    <div
+      ref={ref}
+      className={`flex items-center gap-2 rounded-md border bg-surface px-2 py-1.5 transition-colors ${
+        selected ? "border-gold bg-hover" : "border-line"
+      }`}
+    >
+      <button
+        onClick={onSelect}
+        title={`Highlight ${slot.label} on the pitch`}
+        className="w-10 shrink-0 cursor-pointer text-left"
+      >
         <PosBadge pos={slot.label} />
-      </div>
+      </button>
       <div className="min-w-0 flex-1">
         <Select
           value={brief ?? ""}
           onChange={(v) => onPick(v || undefined)}
           options={[
             { value: "", label: "— no brief —", hint: "This slot is judged on ability alone." },
+            // The archetype ART, in the menu AND on the closed control (v2.0).
+            // A manager reads the Sniper mark long before he reads 45 role
+            // names, and this is the one screen in the game where naming a role
+            // IS the whole interaction — a bare list of words made it the only
+            // place the identity system was invisible. `ring` is on so the class
+            // colour rides along, the same pairing every other surface uses.
             ...options.map((a) => ({
               value: a.id,
               label: a.name,
               group: ARCHETYPE_CLASS_LABEL[a.cls],
+              icon: <ArchetypeIcon archetype={a} size={18} />,
             })),
           ]}
         />
@@ -2107,6 +2136,119 @@ function BriefRow({
   );
 }
 
+/**
+ * The Creator's own pitch (v2.0).
+ *
+ * The brief was a list of eleven rows, which is the one form that cannot answer
+ * the question the screen exists for: a shape is a SHAPE, and "two Snipers and
+ * an Architect" says nothing about whether they are standing anywhere sensible.
+ * It draws the same `PitchMarkings` the Tactics board does, so the plan is read
+ * on the same field the side is picked on.
+ *
+ * What stands in a slot here is the ROLE, not a player — the archetype's own
+ * art, which is the Creator's whole subject. An unbriefed slot is the dashed
+ * circle an unfilled position is on the board, so "I have not said what belongs
+ * here" reads as the same kind of gap in both places.
+ *
+ * Clicking a slot selects it, which is what ties the two halves together: the
+ * brief row beside it highlights, so a manager can work either from the shape
+ * or from the list without the two ever disagreeing about which slot is which.
+ */
+function CreatorPitch({
+  slots,
+  roles,
+  incumbents,
+  selected,
+  onSelect,
+}: {
+  slots: { id: string; pos: Pos; label: string; x: number; y: number }[];
+  roles: Record<string, string> | undefined;
+  incumbents: Record<string, PlayerBio | undefined>;
+  selected: string | null;
+  onSelect: (slotId: string) => void;
+}) {
+  return (
+    <div className="relative aspect-[3/4] w-full overflow-hidden rounded-md border border-line bg-[#0e1014]">
+      <PitchMarkings />
+      {slots.map((slot) => {
+        const briefId = roles?.[slot.id];
+        const role = briefId ? archetypesForPosition(slot.pos).find((a) => a.id === briefId) : undefined;
+        const p = incumbents[slot.id];
+        const actual = p?.attrs ? deriveArchetype(p.attrs, slot.pos) : undefined;
+        // The same three-way verdict the rows print and the engine pays, so the
+        // pitch can never grade a slot differently from the list beside it.
+        const verdict =
+          !role || !actual ? null : actual.id === role.id ? "met" : actual.cls === role.cls ? "near" : "miss";
+        const isSel = selected === slot.id;
+        return (
+          <div
+            key={slot.id}
+            className="absolute -translate-x-1/2 translate-y-1/2"
+            // The same compressed 6–94% band the board uses: a token here is
+            // also two lines tall, and the pitch clips its overflow.
+            style={{ left: `${slot.x}%`, bottom: `${6 + slot.y * 0.88}%` }}
+          >
+            <button
+              onClick={() => onSelect(slot.id)}
+              title={
+                role
+                  ? `${slot.label} — ${role.name}${actual ? ` · ${p?.name} reads as ${actual.name}` : ""}`
+                  : `${slot.label} — no brief yet`
+              }
+              className="flex w-16 cursor-pointer flex-col items-center"
+            >
+              <span
+                className={`display relative flex h-11 w-11 items-center justify-center border-2 text-sm font-bold transition-all ${
+                  isSel
+                    ? "scale-110 border-gold"
+                    : verdict === "met"
+                      ? "border-win/70"
+                      : verdict === "near"
+                        ? "border-draw/70"
+                        : verdict === "miss"
+                          ? "border-loss/70"
+                          : role
+                            ? "border-gold-lo/70"
+                            : "border-dashed border-line"
+                }`}
+                style={{ clipPath: TOKEN_CLIP, background: role ? "#16181d" : "#101216" }}
+              >
+                {role ? (
+                  <>
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0"
+                      style={{ background: classFill(role.cls) }}
+                    />
+                    <ArchetypeIcon archetype={role} size={26} ring={false} />
+                  </>
+                ) : (
+                  <span className="text-faint">{slot.label}</span>
+                )}
+              </span>
+              {/* Position, then the role wanted there — the same name plate the
+                  board uses, saying what the slot is FOR rather than who is in
+                  it. */}
+              <span className="mt-1 flex max-w-full flex-col items-center overflow-hidden rounded border border-line/70 bg-[#16181d]/90 px-1 py-0.5 leading-none">
+                <span className="display text-[8px] font-bold uppercase leading-none tracking-wider text-faint">
+                  {slot.label}
+                </span>
+                <span
+                  className={`mt-0.5 min-w-0 max-w-full truncate text-[9px] font-semibold leading-none ${
+                    role ? "text-ink" : "text-faint"
+                  }`}
+                >
+                  {role?.name ?? "—"}
+                </span>
+              </span>
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function TacticCreatorModal({ onClose }: { onClose: () => void }) {
   const game = useGame((s) => s.game)!;
   const saveDesigned = useGame((s) => s.saveDesignedTactic);
@@ -2118,6 +2260,10 @@ function TacticCreatorModal({ onClose }: { onClose: () => void }) {
   // now and give it roles", not "start from nothing".
   const [draft, setDraft] = useState<Tactic>(() => ({ ...team.tactic }));
   const [name, setName] = useState("");
+  // Which slot the pitch and the list are both pointing at (v2.0). One piece of
+  // state for two surfaces, so they can never disagree about which slot is
+  // being briefed.
+  const [selected, setSelected] = useState<string | null>(null);
 
   const formation = getFormation(draft.formationId);
 
@@ -2198,13 +2344,37 @@ function TacticCreatorModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Modal title="Tactic Creator" onClose={onClose} size="lg">
+    <Modal title="Tactic Creator" onClose={onClose} size="xl">
       <div className="space-y-4">
         <p className="text-[11px] leading-snug text-faint">
           Design a tactic as a plan: the shape, the style, and the <b className="text-dim">kind of player</b> you
           want in each position. A slot whose brief is met sharpens that player; one that is missed blunts him
           by as much — a brief is a bet on the squad you have or intend to build, never free.
         </p>
+
+        {/* ── Two columns (v2.0): the shape on the left, everything you set on
+            the right ──────────────────────────────────────────────────────
+            The Creator was a single column of eleven dropdowns, which made a
+            SHAPE — the thing it exists to design — the one thing it never
+            showed. Below `lg` they stack, and the pitch stays first: on a phone
+            the shape is still what orients the list under it. */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+          <div className="lg:sticky lg:top-0 lg:self-start">
+            <div className="mb-1.5 text-[11px] uppercase tracking-widest text-faint">Shape</div>
+            <CreatorPitch
+              slots={formation.slots}
+              roles={draft.roles}
+              incumbents={incumbents}
+              selected={selected}
+              onSelect={(id) => setSelected((cur) => (cur === id ? null : id))}
+            />
+            <p className="mt-2 text-[10px] leading-snug text-faint">
+              Each circle is the role you want there, not the player in it. Click one to jump to its brief.
+            </p>
+          </div>
+
+          {/* Right: the controls. */}
+          <div className="min-w-0 space-y-4">
 
         {/* Shape and style first — the brief below is keyed to the slots the
             formation defines, so these two choices come before the roles. */}
@@ -2274,16 +2444,20 @@ function TacticCreatorModal({ onClose }: { onClose: () => void }) {
               <span className="tnum">{balance.briefed}</span>/{formation.slots.length} slots briefed
             </span>
           </div>
-          <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
+          <div className="max-h-[26rem] space-y-1 overflow-y-auto pr-1">
             {formation.slots.map((slot) => (
               <BriefRow
                 key={slot.id}
                 slot={slot}
                 brief={draft.roles?.[slot.id]}
                 incumbent={incumbents[slot.id]}
+                selected={selected === slot.id}
+                onSelect={() => setSelected((cur) => (cur === slot.id ? null : slot.id))}
                 onPick={(a) => setRole(slot.id, a)}
               />
             ))}
+          </div>
+        </div>
           </div>
         </div>
 

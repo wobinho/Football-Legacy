@@ -116,6 +116,97 @@ export interface WorldPreset {
   updatedAt: number;
 }
 
+/**
+ * A permanent edit to a club that SHIPS with the game (v2.0).
+ *
+ * The library's custom clubs answer "I want a club that doesn't exist"; this
+ * answers the different question "Real Madrid's crest is wrong and I want it
+ * fixed in every legacy I ever start". Before this the only route was to import
+ * Real Madrid as a custom club, edit the copy, and then remember to place it
+ * over the original at every new game — which leaves two Real Madrids in the
+ * setup screen and silently reverts the moment you forget.
+ *
+ * Three rules, and each is the reason this is an OVERRIDE rather than a copy:
+ *
+ * **It is a PATCH, not a club.** Every field is optional and only the ones
+ * present are applied, so an override that sets a badge changes the badge and
+ * nothing else. That is what lets a rebuilt default database (`npm run build:db`
+ * regenerates the shipped JSON from the CSVs, and squads change when it does)
+ * keep reaching a club the user has re-crested — the alternative, storing a
+ * whole edited copy, would freeze that club's squad at whatever it was on the
+ * day it was edited and quietly opt it out of every future database update.
+ *
+ * **It is keyed by country + club NAME**, not by an id. Shipped clubs have no
+ * stable id — `defaultCountryDB` builds them fresh from the country definition
+ * every call — and the name is what the visual system already keys a derived
+ * badge on (v1.96), so identity travels the same way in both places.
+ *
+ * **It applies at `dbForChoice`**, the one funnel every database choice passes
+ * through at new-game setup, so an override reaches the real database, a
+ * preset-derived generated world and an uploaded one alike. Nothing in a
+ * RUNNING save reads it: a world is built once, and a save already carries its
+ * own clubs. Editing an override changes the next legacy, never the current one.
+ */
+export interface ClubOverride {
+  /** Country code the club is authored in, e.g. "ESP". */
+  country: string;
+  /** The shipped club's name, exactly as the database spells it. The match key. */
+  clubName: string;
+  // ── The patch. Every field optional; absent means "leave the shipped value".
+  name?: string;
+  short?: string;
+  colors?: [string, string];
+  rep?: number;
+  stadium?: string;
+  badge?: BadgeSpec;
+  kits?: KitSet;
+  updatedAt: number;
+}
+
+/** The key an override is stored and looked up under. */
+export function overrideKey(country: string, clubName: string): string {
+  return `${country.toUpperCase()}|${clubName.trim().toLowerCase()}`;
+}
+
+/**
+ * Apply the user's permanent club edits to a country database, in place.
+ *
+ * A no-op when nothing has been overridden, which is the case that has to stay
+ * free — this runs on every database resolution at setup, for every included
+ * country.
+ *
+ * `name` is deliberately patchable: renaming Real Madrid is a legitimate edit,
+ * and the override keeps matching afterwards because it is keyed on the
+ * ORIGINAL shipped name rather than on whatever the club is called now.
+ */
+export function applyClubOverrides<
+  T extends { divisions: { clubs: ClubSeed[] }[] },
+>(db: T, country: string, overrides: ClubOverride[]): T {
+  if (!overrides.length) return db;
+  const byKey = new Map(overrides.map((o) => [overrideKey(o.country, o.clubName), o]));
+  for (const d of db.divisions) {
+    for (let i = 0; i < d.clubs.length; i++) {
+      const c = d.clubs[i];
+      const o = byKey.get(overrideKey(country, c.name));
+      if (!o) continue;
+      d.clubs[i] = {
+        ...c,
+        ...(o.name !== undefined ? { name: o.name } : {}),
+        ...(o.short !== undefined ? { short: o.short } : {}),
+        ...(o.colors !== undefined ? { colors: [...o.colors] as [string, string] } : {}),
+        ...(o.rep !== undefined ? { rep: o.rep } : {}),
+        ...(o.stadium !== undefined ? { stadium: o.stadium } : {}),
+        // A cleared crest deletes the field rather than storing a copy of the
+        // generated one — the v1.96 rule, so improving the generator still
+        // reaches a club whose override no longer names a badge.
+        ...(o.badge !== undefined ? { badge: o.badge } : {}),
+        ...(o.kits !== undefined ? { kits: o.kits } : {}),
+      };
+    }
+  }
+  return db;
+}
+
 /** Everything a saved library holds, as it lives in one IndexedDB record. */
 export interface CustomLibrary {
   schema: string;
@@ -124,10 +215,13 @@ export interface CustomLibrary {
   /** Saved new-game world setups (v1.93). Optional in the stored record so a
    * library written before they existed loads without migration. */
   worldPresets?: WorldPreset[];
+  /** Permanent edits to SHIPPED clubs (v2.0). Optional for the same reason
+   * `worldPresets` is, and the schema was NOT bumped for it — see `loadLibrary`. */
+  clubOverrides?: ClubOverride[];
 }
 
 export function emptyLibrary(): CustomLibrary {
-  return { schema: LIBRARY_SCHEMA, clubs: [], players: [], worldPresets: [] };
+  return { schema: LIBRARY_SCHEMA, clubs: [], players: [], worldPresets: [], clubOverrides: [] };
 }
 
 /** Strip a LibraryClub down to the ClubSeed worldgen consumes. */
@@ -279,6 +373,11 @@ export async function loadLibrary(): Promise<CustomLibrary> {
       clubs: Array.isArray(raw.clubs) ? raw.clubs : [],
       players: Array.isArray(raw.players) ? raw.players : [],
       worldPresets: Array.isArray(raw.worldPresets) ? raw.worldPresets : [],
+      // v2.0, and the schema was not bumped for the same reason: an override
+      // list is optional and defaults to empty, so a library written before
+      // they existed is a valid one that simply has none. Bumping would have
+      // discarded every saved club, player and world preset on the device.
+      clubOverrides: Array.isArray(raw.clubOverrides) ? raw.clubOverrides : [],
     };
   } catch {
     return emptyLibrary();

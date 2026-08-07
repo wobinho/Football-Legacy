@@ -6,13 +6,13 @@
 // continental picture is half the point of the feature.
 //
 // The layout mirrors the domestic cup: the knockout bracket once it exists,
-// then the eight group tables, then every fixture grouped by matchday.
+// then the eight group tables. The per-matchday fixture list below them was
+// deleted in v2.0 — see the note in the render.
 
 import { createContext, useContext, useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
-import type { EuroCupState, Fixture } from "@/lib/types";
+import type { EuroCupState } from "@/lib/types";
 import { EURO_KO_ROUND_NAMES } from "@/lib/european";
-import { formatDayShort } from "@/lib/calendar";
 import { Card, CountryFlag, Crest, Section } from "../ui";
 
 /** Lets a row open the team card without threading a prop through every level.
@@ -87,18 +87,25 @@ export default function EuropeanView() {
         </Card>
       )}
 
+      {/* Once the Round of 16 has been drawn, the BRACKET is the competition
+          (v2.0) — the groups are settled history at that point, and a manager
+          opening this page is asking who he plays next, not what the table
+          looked like in November. So the knockout leads and the groups drop
+          below it under a heading that says they are over.
+
+          They are never removed: the group tables are how the eight survivors
+          got here and they stay readable all season. What IS gone is the
+          fixture list that used to sit under them — it re-printed every result
+          the groups and the bracket had already reported, at three times the
+          length and in short codes. */}
       {cup.ties.length > 0 && <EuroBracket cup={cup} />}
 
-      <Section title="Group Stage">
+      <Section title={cup.ties.length > 0 ? "Group Stage — final tables" : "Group Stage"}>
         <div className="grid gap-4 md:grid-cols-2">
           {cup.groups.map((_, gi) => (
             <EuroGroupCard key={gi} cup={cup} groupIndex={gi} />
           ))}
         </div>
-      </Section>
-
-      <Section title="Fixtures">
-        <EuroFixtures cup={cup} />
       </Section>
     </div>
   );
@@ -193,7 +200,21 @@ function EuroGroupCard({ cup, groupIndex }: { cup: EuroCupState; groupIndex: num
   );
 }
 
-/** The knockout bracket: one column per round, with aggregate scores. */
+/**
+ * The knockout bracket: one column per round, with aggregate scores.
+ *
+ * Reworked v2.0 to read as a real bracket rather than four lists side by side.
+ * Two things do that work, and both come from the fact that a bracket is a
+ * TREE: each round holds half as many ties as the one before it, so every
+ * column is CENTRED vertically against its neighbour — which is what makes the
+ * eye follow a club from the Round of 16 to the final without a connector line
+ * being drawn. And a later round gets more room per tie, so the final is the
+ * biggest card on the page rather than the same 180px chip as a first-round
+ * fixture.
+ *
+ * The user's own tie carries a gold edge in every round it survives, since "how
+ * far am I still in" is the one question this view is opened for.
+ */
 function EuroBracket({ cup }: { cup: EuroCupState }) {
   const game = useGame((s) => s.game)!;
   const openTeam = useContext(OpenTeamCtx);
@@ -208,114 +229,71 @@ function EuroBracket({ cup }: { cup: EuroCupState }) {
       {/* A bracket is intrinsically wide: it scrolls inside its own container so
           the page body never scrolls sideways. */}
       <div className="overflow-x-auto pb-2">
-        <div className="flex gap-3" style={{ minWidth: rounds.length * 190 }}>
-          {rounds.map((round) => (
-            <div key={round.name} className="min-w-[180px] flex-1 space-y-2">
-              <div className="text-[10px] uppercase tracking-widest text-faint">{round.name}</div>
-              {round.ties.map((tie) => {
-                const a = game.teams[tie.teamAId];
-                const b = game.teams[tie.teamBId];
-                if (!a || !b) return null;
-                const settled = !!tie.winnerId;
-                const side = (
-                  teamId: string,
-                  team: typeof a,
-                  agg: number | undefined,
-                  isWinner: boolean
-                ) => (
-                  <button
-                    onClick={() => openTeam(teamId)}
-                    className={`flex w-full items-center gap-1.5 px-2 py-1 text-left text-[12px] hover:bg-hover ${
-                      teamId === game.userTeamId ? "font-semibold" : ""
-                    } ${settled && !isWinner ? "text-faint" : ""}`}
-                    title={`View ${team.name}`}
-                  >
-                    <Crest team={team} size={14} />
-                    <span className="min-w-0 flex-1 truncate">{team.short}</span>
-                    <span className="tnum">{agg ?? "–"}</span>
-                  </button>
-                );
-                return (
-                  <Card key={tie.id} className="overflow-hidden">
-                    {side(tie.teamAId, a, tie.aggA, tie.winnerId === tie.teamAId)}
-                    <div className="border-t border-line/40" />
-                    {side(tie.teamBId, b, tie.aggB, tie.winnerId === tie.teamBId)}
-                    {tie.shootoutWinnerId && (
-                      <div className="border-t border-line/40 px-2 py-0.5 text-[10px] text-faint">
-                        {game.teams[tie.shootoutWinnerId]?.short} win on penalties
-                      </div>
-                    )}
-                  </Card>
-                );
-              })}
-            </div>
-          ))}
+        <div className="flex gap-3" style={{ minWidth: rounds.length * 210 }}>
+          {rounds.map((round, ri) => {
+            const isFinal = ri === rounds.length - 1 && round.ties.length === 1;
+            return (
+              // `justify-center` is the whole bracket effect: a column of two
+              // ties sits level with the middle of the column of four beside it.
+              <div key={round.name} className="flex min-w-[200px] flex-1 flex-col">
+                <div className="mb-2 text-[10px] uppercase tracking-widest text-faint">{round.name}</div>
+                <div className="flex flex-1 flex-col justify-center gap-3">
+                  {round.ties.map((tie) => {
+                    const a = game.teams[tie.teamAId];
+                    const b = game.teams[tie.teamBId];
+                    if (!a || !b) return null;
+                    const settled = !!tie.winnerId;
+                    const mine = tie.teamAId === game.userTeamId || tie.teamBId === game.userTeamId;
+                    const side = (
+                      teamId: string,
+                      team: typeof a,
+                      agg: number | undefined,
+                      isWinner: boolean
+                    ) => (
+                      <button
+                        onClick={() => openTeam(teamId)}
+                        className={`flex w-full items-center gap-1.5 px-2 py-1.5 text-left hover:bg-hover ${
+                          isFinal ? "text-[13px]" : "text-[12px]"
+                        } ${teamId === game.userTeamId ? "font-semibold" : ""} ${
+                          settled && !isWinner ? "text-faint" : settled ? "text-ink" : ""
+                        }`}
+                        title={`View ${team.name}`}
+                      >
+                        <Crest team={team} size={isFinal ? 18 : 14} />
+                        {/* The full name, not the three-letter code (v2.0). A
+                            200px column has the room, and a bracket read in
+                            short codes is a puzzle rather than a picture. */}
+                        <span className="min-w-0 flex-1 truncate">{team.name}</span>
+                        <span className={`shrink-0 tnum ${isWinner ? "gold-text font-bold" : ""}`}>
+                          {agg ?? "–"}
+                        </span>
+                      </button>
+                    );
+                    return (
+                      <Card
+                        key={tie.id}
+                        className={`overflow-hidden ${mine ? "border-gold-lo" : ""} ${
+                          isFinal ? "border-gold-lo/70" : ""
+                        }`}
+                      >
+                        {side(tie.teamAId, a, tie.aggA, tie.winnerId === tie.teamAId)}
+                        <div className="border-t border-line/40" />
+                        {side(tie.teamBId, b, tie.aggB, tie.winnerId === tie.teamBId)}
+                        {tie.shootoutWinnerId && (
+                          <div className="border-t border-line/40 px-2 py-0.5 text-[10px] text-faint">
+                            {game.teams[tie.shootoutWinnerId]?.name} win on penalties
+                          </div>
+                        )}
+                      </Card>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </Section>
   );
 }
 
-/** Every fixture in this cup, grouped by matchday. */
-function EuroFixtures({ cup }: { cup: EuroCupState }) {
-  const game = useGame((s) => s.game)!;
-  const openTeam = useContext(OpenTeamCtx);
-  const comp = `EURO${cup.tier}`;
-  const byDay = useMemo(() => {
-    const map = new Map<number, Fixture[]>();
-    for (const f of game.fixtures) {
-      if (f.competition !== comp) continue;
-      const list = map.get(f.day) ?? [];
-      list.push(f);
-      map.set(f.day, list);
-    }
-    return [...map.entries()].sort((a, b) => a[0] - b[0]);
-  }, [game.fixtures, comp]);
-
-  if (!byDay.length) return <div className="text-sm text-faint">—</div>;
-  return (
-    <div className="space-y-4">
-      {byDay.map(([day, fixtures]) => (
-        <div key={day}>
-          <div className="mb-1 text-[11px] uppercase tracking-widest text-faint">
-            {formatDayShort(day)}
-          </div>
-          <Card className="divide-y divide-line/50">
-            {fixtures.map((f) => {
-              const h = game.teams[f.homeId];
-              const a = game.teams[f.awayId];
-              if (!h || !a) return null;
-              const mine = f.homeId === game.userTeamId || f.awayId === game.userTeamId;
-              return (
-                <div
-                  key={f.id}
-                  className={`flex items-center gap-2 px-3 py-1.5 text-[13px] ${mine ? "bg-hover/50" : ""}`}
-                >
-                  <button
-                    onClick={() => openTeam(f.homeId)}
-                    className="flex flex-1 items-center justify-end gap-1.5 truncate hover:text-gold"
-                    title={h.name}
-                  >
-                    <span className="truncate">{h.short}</span>
-                    <Crest team={h} size={16} />
-                  </button>
-                  <span className="display w-12 shrink-0 text-center tnum font-semibold">
-                    {f.played ? `${f.homeGoals}–${f.awayGoals}` : "v"}
-                  </span>
-                  <button
-                    onClick={() => openTeam(f.awayId)}
-                    className="flex flex-1 items-center gap-1.5 truncate hover:text-gold"
-                    title={a.name}
-                  >
-                    <Crest team={a} size={16} />
-                    <span className="truncate">{a.short}</span>
-                  </button>
-                </div>
-              );
-            })}
-          </Card>
-        </div>
-      ))}
-    </div>
-  );
-}

@@ -118,8 +118,17 @@ check(
 const capText = await bench.locator("text=/subs/").first().innerText();
 const cap = Number(capText.match(/\/\s*(\d+)\s*subs/)?.[1] ?? 0);
 check(cap === 9, `the bench offers ${cap} seats`);
-const seatRows = await bench.locator("div.space-y-1 > div").count();
-check(seatRows === cap, `every seat is rendered, filled or empty (${seatRows} rows)`);
+// Anchored on the seat's own ACCESSIBLE NAME, not on the panel's layout classes
+// (v2.0). The bench became a row of circular tokens rather than a list of rows,
+// which is a pure presentation change — and `div.space-y-1 > div` reported zero
+// seats on a bench that drew perfectly, exactly the failure the GCN harness's
+// v1.99 note warns about. Every seat, filled or empty, is labelled
+// "Substitute N: …" or "Pick substitute N", so this counts SEATS however they
+// are drawn next.
+const seatCount = async () =>
+  await bench.getByRole("button", { name: /^(Substitute \d+|Pick substitute \d+)/ }).count();
+const seatRows = await seatCount();
+check(seatRows === cap, `every seat is rendered, filled or empty (${seatRows} seats)`);
 const named = await bench.getByTitle(/drag to reorder, tap to change/).count();
 check(named === cap, `auto-pick names a full bench (${named}/${cap})`);
 await page.screenshot({ path: shot("bench.png") });
@@ -139,10 +148,7 @@ check(before !== after, "picking from it changes who is in that seat");
 await bench.getByRole("button", { name: "Clear" }).click();
 await bench.getByRole("button", { name: "Sure?" }).click();
 await page.waitForTimeout(400);
-check(
-  (await bench.locator("div.space-y-1 > div").count()) === cap,
-  "an empty bench still renders all its seats"
-);
+check((await seatCount()) === cap, "an empty bench still renders all its seats");
 const emptySeat = bench.getByRole("button", { name: /Pick substitute/ }).first();
 await emptySeat.click();
 await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
@@ -180,9 +186,18 @@ const dlg = page.locator('[role="dialog"]');
 check(await dlg.getByText("Tactic Creator").count() > 0, "the Creator opens");
 await page.screenshot({ path: shot("creator-open.png"), fullPage: true });
 
-// One role dropdown per slot in the shape, plus the formation and style pickers.
-const roleRows = await dlg.locator("div.max-h-72 > div").count();
+// One role row per slot in the shape. Anchored on each row's own position
+// button rather than on the scroll container's height class (v2.0) — the list
+// moved into a column beside the Creator's new pitch and its `max-h` changed,
+// which reported 0 rows on a modal that drew all eleven.
+const roleRows = await dlg.getByTitle(/^Highlight .* on the pitch$/).count();
 check(roleRows === 11, `every slot gets a role row (${roleRows}/11)`);
+
+// The Creator's pitch (v2.0): the same eleven slots drawn as a shape, so the
+// role brief is read on a formation rather than as a list of dropdowns. An
+// unbriefed slot is titled "GK — no brief yet".
+const pitchSlots = await dlg.getByTitle(/ — no brief yet$/).count();
+check(pitchSlots === 11, `the Creator draws its shape (${pitchSlots}/11 pitch slots)`);
 
 // The balance readout must MOVE when a brief is set. "Brief from current XI"
 // describes the side exactly, so it has to read positive.

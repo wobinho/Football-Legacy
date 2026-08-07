@@ -905,6 +905,16 @@ export function runSeasonRollover(state: GameState) {
     wonCup: summary.cupWinner?.teamId === state.userTeamId,
     promoted: promoted.includes(userName),
     playerAwards: userPlayerAwardsIn(state, summary.accolades),
+    // European silverware (v2.0). Read off the summary rather than
+    // `state.european`, which the rollover rebuilds a few steps below — the
+    // same reason `europeanWinners` is stored in the first place (v1.67).
+    europeanTiers: (summary.europeanWinners ?? [])
+      .filter((w) => w.teamId === state.userTeamId)
+      .map((w) => w.tier),
+    // The save's single best campaign, which is a much rarer honour than the
+    // per-league ones `userPlayerAwardsIn` totals — hence its own ladder.
+    legacyPlayerAwards:
+      summary.accolades?.legacyPlayerOfSeason?.teamId === state.userTeamId ? 1 : 0,
   });
 
   if (promoted.includes(state.teams[state.userTeamId].name)) {

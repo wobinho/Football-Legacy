@@ -273,12 +273,13 @@ export default function Calendar() {
                         {isHome ? "H" : "A"}
                       </span>
                       {opp && <Crest team={opp} size={16} />}
-                      {/* Bumped from 11px (v1.99). The short code is the one
-                          thing in the row that identifies the match, and at the
-                          rail's old size it was set smaller than the crest
-                          beside it — the label was losing to its own icon. */}
+                      {/* The club's FULL name (v2.0), not its short code. The
+                          rail is a list of ten rows in a column of its own, so
+                          it has the width the month grid's square never had —
+                          and "Manchester United" is what a manager reads a
+                          fixture list for. `truncate` holds the long ones. */}
                       <span className="display min-w-0 flex-1 truncate text-[13px] font-bold tracking-wide text-ink">
-                        {opp?.short ?? "—"}
+                        {opp?.name ?? "—"}
                       </span>
                       <span className="tnum shrink-0 text-[10px] leading-none text-faint">{formatDayShort(f.day)}</span>
                     </button>
@@ -336,7 +337,7 @@ export default function Calendar() {
                         </span>
                         {opp && <Crest team={opp} size={16} />}
                         <span className="display min-w-0 flex-1 truncate text-[13px] font-bold tracking-wide text-ink">
-                          {opp?.short ?? "—"}
+                          {opp?.name ?? "—"}
                         </span>
                         <ResultDot fixture={f} userTeamId={game.userTeamId} />
                         <ScoreLine fixture={f} userTeamId={game.userTeamId} size="rail" />

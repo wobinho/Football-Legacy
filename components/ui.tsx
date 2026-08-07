@@ -1093,8 +1093,12 @@ export function Modal({
   backLabel?: string;
   children: React.ReactNode;
   /** "lg" is for content that carries a data table — a league table at the
-   * default width wraps into unreadability. */
-  size?: "md" | "lg";
+   * default width wraps into unreadability. "xl" (v2.0) is for content that is
+   * genuinely TWO panels side by side and would otherwise stack: the Tactic
+   * Creator's pitch beside its brief list, the player-honours board's grouped
+   * sections. Reach for it only when the layout is a column pair, not merely
+   * when the content is long — a long single column is what scrolling is for. */
+  size?: "md" | "lg" | "xl";
 }) {
   // A modal closes on its ✕ or Escape and nothing else. Clicking the backdrop
   // used to dismiss it, which meant a stray click beside a dialog threw away
@@ -1108,7 +1112,7 @@ export function Modal({
     >
       <div
         className={`max-h-[85vh] w-full overflow-y-auto rounded-lg border border-line bg-surface p-5 shadow-2xl ${
-          size === "lg" ? "max-w-3xl" : "max-w-lg"
+          size === "xl" ? "max-w-6xl" : size === "lg" ? "max-w-3xl" : "max-w-lg"
         }`}
       >
         <div className="mb-1 flex items-center justify-between gap-2">
@@ -1212,6 +1216,13 @@ export interface SelectOption<T extends string> {
   hint?: React.ReactNode;
   /** Trailing marker on the row (a recommendation dot, a badge). */
   badge?: React.ReactNode;
+  /** LEADING mark, drawn both in the open menu AND on the closed trigger
+   * (v2.0) — which is what separates it from `badge`. An icon that only
+   * appeared while the menu was open would identify the options you are
+   * choosing between and then vanish the moment one became the answer, so the
+   * one row you most need to read would be the only one without it. Used by the
+   * Tactic Creator's role brief for the archetype art. */
+  icon?: React.ReactNode;
   disabled?: boolean;
   /** Section this option belongs to (v1.77). Consecutive options sharing a
    * `group` render under one sticky heading — what turns a flat list of twenty
@@ -1359,6 +1370,7 @@ export function Select<T extends string>({
           open ? "border-gold" : "border-line hover:border-faint"
         } ${buttonClassName}`}
       >
+        {selected?.icon}
         <span className="min-w-0 flex-1 truncate">{selected?.label ?? placeholder}</span>
         {selected?.badge}
         <span className={`shrink-0 text-[10px] leading-none text-faint transition-transform ${open ? "rotate-180" : ""}`}>▾</span>
@@ -1406,6 +1418,10 @@ export function Select<T extends string>({
                 }`}
               >
                 <span className={`mt-[3px] w-1.5 shrink-0 self-stretch rounded-full ${isSel ? "gold-grad" : ""}`} />
+                {/* The row is `items-start` so a two-line hint keeps the label
+                    at the top; a leading icon has to be nudged onto the label's
+                    own line rather than floating above it. */}
+                {o.icon && <span className="mt-[1px] shrink-0">{o.icon}</span>}
                 <span className="min-w-0 flex-1">
                   <span className={`block truncate text-sm ${isSel ? "font-semibold text-gold" : "text-ink"}`}>{o.label}</span>
                   {o.hint && <span className="mt-0.5 block text-[11px] leading-snug text-faint">{o.hint}</span>}

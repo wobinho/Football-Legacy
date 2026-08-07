@@ -17,9 +17,13 @@ import { useGame } from "@/store/gameStore";
 import {
   ACHIEVEMENT_DEFS,
   ACHIEVEMENT_GROUPS,
+  ACHIEVEMENT_TIERS,
+  achievementTier,
   ensureProgress,
   type AchievementDef,
+  type TierState,
 } from "@/lib/achievements";
+import { BADGE_COLOR } from "@/lib/config/facilities";
 import { ACCOLADE_META } from "@/lib/accolades";
 import {
   careerSummary,
@@ -31,7 +35,7 @@ import {
   type CupHistory,
   type LeagueHistory,
 } from "@/lib/recordbook";
-import type { PlayerBio, TransferRecord, UserAccolades } from "@/lib/types";
+import type { AccoladeType, BadgeTier, PlayerBio, TransferRecord, UserAccolades } from "@/lib/types";
 import { formatMoney } from "@/lib/value";
 import { POS_LABELS } from "@/lib/config/positions";
 import { Card, ConfirmButton, CountryFlag, Crest, Flag, Modal, Ovr, PosBadge, Section, Tabs } from "../ui";
@@ -643,31 +647,29 @@ function HonourCard({
   );
 }
 
-/** The seasons behind one honour tally (v1.91) — the rows the count was
- * accumulated from, most recent first. Trophies name the competition; player
- * honours name the player and click through to his profile. */
+/** The seasons behind one TROPHY tally (v1.91) — the rows the count was
+ * accumulated from, most recent first, naming the competition.
+ *
+ * Player honours used to share this modal and now have their own
+ * (`PlayerHonoursModal`): a trophy list is genuinely one flat chronology, where
+ * a player's awards are several different awards that happen to share a count.
+ */
 function HonourDetailModal({
   title,
   trophies,
-  honours,
   onClose,
 }: {
   title: string;
-  trophies?: ReturnType<typeof clubHonours>;
-  honours?: PlayerHonourRow[];
+  trophies: ReturnType<typeof clubHonours>;
   onClose: () => void;
 }) {
-  const game = useGame((s) => s.game)!;
-  const viewPlayer = useGame((s) => s.viewPlayer);
-  const rows = trophies?.length ?? honours?.length ?? 0;
-
   return (
     <Modal title={title} onClose={onClose}>
-      {rows === 0 ? (
+      {trophies.length === 0 ? (
         <div className="text-sm text-faint">Nothing won yet.</div>
       ) : (
         <Card className="divide-y divide-line/50">
-          {trophies?.map((h) => (
+          {trophies.map((h) => (
             <div key={`${h.season}:${h.competition}`} className="flex items-center gap-3 px-3 py-2.5">
               <span className="display w-16 shrink-0 text-[12px] font-bold tnum gold-text">{h.yearLabel}</span>
               <span aria-hidden className="shrink-0 text-gold">
@@ -676,42 +678,172 @@ function HonourDetailModal({
               <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{h.competition}</span>
             </div>
           ))}
-          {honours?.map((h, i) => {
-            const meta = ACCOLADE_META[h.type];
-            // A long save prunes retirees, so the click-through is gated on the
-            // player still existing rather than assumed.
-            const exists = !!game.players[h.playerId];
-            const inner = (
-              <>
-                <span className="display w-16 shrink-0 text-[12px] font-bold tnum gold-text">{h.yearLabel}</span>
-                <span aria-hidden className="shrink-0">
-                  {meta.emoji}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-semibold text-ink">{h.playerName}</span>
-                  <span className="block truncate text-[11px] text-dim">
-                    {meta.title}
-                    {h.leagueName && <span className="text-faint"> · {h.leagueName}</span>}
-                  </span>
-                </span>
-              </>
-            );
-            return exists ? (
-              <button
-                key={`${h.season}:${h.type}:${h.playerId}:${i}`}
-                onClick={() => viewPlayer(h.playerId)}
-                className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-hover"
-                title="View profile"
-              >
-                {inner}
-              </button>
-            ) : (
-              <div key={`${h.season}:${h.type}:${h.playerId}:${i}`} className="flex items-center gap-3 px-3 py-2.5">
-                {inner}
-              </div>
-            );
-          })}
         </Card>
+      )}
+    </Modal>
+  );
+}
+
+/**
+ * The player-honours board (v2.0) — grouped by AWARD, not by season.
+ *
+ * It was one flat chronological list in the narrow modal every other tally
+ * uses, which is the wrong shape for this particular tally and only this one.
+ * "Player Honours" is not one honour counted many times: it is nine different
+ * awards — a Golden Boot, a Legacy Team of the Year, a Golden Glove — sharing a
+ * single number on the card. Chronologically interleaved, the one question a
+ * manager actually has ("who of mine has ever made the Team of the Year?")
+ * could only be answered by reading every row and mentally sorting it.
+ *
+ * So: one section per award type, each with its own emblem, its blurb (which
+ * says what winning it MEANS, and had nowhere to appear before) and its own
+ * count, laid out in columns at `xl` width. Within a section the winners are
+ * grouped BY PLAYER rather than listed per season — a striker who won three
+ * Golden Boots is one line reading "×3" with his years beside it, which is the
+ * form a cabinet takes and which the flat list turned into three separate rows
+ * that never sat together.
+ *
+ * `ACCOLADE_ORDER` fixes the section order by prestige rather than letting it
+ * fall out of whatever was won first, so the board reads the same way in every
+ * save — and an award never won is still drawn, as an empty plinth, exactly as
+ * `HonourCard` draws an unwon honour.
+ */
+const ACCOLADE_ORDER: AccoladeType[] = [
+  "legacyPlayerOfSeason",
+  "legacyTeamOfSeason",
+  "playerOfSeason",
+  "youngPlayerOfSeason",
+  "teamOfSeason",
+  "goldenBoot",
+  "goldenPlaymaker",
+  "goldenGlove",
+  "goldenWall",
+];
+
+function PlayerHonoursModal({
+  honours,
+  onClose,
+}: {
+  honours: PlayerHonourRow[];
+  onClose: () => void;
+}) {
+  const game = useGame((s) => s.game)!;
+  const viewPlayer = useGame((s) => s.viewPlayer);
+
+  // Group twice: by award, then by the player who won it. The second grouping
+  // is what turns "Golden Boot 2031, Golden Boot 2032" into one man's record.
+  const sections = useMemo(() => {
+    const byType = new Map<AccoladeType, PlayerHonourRow[]>();
+    for (const h of honours) {
+      const list = byType.get(h.type);
+      if (list) list.push(h);
+      else byType.set(h.type, [h]);
+    }
+    return ACCOLADE_ORDER.map((type) => {
+      const rows = byType.get(type) ?? [];
+      const byPlayer = new Map<string, { name: string; years: string[]; leagueName?: string }>();
+      for (const h of rows) {
+        const entry = byPlayer.get(h.playerId);
+        if (entry) entry.years.push(h.yearLabel);
+        else byPlayer.set(h.playerId, { name: h.playerName, years: [h.yearLabel], leagueName: h.leagueName });
+      }
+      const winners = [...byPlayer.entries()]
+        .map(([playerId, w]) => ({ playerId, ...w }))
+        // Most-decorated first, then the most recent — a three-time winner is
+        // the headline of his own section.
+        .sort((a, b) => b.years.length - a.years.length || b.years[0].localeCompare(a.years[0]));
+      return { type, meta: ACCOLADE_META[type], count: rows.length, winners };
+    });
+  }, [honours]);
+
+  const total = honours.length;
+
+  return (
+    <Modal title="Player Honours" onClose={onClose} size="xl">
+      {total === 0 ? (
+        <div className="text-sm text-faint">
+          None of your players has won an individual award yet.
+        </div>
+      ) : (
+        <>
+          <p className="mb-3 text-[11px] leading-snug text-faint">
+            <span className="display gold-text tnum text-sm font-bold">{total}</span> individual{" "}
+            {total === 1 ? "award" : "awards"} won by players of your club, grouped by honour. A player who has won
+            one several times keeps a single line — the years are beside his name.
+          </p>
+          {/* Columns rather than one long scroll: nine sections stacked is a
+              page you page through, where side by side the whole cabinet is one
+              glance. `break-inside-avoid` keeps a section from being split
+              across the column break, which would separate a heading from the
+              winners under it. */}
+          <div className="gap-3 md:columns-2 xl:columns-3">
+            {sections.map((s) => (
+              <div
+                key={s.type}
+                className={`mb-3 break-inside-avoid rounded-md border bg-surface p-3 ${
+                  s.count > 0 ? "border-gold-lo/40" : "border-line"
+                }`}
+              >
+                <div className="flex items-start gap-2">
+                  <span aria-hidden className={`text-lg leading-none ${s.count > 0 ? "" : "opacity-30 grayscale"}`}>
+                    {s.meta.emoji}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="display truncate text-[13px] font-semibold text-ink">{s.meta.title}</div>
+                    <div className="text-[10px] leading-snug text-faint">{s.meta.blurb}</div>
+                  </div>
+                  <span
+                    className={`display shrink-0 tnum text-lg font-bold ${s.count > 0 ? "gold-text" : "text-faint"}`}
+                  >
+                    {s.count}
+                  </span>
+                </div>
+                {s.winners.length > 0 && <div className="gold-thread my-2" />}
+                {s.winners.length === 0 ? (
+                  <div className="mt-2 text-[11px] text-faint">Not yet won.</div>
+                ) : (
+                  <ul className="space-y-1">
+                    {s.winners.map((w) => {
+                      // A long save prunes retirees, so the click-through is
+                      // gated on the player still existing rather than assumed.
+                      const exists = !!game.players[w.playerId];
+                      const inner = (
+                        <>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[12px] font-semibold text-ink">{w.name}</span>
+                            <span className="block truncate text-[10px] tnum text-faint">
+                              {w.years.join(" · ")}
+                            </span>
+                          </span>
+                          {w.years.length > 1 && (
+                            <span className="display shrink-0 rounded-sm border border-gold-lo/60 px-1 text-[9px] font-bold tnum text-gold">
+                              ×{w.years.length}
+                            </span>
+                          )}
+                        </>
+                      );
+                      return (
+                        <li key={w.playerId}>
+                          {exists ? (
+                            <button
+                              onClick={() => viewPlayer(w.playerId)}
+                              title="View profile"
+                              className="flex w-full items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-hover"
+                            >
+                              {inner}
+                            </button>
+                          ) : (
+                            <div className="flex items-center gap-2 px-1 py-1">{inner}</div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </Modal>
   );
@@ -955,7 +1087,7 @@ function AccoladesTab({ a }: { a: UserAccolades }) {
         <HonourDetailModal title="Cups Won" trophies={cupTitles} onClose={() => setOpen(null)} />
       )}
       {open === "player" && (
-        <HonourDetailModal title="Player Honours" honours={playerHonours} onClose={() => setOpen(null)} />
+        <PlayerHonoursModal honours={playerHonours} onClose={() => setOpen(null)} />
       )}
 
       <Section title="Match Record">
@@ -1027,10 +1159,59 @@ function AccoladesTab({ a }: { a: UserAccolades }) {
 
 /** Format a progress pair for the achievement bar. Money targets (≥£1M) render
  * as money; everything else as a plain ratio. */
-function progressLabel(cur: number, target: number): string {
-  const money = target >= 1_000_000;
+function progressLabel(cur: number, target: number, unit?: AchievementDef["unit"]): string {
+  // A tiered achievement STATES its unit; a flat one is inferred from the size
+  // of its target, which is the rule that shipped and still covers every flat
+  // card in the table.
+  const money = unit ? unit === "money" : target >= 1_000_000;
   const shown = Math.min(cur, target);
   return money ? `${formatMoney(shown)} / ${formatMoney(target)}` : `${shown} / ${target}`;
+}
+
+/**
+ * The tier badge on a tiered card (v2.0).
+ *
+ * A pill in the tier's own colour, drawn from `BADGE_COLOR` — the same palette
+ * the staff badges use, so bronze is one bronze across the whole game rather
+ * than a second one invented here. Deliberately NOT the facility badge ART:
+ * that art carries a facility's mark, which would say something false about
+ * what an achievement is.
+ */
+function TierPill({ tier, className = "" }: { tier: BadgeTier; className?: string }) {
+  const color = BADGE_COLOR[tier];
+  return (
+    <span
+      className={`display shrink-0 rounded-sm border px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-widest ${className}`}
+      style={{ borderColor: `${color}66`, color, backgroundColor: `${color}18` }}
+    >
+      {tier}
+    </span>
+  );
+}
+
+/**
+ * The six-rung ladder as a row of pips — how far along a tiered achievement is,
+ * without having to read the numbers.
+ *
+ * This is what makes a tiered card worth looking at once it has unlocked. A
+ * plain progress bar says "68% of the way to the next thing" and nothing about
+ * depth, so a bronze Cup Glory and an obsidian one would look identical at a
+ * glance; six pips say which rung immediately and how many are left.
+ */
+function TierTrack({ index }: { index: number }) {
+  return (
+    <span className="flex shrink-0 items-center gap-[3px]" aria-hidden>
+      {ACHIEVEMENT_TIERS.map((t, i) => (
+        <i
+          key={t}
+          className="h-1.5 w-1.5 rounded-full"
+          style={{
+            backgroundColor: i <= index ? BADGE_COLOR[t] : "rgba(255,255,255,0.13)",
+          }}
+        />
+      ))}
+    </span>
+  );
 }
 
 /** The fill for a progress bar, by how close the chase is (v1.86).
@@ -1046,6 +1227,21 @@ function progressFill(pct: number): string {
   return "bg-rose-500/70";
 }
 
+/**
+ * One achievement card — flat or tiered (v2.0).
+ *
+ * The two shapes share everything except what the right-hand corner and the bar
+ * mean. A flat card is unlocked or not, and its bar chases a single target. A
+ * tiered card carries its current tier as a coloured pill plus the six-pip
+ * ladder, and its bar chases the NEXT rung — which is what stops an unlocked
+ * card going inert the moment it first fires.
+ *
+ * An earned card is tinted by its TIER rather than always gold: gold is the
+ * design language's "the important thing" accent, and if every unlocked card
+ * wore it there would be nothing left to distinguish a legacy Dynasty from a
+ * bronze one. Gold's own rung still reads gold, which is the happy accident of
+ * the badge ladder already containing it.
+ */
 function AchievementCard({
   def,
   earnedSeason,
@@ -1058,24 +1254,64 @@ function AchievementCard({
   state: import("@/lib/types").GameState;
 }) {
   const earned = earnedSeason !== undefined;
-  const prog = !earned && def.progress ? def.progress(state, a) : null;
-  const pct = prog && prog[1] > 0 ? Math.min(100, Math.round((prog[0] / prog[1]) * 100)) : 0;
+  const ts: TierState | null = achievementTier(def, state, a);
+
+  // What the bar is chasing. For a tiered card that is the next rung (measured
+  // from the one already cleared, so the bar reads as progress ACROSS a rung
+  // rather than as a fraction of an absolute total that starts near-full); for
+  // a flat card it is the definition's own single target, and only while locked.
+  const prog: [number, number] | null = ts
+    ? ts.nextTarget !== null
+      ? [ts.value, ts.nextTarget]
+      : null
+    : !earned && def.progress
+      ? def.progress(state, a)
+      : null;
+  const pct = prog
+    ? ts
+      ? // Span of the CURRENT rung, so a bronze card at 1/3 titles doesn't show
+        // 33% of the way to silver when it is actually at the very start of it.
+        Math.min(
+          100,
+          Math.max(
+            0,
+            Math.round(((ts.value - ts.reached) / Math.max(1, prog[1] - ts.reached)) * 100)
+          )
+        )
+      : prog[1] > 0
+        ? Math.min(100, Math.round((prog[0] / prog[1]) * 100))
+        : 0
+    : 0;
+
+  const tierColor = ts?.tier ? BADGE_COLOR[ts.tier] : null;
 
   return (
     // Locked cards recede (dimmer surface, no accent) so the earned ones and the
     // ones being actively chased are what the eye lands on first. An earned card
-    // gets the gold border plus a soft gold bloom — the reward for finishing it.
+    // gets a border plus a soft bloom in its own tier's colour — the reward for
+    // finishing it, and on a tiered card also the record of how far it went.
     <Card
       className={`relative overflow-hidden p-3.5 ${
-        earned ? "border-gold-lo/60 bg-hover/50 shadow-[0_0_18px_-6px_var(--color-gold-lo)]" : "bg-surface/60"
+        earned
+          ? tierColor
+            ? "bg-hover/50"
+            : "border-gold-lo/60 bg-hover/50 shadow-[0_0_18px_-6px_var(--color-gold-lo)]"
+          : "bg-surface/60"
       }`}
+      style={
+        earned && tierColor
+          ? { borderColor: `${tierColor}99`, boxShadow: `0 0 18px -6px ${tierColor}` }
+          : undefined
+      }
     >
       {earned && (
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 opacity-[0.07]"
           style={{
-            background: "radial-gradient(110% 130% at 0% 0%, var(--color-gold-hi), transparent 62%)",
+            background: `radial-gradient(110% 130% at 0% 0%, ${
+              tierColor ?? "var(--color-gold-hi)"
+            }, transparent 62%)`,
           }}
         />
       )}
@@ -1084,8 +1320,9 @@ function AchievementCard({
       <div className={`relative flex gap-3 ${prog ? "items-start" : "items-center"}`}>
         <div
           className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-xl ${
-            earned ? "bg-gold/15" : "bg-raised/80 opacity-60 grayscale"
+            earned ? "" : "bg-raised/80 opacity-60 grayscale"
           }`}
+          style={earned ? { backgroundColor: `${tierColor ?? "#ffd200"}26` } : undefined}
         >
           {def.emoji}
         </div>
@@ -1095,9 +1332,13 @@ function AchievementCard({
               {def.title}
             </span>
             {earned ? (
-              <span className="display shrink-0 text-[10px] font-semibold uppercase tracking-widest text-gold">
-                ✓ S{earnedSeason}
-              </span>
+              ts?.tier ? (
+                <TierPill tier={ts.tier} />
+              ) : (
+                <span className="display shrink-0 text-[10px] font-semibold uppercase tracking-widest text-gold">
+                  ✓
+                </span>
+              )
             ) : (
               // A padlock rather than the word "LOCKED": the old grey-on-grey
               // label was both the lowest-contrast text on the screen and the
@@ -1108,17 +1349,52 @@ function AchievementCard({
             )}
           </div>
           <div className="mt-0.5 text-[12px] leading-snug text-dim">{def.blurb}</div>
+
+          {/* The unlock stamp, spelled out (v2.0). "S1" was the shortest thing
+              on the card and the only one that needed decoding; there is room
+              for the word, and this is the line that tells a story. */}
+          {earned && (
+            <div className="mt-1 flex items-center justify-between gap-2">
+              <span className="display text-[10px] font-semibold uppercase tracking-widest text-faint">
+                ✓ Season {earnedSeason}
+              </span>
+              {ts && <TierTrack index={ts.tierIndex} />}
+            </div>
+          )}
+          {!earned && ts && (
+            <div className="mt-1 flex justify-end">
+              <TierTrack index={-1} />
+            </div>
+          )}
+
           {prog && (
             <div className="mt-2">
               <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.09]">
-                <div className={`${progressFill(pct)} h-full rounded-full`} style={{ width: `${pct}%` }} />
+                <div
+                  className={ts ? "h-full rounded-full" : `${progressFill(pct)} h-full rounded-full`}
+                  style={{
+                    width: `${pct}%`,
+                    // A tiered bar is coloured by the rung it is CHASING, so the
+                    // bar and the pill it is heading toward agree.
+                    ...(ts?.next ? { backgroundColor: BADGE_COLOR[ts.next] } : null),
+                  }}
+                />
               </div>
               <div className="mt-1 flex items-baseline justify-between gap-2">
-                <span className="text-[11px] tnum text-faint">{pct}%</span>
+                <span className="text-[11px] tnum text-faint">
+                  {ts?.next ? `Next: ${ts.next}` : `${pct}%`}
+                </span>
                 <span className="text-[11.5px] font-medium tnum text-dim">
-                  {progressLabel(prog[0], prog[1])}
+                  {progressLabel(prog[0], prog[1], def.unit)}
                 </span>
               </div>
+            </div>
+          )}
+          {/* Topped out: the ladder is finished, so there is no next rung to
+              chase and a bar at 100% would read as unfinished business. */}
+          {ts && !ts.next && earned && (
+            <div className="mt-2 text-[11px] font-medium uppercase tracking-widest" style={{ color: tierColor ?? undefined }}>
+              Maxed · {def.unit === "money" ? formatMoney(ts.value) : ts.value}
             </div>
           )}
         </div>
@@ -1140,17 +1416,27 @@ function AchievementsTab({
   // which is what makes the redesigned bar colours worth scanning, since the
   // nearly-there cards cluster.
   const grouped = useMemo(() => {
+    // How close a LOCKED card is to unlocking — for a tiered one that is its
+    // bronze rung, since bronze is what the unlock is.
     const nearness = (d: AchievementDef) => {
+      if (d.tiers && d.value) {
+        const t = d.tiers[0];
+        return t > 0 ? Math.min(1, d.value(game, a) / t) : -1;
+      }
       if (!d.progress) return -1;
       const [cur, target] = d.progress(game, a);
       return target > 0 ? Math.min(1, cur / target) : -1;
     };
+    // Among EARNED cards, the deepest tier floats up: a legacy Dynasty is the
+    // proudest thing in the group and shouldn't sort below a bronze one just
+    // because the bronze happens to appear first in the table.
+    const depth = (d: AchievementDef) => achievementTier(d, game, a)?.tierIndex ?? -1;
     return ACHIEVEMENT_GROUPS.map((g) => {
       const defs = ACHIEVEMENT_DEFS.filter((d) => d.group === g.id).sort((x, y) => {
         const ex = earned[x.id] ? 1 : 0;
         const ey = earned[y.id] ? 1 : 0;
         if (ex !== ey) return ey - ex;
-        if (ex === 1) return 0;
+        if (ex === 1) return depth(y) - depth(x);
         return nearness(y) - nearness(x);
       });
       return { ...g, defs };

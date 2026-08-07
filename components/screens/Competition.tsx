@@ -4,8 +4,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useGame } from "@/store/gameStore";
-import type { EuroCupTier, Fixture, League, TableRow } from "@/lib/types";
-import { LEAGUE_REP_MAX, leagueRepLabel, leagueReputation } from "@/lib/config/leaguerep";
+import type { EuroCupTier, Fixture, TableRow } from "@/lib/types";
 import { computeTable, computeForm, type FormResult } from "@/lib/season";
 import { EURO_CUP_DEFS, euroCompetitionId, euroSlotForPosition } from "@/lib/european";
 import { formatDayShort } from "@/lib/calendar";
@@ -438,26 +437,9 @@ function TableCard({
   );
 }
 
-/**
- * A league's standing in the world game (v1.72), as a compact chip.
- *
- * Structural data, not form: it says how much this division is worth on the
- * global map, which is what makes "top of the Norwegian first tier" and "top of
- * the Premier Division" legibly different achievements.
- */
-function LeagueRepBadge({ league }: { league: League }) {
-  const rep = leagueReputation(league);
-  return (
-    <span
-      className="flex items-center gap-1.5 text-xs text-faint"
-      title={`League reputation ${rep}/${LEAGUE_REP_MAX} — ${leagueRepLabel(rep)}`}
-    >
-      <span className="display gold-text tnum font-semibold">{rep}</span>
-      <span className="text-faint">/{LEAGUE_REP_MAX}</span>
-      <span className="text-dim">{leagueRepLabel(rep)}</span>
-    </span>
-  );
-}
+// The league-reputation chip that used to sit beside the table header was
+// removed (v2.0). `leagueReputation` is unchanged and still decides awards and
+// market gates — this was only ever a display of it.
 
 function LeagueView({ leagueId }: { leagueId: string }) {
   const game = useGame((s) => s.game)!;
@@ -498,7 +480,6 @@ function LeagueView({ leagueId }: { leagueId: string }) {
           title="Table"
           right={
             <span className="flex items-center gap-3">
-              <LeagueRepBadge league={league} />
               {league.country && (
                 <span className="flex items-center gap-1.5 text-xs text-faint">
                   <CountryFlag country={league.country} size={14} />
@@ -623,18 +604,39 @@ function FixtureList({ fixtures }: { fixtures: import("@/lib/types").Fixture[] }
 }
 
 /**
- * The cup, round by round (v1.91).
+ * The cup (v2.0) — the early rounds as columns, the closing rounds as a bracket.
  *
- * The bracket view was deleted rather than fixed. A knockout tree is
- * intrinsically wide, so on anything narrower than a desktop it became a
- * horizontally-scrolling grid of three-letter codes with no scores visible
- * until you swiped to them — the shape was legible, but nothing else was. What
- * a manager actually reads a cup page for is who played who, what the score
- * was, and who went through, and a round is the unit that answers all three.
+ * The history matters here, because this is the third shape this page has had.
+ * v1.91 deleted a full bracket in favour of one stacked card per round: a
+ * knockout tree is intrinsically wide, and a six-round tree of 32 first-round
+ * ties rendered as a scrolling grid of three-letter codes with the scores off
+ * the right-hand edge. That fixed the legibility and lost the shape — six full-
+ * width cards stacked down the page, the first of them 32 ties long, so the
+ * final was several screens below the fold and the competition never read as a
+ * tournament at all.
  *
- * So there is one view now and no toggle. Each round is a card that states its
- * own status (the user's tie is pulled to the top of its round), winners are
- * marked, and a shootout says so on the row rather than in a footnote.
+ * The resolution is that a cup is really two different things at two different
+ * times, and one layout cannot serve both:
+ *
+ *   • The EARLY rounds are a mass of ties nobody follows individually — 32,
+ *     then 16, then 8. They are a list, and a list is best read in parallel
+ *     columns: one per round, side by side, so a manager sees his own run
+ *     through them at a glance instead of scrolling past everyone else's.
+ *
+ *   • From the QUARTER-FINALS the cup becomes a tournament with a visible
+ *     shape: eight clubs, then four, then two. That is few enough ties to draw
+ *     as a real bracket, each column centred against its neighbour, and it is
+ *     the point at which a manager starts asking "who could I meet in the
+ *     final" — a question only a bracket answers.
+ *
+ * `BRACKET_FROM` is the index the second half begins at, and it is derived from
+ * the round NAMES rather than hardcoded to 3: a country's cup that authored a
+ * different number of early rounds must still put its bracket at its own
+ * quarter-final. Falling back to "the last three rounds" keeps that true for a
+ * cup whose rounds are named something else entirely.
+ *
+ * The bracket only appears once the quarter-finals have been drawn — before
+ * that there is nothing to draw and the columns hold the whole competition.
  */
 function CupView() {
   const game = useGame((s) => s.game)!;
@@ -646,6 +648,19 @@ function CupView() {
     fixtures: game.fixtures.filter((f) => f.competition === "CUP" && f.round === i + 1),
   }));
 
+  // Where the bracket half starts. By name when the cup names a quarter-final,
+  // otherwise the last three rounds — which is the same thing for any bracket
+  // that ends QF → SF → Final.
+  const namedQf = rounds.findIndex((r) => /quarter/i.test(r.name));
+  const bracketFrom = namedQf >= 0 ? namedQf : Math.max(0, rounds.length - 3);
+
+  const early = rounds.slice(0, bracketFrom);
+  const late = rounds.slice(bracketFrom);
+  // Drawn, not merely scheduled: the bracket is worth showing the moment the
+  // quarter-final draw exists, which `ensureCupRound` makes as soon as the
+  // previous round settles (v1.92) rather than on the morning of the tie.
+  const bracketLive = late.some((r) => r.fixtures.length > 0);
+
   return (
     <div className="space-y-4">
       {game.cup.winnerId && (
@@ -655,52 +670,217 @@ function CupView() {
         </Card>
       )}
 
-      {rounds.map((r) => {
-        // A round is "done" once every tie in it has been played — that, not the
-        // calendar, is what decides whether the heading reports a result or a date.
-        const played = r.fixtures.filter((f) => f.played).length;
-        const complete = r.fixtures.length > 0 && played === r.fixtures.length;
-        const drawn = r.fixtures.length > 0;
-        // The user's own tie leads its round; everything else keeps draw order.
-        const ordered = [...r.fixtures].sort((a, b) => {
-          const mine = (f: typeof a) => (f.homeId === game.userTeamId || f.awayId === game.userTeamId ? 0 : 1);
-          return mine(a) - mine(b);
-        });
+      {/* The closing rounds lead once they exist — that is the live half of the
+          competition, and the early rounds below it are settled history. */}
+      {bracketLive && <CupBracket rounds={late} />}
 
-        return (
-          <Card key={r.name} className="overflow-hidden">
-            <div className="flex items-center justify-between gap-3 border-b border-line px-3 py-2">
-              <div className="min-w-0">
-                <div className="display truncate text-[13px] font-semibold uppercase tracking-wider">{r.name}</div>
-                <div className="text-[11px] text-faint">
-                  {formatDayShort(r.day)}
-                  {drawn && ` · ${r.fixtures.length} ${r.fixtures.length === 1 ? "tie" : "ties"}`}
+      {/* The early rounds, side by side. They keep the full-width stacked shape
+          on a phone, where three columns of ties would be three columns of
+          nothing. */}
+      {early.length > 0 && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {early.map((r) => (
+            <CupRoundCard key={r.name} round={r} />
+          ))}
+        </div>
+      )}
+
+      {/* Before the quarter-finals are drawn the closing rounds are still worth
+          listing, as the empty plinths they are — otherwise the page silently
+          stops at the third round and gives no sense of how far there is to go. */}
+      {!bracketLive && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {late.map((r) => (
+            <CupRoundCard key={r.name} round={r} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type CupRound = { name: string; index: number; day: number; fixtures: Fixture[] };
+
+/**
+ * One early round as a card: its status, then every tie in it.
+ *
+ * This is v1.91's card, unchanged in what it says — it was the right unit for
+ * reading a round, and only ever the wrong unit for reading a whole cup. It now
+ * sits in a column beside its neighbours rather than spanning the page.
+ */
+function CupRoundCard({ round: r }: { round: CupRound }) {
+  const game = useGame((s) => s.game)!;
+
+  // A round is "done" once every tie in it has been played — that, not the
+  // calendar, is what decides whether the heading reports a result or a date.
+  const played = r.fixtures.filter((f) => f.played).length;
+  const complete = r.fixtures.length > 0 && played === r.fixtures.length;
+  const drawn = r.fixtures.length > 0;
+  // The user's own tie leads its round; everything else keeps draw order.
+  const ordered = [...r.fixtures].sort((a, b) => {
+    const mine = (f: typeof a) => (f.homeId === game.userTeamId || f.awayId === game.userTeamId ? 0 : 1);
+    return mine(a) - mine(b);
+  });
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-3 py-2">
+        <div className="min-w-0">
+          <div className="display truncate text-[13px] font-semibold uppercase tracking-wider">{r.name}</div>
+          <div className="text-[11px] text-faint">
+            {formatDayShort(r.day)}
+            {drawn && ` · ${r.fixtures.length} ${r.fixtures.length === 1 ? "tie" : "ties"}`}
+          </div>
+        </div>
+        <span
+          className={`display shrink-0 rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+            complete ? "bg-raised text-faint" : drawn ? "gold-grad text-black" : "border border-line text-faint"
+          }`}
+        >
+          {complete ? "Complete" : drawn ? `${played}/${r.fixtures.length} played` : "Not drawn"}
+        </span>
+      </div>
+
+      {drawn ? (
+        <div className="divide-y divide-line/50">
+          {ordered.map((f) => (
+            <CupTieRow key={f.id} f={f} compact />
+          ))}
+        </div>
+      ) : (
+        <div className="px-3 py-4 text-sm text-faint">
+          {game.cup.currentRound >= r.index ? "Draw made on the day." : "Awaiting earlier rounds."}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * The closing rounds as a bracket — quarter-finals through the final.
+ *
+ * Built on the same principle as the European one: each column is CENTRED
+ * against its neighbour, so a column of two sits level with the middle of the
+ * column of four beside it and the eye follows a club through the tree without
+ * a connector being drawn. The final is drawn larger than the rounds feeding
+ * it, since it is the one tie the whole page is about.
+ *
+ * A round that has not been drawn yet is still a column, holding the right
+ * number of empty plinths: "who reaches the final" is a question the shape
+ * should ask before it can answer it.
+ */
+function CupBracket({ rounds }: { rounds: CupRound[] }) {
+  const game = useGame((s) => s.game)!;
+  const openTeam = useContext(OpenTeam);
+
+  return (
+    <Section title="Knockout Stage">
+      <div className="overflow-x-auto pb-2">
+        <div className="flex gap-3" style={{ minWidth: rounds.length * 220 }}>
+          {rounds.map((r, ri) => {
+            const isFinal = ri === rounds.length - 1;
+            // How many ties this round WILL hold, so an undrawn round still
+            // reserves its shape: each round halves the one before it, and the
+            // last is the final.
+            const expected = Math.max(1, 2 ** (rounds.length - 1 - ri));
+            const ordered = [...r.fixtures].sort((a, b) => {
+              const mine = (f: typeof a) =>
+                f.homeId === game.userTeamId || f.awayId === game.userTeamId ? 0 : 1;
+              return mine(a) - mine(b);
+            });
+            const blanks = Math.max(0, expected - ordered.length);
+
+            return (
+              <div key={r.name} className="flex min-w-[210px] flex-1 flex-col">
+                <div className="mb-2 min-w-0">
+                  <div className="display truncate text-[11px] font-semibold uppercase tracking-wider text-dim">
+                    {r.name}
+                  </div>
+                  <div className="text-[10px] text-faint">{formatDayShort(r.day)}</div>
+                </div>
+                <div className="flex flex-1 flex-col justify-center gap-3">
+                  {ordered.map((f) => (
+                    <Card
+                      key={f.id}
+                      className={`overflow-hidden ${
+                        f.homeId === game.userTeamId || f.awayId === game.userTeamId
+                          ? "border-gold-lo"
+                          : isFinal
+                            ? "border-gold-lo/70"
+                            : ""
+                      }`}
+                    >
+                      <CupBracketTie f={f} big={isFinal} onOpen={openTeam} />
+                    </Card>
+                  ))}
+                  {Array.from({ length: blanks }, (_, i) => (
+                    <Card
+                      key={`blank-${i}`}
+                      className="border-dashed px-2 py-3 text-center text-[11px] text-faint"
+                    >
+                      Not drawn
+                    </Card>
+                  ))}
                 </div>
               </div>
-              <span
-                className={`display shrink-0 rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
-                  complete ? "bg-raised text-faint" : drawn ? "gold-grad text-black" : "border border-line text-faint"
-                }`}
-              >
-                {complete ? "Complete" : drawn ? `${played}/${r.fixtures.length} played` : "Not drawn"}
-              </span>
-            </div>
+            );
+          })}
+        </div>
+      </div>
+    </Section>
+  );
+}
 
-            {drawn ? (
-              <div className="divide-y divide-line/50">
-                {ordered.map((f) => (
-                  <CupTieRow key={f.id} f={f} />
-                ))}
-              </div>
-            ) : (
-              <div className="px-3 py-4 text-sm text-faint">
-                {game.cup.currentRound >= r.index ? "Draw made on the day." : "Awaiting earlier rounds."}
-              </div>
-            )}
-          </Card>
-        );
-      })}
-    </div>
+/** One bracket tie — both clubs stacked, the winner in gold. The stacked form
+ * (rather than the row `CupTieRow` uses) is what lets a column be narrow enough
+ * for four rounds to sit side by side. */
+function CupBracketTie({
+  f,
+  big,
+  onOpen,
+}: {
+  f: Fixture;
+  big: boolean;
+  onOpen: (teamId: string) => void;
+}) {
+  const game = useGame((s) => s.game)!;
+  const winnerId = !f.played
+    ? null
+    : f.shootoutWinnerId ?? (f.homeGoals! > f.awayGoals! ? f.homeId : f.awayGoals! > f.homeGoals! ? f.awayId : null);
+
+  const side = (teamId: string, goals: number | undefined) => {
+    const t = game.teams[teamId];
+    if (!t) return null;
+    const won = winnerId === teamId;
+    const lost = f.played && winnerId !== null && !won;
+    return (
+      <button
+        onClick={() => onOpen(teamId)}
+        className={`flex w-full items-center gap-1.5 px-2 py-1.5 text-left hover:bg-hover ${
+          big ? "text-[13px]" : "text-[12px]"
+        } ${teamId === game.userTeamId ? "font-semibold" : ""} ${lost ? "text-faint" : won ? "text-ink" : ""}`}
+        title={`View ${t.name}`}
+      >
+        <Crest team={t} size={big ? 18 : 14} />
+        <span className="min-w-0 flex-1 truncate">{t.name}</span>
+        <span className={`shrink-0 tnum ${won ? "gold-text font-bold" : ""}`}>
+          {f.played ? goals : "–"}
+        </span>
+      </button>
+    );
+  };
+
+  return (
+    <>
+      {side(f.homeId, f.homeGoals)}
+      <div className="border-t border-line/40" />
+      {side(f.awayId, f.awayGoals)}
+      {f.shootoutWinnerId && (
+        <div className="border-t border-line/40 px-2 py-0.5 text-[10px] text-faint">
+          {game.teams[f.shootoutWinnerId]?.name} win on penalties
+        </div>
+      )}
+    </>
   );
 }
 
@@ -710,8 +890,12 @@ function CupView() {
  * Full club names (not the bracket's three-letter codes) — a row has the width
  * for them, and they are what makes the page scannable. The loser is dimmed and
  * the winner carries the gold score, so "who went through" needs no legend.
+ *
+ * `compact` (v2.0) is for the early-round columns, which are a third of the page
+ * rather than all of it: the type steps down and the score column narrows, since
+ * both club names now have to fit either side of it.
  */
-function CupTieRow({ f }: { f: Fixture }) {
+function CupTieRow({ f, compact = false }: { f: Fixture; compact?: boolean }) {
   const game = useGame((s) => s.game)!;
   const openTeam = useContext(OpenTeam);
 
@@ -732,19 +916,19 @@ function CupTieRow({ f }: { f: Fixture }) {
         } ${lost ? "text-faint" : ""} ${won ? "font-semibold text-ink" : ""}`}
         title={t.name}
       >
-        {align === "left" && <Crest team={t} size={18} />}
+        {align === "left" && <Crest team={t} size={compact ? 14 : 18} />}
         <span className="truncate">{t.name}</span>
-        {align === "right" && <Crest team={t} size={18} />}
+        {align === "right" && <Crest team={t} size={compact ? 14 : 18} />}
       </button>
     );
   };
 
   return (
-    <div className={`px-3 py-2 text-[13px] ${mine ? "bg-hover/50" : ""}`}>
-      <div className="flex items-center gap-2">
+    <div className={`px-3 py-2 ${compact ? "text-[12px]" : "text-[13px]"} ${mine ? "bg-hover/50" : ""}`}>
+      <div className={`flex items-center ${compact ? "gap-1.5" : "gap-2"}`}>
         {club(f.homeId, "right")}
         <span
-          className={`display w-14 shrink-0 text-center tnum font-bold ${
+          className={`display shrink-0 text-center tnum font-bold ${compact ? "w-10" : "w-14"} ${
             f.played ? "gold-text" : "text-faint"
           }`}
         >
@@ -1041,7 +1225,6 @@ function SimLeagueView({ leagueId }: { leagueId: string }) {
           right={
             league && (
               <span className="flex items-center gap-3">
-                <LeagueRepBadge league={league} />
                 <span className="flex items-center gap-1.5 text-xs text-faint">
                   <CountryFlag country={league.country} size={14} />
                   {league.country}

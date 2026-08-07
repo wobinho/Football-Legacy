@@ -1654,6 +1654,49 @@ export interface UserAccolades {
   gcnHubsBuilt?: number;
   /** Prospects signed onto a hub's books across the save (v1.95). */
   gcnHubProspects?: number;
+
+  // ── v2.0 tallies ─────────────────────────────────────────────────────────
+  //
+  // All optional with a 0 default, for the reason stated above: a running tally
+  // that has never been incremented is legitimately zero, so a save gains these
+  // without a schema bump or a migration.
+
+  /** European cups won, split by the cup's own tier (1 = Champions League,
+   * 2 = Europa League, 3 = Conference League). Kept as three tallies rather
+   * than one because the three are three different achievements — winning the
+   * Conference League is not a Champions League title with a smaller number. */
+  europeanCups?: Record<number, number>;
+  /** Highest club overall (`squadOverall().overall`) ever reached — the XI
+   * weighted against its bench, the v1.90 rule, never a squad mean. */
+  peakClubOverall?: number;
+  /** Highest starting-XI overall ever reached. */
+  peakStartingOverall?: number;
+  /** Highest overall reached by the picked XI's best player in each position
+   * group. Keyed by `PosGroup`, so a back four's figure is the mean of the
+   * defenders actually named in the shape the club plays. */
+  peakGroupOverall?: Record<string, number>;
+  /** Highest overall any single player at the user's club has ever reached. */
+  peakPlayerOverall?: number;
+  /** Individual honours won by the single most-decorated player to have played
+   * for the user's club — a high-water mark over players, not a club total. */
+  peakPlayerHonours?: number;
+  /** Ballon-d'Or-equivalents: Legacy Player of the Year awards won by the
+   * user's players (the save's single best season, so far rarer than the
+   * per-league honours `playerAwards` counts). */
+  legacyPlayerAwards?: number;
+  /** Players bought and sold across the save. Counted rather than valued: a
+   * career of business is a different achievement from a single record fee,
+   * which `biggestSigningFee` already covers. */
+  playersBought?: number;
+  playersSold?: number;
+  /** Highest total squad value ever reached (high-water mark). */
+  peakSquadValue?: number;
+  /** Owned network clubs held at once (high-water mark). Distinct from
+   * `gcnClubsBought` + `gcnClubsFounded`, which are lifetime tallies and do not
+   * fall when a holding is sold. */
+  gcnPeakClubsOwned?: number;
+  /** Global Executive seats filled at once (high-water mark, 0–3). */
+  gcnPeakExecsSeated?: number;
   /** WHO the record signing / sale was (v1.7). The fees above are the numbers;
    * these carry the player behind them so the cabinet can put a name and a face
    * to the record instead of a bare figure. Snapshotted at the moment of the

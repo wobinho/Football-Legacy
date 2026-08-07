@@ -54,21 +54,52 @@ import {
   Tabs,
 } from "../ui";
 
-type Tab = "facilities" | "staff";
+type Tab = "facilities" | "available" | "staff";
 
+/**
+ * Three tabs (v2.0) — the facility list is split into what the club HAS and
+ * what it could build.
+ *
+ * Ten facilities is too many for one grid, and the two halves are two different
+ * questions. "Your Facilities" is an operations screen: which building needs a
+ * coach, which is one level off a badge tier, where the next upgrade goes — and
+ * every card on it is a live thing with arithmetic behind it. "Available" is a
+ * shopping list: ten site plans, each a photograph and a price, and nothing on
+ * it can be acted on except by spending. Mixed together the built ones were
+ * padded out by up to nine sales pitches, so the tab a manager opens weekly to
+ * assign staff had him scrolling past buildings he'd already decided not to buy.
+ *
+ * The counts ride in the labels because the split moves cards between the tabs
+ * — without them, building something makes a card vanish from one page with no
+ * indication it arrived on another.
+ */
 export default function FacilitiesScreen() {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
   const [tab, setTab] = useState<Tab>("facilities");
+
+  const team = game.teams[game.userTeamId];
+  const built = FACILITY_SPECS.filter((s) => isUnlocked(team, s.id));
+  const unbuilt = FACILITY_SPECS.filter((s) => !isUnlocked(team, s.id));
+
   return (
     <div>
       <Tabs
         tabs={[
-          { id: "facilities", label: "Facilities" },
+          { id: "facilities", label: `Your Facilities (${built.length})` },
+          { id: "available", label: `Available (${unbuilt.length})` },
           { id: "staff", label: "Backroom" },
         ]}
         active={tab}
         onChange={setTab}
       />
-      {tab === "facilities" ? <FacilitiesTab /> : <StaffTab />}
+      {tab === "facilities" ? (
+        <FacilitiesTab specs={built} empty="built" />
+      ) : tab === "available" ? (
+        <FacilitiesTab specs={unbuilt} empty="available" />
+      ) : (
+        <StaffTab />
+      )}
     </div>
   );
 }
@@ -213,11 +244,35 @@ function BadgeRow({
  * wraps into noise; the fourth column at 2xl sat under it. Three across from xl,
  * two at lg, one on a phone.
  */
-function FacilitiesTab() {
+function FacilitiesTab({
+  specs,
+  empty,
+}: {
+  specs: FacilitySpec[];
+  /** Which side of the split this is, for the empty state — the two cases are
+   * opposite news and deserve opposite copy. */
+  empty: "built" | "available";
+}) {
   useGame((s) => s.rev);
+
+  if (!specs.length) {
+    return (
+      <Card className="mt-4 p-6 text-center text-sm text-faint">
+        {empty === "built" ? (
+          <>
+            You haven&apos;t built anything yet. Everything the club can put up is on the{" "}
+            <span className="text-dim">Available</span> tab.
+          </>
+        ) : (
+          <>Every facility is built. There is nothing left to break ground on.</>
+        )}
+      </Card>
+    );
+  }
+
   return (
     <div className="mt-4 grid grid-cols-1 items-start gap-x-5 gap-y-0 lg:grid-cols-2 xl:grid-cols-3">
-      {FACILITY_SPECS.map((spec) => (
+      {specs.map((spec) => (
         <FacilityPanel key={spec.id} id={spec.id} />
       ))}
     </div>

@@ -136,6 +136,107 @@ export interface TuningConfig {
   subUpgradeMargin: number;
   clutchMinute: number; // Clutch trait activates from here
 
+  // ── Match ratings (v2.0) ─────────────────────────────────────────────────
+  //
+  // What a player's 4–10 out of ten is made of. Before v2.0 the whole formula
+  // was `6.5 + goals + assists/2 + gd×0.15 + ±0.4` — so a midfielder who
+  // neither scored nor assisted came out at 6.5 every single week, and a season
+  // of them averaged 6.5 with a standard deviation small enough that the
+  // individual awards (which score `avgRating × (1 + teamSuccess)`) were
+  // decided almost entirely by which club finished highest. The whole spread
+  // that separates a great season from an ordinary one lived in the ±0.4 noise.
+  //
+  // Every term below is a REASON a rating moved, so a number on the match
+  // report can be traced to something that happened on the pitch.
+
+  /** The rating a wholly unremarkable full appearance earns. */
+  ratingBase: number;
+  /** Per goal, and per assist. */
+  ratingPerGoal: number;
+  ratingPerAssist: number;
+  /** Per goal of the final margin, from the player's own side's point of view.
+   * Small: a rout is a team outcome and shouldn't hand a bit-part player the
+   * same credit as a scorer. */
+  ratingPerGoalDiff: number;
+  /** Clean-sheet bonus for the keeper and the back line. */
+  ratingCleanSheet: number;
+  /** Conceding is a defender's business, so it is charged to the defence per
+   * goal against — the counterpart to the clean sheet, and what stops a back
+   * four beaten 5-0 rating the same as one that lost 1-0. */
+  ratingPerConcededDef: number;
+  /**
+   * How hard a player's own PERFORMANCE LEVEL moves his rating.
+   *
+   * This is the term that actually creates the spread, and it is the reason a
+   * defensive midfielder can now have a genuinely good game. It reads how his
+   * effective rating on the day compared with what he is ordinarily worth —
+   * i.e. form, fitness, how well the tactic suited him, whether he was played
+   * out of position — and converts that ratio into rating points. A player 10%
+   * above his own baseline earns about `ratingFormWeight × 0.1` of a point.
+   *
+   * Deliberately measured against HIS OWN overall rather than against the
+   * league: an 88-rated striker having a quiet game should rate below a
+   * 70-rated one having the game of his life, which is exactly what an
+   * end-of-season award needs to be able to see.
+   */
+  ratingFormWeight: number;
+  /**
+   * Rating points per point of overall above the MATCH's own mean.
+   *
+   * The performance term above is quality-neutral by construction (it divides
+   * by the player's own overall), so without this a season of ratings would
+   * correlate ~0 with ability and the awards would again be decided by noise
+   * and team success. This is the term that says a better player has, on
+   * average, a better game.
+   *
+   * Small on purpose: at 0.03 a fifteen-point quality gap is worth about half a
+   * rating point, so a great game by an ordinary player still outranks a quiet
+   * one by a star. Raise it and awards become a re-ranking of the overall
+   * column; drop it to zero and they become a lottery. Both are worse.
+   */
+  ratingPerOverallEdge: 0.075,
+  /**
+   * Spread of the per-match luck term, as a standard deviation.
+   *
+   * Larger than the old ±0.4 uniform band, and normally distributed rather than
+   * flat: real match ratings cluster around the middle with genuine outliers at
+   * the edges, where a uniform band produces as many 6.9s as 6.5s and no 8.5s
+   * at all. This is the only term with no in-fiction reason behind it, so it is
+   * kept smaller than the performance term — luck should be visible in one
+   * match and average out across a season, which is what makes the season-long
+   * table of averages worth reading.
+   */
+  ratingNoiseSd: number;
+  /** A substitute's rating is pulled toward the base by how little he played,
+   * so a 10-minute cameo can't win Player of the Season off one goal. At 0 a
+   * sub is judged exactly like a starter; at 1 a 1-minute appearance is worth
+   * precisely the base. Applies to the EARNED part only — a goal still counts,
+   * it just counts proportionately. */
+  ratingSubDamping: number;
+  /** Floor and ceiling. 10 is a perfect game and must stay reachable; 4 is as
+   * bad as a rating gets. */
+  ratingMin: number;
+  ratingMax: number;
+
+  // Sim leagues get the same three ideas as the playable engine — how good he
+  // is for this level, what his side achieved, and luck — expressed per SEASON
+  // rather than per match, since the resolver never plays one. The two halves
+  // of the world have to agree here: the legacy awards pool every top flight,
+  // so a sim league whose ratings are flatter than a playable one's would win
+  // or lose them purely on which kind of league a player happens to be in.
+  /** Rating points per point of overall above the league's own mean. */
+  simRatingPerOverall: number;
+  /** Total swing across the table, champions to bottom club. */
+  simRatingFinishSwing: number;
+  /** Season-rating spread, as a standard deviation. Narrower than the per-match
+   * figure because this IS a season average — a mean over 30 matches has far
+   * less variance than one match does, and using the match figure here would
+   * make sim players spread wider than playable ones. */
+  simRatingNoiseSd: number;
+  /** Ceiling on what goals or assists can add to a sim player's season rating,
+   * so a freak tally can't hand him a 10.0. */
+  simRatingScorerMax: number;
+
   // ── Dynamic substitutions (v1.66) ─────────────────────────────────────────
   // The old auto-sub pass only ever swapped a tired starter for a better bench
   // option, so a side that stayed fresh made zero changes and the bench never
@@ -1991,6 +2092,26 @@ export const TUNING: TuningConfig = {
   subUpgradeMargin: 0.94,
   clutchMinute: 75,
 
+  // Match ratings (v2.0). `ratingFormWeight` is the headline: it is what turns
+  // a flat 6.5 for everyone who didn't score into a spread wide enough for a
+  // season average to mean something. See the interface for what each term is.
+  ratingBase: 6.27,
+  ratingPerGoal: 1.0,
+  ratingPerAssist: 0.55,
+  ratingPerGoalDiff: 0.11,
+  ratingCleanSheet: 0.45,
+  ratingPerConcededDef: 0.16,
+  ratingFormWeight: 4.2,
+  ratingPerOverallEdge: 0.075,
+  ratingNoiseSd: 0.42,
+  ratingSubDamping: 0.75,
+  ratingMin: 4,
+  ratingMax: 10,
+  simRatingPerOverall: 0.035,
+  simRatingFinishSwing: 0.5,
+  simRatingNoiseSd: 0.16,
+  simRatingScorerMax: 1.2,
+
   // Dynamic substitutions (v1.66). Three changes is the floor a manager aims for
   // — that alone turns the bench from decoration into ~250 minutes a match spread
   // across squad players. Fatigue pulls below 74 unconditionally; the quality
@@ -2124,7 +2245,24 @@ export const TUNING: TuningConfig = {
   // ten seasons. These two constants are the headline budget every other growth
   // term multiplies into, so raising them lifts the whole distribution rather
   // than any one age band.
-  growthPerSeasonMax: 5.4,
+  //
+  // v2.0: 5.4 → 8.1 (+50%), paired with the same +50% on
+  // `primeGrowthPerSeasonMax`. The two are always moved together — see the note
+  // on that constant for why lifting only one is the wrong shape.
+  //
+  // MEASURED, and the cost is real and should be known before this is moved
+  // again. `measure:growth` over 8 seasons, regulars with headroom: mean career
+  // gain 8.88 → 12.89, and the "ever-present with room to grow, gained ≤2"
+  // case 8% → 1%. `calibrate` and `verify:standings` are both unmoved (2.61
+  // goals/match, rho 0.652). What DOES move is the world's ceiling:
+  // `measure:quality` over 15 seasons puts the 85+ population at 507 against a
+  // baseline peak of 256, and the top flight's squad mean at 84.8 against 81.5.
+  // The SHAPE of both curves is the same (rise, then decline as the cohort
+  // ages), so this is a scale shift rather than a new failure mode — but the
+  // world now grows roughly twice as many elite players as it did, which is the
+  // price of every career being twice as rewarding. If that reads as too many
+  // 90s, the lever is these two constants, not the elite-resistance curve.
+  growthPerSeasonMax: 8.1,
   declinePerSeasonBase: 1.6,
   // v1.66: 1.8 → 1.35. The catch-up band compounds with coach, facility, plan and
   // the academy bonuses, so at full investment it was producing +12 seasons for a
@@ -2171,12 +2309,32 @@ export const TUNING: TuningConfig = {
   // youth budget would push the world's growth even further into the age band
   // that takes longest to pay off — the opposite of what the long-save shortage
   // of finished players needs.
-  primeGrowthPerSeasonMax: 3.6,
+  // v2.0: 3.6 → 5.4 (+50%), in step with `growthPerSeasonMax` above.
+  primeGrowthPerSeasonMax: 5.4,
   // 6.55 sits just under the median regular's rating (~6.65), so an ordinary
   // first-teamer having a normal season edges forward while a squad player who
   // rates below the median still stagnates. At the old 6.9 only ~12% of players
   // cleared the bar at all, which is why nobody over 24 appeared to develop.
-  primeGrowthPerfPivot: 6.55,
+  //
+  // v2.0: 6.55 → 6.35. This is the constant that decides whether raising the
+  // two headline budgets above actually reaches the player the raise was FOR,
+  // and it had to be measured rather than reasoned about. The prime branch is a
+  // CLIFF, not a curve: `primePerf > 0` is a hard gate, so a regular rating
+  // 6.56 grows and one rating 6.54 gains exactly zero — and multiplying his
+  // growth by 1.5× leaves zero exactly where it was. Measured over 8 seasons
+  // (`npm run measure:growth`), that is where the reported symptom lived: the
+  // 25–27 band gained +3.66 across eight ever-present seasons while carrying
+  // 10.3 points of declared headroom, and the youth bands were healthy
+  // throughout (+17.7 for the 16–18s) — so the defect was never the headline
+  // budget, which is what a +50% on it alone would have been aimed at.
+  //
+  // Deliberately a small move, and NOT to zero. The gate is doing real work:
+  // growth on merit is the whole design of this branch, and a pivot that every
+  // squad player clears would hand the world a free point a season and undo
+  // what v1.52 fixed. 6.35 is about a fifth of a rating point of slack — enough
+  // that a solid regular having a normal campaign inches forward instead of
+  // being told he is finished at 25.
+  primeGrowthPerfPivot: 6.35,
   primeInSeasonShare: 0.45,
   // 0.25 in perf units ≈ 0.3 of a rating point below the 6.55 pivot, so anything
   // from ~6.25 up is treated as an ordinary season and costs nothing. Below that

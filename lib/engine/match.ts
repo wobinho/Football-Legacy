@@ -31,7 +31,7 @@ import {
   type FitPlayer,
 } from "../config/tacticfit";
 import { instructionFitScore, type InstructionView } from "../config/archetype";
-import { mulberry32, pickWeighted, randPoisson, type RNG } from "../rng";
+import { mulberry32, pickWeighted, randNormal, randPoisson, type RNG } from "../rng";
 
 // Resolved tactic-instruction defaults — a tactic may omit the expanded fields
 // (v2 saves); the engine always reads a concrete value.
@@ -110,6 +110,24 @@ interface OnPitch {
   entry: LineupEntry;
   enteredMinute: number;
   leftMinute: number | null;
+  /**
+   * How the player actually PERFORMED, accumulated per segment (v2.0).
+   *
+   * `perfSum` is the running total of his effective rating divided by his own
+   * overall — i.e. what fraction of himself he was on the day, once form,
+   * fitness, position fit, the tactic and the coach have had their say.
+   * `perfSegments` is how many segments that sum covers, so the two divide into
+   * a mean over the time he was actually on the pitch (a 70th-minute substitute
+   * is judged on his twenty minutes, not on the match).
+   *
+   * Accumulated in `phaseStrengths`, which already computes `effectiveRating`
+   * for every player every segment — so this is free, and more importantly it
+   * is the SAME number the simulation used to decide the match. A rating
+   * derived from a second, parallel estimate of how well someone played could
+   * disagree with the result on the board.
+   */
+  perfSum: number;
+  perfSegments: number;
 }
 
 interface SideState {
@@ -337,6 +355,18 @@ function phaseStrengths(side: SideState, isHome: boolean, minute: number, cfg: T
   for (const op of side.onPitch) {
     if (op.leftMinute !== null) continue;
     const eff = effectiveRating(op, side, isHome, minute, cfg) * teamBuff;
+    // v2.0: bank what fraction of himself he was this segment, for the match
+    // rating. `phaseStrengths` is called exactly once per side per segment (the
+    // only two call sites are in `playSegment`), so this is one sample per
+    // player per segment and the mean below is over the time he was on.
+    // Divided by his own overall so the figure is "how well did HE play"
+    // rather than "how good is he" — the second is already known and would
+    // simply hand every rating to the best player on the pitch.
+    const base = op.entry.player.overall;
+    if (base > 0) {
+      op.perfSum += eff / base;
+      op.perfSegments += 1;
+    }
     const w = PHASE_WEIGHTS[op.entry.slotPos];
     attack += eff * w.attack;
     midfield += eff * w.midfield;
@@ -510,6 +540,8 @@ function makeSub(
     entry: { slotPos: op.entry.slotPos, player: incoming },
     enteredMinute: minute,
     leftMinute: null,
+    perfSum: 0,
+    perfSegments: 0,
   });
   side.subsUsed++;
   // The XI has changed, so how well this side suits its own instructions has too
@@ -756,7 +788,13 @@ function playSegment(state: MatchState) {
 function makeSideState(input: SideInput): SideState {
   return {
     input,
-    onPitch: input.lineup.map((entry) => ({ entry, enteredMinute: 0, leftMinute: null })),
+    onPitch: input.lineup.map((entry) => ({
+      entry,
+      enteredMinute: 0,
+      leftMinute: null,
+      perfSum: 0,
+      perfSegments: 0,
+    })),
     bench: input.bench.slice(),
     subsUsed: 0,
     goals: 0,
@@ -997,27 +1035,128 @@ export function playSecondHalf(state: MatchState): MatchState {
   return playSegments(state, state.cfg.segmentsPerMatch);
 }
 
+/**
+ * The performance baseline (v2.0) — what `eff / overall` comes to for a player
+ * having a wholly ordinary game.
+ *
+ * `effectiveRating` multiplies a player's overall by fit, synergy, the role
+ * brief, instruction fit, form, fitness, the coach, width and home advantage.
+ * For an average player in his own position, on average form, at full fitness,
+ * with no coach edge, every one of those sits at ~1 — so the ordinary case is
+ * ~1 and a ratio above it means he outplayed himself.
+ *
+ * The two systematic exceptions are handled rather than ignored, because
+ * neither is anything the PLAYER did: home advantage lifts one whole side, and
+ * fitness falls through the match for everybody. Both are divided back out, so
+ * an away player isn't marked down for playing away and a full ninety minutes
+ * doesn't rate below a cameo purely for having been tiring.
+ */
+function performanceRatio(op: OnPitch, side: SideState, isHome: boolean, cfg: TuningConfig): number {
+  if (op.perfSegments === 0) return 1;
+  const mean = op.perfSum / op.perfSegments;
+  // Undo home advantage — a side-wide constant, not a personal performance.
+  const homeAdj = isHome ? cfg.homeAdvantage : 1;
+  // Undo the average fitness multiplier across his time on the pitch. Taken at
+  // the MIDPOINT of his spell, which is the mean of a linear drain.
+  const mins = (op.leftMinute ?? 90) - op.enteredMinute;
+  const drained =
+    op.entry.player.fitness -
+    (mins / 2 / 90) * cfg.fitnessDrainPerMatch * drainRateMult(side, cfg);
+  const fitAdj = Math.max(0.1, fitnessMult(drained, cfg));
+  // Undo position fit. This one was found by MEASURING rather than by reading
+  // the formula, and leaving it in inverted the whole system: season averages
+  // correlated −0.20 with overall, i.e. the WORSE player reliably rated higher.
+  //
+  // The cause is selection, not performance. A squad player only makes the XI
+  // when he is a natural fit for the slot (fit = 1.0), where a star is
+  // routinely shifted into an imperfect one to get him on the pitch at all —
+  // so a term meant to measure "how well did he play" was quietly measuring
+  // "was he picked in his best position", and marking down exactly the players
+  // good enough to be accommodated. Being played out of position is the
+  // manager's decision; the engine already charges the TEAM for it through the
+  // phase strengths, and charging the player's rating for it as well is both
+  // double-counting and a judgement on the wrong person.
+  const posAdj = Math.max(
+    0.1,
+    positionFit(op.entry.player.positions, op.entry.slotPos, cfg.adjacentPositionMult, cfg.outOfPositionFloor)
+  );
+  return mean / (homeAdj * fitAdj * posAdj);
+}
+
 export function finalizeResult(state: MatchState): MatchResult {
   const ratings: Record<string, number> = {};
   const minutes: Record<string, number> = {};
   const gd = state.home.goals - state.away.goals;
 
-  for (const [side, sideGd] of [
-    [state.home, gd],
-    [state.away, -gd],
-  ] as [SideState, number][]) {
+  // The standard of THIS match — everyone who took the field, both sides. What
+  // the quality term below is measured against.
+  const everyone = [...state.home.onPitch, ...state.away.onPitch];
+  const matchMeanOverall = everyone.length
+    ? everyone.reduce((s, o) => s + o.entry.player.overall, 0) / everyone.length
+    : 70;
+
+  for (const [side, sideGd, isHome] of [
+    [state.home, gd, true],
+    [state.away, -gd, false],
+  ] as [SideState, number, boolean][]) {
+    const conceded = side === state.home ? state.away.goals : state.home.goals;
     for (const op of side.onPitch) {
       const p = op.entry.player;
       const mins = (op.leftMinute ?? 90) - op.enteredMinute;
       minutes[p.id] = (minutes[p.id] ?? 0) + mins;
       const goals = state.scorers.filter((s) => s.playerId === p.id).length;
       const assists = state.scorers.filter((s) => s.assistId === p.id).length;
-      let r = 6.5 + goals * 1.0 + assists * 0.5 + sideGd * 0.15 + (state.rng() - 0.5) * 0.8;
-      if (op.entry.slotPos === "GK" || op.entry.slotPos === "CB") {
-        const conceded = side === state.home ? state.away.goals : state.home.goals;
-        if (conceded === 0) r += 0.5;
-      }
-      ratings[p.id] = Math.max(4, Math.min(10, Math.round(r * 10) / 10));
+
+      // ── Everything he EARNED, over and above simply turning out ──
+      //
+      // The performance term is the one that matters (v2.0). Before it, a
+      // player who neither scored nor assisted rated 6.5 ± 0.4 every week
+      // whatever he did, so a season of averages carried almost no signal and
+      // the individual awards fell out of team success alone.
+      const perf = performanceRatio(op, side, isHome, state.cfg);
+      let earned = (perf - 1) * state.cfg.ratingFormWeight;
+
+      // How good he is for the company he is keeping. `performanceRatio` is
+      // scaled by his OWN overall and is therefore quality-NEUTRAL by
+      // construction — an 88-rated player at 100% of himself and a 62-rated one
+      // at 100% of himself both score zero on it, which is right for "how well
+      // did he play" and useless for "who had the better season". Measured, a
+      // season of the performance term alone correlated ~0 with overall.
+      //
+      // So the standard of the match is the yardstick: his overall against the
+      // mean of the twenty-two on the pitch. Deliberately the MATCH's mean and
+      // not the league's — a good player in a bad side is carrying it, and that
+      // is precisely the season an individual award is meant to find.
+      earned += (p.overall - matchMeanOverall) * state.cfg.ratingPerOverallEdge;
+
+      earned += goals * state.cfg.ratingPerGoal;
+      earned += assists * state.cfg.ratingPerAssist;
+      earned += sideGd * state.cfg.ratingPerGoalDiff;
+
+      // Keeping goals out, and letting them in, are the defence's business.
+      const w = PHASE_WEIGHTS[op.entry.slotPos];
+      // Weighted by how much of the slot's job IS defending, so a centre-back
+      // carries the clean sheet and a winger barely feels it — a table lookup,
+      // never a named-position conditional.
+      const defShare = Math.min(1, w.defense);
+      if (conceded === 0) earned += state.cfg.ratingCleanSheet * defShare;
+      else earned -= conceded * state.cfg.ratingPerConcededDef * defShare;
+
+      // A substitute is judged on his cameo, so what he earned is scaled by how
+      // much of the match he saw — otherwise a 5-minute goal is a 9.0 and wins
+      // Player of the Season off eight appearances.
+      const share = Math.max(0, Math.min(1, mins / 90));
+      earned *= 1 - state.cfg.ratingSubDamping * (1 - share);
+
+      // Luck. Normal rather than uniform: real ratings cluster with genuine
+      // outliers, where a flat band produces no 8.5s at all.
+      const noise = randNormal(state.rng) * state.cfg.ratingNoiseSd;
+
+      const r = state.cfg.ratingBase + earned + noise;
+      ratings[p.id] = Math.max(
+        state.cfg.ratingMin,
+        Math.min(state.cfg.ratingMax, Math.round(r * 10) / 10)
+      );
     }
   }
 

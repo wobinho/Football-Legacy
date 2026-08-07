@@ -25,6 +25,7 @@ import { Crest, Flag, GhostButton, Ovr, PosBadge } from "./ui";
 import LibraryClubModal, { rosterSeedsFor } from "./LibraryClubModal";
 import LibraryPlayerModal from "./LibraryPlayerModal";
 import ImportFromDefaultModal from "./ImportFromDefaultModal";
+import DefaultClubEditor from "./DefaultClubEditor";
 
 /** Squad average for a pre-v1.51 club still on the 1–100 quality dial. Each call
  * generates probe squads, so memoize per dial value — the club list would
@@ -58,7 +59,7 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
   const removeLibraryPlayer = useGame((s) => s.removeLibraryPlayer);
   const showToast = useGame((s) => s.showToast);
 
-  const [tab, setTab] = useState<"clubs" | "players">("clubs");
+  const [tab, setTab] = useState<"clubs" | "players" | "defaults">("clubs");
   /** null = closed, "new" = creating, otherwise the entry being edited. */
   const [clubModal, setClubModal] = useState<LibraryClub | "new" | null>(null);
   const [playerModal, setPlayerModal] = useState<LibraryPlayer | "new" | null>(null);
@@ -79,6 +80,10 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
   // Search both libraries by name (and clubs by short code); empty = show all.
   // Accent-insensitive throughout (v1.5): "Doue" finds "Doué". Player search
   // also covers the full name, so a first name the row abbreviates still hits.
+  /** How many shipped clubs the user has permanently edited (v2.0), for the tab
+   * label — the only place the count is visible without opening the tab. */
+  const overrideCount = library.clubOverrides?.length ?? 0;
+
   const q = query.trim();
   const shownClubs = useMemo(
     () => (!q ? library.clubs : library.clubs.filter((c) => matchesAny([c.name, c.short], q))),
@@ -152,14 +157,17 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
           the real thing — change Liverpool&apos;s squad, retune a player, then drop your version into a new legacy.
           Attach players to a club to author a whole team that plugs into any save intact. You can also{" "}
           <b className="text-ink">import a squad you exported from a running save</b> (Club → Save → Export Squad) and
-          carry your team into the next legacy. Your library lives on this device, tied to your key; the shipped
-          database is never modified.
+          carry your team into the next legacy. Under <b className="text-ink">Default clubs</b> you can instead edit the
+          game&apos;s own clubs permanently — re-crest Real Madrid once and it stays that way in every legacy you start.
+          Everything here lives on this device, tied to your key; the shipped database files are never rewritten.
         </p>
       </div>
 
-      {/* Tab switch */}
+      {/* Tab switch. "Default clubs" (v2.0) is a third KIND of thing rather
+          than a third list: the first two tabs are your own library, this one
+          edits the game's own clubs in place. */}
       <div className="flex items-center gap-1 rounded-md border border-line p-0.5">
-        {(["clubs", "players"] as const).map((t) => (
+        {(["clubs", "players", "defaults"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -167,13 +175,19 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
               tab === t ? "bg-hover text-ink" : "text-faint hover:text-dim"
             }`}
           >
-            {t === "clubs" ? `CLUBS (${library.clubs.length})` : `PLAYERS (${library.players.length})`}
+            {t === "clubs"
+              ? `CLUBS (${library.clubs.length})`
+              : t === "players"
+                ? `PLAYERS (${library.players.length})`
+                : `DEFAULT CLUBS${overrideCount ? ` (${overrideCount})` : ""}`}
           </button>
         ))}
       </div>
 
-      {/* Library search — filters whichever tab is active. */}
-      {(library.clubs.length > 0 || library.players.length > 0) && (
+      {/* Library search — filters whichever tab is active. The default-clubs tab
+          carries its own search, since it searches a country database rather
+          than the library. */}
+      {tab !== "defaults" && (library.clubs.length > 0 || library.players.length > 0) && (
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -182,7 +196,9 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
         />
       )}
 
-      {tab === "clubs" ? (
+      {tab === "defaults" ? (
+        <DefaultClubEditor />
+      ) : tab === "clubs" ? (
         <section className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[13px] text-dim">Custom clubs — each can replace a top-flight side.</span>
@@ -320,7 +336,10 @@ export default function DatabaseEditor({ onBack }: { onBack: () => void }) {
           entry. Stays open so several can be pulled in one visit. */}
       {importOpen && (
         <ImportFromDefaultModal
-          mode={tab}
+          // The defaults tab never opens this — it edits shipped clubs in
+          // place rather than importing copies — so "clubs" is only ever a
+          // type-level fallback.
+          mode={tab === "players" ? "players" : "clubs"}
           onImportClub={(club, roster) => {
             // The club modal re-maps a roster to library players by (name,
             // position), so an imported squad has to exist in the library too —

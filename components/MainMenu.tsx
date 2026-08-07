@@ -14,7 +14,7 @@ import {
   type CountryDatabase,
   type PlayerSeed,
 } from "@/lib/database";
-import { libraryClubToSeed, type WorldPreset } from "@/lib/customdb";
+import { applyClubOverrides, libraryClubToSeed, type WorldPreset } from "@/lib/customdb";
 import { divisionSeed, teamIdFor, MAX_TAKEOVER_AMOUNT } from "@/lib/worldgen";
 import { formatMoney } from "@/lib/value";
 import {
@@ -338,9 +338,27 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
   };
 
   // The database that will actually be used for a country given its choice.
+  //
+  // This is also where the user's PERMANENT club edits land (v2.0). It is the
+  // one funnel every source passes through — the shipped database, a custom
+  // upload, the engine's generated world, a preset-derived one — so applying
+  // overrides here is what makes "I re-crested Real Madrid" hold whichever way
+  // Spain's database is being resolved, rather than only on the path the user
+  // happened to be using when they made the edit.
+  //
+  // Applied AFTER the top-up so an override can never be clobbered by padding,
+  // and to a `structuredClone` because `withToppedUpDivisions` returns its input
+  // unchanged when nothing was thin — patching that in place would mutate the
+  // engine's own country definition for the rest of the session.
   const dbForChoice = (code: string): CountryDatabase | null => {
     const choice = choiceFor(code);
-    const topUp = (db: CountryDatabase | null) => (db ? withToppedUpDivisions(code, db) : null);
+    const overrides = library.clubOverrides ?? [];
+    const topUp = (db: CountryDatabase | null) => {
+      if (!db) return null;
+      const padded = withToppedUpDivisions(code, db);
+      if (!overrides.length) return padded;
+      return applyClubOverrides(padded === db ? structuredClone(db) : padded, code, overrides);
+    };
     if (choice.source === "custom") return topUp(choice.db);
     // The real shipped database, squads and all.
     if (choice.source === "default") return topUp(presetDbs[code] ?? null);
@@ -474,11 +492,29 @@ function NewGameForm({ onBack }: { onBack: () => void }) {
       const engineBase = defaultCountryDB(code);
       const toppedUp =
         !!engineBase && engineBase.divisions.some((d) => d.clubs.length < MIN_AUTHORED_DIVISION_SIZE);
+      // A permanent club edit (v2.0) is `modified` for exactly the same reason
+      // the others are: worldgen reconstructing this country on its own would
+      // rebuild it from the SHIPPED definition and the edit would silently not
+      // exist in the world — while the setup screen above, which reads
+      // `dbForChoice`, would have previewed it correctly the whole time. That
+      // gap is the one failure mode this feature has, so the test is on whether
+      // any override actually NAMES a club in this country rather than on
+      // whether the user has any overrides at all.
+      //
+      // Tested against the override's own COUNTRY, not by looking for the club
+      // in `base`: `base` has already been through `dbForChoice` and so already
+      // carries the patch, which means an override that renames a club would no
+      // longer match its own key there and would report as not applying — the
+      // one case where being wrong loses the user's edit silently.
+      const overridden = (library.clubOverrides ?? []).some(
+        (o) => o.country.toUpperCase() === code.toUpperCase()
+      );
       const modified =
         (code === playableCountry && customClub !== null) ||
         customPlayers.some((p) => p.country === code) ||
         materialized ||
-        toppedUp;
+        toppedUp ||
+        overridden;
       // Worldgen can only reconstruct a country's fictional engine world on its
       // own. Anything else — the shipped real database, a preset-derived
       // generated world, an upload, or a default touched by custom content —

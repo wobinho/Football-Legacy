@@ -34,6 +34,21 @@ design session before changing, `[FUTURE]` must not be built but must not be blo
   world stores NO specs at all (the claim the whole design rests on — it also prints the
   KB avoided), that clearing an authored crest goes back to derived rather than freezing
   a copy, and that no generated away kit clashes with its own home shirt
+- `npm run verify:overrides` — permanent edits to SHIPPED clubs (v2.0), driven against a
+  real country database: that a patch reaches its club and touches ONLY the fields it
+  names (its squad, reputation and colours must keep following the shipped database),
+  that an override keyed on the shipped name still matches after it RENAMES that club,
+  that clearing one goes back to a derived crest rather than a frozen copy, that an
+  override never leaks across countries, and — the one that matters most — that a
+  library with no overrides computes byte-identically to what it always did
+- `npm run measure:growth [seasons]` — the career-GROWTH sweep, a measurement not an
+  assertion. `measure:quality` asks whether the WORLD still holds world-class players;
+  this asks what a manager asks about one of his own: "he has started 40 games a season
+  for eight years — how much better is he?" It tracks a fixed cohort and reports the gain
+  by starting age and by minutes played. A world can pass the first while failing this
+  one, because population is held up by intake and recruitment while every individual
+  career is flat — which is exactly the shape the v2.0 growth complaint had, and it is
+  invisible in every aggregate `measure:quality` prints
 - `node scripts/ui-test-identity.mjs` — drives the badge and kit creators through the
   real UI: both mount, all 51 patterns draw (including the tiled textures), an edit
   survives a save and a reload, and the crest reaches every other screen. Extended
@@ -65,6 +80,21 @@ design session before changing, `[FUTURE]` must not be built but must not be blo
   zero-sum claim, measured over 4000 random briefs — the check that caught the first cut
   costing −16.7%), that briefing your own side gains and briefing roles you lack loses, and
   that a brief can't outlive the slots it names
+- `npm run verify:achievements [seasons]` — the achievement catalogue (v2.0): the table
+  (six rungs per ladder, ascending, no id both flat and tiered), the tier DERIVATION at
+  every boundary including both ends, and — the section that matters — that the tallies
+  are actually FED, by driving a real world through real rollovers and playing the user's
+  own fixtures. Also that nothing a manager must DO is unlocked at kickoff, while the
+  ladders describing the club he INHERITED legitimately are
+- `node scripts/ui-test-achievements.mjs` — drives the Achievements screen: all seven
+  shelves render, the tier pills and the six-pip ladders draw, a card names the rung it is
+  chasing, the unlock stamp reads "SEASON n", and the deleted cards are gone. Asserts only
+  that things render — the numbers are `verify:achievements`'s job
+- `npm run measure:ratings [seasons]` — the match-rating SPREAD sweep. Prints the
+  distribution, the season-average spread, the correlation with overall and the per-position
+  breakdown. Not an assertion — a measurement to run before and after touching any `rating*`
+  constant. It is what proved the v1.x formula gave every non-scorer 6.5 every week, and it
+  is what caught the first v2.0 cut correlating NEGATIVELY (−0.20) with ability
 - `npm run verify:sim-parity [n] [--save|--check]` — plays N seasons with the real loop and
   hashes the finished world (every division's table, the honours, and every club's roster
   with overalls/fitness/form). `--save` writes the baseline, `--check` asserts against it.
@@ -189,6 +219,23 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   takes longest to pay off, which is the opposite of what a shortage of finished players
   needs. Changing either moves squad quality world-wide — re-run `calibrate`,
   `verify:standings` and `measure:quality`.
+  v2.0 raised both a further 50% (5.4→8.1, 3.6→5.4), and the accompanying change is the
+  one to understand: **`primeGrowthPerfPivot` had to move with them (6.55→6.35), because
+  the prime branch is a CLIFF and multiplying zero by 1.5 is still zero.** `primePerf > 0`
+  is a hard gate, so a regular rating 6.56 grows and one rating 6.54 gains nothing ever.
+  Measured (`measure:growth`, 8 seasons), that is where the reported "he played 40 games a
+  season for eight years and gained 2 overall" lived: the 25–27 band gained +3.66 while
+  carrying 10.3 points of headroom, and the youth bands were healthy throughout (+17.7 for
+  the 16–18s) — so the defect was never the headline budget, which is all a raise to those
+  two alone would have addressed. After: the "ever-present, room to grow, gained ≤2" case
+  fell 8%→1% and career gain rose 8.88→12.89. **The cost is real and should be known
+  before these move again**: 85+ population roughly doubles over a long save (507 vs a 256
+  baseline peak) and the top flight's squad mean goes 81.5→84.8. `calibrate` and
+  `verify:standings` are unmoved. Also expect `verify:conversion`'s "youth out of growth"
+  rate to rise — faster growth spends headroom sooner, so a youth reaches his ceiling
+  inside the 15-season walk where he used to still be climbing when it ran out. That is
+  honest, and the check that proves it (rather than the re-baselined percentage) is
+  "a youth told 'no growth left' has actually reached his ceiling" — 0 of 467 stop early.
 - Players carry **35 attributes** (v41), not six. `lib/config/attributes.ts` is the single
   source of truth for the keys/labels/groups — iterate its `ATTR_KEYS`, never an inline list.
   The six card faces (PAC/SHO/…) still exist but are a *derived view* (`aggregateAttrs`),
@@ -228,6 +275,33 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   are build artifacts of `npm run build:db` — edit `fl26-*.csv` and rebuild, never the JSON.
   A country the CSVs don't cover keeps its previously-shipped JSON (the build preserves it),
   so rebuilding never makes a country unselectable.
+- **A permanent edit to a shipped club is a PATCH, not a copy (v2.0).** `ClubOverride` in
+  `lib/customdb.ts`, applied by `applyClubOverrides`, edited from the Database Editor's
+  third tab (`components/DefaultClubEditor.tsx`). It answers a third question the two
+  existing tabs don't: a custom club is "I want a club that doesn't exist", import-from-
+  default is "I want a club LIKE Real Madrid" (an editable copy you must remember to place
+  over the original at every new game, leaving two Real Madrids in the setup screen), and
+  this is "Real Madrid's crest is wrong and I want it fixed in every legacy I start".
+  Four rules, each because the obvious version is worse:
+  **Every field is optional and only what's present is applied.** Storing a whole edited
+  club would freeze its SQUAD at whatever the shipped database said the day it was edited,
+  quietly opting that club out of every future `npm run build:db`. A patch that names only
+  a badge changes only the badge, and the rest keeps following the shipped data. The store
+  refuses to save a patch that patches nothing, so "reset to default" is the ABSENCE of a
+  row rather than an empty one that would still read as "edited".
+  **The key is country + the SHIPPED club name**, never an id — shipped clubs have no
+  stable id (`defaultCountryDB` rebuilds them every call) and the name is what the visual
+  system already keys a derived badge on (v1.96). So a rename patches `name` while still
+  matching on the original, which `verify:overrides` asserts directly.
+  **It applies at `dbForChoice`** in MainMenu, the one funnel every database choice passes
+  through, so an edit reaches the shipped database, an upload and a generated world alike.
+  The companion change is easy to miss and loses the user's edit silently if forgotten:
+  `resolveCountryDBs` must count an overridden country as `modified`, or worldgen
+  reconstructs a plain engine world from the SHIPPED definition and the edit exists only in
+  the preview. Test that on the override's own `country`, not by finding the club in
+  `base` — `base` already carries the patch, so a renamed club would no longer match itself.
+  **Nothing in a running save reads it.** A world is built once; editing an override
+  changes the next legacy, never the current one.
 - Tiers a country's database doesn't author are generated (`config/divisions.ts`) — that is the
   "Generated" choice and the lower-division fallback both. Divisions need ≥4 clubs, even count.
 - Formations (`config/formations.ts`): every slot's `label` MUST equal its `pos`, and a shape
@@ -1156,6 +1230,11 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   11px→13px: at the old sizes the abbreviation was set smaller than the crest beside it,
   so the label was losing to its own icon — which is the whole thing v1.97 widened this
   column to buy.
+  **v2.0 puts the club's FULL NAME in both rails** — the short code stays in the month
+  grid's day cell, and the distinction is the room each has. A day cell is one of seven
+  columns and shares its square with a crest and a date; a rail row is a list in a column
+  of its own, and "Nottingham Forest" is what a manager reads a fixture list for.
+  `truncate` still holds the longest ones.
 - **The Home page is CALENDAR then inbox (v1.99).** Both belong in the wide column —
   v1.97 moved the calendar out of the narrow sidebar because seven columns of month left
   each day barely wide enough for a crest — but the ORDER was backwards. The calendar is
@@ -1180,6 +1259,48 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   with `WindowScope`/`windowOf`: a "top 10 of this summer" is a leaderboard of whatever
   happened to be signed in twelve weeks, not a record, and once the two views answer
   genuinely different questions there is nothing left for a scope to pick between.
+- **A cup is TWO different things at two different times, and one layout can't serve both
+  (v2.0).** `CupView` in `Competition.tsx`. This is the page's third shape: v1.91 deleted a
+  full bracket for one stacked card per round (a six-round tree of 32 first-round ties
+  rendered as a scrolling grid of three-letter codes with the scores off the right edge),
+  which fixed legibility and lost the shape — six full-width cards down the page, the
+  first 32 ties long, the final several screens below the fold. Now the EARLY rounds
+  (a mass of ties nobody follows individually) are parallel COLUMNS, one per round, so a
+  manager sees his own run through them without scrolling past everyone else's; and from
+  the QUARTER-FINALS it becomes a real bracket, which is both few enough ties to draw as a
+  tree and the point at which "who could I meet in the final" starts being a question.
+  `bracketFrom` is DERIVED from the round names (the round matching `/quarter/i`, else the
+  last three) rather than hardcoded to 3, so a country authoring a different number of
+  early rounds still puts its bracket at its own quarter-final. The bracket appears once
+  that round is DRAWN — which since v1.92 is as soon as the previous round settles, not on
+  the morning of the tie. Measured against a real season: the split lands QF/SF/Final, the
+  bracket goes live on day 151, and the columns' reserved shape (4/2/1 `Not drawn`
+  plinths) matches the real tie counts exactly.
+- **A European cup leads with its BRACKET once the knockout starts, and never re-prints
+  its own results (v2.0).** `EuropeanView.tsx`. The group tables stay all season (they are
+  how the survivors got there) but drop below the knockout under a heading saying they are
+  final — a manager opening the page after the Round of 16 is asking who he plays next,
+  not what the table looked like in November. The per-matchday **Fixtures list is deleted**:
+  it re-printed every result the groups and the bracket had already reported, at three
+  times the length and in short codes. Both brackets (this and the cup's) centre each
+  column against its neighbour — `justify-center` on a column of two sits it level with the
+  middle of the column of four beside it, which is what lets the eye follow a club through
+  the tree with no connector drawn — and both use full club NAMES, since a 200px column has
+  the room and a bracket read in three-letter codes is a puzzle rather than a picture.
+- **The player-honours board groups by AWARD, then by PLAYER (v2.0).** `PlayerHonoursModal`
+  in `Achievements.tsx`, and it is the one tally on that screen that needed its own modal
+  rather than the shared chronological `HonourDetailModal`. "Player Honours" is not one
+  honour counted many times: it is nine different awards sharing a single number on the
+  card, so interleaved by season the actual question ("who of mine has ever made the Team
+  of the Year?") could only be answered by reading every row and sorting it mentally. One
+  section per award, in `ACCOLADE_ORDER` (fixed by prestige, so the board reads the same in
+  every save), each with its emblem, its `blurb` — which says what winning it MEANS and had
+  nowhere to appear before — and its count; an award never won is still drawn as an empty
+  plinth, the same way `HonourCard` draws an unwon honour. Within a section winners are
+  grouped by player, so three Golden Boots are one line reading "×3" with the years beside
+  it rather than three rows that never sat together. `Modal` gained an `xl` size for this
+  and the Tactic Creator — reach for it only when the content is genuinely a COLUMN PAIR,
+  not merely long; a long single column is what scrolling is for.
 - **A kit shows where the question it answers is being asked (v1.97).** The club card
   carries the outfield shirts — a club card is about the team you'd face, and those are
   the three a referee chooses between. **v1.99 added the keeper shirt beside them**, which
@@ -1229,6 +1350,17 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   or anyone who simply prefers a list could not name a bench at all. The picker commits
   through `moveBench`, the same store action a drop calls, so it can never put a player
   somewhere a drag couldn't.
+  **v2.0 draws each seat as a `PitchToken`** rather than a row, so the matchday squad is
+  ONE visual language: a filled seat carries the rating, the class wash and the name plate
+  exactly as a fielded player does, and an empty one is the same dashed circle an unfilled
+  position is. The filled and empty states are now one component (they were two, and had
+  already drifted — only one was draggable, only one had a remove button). A seat is handed
+  the player's OWN primary position and a fit of 1: a sub is not out of position on the
+  bench, and grading him against a pitch slot he isn't standing in would be a reading the
+  match will not honour. `ui-test-tactics.mjs` counts seats by their ACCESSIBLE NAME
+  ("Substitute N" / "Pick substitute N") — it used to count `div.space-y-1 > div` and
+  reported zero seats on a bench that drew perfectly, which is the v1.99 GCN lesson again:
+  match labels, not layout classes.
 - **`benchSize` is stated, not derived from `matchdaySquad` (v1.99).** The bench cap was
   `cfg.matchdaySquad - 11` spelled out at six sites — but `matchdaySquad` is ALSO read as
   a squad-size FLOOR (`playerIds.length <= matchdaySquad` in contracts.ts and
@@ -1237,6 +1369,16 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   two answers hanging off one constant. They are separate now and `benchCap(cfg)` in
   `lib/selection.ts` is the single accessor, so a seventh derivation is impossible.
   Calibration and `verify:standings` are unmoved by the 7 → 9 change.
+- **The Tactics roster panel is +50% tall (v2.0), and its height is a design number.**
+  26→39rem, 34→51rem at `xl`. It is fixed-height and scrolled internally on purpose — the
+  pitch must never move out from under a drag — which makes it the one list in the game
+  whose length isn't set by its content, and at 26rem a 25-man squad was read eight rows
+  at a time. Anything that changes it has to keep the internal scroll.
+- **The league-reputation chip is gone from the Competition screen (v2.0).**
+  `leagueReputation` is untouched and still decides the two save-wide legacy awards and
+  every market gate that reads it (v1.87) — only the display was removed. Don't reintroduce
+  it as a table header: it is structural data about the DIVISION, and it cancels out of
+  everything the table itself is about.
 - **The Tactics roster names each player's ARCHETYPE (v1.99).** It is the list you pick a
   side FROM, and it said what a player is RATED without ever saying what he IS — so the
   identity the whole tactical system runs on was the one fact you had to leave the screen
@@ -1323,7 +1465,21 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   real decision that never outranks who you actually signed. A saved Creator preset names
   **no players** (`saveDesignedTactic`): it is a plan you build before you own the squad for
   it, and freezing today's XI into it would make it a snapshot instead.
-- **A fixture's id must be derived from the fixture (v1.99).** `fid` in `season.ts`,
+- **The Tactic Creator is a SHAPE beside a list, and the roles carry their art (v2.0).**
+  It was a single column of eleven dropdowns, which made a shape — the thing it exists to
+  design — the one thing it never showed: "two Snipers and an Architect" says nothing about
+  whether they are standing anywhere sensible. `CreatorPitch` draws the same
+  `PitchMarkings` the Tactics board does, so the plan is read on the same field the side is
+  picked on, and what stands in a slot is the **ROLE, not a player** — the archetype's own
+  icon, with an unbriefed slot drawn as the dashed circle an unfilled position is. One
+  piece of `selected` state drives both halves (clicking a token highlights its row and
+  scrolls it into view, and the row's position badge highlights the token), so the pitch
+  and the list can never disagree about which slot is being briefed.
+  `SelectOption` gained an **`icon`** slot for the brief's dropdowns, and it renders in the
+  open menu AND on the CLOSED trigger — which is what separates it from the existing
+  `badge`. An icon that only appeared while the menu was open would identify the options
+  you are choosing between and then vanish the moment one became the answer, so the one row
+  you most need to read would be the only one without it. `fid` in `season.ts`,
   `eufId` in `european.ts`. Both used to mix in `Math.random()`/`Date.now()`, and because
   `matchSeed` seeds every match from `deriveSeed(state.seed, …fixture.id…)` that made
   **every result in the game nondeterministic** — two runs of one save seed produced
@@ -1355,6 +1511,79 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   did; the two are different quantities and collapsing them would quietly change match
   fatigue. Note `dailyRecovery` is still the named seam a future facility's multiplier lands
   on (§19.5) — this is a position rule, not that lever.
+- **A match rating is a REASON, not a base plus noise (v2.0).** `finalizeResult` in
+  `engine/match.ts`. The predecessor was `6.5 + goals + assists/2 + gd×0.15 + ±0.4`, so a
+  player who neither scored nor assisted rated **6.5 every single week** — and because the
+  noise cancelled, his season average converged on 6.5 the MORE he played. That is exactly
+  backwards for the end-of-season awards, which score `avgRating × (1 + teamSuccess)`
+  (v1.87): with the rating term flat, every award fell out of which club finished highest,
+  and a defensive midfielder could not win one at all. Every term is now something that
+  happened — goals, assists, the margin, a clean sheet weighted by how much of the slot's
+  job IS defending (`PHASE_WEIGHTS`, never a named-position conditional), and above all
+  `ratingFormWeight` on how far the player ran above his OWN baseline.
+  That last term reads `perfSum / perfSegments` off `OnPitch`, banked in `phaseStrengths`
+  from the very `effectiveRating` the simulation used to decide the match — so a rating can
+  never disagree with the result. Three things are divided back out because none of them is
+  anything the PLAYER did: home advantage (a side-wide constant), the fitness curve (it
+  falls through the match for everybody), and **position fit**.
+  **That third one had to be MEASURED, and leaving it in inverted the whole system** —
+  season averages correlated **−0.20** with overall, i.e. the worse player reliably rated
+  higher. The cause is selection, not performance: a squad player only makes the XI when he
+  is a natural fit for the slot, where a star is routinely shifted into an imperfect one to
+  get him on the pitch, so the term was quietly measuring "was he picked in his best
+  position" and marking down exactly the players good enough to be accommodated. The engine
+  already charges the TEAM for that through the phase strengths.
+  Because `performanceRatio` divides by the player's own overall it is quality-NEUTRAL by
+  construction, so a second term is required or the awards go back to being a lottery:
+  `ratingPerOverallEdge` scores him against the **match's** own mean (not the league's — a
+  good player in a bad side is carrying it, which is the season an award exists to find).
+  Measured (`npm run measure:ratings`): match sd **0.77** on a proper hump, season-average
+  sd **0.46** spanning 5.4–7.9, correlation **+0.27**, every position group with real
+  spread, and a clear 0.28 gap between the best season in a division and the second. Ratings
+  feed nothing back into the simulation, so `calibrate` and `verify:standings` are unmoved —
+  run `measure:ratings` after touching any `rating*` constant, since neither of those can
+  see this.
+  `simresolver.ts` carries the same three ideas per SEASON (`simRating*`), and its goals and
+  assists now **ADD** to the season rating rather than replacing it: replacing threw away
+  how good the player is for his level and what his side achieved, so the top scorer in a
+  relegated side rated identically to the champions'. The two halves of the world have to
+  agree here — the legacy awards pool every top flight, so a flatter sim league would win or
+  lose them on nothing the manager chose.
+- **An achievement is a LADDER, and its tier is derived (v2.0).** `lib/achievements.ts`.
+  Most of the catalogue is now six rungs sharing one id, on the game's own `BadgeTier`
+  vocabulary (bronze → legacy) so bronze means the same thing here as on a staff badge.
+  "Win one title" and "win fifty" were never two achievements — they are one pursuit at two
+  depths, which is why v1.x's `Champions` and `Dynasty` are now a single card, and why
+  `The Climb` (3 promotions) and `Kings of the Land` are deleted rather than re-tiered: the
+  first is a season's outcome rather than a cabinet entry, the second a special case of the
+  league ladder firing on a technicality of which division you were in.
+  **A tier is DERIVED from the live tally on every read, never stored** — the same
+  discipline as the roll of honour (v1.89). `earned[id]` records only the season the BRONZE
+  rung was first reached, so the badge on the card and the number behind it cannot drift.
+  It also means a tiered card keeps being worth looking at after it unlocks: its bar chases
+  the NEXT rung, measured ACROSS that rung (`value - reached`), not as a fraction of an
+  absolute total that would start near-full.
+  A def is `test` (flat) XOR `value` + `tiers` (tiered); `meets` is the one call
+  `checkAchievements` makes, so the engine still never branches on an id.
+  The **squad** shelf reads the XI through `squadOverall` / `pickLineup` against the club's
+  own formation — the v1.90 rule — never a count of bodies over a threshold. That is
+  load-bearing: a flat squad mean is driven by how many fringe players a club carries, so
+  the old "hold five 85s" shape measured squad SIZE and signing a squad player would make a
+  rating ladder go backwards. Positional figures group by the **slot's** position, so a
+  back three is judged as a back three. The new **player** shelf is separate because a club
+  can be excellent without ever holding a superstar, and the two shouldn't compete for a row.
+  Every peak is a high-water mark, so selling the striker who got you there never un-earns
+  a tier. Note the split between "inherited" and "earned" does NOT follow the shelves —
+  `peakBudget` sits in Finance beside `totalSpent` and only one of those is handed to you at
+  kickoff; `verify:achievements` encodes that as an explicit list for exactly that reason.
+- **The facility list is what you HAVE and what you could BUILD (v2.0).** Ten-plus
+  facilities is too many for one grid, and the two halves answer different questions.
+  "Your Facilities" is an operations screen — which building needs a coach, which is a level
+  off a badge tier — and every card on it is live arithmetic. "Available" is a shopping
+  list: site plans, a photograph and a price, nothing actionable but spending. Mixed, the
+  tab a manager opens weekly to assign staff was padded with up to ten sales pitches for
+  buildings he had already decided against. The counts ride in the tab labels because
+  building something MOVES a card between the two pages, and without them it just vanishes.
 - Interim implementations pending owner design sessions (marked in-file): transfer market
   AI (§10), trait pool. `emergencyIntake()` in gameloop is a stopgap until the Youth
   Academy ships.

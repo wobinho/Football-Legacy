@@ -152,6 +152,8 @@ import {
   persistLibrary,
   emptyLibrary,
   libraryId,
+  overrideKey,
+  type ClubOverride,
   type CustomLibrary,
   type LibraryClub,
   type LibraryPlayer,
@@ -524,6 +526,17 @@ interface GameStore {
    * European qualification design (v1.93). Returns the id. */
   saveWorldPreset: (preset: Omit<WorldPreset, "updatedAt">) => string;
   removeWorldPreset: (id: string) => void;
+  /**
+   * Permanently edit a club that SHIPS with the game (v2.0) — keyed by country
+   * and the shipped club's name, applied to every world built from here on.
+   *
+   * Saving a patch with no fields set REMOVES the override rather than storing
+   * an empty one, so "reset this club to default" and "I changed nothing" are
+   * the same state and neither leaves a row that does nothing. Nothing in a
+   * running save reads these: a world is built once.
+   */
+  saveClubOverride: (o: Omit<ClubOverride, "updatedAt">) => void;
+  removeClubOverride: (country: string, clubName: string) => void;
 }
 
 // ── Autosave plumbing ──────────────────────────────────────────────────────
@@ -2108,6 +2121,42 @@ export const useGame = create<GameStore>((set, get) => ({
   removeWorldPreset: (id) => {
     const lib = get().library;
     const next = { ...lib, worldPresets: (lib.worldPresets ?? []).filter((w) => w.id !== id) };
+    set({ library: next });
+    persistLibrary(next).catch(() => {});
+  },
+
+  saveClubOverride: (o) => {
+    const lib = get().library;
+    const list = lib.clubOverrides ?? [];
+    const key = overrideKey(o.country, o.clubName);
+    const rest = list.filter((x) => overrideKey(x.country, x.clubName) !== key);
+    // An override that patches nothing is not stored. A row carrying only its
+    // two key fields would apply no change while still reading, on the editor's
+    // list, as a club the user has edited — so "reset to default" is expressed
+    // by the absence of a row rather than by an empty one.
+    const patches =
+      o.name !== undefined ||
+      o.short !== undefined ||
+      o.colors !== undefined ||
+      o.rep !== undefined ||
+      o.stadium !== undefined ||
+      o.badge !== undefined ||
+      o.kits !== undefined;
+    const next = {
+      ...lib,
+      clubOverrides: patches ? [...rest, { ...o, updatedAt: Date.now() }] : rest,
+    };
+    set({ library: next });
+    persistLibrary(next).catch(() => get().showToast("Couldn't save that club edit."));
+  },
+
+  removeClubOverride: (country, clubName) => {
+    const lib = get().library;
+    const key = overrideKey(country, clubName);
+    const next = {
+      ...lib,
+      clubOverrides: (lib.clubOverrides ?? []).filter((x) => overrideKey(x.country, x.clubName) !== key),
+    };
     set({ library: next });
     persistLibrary(next).catch(() => {});
   },
