@@ -209,6 +209,21 @@ export interface TuningConfig {
   fitnessDrainPerMatch: number; // full 90 at age 27
   fitnessDrainAgeFactor: number; // extra drain per year over 30
   fitnessRecoveryPerDay: number;
+  /**
+   * Recovery multiplier for a goalkeeper (v1.99).
+   *
+   * A keeper covers a fraction of the ground an outfielder does and takes
+   * almost none of the contact, so he is fresh again far sooner — and unlike
+   * every other position he is expected to start every match of a congested
+   * week. Keyed on the PRIMARY position, the same field every other
+   * position-dependent rule reads.
+   *
+   * This is a RECOVERY term, deliberately not a drain one: a keeper should
+   * still tire over ninety minutes exactly as he always did, he should just be
+   * ready again quicker. The two are different quantities and collapsing them
+   * would silently change what a match costs him.
+   */
+  gkFitnessRecoveryMult: number;
   minFitnessToStart: number; // AI won't start players below this
 
 
@@ -1171,6 +1186,17 @@ export interface TuningConfig {
   squadCap: number;
   matchdaySquad: number;
   /**
+   * How many substitutes a side names (v1.99).
+   *
+   * Was `matchdaySquad - 11` at six sites, which conflated two different
+   * questions: `matchdaySquad` is also read as a squad-size FLOOR (a club at or
+   * below it may not sell — contracts.ts, transfers.ts), so widening the bench
+   * by deriving it from that number would also have told every AI club in the
+   * world to hoard two more players. They are stated separately now, and
+   * `benchCap()` is the one accessor everything reads.
+   */
+  benchSize: number;
+  /**
    * Share of a club's displayed overall that comes from its starting XI, the
    * rest coming from the matchday bench (v1.90). See `squadOverall` in
    * lib/selection.ts.
@@ -1788,6 +1814,18 @@ export interface TuningConfig {
    * age the club academy ages out at, so a prospect's clock doesn't change
    * meaning depending on which pipeline found him. */
   gcnHubMaxAge: number;
+  /**
+   * How often a hub's brief is HONOURED per named criterion (v1.99).
+   *
+   * Deliberately not 1. A focus is an instruction to a scouting network, and a
+   * network reports what it finds — at 1.0 the brief stops being a bias and
+   * becomes a player generator, which would make "Brazilian / CB / Anchor" a
+   * way to mint the exact prospect you wanted every batch. At 0.7 a focused hub
+   * is obviously working (a batch of six returns ~4 on brief) while still
+   * turning up the winger nobody asked for, which is the half of scouting worth
+   * keeping. Each criterion rolls independently, so a fully-specified brief is
+   * satisfied outright about a third of the time. */
+  gcnHubFocusHitChance: number;
 
   // ── AI club solvency (v1.64) ──
   // AI clubs were running multi-million weekly wage bills against tier income
@@ -1993,6 +2031,7 @@ export const TUNING: TuningConfig = {
   fitnessDrainPerMatch: 22,
   fitnessDrainAgeFactor: 0.8,
   fitnessRecoveryPerDay: 3.5,
+  gkFitnessRecoveryMult: 1.5,
   minFitnessToStart: 55,
 
 
@@ -2851,6 +2890,7 @@ export const TUNING: TuningConfig = {
 
   squadCap: 50,
   matchdaySquad: 18,
+  benchSize: 9,
   squadOverallXIWeight: 0.8,
 
   simTableNoise: 4.5,
@@ -3265,6 +3305,7 @@ export const TUNING: TuningConfig = {
   gcnHubGrowthPerLevel: 0.1,
   gcnHubProspectWage: 4_000,
   gcnHubMaxAge: 21,
+  gcnHubFocusHitChance: 0.7,
 
   // v1.67: both subsidies switched off — they were inflating AI budgets far
   // beyond anything the market could justify by the third season. Zero disables

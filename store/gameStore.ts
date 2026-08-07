@@ -6,6 +6,7 @@
 import { create } from "zustand";
 import type { GameState, PlayerBio, Pos, ScreenId, Tactic } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
+import { benchCap } from "@/lib/selection";
 import { generateWorld, type NewGameOptions } from "@/lib/worldgen";
 import {
   advanceUntilEvent,
@@ -72,8 +73,6 @@ import {
   gcnPlayerSalePrice,
   networkTransferFee,
   setAutoFunding,
-  brandDealsWeekly,
-  gcnDealsWeekly,
   GCN_FACILITY_SPEC,
   type GcnClubEdit,
 } from "@/lib/gcn";
@@ -94,14 +93,23 @@ import {
   placeHubProspect,
   promoteHubProspect,
   releaseHubProspect,
+  setHubFocus,
+  setHubPaused,
   signHubProspect,
   upgradeHub,
 } from "@/lib/gcnhub";
 import { formatMoney } from "@/lib/value";
-import type { GcnExecRole, GcnFacility } from "@/lib/types";
+import type { GcnExecRole, GcnFacility, GcnHubFocus } from "@/lib/types";
 import { setKitNumber } from "@/lib/kitnumbers";
 import { syncProgress, achievementTitles } from "@/lib/achievements";
-import { saveTactic, loadSavedTactic, deleteSavedTactic, renameSavedTactic, autoAssignRoles } from "@/lib/tactics";
+import {
+  saveTactic,
+  saveDesignedTactic,
+  loadSavedTactic,
+  deleteSavedTactic,
+  renameSavedTactic,
+  autoAssignRoles,
+} from "@/lib/tactics";
 import {
   deleteInboxItem,
   clearInbox,
@@ -284,6 +292,13 @@ interface GameStore {
   /** Save the current formation, instructions, XI and bench under `name` (v1.53).
    * Re-using a name overwrites that preset. Toasts on failure. */
   saveTactic: (name: string) => void;
+  /** Save a tactic DESIGNED in the Tactic Creator (v1.99) — formation, style,
+   * dials and the per-slot role brief, with no XI attached. See
+   * `saveDesignedTactic` in lib/tactics.ts for why it names no players. */
+  saveDesignedTactic: (name: string, tactic: Tactic) => void;
+  /** Adopt a designed tactic as the side's current setup (v1.99). Clears the XI
+   * only when the formation actually changed, exactly as `setTactic` does. */
+  applyDesignedTactic: (tactic: Tactic) => void;
   /** Restore a saved preset over the current setup, reporting anything it
    * couldn't put back (players since sold, retired or out on loan). */
   loadTactic: (id: string) => void;
@@ -443,6 +458,10 @@ interface GameStore {
   gcnUpgradeHub: (region: string) => void;
   /** Close a hub down — no refund; its prospects go to free agency. */
   gcnCloseHub: (region: string) => void;
+  /** Stop or restart a hub's reports, keeping everything else (v1.99). */
+  gcnSetHubPaused: (region: string, paused: boolean) => void;
+  /** Set (or clear, with `{}`) a hub's standing brief (v1.99). */
+  gcnSetHubFocus: (region: string, focus: GcnHubFocus) => void;
   /** Sign a hub find onto that hub's books, paid from the treasury. */
   gcnSignHubProspect: (reportId: string) => void;
   /** Pass on a hub find. */
@@ -978,6 +997,30 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
+  // The Tactic Creator (v1.99): save a designed plan, and optionally adopt it.
+  // Two actions rather than one because they are genuinely separate decisions —
+  // a manager may design next season's shape without tearing up this Saturday's.
+  saveDesignedTactic: (name, tactic) => {
+    const g = get().game;
+    if (!g) return;
+    const err = saveDesignedTactic(g, name, tactic);
+    if (err) get().showToast(err);
+    else get().showToast(`Tactic "${name.trim()}" saved.`);
+    get().bump(true);
+  },
+
+  applyDesignedTactic: (tactic) => {
+    const g = get().game;
+    if (!g) return;
+    const team = g.teams[g.userTeamId];
+    const changingShape = team.tactic.formationId !== tactic.formationId;
+    team.tactic = { ...tactic, roles: tactic.roles ? { ...tactic.roles } : undefined };
+    // Same rule `setTactic` follows: the slots themselves change with the
+    // formation, so an XI picked for the old shape cannot survive into the new.
+    if (changingShape) g.lineup = {};
+    get().bump(true);
+  },
+
   loadTactic: (id) => {
     const g = get().game;
     if (!g) return;
@@ -1074,8 +1117,8 @@ export const useGame = create<GameStore>((set, get) => ({
       if (id === playerId) delete g.lineup[slot];
     }
     const bench = (g.userBench ?? []).filter((id) => id !== playerId);
-    if (bench.length >= TUNING.matchdaySquad - 11) {
-      get().showToast(`Your bench is full (${TUNING.matchdaySquad - 11} subs).`);
+    if (bench.length >= benchCap(TUNING)) {
+      get().showToast(`Your bench is full (${benchCap(TUNING)} subs).`);
       get().bump(true);
       return;
     }
@@ -1102,7 +1145,7 @@ export const useGame = create<GameStore>((set, get) => ({
     if (bench.includes(playerId)) {
       g.userBench = bench.filter((id) => id !== playerId);
     } else {
-      const cap = TUNING.matchdaySquad - 11;
+      const cap = benchCap(TUNING);
       if (bench.length >= cap) {
         get().showToast(`Your bench is full (${cap} subs).`);
         return;
@@ -1122,7 +1165,7 @@ export const useGame = create<GameStore>((set, get) => ({
     const avail = team.playerIds
       .map((id) => g.players[id])
       .filter((p) => p && !p.retired && !p.loan && !inXI.has(p.id));
-    const cap = TUNING.matchdaySquad - 11;
+    const cap = benchCap(TUNING);
     const bench: string[] = [];
     // A keeper leads the bench so a mid-match injury to the GK is always covered
     // — the same order the engine's own auto-fill uses.
@@ -1616,12 +1659,11 @@ export const useGame = create<GameStore>((set, get) => ({
     const err = upgradeGcnFacility(g, facility, TUNING);
     if (err) get().showToast(err);
     else {
-      // Each track's effect is a different unit, so name it rather than assume
-      // every upgrade is about club slots (v1.63).
+      // Each track states its effect in its own unit — one track today, but the
+      // record keeps the shape so a future one can't be assumed to be about club
+      // slots (v1.63; the two income tracks were deleted in v1.99).
       const effect: Record<GcnFacility, string> = {
         groupClubs: `the network can now own ${groupClubsCap(g, TUNING)} clubs`,
-        brandDeals: `${formatMoney(brandDealsWeekly(g, TUNING))}/wk into the treasury`,
-        gcnDeals: `${formatMoney(gcnDealsWeekly(g, TUNING))}/wk to every owned club`,
       };
       get().showToast(`${GCN_FACILITY_SPEC[facility].label} upgraded — ${effect[facility]}.`);
     }
@@ -1689,6 +1731,30 @@ export const useGame = create<GameStore>((set, get) => ({
     const err = closeHub(g, region);
     if (err) get().showToast(err);
     else get().showToast(`The ${hubRegion(region)?.label ?? region} hub has been closed.`);
+    get().bump(true);
+  },
+
+  gcnSetHubPaused: (region, paused) => {
+    const g = get().game;
+    if (!g) return;
+    const err = setHubPaused(g, region, paused, TUNING);
+    if (err) get().showToast(err);
+    else {
+      const label = hubRegion(region)?.label ?? region;
+      get().showToast(
+        paused
+          ? `The ${label} hub stops scouting — no reports until you restart it.`
+          : `The ${label} hub is scouting again.`
+      );
+    }
+    get().bump(true);
+  },
+
+  gcnSetHubFocus: (region, focus) => {
+    const g = get().game;
+    if (!g) return;
+    const err = setHubFocus(g, region, focus);
+    if (err) get().showToast(err);
     get().bump(true);
   },
 

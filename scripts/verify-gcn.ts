@@ -44,12 +44,14 @@ import {
 } from "../lib/gcnexec";
 import {
   HUB_REGIONS,
+  HUB_REGION_MAP,
   buildHub,
   closeHub,
   dailyHubTick,
   hasPresenceIn,
   hubBuildCost,
   hubCapacity,
+  hubFocusError,
   hubGrowthMult,
   hubIn,
   hubJudgement,
@@ -61,9 +63,12 @@ import {
   clubCountryCode,
   countryCodeOf,
   placeHubProspect,
+  setHubFocus,
+  setHubPaused,
   signHubProspect,
   upgradeHub,
 } from "../lib/gcnhub";
+import { ARCHETYPE_ROSTER, positionsOfArchetype } from "../lib/config/archetype";
 import { prospectSignFee } from "../lib/academy";
 import { isFreeAgent } from "../lib/archive";
 import type { GameState, GlobalClubNetwork } from "../lib/types";
@@ -443,9 +448,25 @@ check(
 );
 check(
   "a club's own budget is untouched by the boardroom",
-  // The club still moves on its own books; what matters is that it isn't ALSO
-  // charged the wage bill, which would be an order of magnitude larger.
-  Math.abs(state.teams[foreignA].budget - clubBudgetBefore) < execWageBill(state),
+  // The club still moves on its own books — the claim is only that it is not
+  // ALSO charged the network's wage bill.
+  //
+  // v1.99: this was a magnitude test ("the swing is smaller than the wage
+  // bill"), which stopped separating the two things the moment the Director of
+  // Global Commerce moved onto `gcnSimBooks` — a big club's own trading week
+  // can legitimately exceed the boardroom's payroll, and the check failed on a
+  // save where nothing was wrong. Asserted directly now, against the one
+  // function that IS the club's week: whatever the budget did, it did because
+  // of its own books and nothing else.
+  (() => {
+    const books = gcnSimBooks(state, foreignA, TUNING);
+    const own = books ? books.income - books.wages : 0;
+    return Math.abs(state.teams[foreignA].budget - clubBudgetBefore - own) < 1;
+  })(),
+  `own week ${money((() => {
+    const b = gcnSimBooks(state, foreignA, TUNING);
+    return b ? b.income - b.wages : 0;
+  })())}`
 );
 
 // ── 6. International Scouting Hubs (v1.95) ──────────────────────────────────
@@ -526,10 +547,124 @@ check(
   filed.every((r) => r.fee >= prospectSignFee(TUNING, r.tier)),
 );
 
+// ── Pausing (v1.99) ─────────────────────────────────────────────────────────
+// The lever that replaced "close hub" as the routine one. The properties worth
+// asserting are the ones that make it DIFFERENT from closing: nothing is lost,
+// and no reports arrive.
+{
+  const before = (state.gcn!.hubReports ?? []).length;
+  const heldBefore = hubProspects(state, emptyRegion.id).length;
+  const levelBefore = hubNow.level;
+  const pauseErr = setHubPaused(state, emptyRegion.id, true, TUNING);
+  check("a hub can be paused", pauseErr === undefined, String(pauseErr));
+  hubNow.nextReportDay = state.currentDay;
+  dailyHubTick(state, TUNING);
+  dailyHubTick(state, TUNING);
+  check(
+    "a paused hub files NOTHING",
+    (state.gcn!.hubReports ?? []).length === before,
+    `${(state.gcn!.hubReports ?? []).length} vs ${before}`
+  );
+  // The whole point of pausing rather than closing: the hub is still there.
+  check("...but keeps its level", hubIn(state, emptyRegion.id)?.level === levelBefore);
+  check("...and keeps its prospects", hubProspects(state, emptyRegion.id).length === heldBefore);
+  check(
+    "...and still costs its upkeep",
+    hubUpkeepWeekly(state, TUNING) > 0,
+    money(hubUpkeepWeekly(state, TUNING))
+  );
+  const resumeErr = setHubPaused(state, emptyRegion.id, false, TUNING);
+  check("a hub can be resumed", resumeErr === undefined, String(resumeErr));
+  // Resuming must start a fresh cycle rather than deliver the batches the pause
+  // swallowed — otherwise pausing is a way to stockpile reports.
+  check(
+    "resuming does not bank the batches it missed",
+    (hubIn(state, emptyRegion.id)?.nextReportDay ?? 0) > state.currentDay
+  );
+  hubIn(state, emptyRegion.id)!.nextReportDay = state.currentDay;
+  dailyHubTick(state, TUNING);
+  check("...and it files again", (state.gcn!.hubReports ?? []).length > before);
+}
+
+// ── The brief (v1.99) ───────────────────────────────────────────────────────
+// A focus is a BIAS, not a filter. Both halves of that are asserted: it must
+// visibly move the finds, and it must NOT make every find match — a brief that
+// always landed would be a prospect generator.
+{
+  const region = emptyRegion.id;
+  const outsideNat = HUB_REGIONS.find((r) => r.id !== region)!.nats[0];
+  check(
+    "a brief can't name a country outside the region",
+    typeof hubFocusError(region, { nat: outsideNat }) === "string"
+  );
+  // An archetype and a position that genuinely conflict are refused up front,
+  // rather than the brief quietly ignoring half of itself.
+  const gkArch = ARCHETYPE_ROSTER.find((a) => positionsOfArchetype(a).join() === "GK")!;
+  check(
+    "a brief can't ask for a role at a position that can't earn it",
+    typeof hubFocusError(region, { archetype: gkArch.id, pos: "ST" }) === "string"
+  );
+  check(
+    "...but the same role at its own position is fine",
+    hubFocusError(region, { archetype: gkArch.id, pos: "GK" }) === null
+  );
+
+  const nat = HUB_REGION_MAP[region].nats[0];
+  const setErr = setHubFocus(state, region, { nat, pos: "CB" });
+  check("a brief can be set", setErr === undefined, String(setErr));
+  check("...and is stored on the hub", hubIn(state, region)?.focus?.nat === nat);
+
+  // Measure over many batches rather than one: a per-criterion roll is a rate,
+  // and one batch of six says nothing about it.
+  state.gcn!.hubReports = [];
+  const h = hubIn(state, region)!;
+  let onNat = 0;
+  let onPos = 0;
+  let total = 0;
+  for (let i = 0; i < 60; i++) {
+    h.nextReportDay = state.currentDay;
+    dailyHubTick(state, TUNING);
+    for (const r of state.gcn!.hubReports ?? []) {
+      total++;
+      if (r.player.nationality === nat) onNat++;
+      if (r.player.positions[0] === "CB") onPos++;
+    }
+    state.gcn!.hubReports = [];
+    state.currentDay += 1;
+  }
+  const natRate = total ? onNat / total : 0;
+  const posRate = total ? onPos / total : 0;
+  // A CB is 1 of 12 positions unbriefed, so anything near the hit chance is the
+  // brief working; the band is wide because this is a rate, not a table lookup.
+  check(
+    "a briefed position is honoured far more often than chance",
+    posRate > 0.5,
+    `${(posRate * 100).toFixed(0)}% of ${total} finds`
+  );
+  check(
+    "a briefed country is honoured far more often than chance",
+    natRate > 0.5,
+    `${(natRate * 100).toFixed(0)}%`
+  );
+  // The half that makes it scouting rather than manufacturing.
+  check(
+    "...but a brief is a bias, not a filter",
+    posRate < 1 && natRate < 1,
+    `${(posRate * 100).toFixed(0)}% / ${(natRate * 100).toFixed(0)}%`
+  );
+  check("a brief can be cleared", setHubFocus(state, region, {}) === undefined);
+  check("...and the hub goes back to having none", !hubIn(state, region)?.focus);
+  state.gcn!.hubReports = [];
+  h.nextReportDay = state.currentDay;
+  dailyHubTick(state, TUNING);
+}
+
+const filedAfter = state.gcn!.hubReports ?? [];
+
 // Signing puts him on the NETWORK's books and at no club. That is the property
 // the whole feature hangs on — and the one that would silently break every
 // "unattached means free agent" pass in the codebase if it weren't guarded.
-const report = filed[0];
+const report = filedAfter[0];
 const signErr = signHubProspect(state, report.id, TUNING);
 check("a find can be signed to the hub", signErr === undefined, String(signErr));
 const prospect = state.players[report.player.id];

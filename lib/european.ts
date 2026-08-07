@@ -32,7 +32,7 @@ import type {
 } from "./types";
 import type { TuningConfig } from "./config/tuning";
 import { computeTable } from "./season";
-import { mulberry32, deriveSeed, shuffle, uid } from "./rng";
+import { mulberry32, deriveSeed, shuffle } from "./rng";
 import { SCOUT_WORLD } from "./config/scouting";
 
 /** How many European countries a save needs before the cups can run. */
@@ -379,6 +379,19 @@ export function drawGroups(state: GameState, teamIds: string[], seed: number, ti
  * method gives 3 rounds; the second half mirrors the venues, exactly as the
  * league fixture generator does.
  */
+/**
+ * A European fixture's id, derived from the fixture (v1.99).
+ *
+ * Same determinism fix as `fid` in season.ts, and for the same reason: these
+ * ids reach `matchSeed`, so a `uid()` here — which mixes in `Date.now()` —
+ * made every European result differ between two runs of one save seed. Built
+ * from competition, round and the two clubs in leg order, which is what makes
+ * a tie's two legs distinct rather than a collision.
+ */
+function eufId(competition: string, round: number, homeId: string, awayId: string): string {
+  return `euf_${competition}_r${round}_${homeId}h_${awayId}a`;
+}
+
 function groupFixtures(
   group: string[],
   competition: string,
@@ -398,7 +411,7 @@ function groupFixtures(
       const [a, b] = i === 0 && r % 2 === 1 ? [right[i], left[i]] : [left[i], right[i]];
       if (!a || !b) continue;
       fixtures.push({
-        id: uid("euf"),
+        id: eufId(competition, r + 1, a, b),
         day: dayFor(r),
         competition,
         round: r + 1,
@@ -408,7 +421,7 @@ function groupFixtures(
         euroGroup: groupIndex,
       });
       fixtures.push({
-        id: uid("euf"),
+        id: eufId(competition, r + rounds + 1, b, a),
         day: dayFor(r + rounds),
         competition,
         round: r + rounds + 1,
@@ -555,7 +568,7 @@ export function drawKnockoutRound(state: GameState, cup: EuroCupState, round: nu
 
   for (const [aId, bId] of pairs) {
     const tie: EuroTie = {
-      id: uid("eut"),
+      id: `eut_${competition}_r${round}_${aId}_${bId}`,
       round,
       teamAId: aId,
       teamBId: bId,
@@ -566,7 +579,7 @@ export function drawKnockoutRound(state: GameState, cup: EuroCupState, round: nu
       // A single match at a neutral venue — modelled as teamA at home, with the
       // engine's home advantage still applied to keep one code path.
       const f: Fixture = {
-        id: uid("euf"),
+        id: eufId(competition, 100 + round, aId, bId),
         day: days[12] ?? firstLegDay,
         competition,
         round: 100 + round, // knockout rounds are offset past the 6 group rounds
@@ -579,7 +592,7 @@ export function drawKnockoutRound(state: GameState, cup: EuroCupState, round: nu
       fixtures.push(f);
     } else {
       const leg1: Fixture = {
-        id: uid("euf"),
+        id: eufId(competition, 100 + round, aId, bId),
         day: firstLegDay,
         competition,
         round: 100 + round,
@@ -589,7 +602,7 @@ export function drawKnockoutRound(state: GameState, cup: EuroCupState, round: nu
         euroTieId: tie.id,
       };
       const leg2: Fixture = {
-        id: uid("euf"),
+        id: eufId(competition, 100 + round, bId, aId),
         day: secondLegDay,
         competition,
         round: 100 + round,

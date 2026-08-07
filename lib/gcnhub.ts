@@ -36,12 +36,14 @@
 import type {
   GameState,
   GcnHub,
+  GcnHubFocus,
   PlayerBio,
   Pos,
   ProspectReport,
   ProspectTier,
 } from "./types";
 import type { TuningConfig } from "./config/tuning";
+import { ARCHETYPE_MAP, positionsOfArchetype } from "./config/archetype";
 import { SCOUT_WORLD, regionNats } from "./config/scouting";
 import { COUNTRIES } from "./config/countries";
 import { deriveSeed, mulberry32, pick, randInt, uid, type RNG } from "./rng";
@@ -54,7 +56,9 @@ import { pushInboxItem } from "./inbox";
 import { globalScoutingCostMult, globalScoutingSpeedMult } from "./gcnexec";
 import { ensureProgress } from "./achievements";
 
-const ALL_POS: Pos[] = ["GK", "CB", "LB", "RB", "DM", "CM", "LM", "RM", "AM", "LW", "RW", "ST"];
+/** Every position a hub can turn up — also the brief's position list (v1.99), so
+ * the picker offers exactly what the generator can roll. */
+export const ALL_POS: Pos[] = ["GK", "CB", "LB", "RB", "DM", "CM", "LM", "RM", "AM", "LW", "RW", "ST"];
 
 const pushInbox = pushInboxItem;
 
@@ -76,6 +80,11 @@ export interface HubRegionDef {
   continentLabel: string;
   /** Nationality codes a hub here draws prospects from. */
   nats: string[];
+  /** The same countries with their display names (v1.99), for the brief's
+   * country picker. Taken from the scouting tree's own labels rather than looked
+   * up in `COUNTRIES`, which only knows the countries this build ships leagues
+   * for — a hub region names plenty it doesn't. */
+  countries: { id: string; label: string }[];
 }
 
 /** Every region a hub may be established in: SCOUT_WORLD's sub-regions, in tree
@@ -88,6 +97,7 @@ export const HUB_REGIONS: HubRegionDef[] = SCOUT_WORLD.flatMap((continent) =>
     continent: continent.id,
     continentLabel: continent.label,
     nats: r.countries.map((c) => c.id),
+    countries: r.countries.map((c) => ({ id: c.id, label: c.label })),
   }))
 );
 
@@ -267,6 +277,10 @@ export function upgradeHub(state: GameState, region: string, cfg: TuningConfig):
  * upkeep decision real: the way out of a hub you can't afford is to stop paying
  * for it, at the cost of everything you put in.
  *
+ * v1.99: this is no longer what the screen offers as the routine lever —
+ * `setHubPaused` is. "Stop the reports" and "demolish the building" are
+ * different decisions, and only the second should cost the prospects.
+ *
  * Its prospects are NOT deleted. They are released to the world as ordinary free
  * agents, because unlike an academy quick sell (where deletion exists so a
  * manager's castoffs can't stock his rivals) these are players the network
@@ -284,12 +298,93 @@ export function closeHub(state: GameState, region: string): string | void {
   gcn.hubReports = (gcn.hubReports ?? []).filter((r) => r.region !== region);
 }
 
+// ── The brief (v1.99) ────────────────────────────────────────────────────────
+//
+// A hub can be told what to look for: a country inside its own region, a
+// position, an archetype. Three rules, and each is why this is a brief rather
+// than a filter:
+//
+//  1. It is a BIAS. `gcnHubFocusHitChance` is rolled PER CRITERION, so a fully
+//     specified brief lands outright about a third of the time and the rest of
+//     the batch is what the region actually has. A hard filter would turn the
+//     brief into a prospect generator — pick the nation, the position and the
+//     role and the hub mints exactly that, every batch, forever.
+//
+//  2. The archetype steers the TRAINING PLAN, never a label. An archetype is
+//     derived from attributes (v1.77) and a plan's own weights are what worldgen
+//     shapes an attribute line from, so passing `planId` is the only way to make
+//     a focused find genuinely read as that role. Stamping `archetype` on a
+//     player would be storing an identity the game deliberately doesn't store.
+//
+//  3. An archetype and a position can DISAGREE (an Anchor is a DM; the brief may
+//     also say ST). The archetype wins, because it is the more specific of the
+//     two and a plan aimed at a position the player doesn't play would shape an
+//     attribute line the overall model then throws away. `focusError` refuses
+//     the pairing up front so the manager never sets a brief that quietly
+//     ignores half of itself.
+
+/** Whether a brief is legal for this region. The single ruling — the UI greys
+ * options out with it and `setHubFocus` refuses with it. */
+export function hubFocusError(region: string, focus: GcnHubFocus): string | null {
+  const def = hubRegion(region);
+  if (!def) return "Unknown region.";
+  if (focus.nat && !def.nats.includes(focus.nat)) {
+    return `A ${def.label} hub only scouts inside its own region.`;
+  }
+  if (focus.archetype) {
+    const arch = ARCHETYPE_MAP[focus.archetype];
+    if (!arch) return "Unknown archetype.";
+    const posns = positionsOfArchetype(arch);
+    if (focus.pos && !posns.includes(focus.pos)) {
+      return `${arch.name} is a ${posns.join("/")} role — it can't be earned at ${focus.pos}.`;
+    }
+  }
+  return null;
+}
+
+/** Set (or clear) a hub's brief. An empty object clears it, which is the same
+ * state a hub that never had one is in. */
+export function setHubFocus(state: GameState, region: string, focus: GcnHubFocus): string | void {
+  const hub = hubIn(state, region);
+  if (!hub) return "There's no hub there.";
+  const clean: GcnHubFocus = {};
+  if (focus.nat) clean.nat = focus.nat;
+  if (focus.pos) clean.pos = focus.pos;
+  if (focus.archetype) clean.archetype = focus.archetype;
+  const blocked = hubFocusError(region, clean);
+  if (blocked) return blocked;
+  if (!clean.nat && !clean.pos && !clean.archetype) delete hub.focus;
+  else hub.focus = clean;
+}
+
+/** Stop or restart a hub's reports. Everything else about it — its level, its
+ * prospects, its upkeep — carries on, which is what makes this the reversible
+ * decision that closing the hub is not. */
+export function setHubPaused(
+  state: GameState,
+  region: string,
+  paused: boolean,
+  cfg: TuningConfig
+): string | void {
+  const hub = hubIn(state, region);
+  if (!hub) return "There's no hub there.";
+  if (paused) hub.paused = true;
+  else {
+    delete hub.paused;
+    // Resuming starts a fresh cycle rather than filing the batch that came due
+    // while nobody was reporting — a pause that banked its reports would be a
+    // way to stockpile them.
+    hub.nextReportDay = state.currentDay + hubReportDays(state, hub.level, cfg);
+  }
+}
+
 // ── The pipeline ─────────────────────────────────────────────────────────────
 
 /** Build one prospect for a hub report. Deliberately the same construction the
  * club's scouts use — the same age band, the same `generatePlayer` flags, the
  * same tier→band lookup — because a hub is meant to find BETTER players, not
- * different ones. The only thing that differs is the judgement it rolls at. */
+ * different ones. The only thing that differs is the judgement it rolls at, and
+ * (v1.99) the brief that biases what it goes looking for. */
 function generateHubProspect(
   state: GameState,
   cfg: TuningConfig,
@@ -299,8 +394,31 @@ function generateHubProspect(
 ): ProspectReport | null {
   const def = hubRegion(hub.region);
   if (!def) return null;
-  const nat = pick(rng, regionNats(hub.region));
-  const pos = pick(rng, ALL_POS);
+  const focus = hub.focus;
+  // Each criterion rolls on its own — see the note above for why this is a bias.
+  const hits = () => rng() < cfg.gcnHubFocusHitChance;
+
+  const regionPool = regionNats(hub.region);
+  const nat =
+    focus?.nat && regionPool.includes(focus.nat) && hits() ? focus.nat : pick(rng, regionPool);
+
+  // The archetype is the more specific instruction, so it picks the position
+  // when both are named — `hubFocusError` has already refused a pairing where
+  // the two genuinely conflict, so this only ever narrows.
+  const arch = focus?.archetype ? ARCHETYPE_MAP[focus.archetype] : undefined;
+  const archHit = arch ? hits() : false;
+  const archPositions = arch ? positionsOfArchetype(arch) : [];
+  let pos: Pos;
+  if (archHit && archPositions.length) {
+    pos = focus?.pos && archPositions.includes(focus.pos) ? focus.pos : pick(rng, archPositions);
+  } else if (focus?.pos && hits()) {
+    pos = focus.pos;
+  } else {
+    pos = pick(rng, ALL_POS);
+  }
+  // The plan, not a stored label: an archetype is DERIVED from attributes, and a
+  // plan's weights are what worldgen shapes the line from.
+  const planId = archHit && arch ? arch.planId : undefined;
   const age = randInt(rng, cfg.gcnHubProspectAgeMin, cfg.gcnHubProspectAgeMax);
   const tier = rollProspectTier(rng, cfg, hubJudgement(hub.level, cfg));
   const band = rollTierQuality(rng, cfg, tier, age);
@@ -313,6 +431,7 @@ function generateHubProspect(
       nat,
       age,
       prodigy: elite,
+      ...(planId ? { planId } : {}),
       // Both flags exist for the 13–17 band and must travel together (v1.90):
       // the age table already states ability-at-age, so re-running the maturity
       // curve would discount youth twice, and `minOverall` is a senior-world
@@ -354,6 +473,10 @@ export function dailyHubTick(state: GameState, cfg: TuningConfig) {
   if (list.length === 0) return;
 
   for (const hub of list) {
+    // A paused hub files nothing and its clock does not advance (v1.99): the
+    // whole point is that no reports come back, so a pause that banked its
+    // batches would deliver them all the moment it resumed.
+    if (hub.paused) continue;
     if (state.currentDay < hub.nextReportDay) continue;
     const def = hubRegion(hub.region);
     if (!def) continue;

@@ -20,6 +20,7 @@ import {
   type ArchetypeProfile,
 } from "../config/archetype";
 import { TRAIT_MAP } from "../config/traits";
+import { roleBriefMult } from "../tacticbrief";
 import { PHASE_WEIGHTS, positionFit } from "../config/positions";
 import type { AttrKey } from "../config/attributes";
 import {
@@ -78,6 +79,13 @@ export interface EnginePlayer {
 export interface LineupEntry {
   slotPos: Pos;
   player: EnginePlayer;
+  /** The formation slot he is filling (v1.99). Carried so the Tactic Creator's
+   * per-slot role brief can be read — two centre backs share a `slotPos` and
+   * may hold different briefs, so the position alone cannot answer it. Optional
+   * because a caller with no formation in hand (the calibration harness, a
+   * substitute coming on) has no slot to name, and an absent slot id simply
+   * means "no brief applies". */
+  slotId?: string;
 }
 
 export interface SideInput {
@@ -220,7 +228,18 @@ function instructionMult(p: EnginePlayer, side: SideState, cfg: TuningConfig): n
  * of the existing two, so a change to either table moves selection and the
  * simulation together and they cannot drift apart.
  */
-export function tacticalFitMult(p: EnginePlayer, tactic: Tactic, cfg: TuningConfig): number {
+export function tacticalFitMult(
+  p: EnginePlayer,
+  tactic: Tactic,
+  cfg: TuningConfig,
+  /** The formation slot being filled (v1.99). Supplied, the manager's own role
+   * brief for that slot is folded in, so a tactic-aware pick prefers the player
+   * the BRIEF asks for exactly as the match will rate him. Omitted — the common
+   * case, and every pre-v1.99 caller — the brief contributes nothing, which is
+   * correct for a question with no slot in it ("how useful is he to this tactic
+   * at all", which is what the bench ranking asks). */
+  slot?: { pos: Pos; id: string }
+): number {
   const prof = profileOfPlayer(p);
   const synergy = Math.max(
     1 - cfg.synergyCap,
@@ -228,7 +247,8 @@ export function tacticalFitMult(p: EnginePlayer, tactic: Tactic, cfg: TuningConf
   );
   const instructions =
     1 + instructionFitScore(prof.instructionPrefs, resolveInstructions(tactic)) * cfg.instructionFitSwing;
-  return synergy * instructions;
+  const brief = slot ? roleBriefMult(p.attrs, slot.pos, slot.id, tactic) : 1;
+  return synergy * instructions * brief;
 }
 
 /** The intrinsic shape of a side's chosen style (v19). A pure table lookup —
@@ -269,6 +289,11 @@ function effectiveRating(
     fit *
     // What KIND of player he is, against the STYLE (class-level).
     synergyMult(p, side.tactic, cfg) *
+    // v1.99: and whether he is the role the manager's own brief asked for in
+    // THIS slot. Exactly 1 unless the Tactic Creator was used — and the brief
+    // redistributes rather than adds (see lib/tacticbrief.ts), so this is the
+    // same one-lever channel as the two around it, not a third.
+    roleBriefMult(p.attrs, op.entry.slotPos, op.entry.slotId ?? "", side.tactic) *
     // v1.78: and how well HIS ROLE suits the five advanced dials. Style is a
     // class question, the dials are a role question — which is why a Sniper and
     // a Ram, the same class at the same position, now diverge here.

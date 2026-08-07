@@ -62,12 +62,18 @@ export default function HomeScreen() {
 
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-      {/* The wide column is inbox THEN calendar (v1.97). The calendar used to sit
-          in the narrow sidebar, where a month of seven columns left each day cell
-          barely wide enough for a crest — so a fixture day could show who, but
-          never the score. Below the inbox it has two thirds of the page, which is
-          what buys the abbreviation and the result inside the cell. */}
+      {/* The wide column is calendar THEN inbox (v1.99). Both belong here — the
+          calendar moved out of the narrow sidebar in v1.97 because a month of
+          seven columns left each day cell barely wide enough for a crest — but
+          the ORDER was the wrong way round: the calendar is what the manager
+          acts on (it is the only place he can fast-forward from), and the inbox
+          is what he reads. The thing you press was below the thing you scroll,
+          so a full mailbox pushed the Continue-adjacent control off the fold. */}
       <div className="space-y-6 xl:col-span-2">
+        <Section title="Calendar">
+          <Calendar />
+        </Section>
+
         <Section
           title="Inbox"
           right={
@@ -145,10 +151,6 @@ export default function HomeScreen() {
               </div>
             )}
           </div>
-        </Section>
-
-        <Section title="Calendar">
-          <Calendar />
         </Section>
       </div>
 

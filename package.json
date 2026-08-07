@@ -18,6 +18,8 @@
     "verify:facilities": "tsx scripts/verify-facilities.ts",
     "verify:v193": "tsx scripts/verify-v193.ts",
     "verify:inbox": "tsx scripts/verify-inbox.ts",
+    "verify:brief": "tsx scripts/verify-brief.ts",
+    "verify:sim-parity": "tsx scripts/verify-sim-parity.ts",
     "verify:rivalry": "tsx scripts/verify-rivalry.ts",
     "verify:quicksell": "tsx scripts/verify-quicksell.ts",
     "verify:gcn": "tsx scripts/verify-gcn.ts",

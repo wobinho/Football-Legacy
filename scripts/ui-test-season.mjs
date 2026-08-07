@@ -21,7 +21,10 @@ const page = await (await browser.newContext({ viewport: { width: 1440, height: 
 page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 page.on("pageerror", (e) => errors.push(String(e)));
 
-await page.goto("http://localhost:3000", { waitUntil: "networkidle", timeout: 60000 });
+// Honour UI_TEST_BASE like every other harness, so a busy port 3000 doesn't
+// fail the run (the convention ui-test.mjs and ui-test-gcn.mjs already follow).
+const BASE = process.env.UI_TEST_BASE || "http://localhost:3000";
+await page.goto(BASE, { waitUntil: "networkidle", timeout: 60000 });
 const keyInput = page.locator('input[spellcheck="false"]');
 if (await keyInput.count()) {
   await keyInput.fill("SANTI-001");
@@ -31,8 +34,26 @@ if (await keyInput.count()) {
 await page.waitForSelector("text=NEW LEGACY", { timeout: 30000 });
 await page.click("text=NEW LEGACY");
 await page.fill('input[placeholder="Your name"]', "Robin Ramirez");
-await page.click("text=Nottingham Foresters");
-await page.click("text=START LEGACY");
+// The club is taken by POSITION, never by name — the standing trap CLAUDE.md
+// documents and ui-test.mjs/ui-test-gcn.mjs already avoid. This harness still
+// clicked "Nottingham Foresters", a club the shipped database renamed when the
+// real-club data landed, so it timed out at the picker and NOTHING behind it
+// (the finances breakdowns, the whole season, the season-review modal) had been
+// running.
+await page.waitForSelector("text=CHOOSE YOUR CLUB", { timeout: 30000 });
+await page.waitForTimeout(1200);
+await page
+  .locator('div:has(> div.grid[class*="max-h-64"]) div.grid[class*="max-h-64"] > button')
+  .first()
+  .click();
+await page.waitForTimeout(400);
+const startLegacy = page.locator('button:has-text("START LEGACY")').first();
+if (await startLegacy.isDisabled()) {
+  // The first cell is "＋ Create your own club" on some presets.
+  await page.locator('div.grid[class*="max-h-64"] > button').nth(1).click();
+  await page.waitForTimeout(400);
+}
+await startLegacy.click();
 await page.waitForSelector("text=Inbox", { timeout: 60000 });
 
 // ── Finances breakdown (v21): expand the wage bill ────────────────────────
@@ -44,13 +65,19 @@ await page.screenshot({ path: shot("01-finances-expanded.png") });
 const wageRowsVisible = await page.locator("text=/ovr · through S/").count();
 console.log("wage-bill line items visible:", wageRowsVisible);
 
-// ── Income tab should now show 8 facilities ───────────────────────────────
+// ── The Income tab renders its upgrade list ───────────────────────────────
+// It used to wait on "Membership Scheme" / "Events & Conferences" / "Academy
+// Partnerships", three streams the v1.79 and v1.87 facility reworks deleted
+// outright — so this harness had been timing out here, and everything behind it
+// (the whole season, the season-review modal) went unmeasured. Re-derived from
+// the screen and stated as a COUNT rather than three names, so the next stream
+// that is renamed or retired doesn't silently switch the rest of the run off.
 await page.click('button:has-text("Income")');
-await page.waitForSelector("text=Membership Scheme");
-await page.waitForSelector("text=Events & Conferences");
-await page.waitForSelector("text=Academy Partnerships");
-await page.screenshot({ path: shot("02-income-8.png"), fullPage: true });
-console.log("income facilities: all three new streams present");
+await page.waitForSelector("text=Income", { timeout: 15000 });
+await page.waitForTimeout(500);
+await page.screenshot({ path: shot("02-income.png"), fullPage: true });
+const incomeUpgrades = await page.locator('button:has-text("Upgrade"), button:has-text("Buy")').count();
+console.log("income upgrades offered:", incomeUpgrades);
 
 // ── Play a full season ────────────────────────────────────────────────────
 await page.click('button:has-text("Home")');

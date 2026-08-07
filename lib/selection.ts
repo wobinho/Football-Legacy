@@ -6,6 +6,21 @@ import type { TuningConfig } from "./config/tuning";
 import { getFormation, type Formation } from "./config/formations";
 import { positionFit } from "./config/positions";
 import { tacticalFitMult, type EnginePlayer, type LineupEntry, type SideInput } from "./engine/match";
+import { hasBrief, roleBriefMult } from "./tacticbrief";
+
+/**
+ * How many substitutes a side names — the single accessor (v1.99).
+ *
+ * It was `cfg.matchdaySquad - 11`, spelled out at six call sites across
+ * selection, rotation, tactics and the store. That made the bench a derivation
+ * of a number that is ALSO read as a squad-size floor, so widening the bench
+ * meant telling every AI club to keep two more players — two answers hanging
+ * off one constant. `benchSize` states it directly; this is what reads it, so
+ * a bench cap can never be computed a seventh way.
+ */
+export function benchCap(cfg: TuningConfig): number {
+  return cfg.benchSize;
+}
 
 export function toEnginePlayer(p: PlayerBio): EnginePlayer {
   return {
@@ -72,13 +87,45 @@ export function pickLineup(
   const byId = new Map(available.map((p) => [p.id, p]));
   const lineup: { slotId: string; player: PlayerBio }[] = [];
 
-  const slots = formation.slots.slice().sort((a, b) => {
-    const na = available.filter((p) => p.positions.includes(a.pos)).length;
-    const nb = available.filter((p) => p.positions.includes(b.pos)).length;
-    return na - nb;
-  });
+  const supply = new Map<Pos, number>();
+  for (const p of available) {
+    for (const pos of p.positions) supply.set(pos, (supply.get(pos) ?? 0) + 1);
+  }
+  const slots = formation.slots
+    .slice()
+    .sort((a, b) => (supply.get(a.pos) ?? 0) - (supply.get(b.pos) ?? 0));
 
-  const scoreFor = (p: PlayerBio, pos: Pos) => selectionScore(p, pos, cfg, tactic) * (weight ? weight(p) : 1);
+  // v1.99: the slot-INDEPENDENT inputs are computed once per player instead of
+  // once per (player × slot). `tacticalFitMult` derives an archetype and was
+  // being asked for it eleven times per player, once per slot in the formation.
+  //
+  // The multiplication is deliberately left in `selectionScore`'s original
+  // order — overall × fit × fitness × form × tactical, then the weight — rather
+  // than pre-multiplying the invariant factors. Floating-point multiplication is
+  // not associative, and re-associating it changed real league tables in
+  // `verify:sim-parity`: scores that should tie stopped tying, so a different
+  // player took the slot. Caching the INPUTS is free; reordering the product is
+  // not.
+  interface SlotConst { fitness: number; tactical: number; weight: number }
+  const constFor = new Map<string, SlotConst>();
+  for (const p of available) {
+    constFor.set(p.id, {
+      fitness: cfg.fitnessFloorMult + (1 - cfg.fitnessFloorMult) * (p.fitness / 100),
+      tactical: tactic ? tacticalFitMult(toEnginePlayer(p), tactic, cfg) : 1,
+      weight: weight ? weight(p) : 1,
+    });
+  }
+  // The role brief (v1.99) is the one term that genuinely varies BY SLOT rather
+  // than by position, so it cannot join the cache above — two centre backs are
+  // two different jobs. It is only consulted when the tactic actually carries a
+  // brief, so an ordinary tactic pays a single boolean for the whole pick.
+  const briefed = !!tactic && hasBrief(tactic);
+  const scoreFor = (p: PlayerBio, pos: Pos, slotId: string) => {
+    const c = constFor.get(p.id)!;
+    const fit = positionFit(p.positions, pos, cfg.adjacentPositionMult, cfg.outOfPositionFloor);
+    const base = p.overall * fit * c.fitness * p.form * c.tactical * c.weight;
+    return briefed ? base * roleBriefMult(p.attrs, pos, slotId, tactic!) : base;
+  };
 
   for (const slot of slots) {
     let best: PlayerBio | null = null;
@@ -86,7 +133,7 @@ export function pickLineup(
     for (const id of pool) {
       const p = byId.get(id)!;
       if (respectFitness && p.fitness < cfg.minFitnessToStart && p.positions[0] !== "GK") continue;
-      const score = scoreFor(p, slot.pos);
+      const score = scoreFor(p, slot.pos, slot.id);
       if (score > bestScore) {
         bestScore = score;
         best = p;
@@ -96,7 +143,7 @@ export function pickLineup(
     if (!best) {
       for (const id of pool) {
         const p = byId.get(id)!;
-        const score = scoreFor(p, slot.pos);
+        const score = scoreFor(p, slot.pos, slot.id);
         if (score > bestScore) {
           bestScore = score;
           best = p;
@@ -121,13 +168,17 @@ export function pickLineup(
     (tactic ? p.overall * tacticalFitMult(toEnginePlayer(p), tactic, cfg) : p.overall) *
     (weight ? weight(p) : 1);
   const rest = [...pool]
-    .map((id) => byId.get(id)!)
-    .sort((a, b) => benchScore(b) - benchScore(a));
+    .map((id) => {
+      const p = byId.get(id)!;
+      return { p, score: benchScore(p) };
+    })
+    .sort((a, b) => b.score - a.score)
+    .map((e) => e.p);
   const bench: PlayerBio[] = [];
   const gk = rest.find((p) => p.positions[0] === "GK");
   if (gk) bench.push(gk);
   for (const p of rest) {
-    if (bench.length >= cfg.matchdaySquad - 11) break;
+    if (bench.length >= benchCap(cfg)) break;
     if (!bench.includes(p)) bench.push(p);
   }
   return { lineup, bench };
@@ -154,7 +205,7 @@ export function buildSideInput(
   const formation = getFormation(tactic.formationId);
   const picked = fixedLineup ?? pickLineup(players, formation, cfg, true, weight, tactic).lineup;
   const usedIds = new Set(picked.map((e) => e.player.id));
-  const benchCap = cfg.matchdaySquad - 11;
+  const cap = benchCap(cfg);
   let bench: PlayerBio[];
   if (fixedBench) {
     const byId = new Map(players.map((p) => [p.id, p]));
@@ -170,13 +221,13 @@ export function buildSideInput(
       .filter((p) => !p.retired && !usedIds.has(p.id) && !chosen.has(p.id))
       .sort((a, b) => b.overall - a.overall);
     for (const p of fill) {
-      if (bench.length >= benchCap) break;
+      if (bench.length >= cap) break;
       bench.push(p);
     }
-    bench = bench.slice(0, benchCap);
+    bench = bench.slice(0, cap);
   } else {
     bench = fixedLineup
-      ? players.filter((p) => !usedIds.has(p.id) && !p.retired).sort((a, b) => b.overall - a.overall).slice(0, benchCap)
+      ? players.filter((p) => !usedIds.has(p.id) && !p.retired).sort((a, b) => b.overall - a.overall).slice(0, cap)
       : pickLineup(players, formation, cfg, true, weight, tactic).bench;
   }
 
@@ -184,6 +235,9 @@ export function buildSideInput(
   const lineup: LineupEntry[] = picked.map((e) => ({
     slotPos: slotById.get(e.slotId)?.pos ?? "CM",
     player: toEnginePlayer(e.player),
+    // Carried into the match so the Tactic Creator's per-slot brief can be read
+    // (v1.99) — two slots can share a position and hold different briefs.
+    slotId: e.slotId,
   }));
   // Only honour an assignment if that player is actually in the XI.
   const inXI = new Set(lineup.map((e) => e.player.id));
@@ -245,7 +299,7 @@ export function teamStrength(players: PlayerBio[], cfg: TuningConfig, formationI
  * of who is available on Saturday, and a card that dropped a rating because a
  * striker is carrying a knock would read as a permanent judgement on the club.
  *
- * `bench` is the matchday bench only — `cfg.matchdaySquad - 11`, ordered by the
+ * `bench` is the matchday bench only — `benchCap(cfg)` players, ordered by the
  * same weighting the XI used — not "everyone else". The reserves beyond the
  * bench never take the field, so folding them in would put the squad-size
  * distortion straight back.

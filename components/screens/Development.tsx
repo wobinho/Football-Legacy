@@ -44,14 +44,7 @@ import {
   conversionSeasonsRequired,
   conversionsOf,
 } from "@/lib/archetypedev";
-import {
-  archetypeConversionEta,
-  devPhase,
-  seasonGrowth,
-  seasonGrowthEstimate,
-  seasonFamilyFocus,
-  type ArchetypeEta,
-} from "@/lib/development";
+import { devPhase, seasonGrowth, seasonGrowthEstimate, seasonFamilyFocus } from "@/lib/development";
 import { ATTR_FAMILY_LABELS, ATTR_FAMILY_ORDER, ATTR_META, GK_FAMILY_LABELS } from "@/lib/config/attributes";
 import { academyGrowthSummary, prospectGrowth, type ProspectGrowth } from "@/lib/academy";
 import { optimalTrainingPlan, plansForPosition, resolveTrainingPlan, type TrainingPlanDef } from "@/lib/config/training";
@@ -59,7 +52,6 @@ import {
   ARCHETYPE_BY_PLAN,
   ARCHETYPE_CLASS_COLOR,
   deriveArchetype,
-  getArchetype,
   type ArchetypeClass,
 } from "@/lib/config/archetype";
 import { POS_ORDER } from "@/lib/config/positions";
@@ -448,7 +440,6 @@ function TrainingPlansTab() {
             const growing = p.age <= TUNING.growthEndAge;
             const inAcademy = academyIds.has(p.id);
             const last = p.devLog && p.devLog.length ? p.devLog[p.devLog.length - 1] : null;
-            const eta = archetypeConversionEta(p, TUNING, ctx.facilityMult, ctx.eliteRelief, ctx.seasonDay);
             return (
               <PlayerCard
                 key={p.id}
@@ -456,24 +447,14 @@ function TrainingPlansTab() {
                 onOpen={() => viewPlayer(p.id)}
                 ovr={<Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />}
                 sub={
-                  // Only an ARRIVING conversion displaces the developing/matured
-                  // line: it is the vaguer statement of the same fact, and the
-                  // card has one subtitle to spend. A dead end deliberately does
-                  // NOT take the slot here — "never" is the answer for most of
-                  // the squad, and a grid of red would drown the one card that
-                  // is actually converting. The list row and the drawer, where
-                  // the manager is working plan by plan, still say it.
-                  eta && eta.outcome === "arriving" ? (
-                    <span className="flex items-center gap-1.5 truncate text-[11px]">
-                      {inAcademy && <AcademyTag />}
-                      <ArchetypeEtaChip eta={eta} compact />
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1.5 truncate">
-                      {inAcademy && <AcademyTag />}
-                      <span className="truncate">{growing ? "Still developing" : "Reached maturity"}</span>
-                    </span>
-                  )
+                  // v1.99: the conversion ETA is gone from this screen. A
+                  // training plan steers WHICH ATTRIBUTES grow and nothing more
+                  // — it no longer promises an identity, so the card has one
+                  // subtitle and it states where the player is in his arc.
+                  <span className="flex items-center gap-1.5 truncate">
+                    {inAcademy && <AcademyTag />}
+                    <span className="truncate">{growing ? "Still developing" : "Reached maturity"}</span>
+                  </span>
                 }
                 stats={
                   <span className="flex items-center gap-1.5">
@@ -549,9 +530,6 @@ function TrainingPlansTab() {
           // beside the name is what makes the training focus feel consequential
           // rather than like a stat allocation.
           const archetype = deriveArchetype(p.attrs, p.positions[0]);
-          // Null whenever there's nothing to say — he already IS the plan's
-          // archetype, or he's stopped growing. See archetypeConversionEta.
-          const eta = archetypeConversionEta(p, TUNING, ctx.facilityMult, ctx.eliteRelief, ctx.seasonDay);
 
           return (
             <div key={p.id}>
@@ -575,15 +553,12 @@ function TrainingPlansTab() {
                     screen drives: the plan shapes attributes, and the attributes
                     earn the identity — so it sits beside the focus that produced
                     it rather than tucked under the name. */}
-                {/* v1.80: name and class on ONE line. Stacking them made every
-                    row two lines tall for a word the colour already encodes —
-                    the class now trails the name in small caps and the row keeps
-                    a single line's height. */}
-                {/* v1.84: the class word gives way to the conversion ETA when
-                    there is one. Both are trailing context on the identity, the
-                    colour already encodes the class, and "→ Sniper ≈ 14 weeks"
-                    is the far more actionable of the two — so they share the one
-                    slot rather than the row growing a second line for it. */}
+                {/* v1.99: the archetype NAME and nothing after it. The slot used
+                    to trail either the class word or a conversion ETA, and both
+                    are gone for the same reason — a training plan steers which
+                    attributes grow, it does not promise an identity, so a
+                    projected archetype has nothing to project. The class is
+                    still encoded in the colour and spelled out on hover. */}
                 <span className="hidden min-w-0 sm:block">
                   {archetype ? (
                     <span
@@ -593,25 +568,9 @@ function TrainingPlansTab() {
                       <span className="shrink-0 self-center">
                         <ArchetypeIcon archetype={archetype} size={18} />
                       </span>
-                      <span className="shrink-0 truncate" style={{ color: ARCHETYPE_CLASS_COLOR[archetype.cls] }}>
+                      <span className="min-w-0 truncate" style={{ color: ARCHETYPE_CLASS_COLOR[archetype.cls] }}>
                         {archetype.name}
                       </span>
-                      {/* A dead end earns the slot only when the focus is also
-                          the wrong one — there it IS the reason to change it.
-                          On an optimal focus it is true but inert: the best
-                          plan for him remains the best plan for him, and
-                          telling a settled 30-year-old he'll never reach his
-                          plan's namesake is noise. An arriving conversion
-                          always shows: that one is news either way. */}
-                      {eta && (eta.outcome === "arriving" || !isOptimal) ? (
-                        <span className="min-w-0 text-[11px]">
-                          <ArchetypeEtaChip eta={eta} compact />
-                        </span>
-                      ) : (
-                        <span className="shrink-0 text-[10px] uppercase tracking-widest text-faint">
-                          {archetype.cls}
-                        </span>
-                      )}
                     </span>
                   ) : (
                     <span className="text-[12px] text-faint">—</span>
@@ -671,18 +630,6 @@ function TrainingPlansTab() {
                       <span className="flex items-center gap-2">
                         <span className="text-[10px] uppercase tracking-widest text-faint">Archetype</span>
                         <span className="display text-sm font-semibold text-ink">{archetype.name}</span>
-                        <span className="rounded-sm border border-line px-1.5 py-px text-[10px] text-dim">
-                          {archetype.cls}
-                        </span>
-                      </span>
-                    )}
-                    {/* The drawer has the room the row doesn't, so the ETA gets
-                        its own labelled slot here and the sentence version of
-                        the estimate rather than the four-word chip. */}
-                    {eta && (
-                      <span className="flex items-center gap-2 text-[12px]">
-                        <span className="text-[10px] uppercase tracking-widest text-faint">Becoming</span>
-                        <ArchetypeEtaChip eta={eta} />
                       </span>
                     )}
                     <span className="flex items-center gap-2">
@@ -1031,76 +978,7 @@ function devContext(game: ReturnType<typeof useGame.getState>["game"]) {
   return {
     facilityMult: growthMultiplier(game!, game!.userTeamId),
     eliteRelief: eliteResistRelief(game!, game!.userTeamId),
-    // How far into the season the save stands, so an ETA can quote the days
-    // left rather than rounding every answer up to a whole season.
-    seasonDay: Math.max(0, game!.currentDay - game!.schedule.seasonStartDay),
   };
-}
-
-/**
- * "→ Sniper ≈ 7 seasons", or why he'll never be one (v1.84).
- *
- * The screen's whole premise is that a plan reshapes a player into someone
- * else, and until now the third arrow of that loop was invisible: you set the
- * plan and then had no idea whether the identity was one season out or never
- * coming at all.
- *
- * Conversion is real and reasonably common where there is growth to spend:
- * across every world-generated U21 with headroom, 17% of player×plan pairs
- * convert, median 7 seasons, some in one. Where it fails it is almost always
- * because the PLAYER is out of growth, not because the plan is wrong — so the
- * two dead ends say different things and are worded differently. "No growth
- * left" points at the player's age; "too far a shape" points at the plan.
- * Collapsing them into one "won't happen" made a squad of settled 28-year-olds
- * look like a broken training system.
- *
- * Nothing at all renders when the player is already the archetype his plan aims
- * at, which is the common case for a squad on auto-assigned plans: a row that
- * says "0 weeks to what he already is" is worse than a row that says nothing.
- */
-function ArchetypeEtaChip({ eta, compact = false }: { eta: ArchetypeEta; compact?: boolean }) {
-  const target = getArchetype(eta.targetId);
-  if (!target) return null;
-  const arriving = eta.outcome === "arriving";
-
-  // Weeks inside a season and a bit, seasons beyond it — a manager thinks in
-  // weeks up to a point and in seasons after it, and "≈ 340 weeks" is a
-  // precision the estimate does not have.
-  const when = !arriving
-    ? eta.outcome === "noGrowth"
-      ? "no growth left"
-      : "too far a shape"
-    : eta.weeks <= 60
-      ? `≈ ${eta.weeks} week${eta.weeks === 1 ? "" : "s"}`
-      : `≈ ${eta.seasons} season${eta.seasons === 1 ? "" : "s"}`;
-
-  const title = arriving
-    ? `Estimated ${eta.days} day${eta.days === 1 ? "" : "s"} (${eta.weeks} week${
-        eta.weeks === 1 ? "" : "s"
-      }, ${eta.seasons} season${eta.seasons === 1 ? "" : "s"}) on this focus before his attributes earn the ${
-        target.name
-      } identity. An estimate at full minutes with your current facilities — more game time gets there sooner, less takes longer.`
-    : eta.outcome === "noGrowth"
-      ? `This focus is pointing him the right way, but he runs out of development before it finishes the job — an archetype is earned by having its attributes stand clear of the player's own average, and he has no growth left to open that gap. Nothing is wrong with the plan; it needed to start years earlier. On a prospect it would work.`
-      : `${target.name} is too far from the player he is for training alone to close it: he keeps developing for a full career on this focus and still never earns the identity. A focus nearer his current shape will land, and sooner.`;
-
-  return (
-    <span className={`flex min-w-0 items-center gap-1 ${arriving ? "text-dim" : "text-faint"}`} title={title}>
-      <span className="shrink-0 opacity-70" aria-hidden>
-        →
-      </span>
-      <span className={`shrink-0 ${arriving ? "" : "opacity-50"}`}>
-        <ArchetypeIcon archetype={target} size={compact ? 12 : 14} />
-      </span>
-      <span className="truncate" style={{ color: arriving ? ARCHETYPE_CLASS_COLOR[target.cls] : undefined }}>
-        {target.name}
-      </span>
-      {/* A dead end is stated plainly, not in alarm red: "no growth left" on a
-          29-year-old is ordinary football, not a mistake the manager made. Only
-          the genuinely wrong-shape case gets the loss tone. */}
-      <span className={`tnum shrink-0 ${eta.outcome === "tooFar" ? "text-loss/80" : ""}`}>{when}</span>
-    </span>
-  );
 }
 
 function phaseChip(phase: "growth" | "prime" | "decline") {

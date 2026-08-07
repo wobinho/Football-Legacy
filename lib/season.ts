@@ -4,9 +4,30 @@
 import type { CupState, Fixture, GameState, TableRow } from "./types";
 import { mulberry32, deriveSeed, shuffle } from "./rng";
 
-let fixtureCounter = 0;
-function fid(): string {
-  return `f${(++fixtureCounter).toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;
+/**
+ * A fixture's id, derived from the fixture itself (v1.99).
+ *
+ * This used to be a module counter plus `Math.random()`, and it was a
+ * determinism bug of the first order rather than a cosmetic one: `matchSeed`
+ * (gameloop) seeds every match from `deriveSeed(state.seed, ...fixture.id...)`,
+ * so a random component in the id made EVERY RESULT IN THE GAME random. Two
+ * runs of the same save seed produced different scores, different tables and
+ * different champions — measured, a two-season run varied by whole matches
+ * (78/79/80 user fixtures) and never repeated a world hash. The module counter
+ * was the second half of the same bug: it is never reset, so the same world
+ * generated twice in one process got different ids anyway.
+ *
+ * The id is now a pure function of what the fixture IS — competition, round and
+ * the two clubs, which is exactly the tuple that makes it unique — so it is
+ * stable across runs, across processes, and across a save being reloaded.
+ * `npm run verify:sim-parity` is what asserts that end to end.
+ *
+ * The `h`/`a` marking keeps the two legs of a double round-robin distinct: the
+ * reverse fixture has the same pair and the same competition, and would
+ * otherwise collide with its first leg and seed both matches identically.
+ */
+function fid(competition: string, round: number, homeId: string, awayId: string): string {
+  return `f_${competition}_r${round}_${homeId}h_${awayId}a`;
 }
 
 /**
@@ -49,7 +70,7 @@ export function generateLeagueFixtures(
     }
     pairing.forEach(([homeId, awayId]) => {
       fixtures.push({
-        id: fid(),
+        id: fid(leagueId, r + 1, homeId, awayId),
         day: roundDays[r],
         competition: leagueId,
         round: r + 1,
@@ -58,7 +79,7 @@ export function generateLeagueFixtures(
         played: false,
       });
       fixtures.push({
-        id: fid(),
+        id: fid(leagueId, r + rounds + 1, awayId, homeId),
         day: roundDays[r + rounds],
         competition: leagueId,
         round: r + rounds + 1,
@@ -226,7 +247,7 @@ export function drawCupRound(
   const fixtures: Fixture[] = [];
   for (let i = 0; i + 1 < entrants.length; i += 2) {
     fixtures.push({
-      id: fid(),
+      id: fid("CUP", roundIndex + 1, entrants[i], entrants[i + 1]),
       day,
       competition: "CUP",
       round: roundIndex + 1,

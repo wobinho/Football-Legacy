@@ -383,11 +383,22 @@ export function getArchetype(id: string): Archetype | undefined {
   return ARCHETYPE_MAP[id];
 }
 
-/** Every archetype a player at this position can earn (his plan set's five). */
+/** Every archetype a player at this position can earn (his plan set's five).
+ *
+ * Memoised per position (v1.99): the plan table is static, so this rebuilt the
+ * same five-element array on every one of the very many `rankArchetypes` calls
+ * a matchday makes. The array is shared, so callers must treat it as read-only —
+ * every one already does (they filter or reduce over it). */
+const POSITION_ARCHETYPES = new Map<Pos, Archetype[]>();
+
 export function archetypesForPosition(pos: Pos): Archetype[] {
-  return plansForPosition(pos)
+  const cached = POSITION_ARCHETYPES.get(pos);
+  if (cached) return cached;
+  const built = plansForPosition(pos)
     .map((plan) => ARCHETYPE_BY_PLAN[plan.id])
     .filter((p): p is Archetype => !!p);
+  POSITION_ARCHETYPES.set(pos, built);
+  return built;
 }
 
 /** The positions an archetype can be earned at — its plan's position set.
@@ -1333,6 +1344,46 @@ export function rankArchetypes(attrs: Record<AttrKey, number>, pos: Pos): Archet
   return out.sort((a, b) => b.score - a.score);
 }
 
+// ── Derivation memo (v1.99) ───────────────────────────────────────────────
+//
+// `deriveArchetype` is a pure function of (attribute line, position), and it is
+// the single hottest thing in the simulation. Measured on a two-season profile
+// it and its callees accounted for well over half of all samples: selection
+// alone asks it ~40 times per club per matchday (`pickLineup` scores every
+// squad member for every slot), and `tacticScore`, `tacticalFitMult`,
+// `selectionScore` and the assistant all ask it again on the same unchanged
+// lines. Each call ranks five plans across 35 attributes.
+//
+// So the answer is memoised. The subtlety — and the reason this is keyed the
+// way it is rather than on the attrs object alone, which is what `match.ts`
+// does for the duration of one match — is that the development pass MUTATES an
+// attribute line in place (`p.attrs[k] = ...` in development.ts) before
+// reassigning it. An identity-keyed cache would therefore keep serving the
+// pre-growth archetype for a player whose attributes had genuinely moved,
+// which is a correctness bug, not a stale-render one.
+//
+// The guard is a checksum of the values held alongside the entry. Summing 35
+// small integers is ~35 adds against the ~175 multiply-accumulates plus a sort
+// and five array builds that a miss costs, so a hit is still an order of
+// magnitude cheaper while remaining exact for any change the game can make: an
+// attribute only ever moves by whole points, so a changed line always changes
+// the sum. A WeakMap, so nothing is retained once a player is gone.
+interface DeriveMemo {
+  sum: number;
+  pos: Pos;
+  /** Keyed by incumbent id (or "" for a fresh read) — the hysteresis margin
+   * means the same line can legitimately resolve differently per incumbent. */
+  byIncumbent: Map<string, Archetype | undefined>;
+}
+
+const DERIVE_MEMO = new WeakMap<object, DeriveMemo>();
+
+function attrsChecksum(attrs: Record<AttrKey, number>): number {
+  let s = 0;
+  for (const k of ATTR_KEYS) s += attrs[k] ?? 0;
+  return s;
+}
+
 /**
  * How much better the leading archetype must score than the incumbent before the
  * player actually changes identity.
@@ -1379,8 +1430,35 @@ export const SPECIALISM_THRESHOLD = 8;
  * UI asking "what would he be").
  *
  * Pure and deterministic — the same attribute line always gives the same answer.
+ *
+ * Memoised (v1.99) — see the note above `DERIVE_MEMO`. The cache is keyed on the
+ * attribute object, a checksum of its values, the position and the incumbent id,
+ * so it is exact: any change to any of the four is a miss. Purely a speed
+ * concern; the answer is identical either way.
  */
 export function deriveArchetype(
+  attrs: Record<AttrKey, number>,
+  pos: Pos,
+  currentId?: string
+): Archetype | undefined {
+  const sum = attrsChecksum(attrs);
+  const key = currentId ?? "";
+  let memo = DERIVE_MEMO.get(attrs);
+  if (memo && (memo.sum !== sum || memo.pos !== pos)) memo = undefined;
+  if (memo) {
+    const hit = memo.byIncumbent.get(key);
+    if (hit !== undefined || memo.byIncumbent.has(key)) return hit;
+  } else {
+    memo = { sum, pos, byIncumbent: new Map() };
+    DERIVE_MEMO.set(attrs, memo);
+  }
+
+  const result = deriveArchetypeUncached(attrs, pos, currentId);
+  memo.byIncumbent.set(key, result);
+  return result;
+}
+
+function deriveArchetypeUncached(
   attrs: Record<AttrKey, number>,
   pos: Pos,
   currentId?: string

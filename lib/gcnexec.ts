@@ -65,8 +65,8 @@ export const GCN_EXEC_ROLES: GcnExecRoleSpec[] = [
     id: "commerce",
     title: "Director of Global Commerce",
     blurb:
-      "The network's financial engine. Negotiates the group's brand deals and broadcast rights, and turns the network's standing into money in the treasury.",
-    effectLabel: "to Brand Deals and GCN Deals income",
+      "The network's financial engine. Negotiates the group's brand deals and broadcast rights, and turns the network's standing into money on every owned club's books.",
+    effectLabel: "to the weekly income of every club the network owns",
     icon: "📈",
   },
   {
@@ -199,8 +199,13 @@ export function globalFootballMult(state: GameState, clubId: string, cfg: Tuning
   return 1 + execEffect(state, "football", cfg).total / 100;
 }
 
-/** The Director of Global Commerce's multiplier on the network's passive income
- * — Brand Deals into the treasury, GCN Deals out to the clubs. 1 when vacant. */
+/** The Director of Global Commerce's multiplier on the weekly income of every
+ * club the network owns (`gcnSimBooks`). 1 when the seat is vacant.
+ *
+ * v1.99 moved him here from the two Operations income tracks, which were
+ * deleted: a commercial director paying back on the clubs the network runs is a
+ * return on the empire, where a multiplier on a bought-by-the-level weekly sum
+ * was a return on having pressed Upgrade. */
 export function globalCommerceMult(state: GameState, cfg: TuningConfig): number {
   return 1 + execEffect(state, "commerce", cfg).total / 100;
 }

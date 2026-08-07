@@ -18,16 +18,20 @@ import {
 import { instructionFitScore, profileForAttrs, type InstructionPrefs } from "@/lib/config/archetype";
 import { positionFit } from "@/lib/config/positions";
 import { TUNING } from "@/lib/config/tuning";
-import { selectionScore } from "@/lib/selection";
+import { benchCap, selectionScore } from "@/lib/selection";
+
 import { ensureUserLineup } from "@/lib/gameloop";
 import { bestForRole, MAX_SAVED_TACTICS, savedTactics, tacticSummary } from "@/lib/tactics";
 import {
+  archetypesForPosition,
   deriveArchetype,
   ARCHETYPE_CLASS_BLURB,
   ARCHETYPE_CLASS_COLOR,
+  ARCHETYPE_CLASS_LABEL,
   ARCHETYPE_CLASS_ORDER,
   type ArchetypeClass,
 } from "@/lib/config/archetype";
+import { briefBalance, hasBrief, pruneBrief } from "@/lib/tacticbrief";
 import { assistantReport, instructionViewOf, squadBlueprint, type BlueprintSlot, type NoteTone, type ReportSlot, type SlotGrade } from "@/lib/assistant";
 import { ConfirmButton, displayFullName, Flag, GhostButton, GoldButton, Modal, Ovr, ArchetypeIcon, ArchetypeLabel, PlayerSelect, PosBadge, Section, Select, Tabs, useIsMobile, type SelectOption } from "../ui";
 import TacticsHelp from "./TacticsHelp";
@@ -837,15 +841,19 @@ function DragGhost({ p, x, y }: { p: PlayerBio; x: number; y: number }) {
 }
 
 /**
- * The pitch token's shape (v1.98).
+ * The pitch token's shape (v1.99).
  *
- * A hexagon, not a circle. The archetype artwork is drawn on a hex frame
- * everywhere else in the game, so a pitch of circles was the one surface that
- * didn't speak the game's own visual language. Expressed as a CSS clip-path on
- * a plain box, so the token stays a normal flow element — a real SVG polygon
- * would mean re-plumbing the drag hit-testing, which measures bounding boxes.
+ * A circle, at the hexagon's size — v1.98 clipped it to a hex to echo the
+ * archetype artwork's frame, and at 44px on a dark pitch the flats read as a
+ * badge rather than as a player. Everything the hex carried is unchanged: the
+ * border is still position fit, the wash behind the rating is still the class.
+ *
+ * Still a CSS `clip-path` rather than `border-radius`, because it is applied to
+ * the drag GUIDE as well as the token, and the guide is a plain box the drag
+ * hit-testing measures by bounding box. One constant, so the token, the guide
+ * and the legend swatches can never disagree about what shape a player is.
  */
-const HEX_CLIP = "polygon(50% 0%, 95% 25%, 95% 75%, 50% 100%, 5% 75%, 5% 25%)";
+const TOKEN_CLIP = "circle(50% at 50% 50%)";
 
 /**
  * The archetype class a player reads as in the slot he is FILLING (v1.77),
@@ -957,7 +965,7 @@ function PitchMarkings() {
  * boards use (v1.98).
  *
  * Four readings from one node, and every one of them is now INSIDE the glyph
- * rather than hung off it: the hexagon's border is position fit, its whole
+ * rather than hung off it: the token's border is position fit, its whole
  * opacity repeats that fit, the wash behind the rating is his archetype class,
  * and the rating itself is the display face. Underneath, the position and the
  * surname sit on a dark pill so they read as a label on a tactical board rather
@@ -984,10 +992,10 @@ function PitchToken({
           className={`display relative flex h-11 w-11 items-center justify-center text-sm font-bold transition-all ${fitRing(fit)} ${fitText(fit)} ${
             isSource ? "opacity-30" : fitOpacity(fit)
           } ${isTarget ? "scale-110 !border-gold" : ""}`}
-          style={{ clipPath: HEX_CLIP, background: "#16181d" }}
+          style={{ clipPath: TOKEN_CLIP, background: "#16181d" }}
           title={cls ? `${cls} — ${ARCHETYPE_CLASS_BLURB[cls]}` : undefined}
         >
-          {/* The class wash, behind the number and clipped to the same hex. */}
+          {/* The class wash, behind the number and clipped to the same circle. */}
           <span
             aria-hidden
             className="pointer-events-none absolute inset-0"
@@ -1000,7 +1008,7 @@ function PitchToken({
           className={`display flex h-11 w-11 items-center justify-center border border-dashed border-line text-sm font-bold text-faint transition-all ${
             isTarget ? "scale-110 border-solid !border-gold" : ""
           }`}
-          style={{ clipPath: HEX_CLIP, background: "#101216" }}
+          style={{ clipPath: TOKEN_CLIP, background: "#101216" }}
         >
           {slot.label}
         </span>
@@ -1032,6 +1040,29 @@ function PitchToken({
         )}
       </span>
     </>
+  );
+}
+
+/**
+ * What the token borders mean (v1.99) — ONE definition, like `PitchToken` and
+ * `PitchMarkings` beside it. The desktop board and the phone diagram shipped a
+ * copy each, which is exactly how the hexagon change had to be made in two
+ * places and how a third would have been missed.
+ */
+function FitLegend() {
+  const swatches: [string, string][] = [
+    ["border-gold-lo", "natural"],
+    ["border-draw/80 opacity-80", "adapted"],
+    ["border-loss opacity-60", "out of position"],
+  ];
+  return (
+    <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] text-faint">
+      {swatches.map(([cls, label]) => (
+        <span key={label} className="flex items-center gap-1">
+          <span className={`inline-block h-3 w-3 border-2 ${cls}`} style={{ clipPath: TOKEN_CLIP }} /> {label}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -1094,7 +1125,7 @@ function MobileLineup({
   const team = game.teams[game.userTeamId];
   const tactic = team.tactic;
   const formation = getFormation(tactic.formationId);
-  const cap = TUNING.matchdaySquad - 11;
+  const cap = benchCap(TUNING);
 
   const inLineup = new Set(Object.values(game.lineup));
   const benchIds = (game.userBench ?? []).filter(
@@ -1166,7 +1197,7 @@ function MobileLineup({
                 key={slot.id}
                 className="absolute -translate-x-1/2 translate-y-1/2"
                 // Same compressed 6–94% band as the desktop board: the token is
-                // a hex plus a name plate, and the pitch clips its overflow, so
+                // a token plus a name plate, and the pitch clips its overflow, so
                 // a keeper at y=4% loses his plate off the bottom edge.
                 style={{ left: `${slot.x}%`, bottom: `${6 + slot.y * 0.88}%` }}
               >
@@ -1182,17 +1213,7 @@ function MobileLineup({
           })}
         </div>
 
-        <div className="mt-2 flex flex-wrap items-center justify-center gap-3 text-[10px] text-faint">
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-3 w-3 border-2 border-gold-lo" style={{ clipPath: HEX_CLIP }} /> natural
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-3 w-3 border-2 border-draw/80 opacity-80" style={{ clipPath: HEX_CLIP }} /> adapted
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-3 w-3 border-2 border-loss opacity-60" style={{ clipPath: HEX_CLIP }} /> out of position
-          </span>
-        </div>
+        <FitLegend />
       </Section>
 
       {/* The XI as a list of slots — tapping one opens the picker. */}
@@ -1338,9 +1359,13 @@ function MobileLineup({
  */
 function MatchdayBoard({
   onPickSlot,
+  onPickBench,
   onOpenPlayer,
 }: {
   onPickSlot: (slotId: string) => void;
+  /** Open the sub picker for a bench seat (v1.99) — the bench's counterpart to
+   * `onPickSlot`, so neither half of the matchday squad is drag-only. */
+  onPickBench: (index: number) => void;
   onOpenPlayer: (playerId: string) => void;
 }) {
   const game = useGame((s) => s.game)!;
@@ -1356,7 +1381,7 @@ function MatchdayBoard({
   const team = game.teams[game.userTeamId];
   const tactic = team.tactic;
   const formation = getFormation(tactic.formationId);
-  const cap = TUNING.matchdaySquad - 11;
+  const cap = benchCap(TUNING);
 
   const inLineup = new Set(Object.values(game.lineup));
   // A player away on loan (§18) can't be fielded, so he's kept off the bench too
@@ -1443,7 +1468,7 @@ function MatchdayBoard({
         {/* ── Left: the pitch, where the side is ARRANGED ───────────────
             Sticky, so however far the roster scrolls the drop targets stay
             under the pointer — the whole point of the split. */}
-        <div className="xl:sticky xl:top-4">
+        <div className="min-w-0 xl:sticky xl:top-4">
           <Section
             title="Lineup"
             right={
@@ -1508,9 +1533,9 @@ function MatchdayBoard({
                 // Drawn as a halo BEHIND the token rather than a ring on it: the
                 // condition arc is an opaque disc, so a ring on the inner token
                 // would be hidden underneath it exactly when it matters.
-                // Clipped to a hexagon (v1.98), so `ring-*` — which draws a
+                // The token is CLIPPED (v1.98), so `ring-*` — which draws a
                 // box-shadow, and a box-shadow is not clipped with the box —
-                // can't be used. A filled hex behind the token says the same
+                // can't be used. A filled disc behind the token says the same
                 // thing and survives the clip.
                 const guideHalo =
                   guide === null || isTarget
@@ -1547,13 +1572,13 @@ function MatchdayBoard({
                       {/* The drag halo sits BEHIND the token (v1.69's reason
                           still holds: the token is opaque, so a ring drawn on it
                           would be hidden underneath exactly when it matters).
-                          It is clipped to the same hexagon so the guide reads as
+                          It is clipped to the same circle so the guide reads as
                           the slot lighting up rather than as a stray circle. */}
                       <span className="relative inline-flex items-center justify-center">
                         {guideHalo && (
                           <span
                             className={`pointer-events-none absolute h-[3.6rem] w-[3.6rem] ${guideHalo}`}
-                            style={{ clipPath: HEX_CLIP }}
+                            style={{ clipPath: TOKEN_CLIP }}
                           />
                         )}
                         <span className="relative flex flex-col items-center">
@@ -1572,26 +1597,41 @@ function MatchdayBoard({
               })}
             </div>
 
-            {/* Legend — what the ring colours mean, so a red token reads as a
+            {/* Legend — what the borders mean, so a red token reads as a
                 warning rather than decoration. */}
-            <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] text-faint">
-              <span className="flex items-center gap-1">
-                <span className="inline-block h-3 w-3 border-2 border-gold-lo" style={{ clipPath: HEX_CLIP }} /> natural
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="inline-block h-3 w-3 border-2 border-draw/80 opacity-80" style={{ clipPath: HEX_CLIP }} /> adapted
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="inline-block h-3 w-3 border-2 border-loss opacity-60" style={{ clipPath: HEX_CLIP }} /> out of position
-              </span>
-            </div>
+            <FitLegend />
           </Section>
+
+          {/* ── The bench, directly under the pitch it belongs to (v1.99) ──
+              It used to hang below the Roster in the next column over, which
+              put the two halves of ONE decision — who starts and who is behind
+              them — in different places, and left the manager reading his subs
+              while looking at somebody else's list. The XI and the bench are
+              the matchday squad; they are one column now.
+
+              Every gesture the pitch has, the bench has: drag to reorder or to
+              promote a sub into the XI, and TAP an empty slot to open the same
+              kind of picker a pitch slot opens (v1.99) — the board was
+              drag-only on this half, which made naming a bench impossible
+              without a mouse. */}
+          <BenchSection
+            benched={benched}
+            cap={cap}
+            drag={drag}
+            dragging={dragging}
+            registerZone={registerZone}
+            begin={begin}
+            onPickBench={onPickBench}
+            onRemove={dropFromMatchday}
+            autoBench={autoBench}
+            clearBench={clearBench}
+          />
         </div>
 
-        {/* ── Right: the roster you drag FROM, and the bench ────────────
-            One panel, three tabs, fixed height and scrolled internally — so the
-            pitch never moves out from under a drag. */}
-        <div>
+        {/* ── Right: the roster you drag FROM ───────────────────────────
+            One panel, fixed height and scrolled internally — so the pitch never
+            moves out from under a drag. */}
+        <div className="min-w-0">
           <Section
             title="Roster"
             right={
@@ -1643,7 +1683,19 @@ function MatchdayBoard({
                   >
                     <PosBadge pos={p.positions[0]} />
                     <Flag nat={p.nationality} size={12} />
-                    <span className="min-w-0 flex-1 truncate">{displayFullName(p)}</span>
+                    {/* Name and identity stacked (v1.99). The roster is the
+                        list you pick a side FROM, and until now it said what a
+                        player is RATED without ever saying what he IS — so the
+                        archetype the whole tactical system runs on was the one
+                        fact you had to leave the screen to read. Beside the
+                        name rather than in a column of its own: the column is
+                        30% of the page and both facts truncate inside it.
+                        `ArchetypeLabel` is the canonical surface (ui.tsx), so
+                        the colour matches every other list in the game. */}
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="truncate leading-tight">{displayFullName(p)}</span>
+                      <ArchetypeLabel p={p} icon={false} className="text-[10px] leading-tight" />
+                    </span>
                     {starting && (
                       <span className="display shrink-0 rounded-sm border border-gold-lo/60 px-1 text-[9px] font-semibold text-gold">
                         XI
@@ -1673,69 +1725,139 @@ function MatchdayBoard({
               )}
             </div>
           </Section>
-
-          <Section
-            title="Bench"
-            right={
-              <div className="flex items-center gap-3">
-                <span className="text-[10px] text-faint">
-                  <span className="tnum">{benched.length}</span>/{cap} subs · used in order
-                </span>
-                <GhostButton onClick={autoBench} className="!px-2.5 !py-1 text-[11px]">
-                  Auto-pick
-                </GhostButton>
-                <ConfirmButton
-                  label="Clear"
-                  confirmLabel="Sure?"
-                  tone="danger"
-                  onConfirm={clearBench}
-                  disabled={benched.length === 0}
-                  className="!px-2.5 !py-1 !text-[11px]"
-                />
-              </div>
-            }
-          >
-            <div className="space-y-1">
-              {benched.map((p, i) => (
-                <BenchRow
-                  key={p.id}
-                  p={p}
-                  index={i}
-                  registerZone={registerZone}
-                  isTarget={drag?.target?.kind === "bench" && drag.target.index === i}
-                  isSource={p.id === dragging}
-                  onPointerDown={(e) => begin({ kind: "bench", playerId: p.id, index: i }, e)}
-                  onClick={() => onOpenPlayer(p.id)}
-                  onRemove={() => dropFromMatchday(p.id)}
-                />
-              ))}
-
-              {/* Tail drop zone: always present so there is somewhere to drop a
-                  player when the bench is empty, and so dropping past the last
-                  row appends rather than missing entirely. */}
-              {benched.length < cap && (
-                <div
-                  ref={registerZone({ kind: "bench", index: benched.length }, "bench")}
-                  className={`rounded-md border border-dashed px-3 py-2.5 text-center text-[11px] transition-colors ${
-                    drag?.target?.kind === "bench" && drag.target.index === benched.length
-                      ? "border-gold bg-hover text-ink"
-                      : drag
-                        ? "border-line/80 text-dim"
-                        : "border-line text-faint"
-                  }`}
-                >
-                  {benched.length === 0
-                    ? "Drop a player here to name your substitutes — or leave it empty and the best of the rest are benched automatically."
-                    : "Drop here to add a substitute"}
-                </div>
-              )}
-            </div>
-          </Section>
         </div>
       </>
 
       {drag && dragged && <DragGhost p={dragged} x={drag.x} y={drag.y} />}
     </>
+  );
+}
+
+/**
+ * The bench, under the pitch (v1.99).
+ *
+ * The same surface as the pitch above it, in the one form a list of nine will
+ * take in a 30% column: every seat is a numbered row, filled seats and empty
+ * ones alike, so the shape of the panel is a constant `cap` rows and naming a
+ * sub never makes the page move. An empty seat is a real seat rather than one
+ * tail-end "drop here" strip — which is what lets it be BOTH a drop target of
+ * its own and a tap target that opens the picker.
+ *
+ * Order is meaningful (auto-subs work down it), so the numbers are not
+ * decoration and dragging one row onto another is a reorder.
+ */
+function BenchSection({
+  benched,
+  cap,
+  drag,
+  dragging,
+  registerZone,
+  begin,
+  onPickBench,
+  onRemove,
+  autoBench,
+  clearBench,
+}: {
+  benched: PlayerBio[];
+  cap: number;
+  drag: ReturnType<typeof useLineupDrag>["drag"];
+  dragging: string | null;
+  registerZone: (t: Exclude<DropTarget, null>, surface?: string) => (node: HTMLElement | null) => void;
+  begin: (s: DragSource, e: React.PointerEvent) => void;
+  onPickBench: (index: number) => void;
+  onRemove: (playerId: string) => void;
+  autoBench: () => void;
+  clearBench: () => void;
+}) {
+  const seats = Array.from({ length: cap }, (_, i) => benched[i] ?? null);
+  return (
+    <Section
+      title="Bench"
+      right={
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] text-faint">
+            <span className="tnum">{benched.length}</span>/{cap} subs · used in order
+          </span>
+          <GhostButton onClick={autoBench} className="!px-2.5 !py-1 text-[11px]">
+            Auto-pick
+          </GhostButton>
+          <ConfirmButton
+            label="Clear"
+            confirmLabel="Sure?"
+            tone="danger"
+            onConfirm={clearBench}
+            disabled={benched.length === 0}
+            className="!px-2.5 !py-1 !text-[11px]"
+          />
+        </div>
+      }
+    >
+      <div className="space-y-1">
+        {seats.map((p, i) =>
+          p ? (
+            <BenchRow
+              key={p.id}
+              p={p}
+              index={i}
+              registerZone={registerZone}
+              isTarget={drag?.target?.kind === "bench" && drag.target.index === i}
+              isSource={p.id === dragging}
+              onPointerDown={(e) => begin({ kind: "bench", playerId: p.id, index: i }, e)}
+              onClick={() => onPickBench(i)}
+              onRemove={() => onRemove(p.id)}
+            />
+          ) : (
+            <BenchSeat
+              key={`empty-${i}`}
+              index={i}
+              registerZone={registerZone}
+              isTarget={drag?.target?.kind === "bench" && drag.target.index === i}
+              dragging={!!drag}
+              onClick={() => onPickBench(i)}
+            />
+          )
+        )}
+      </div>
+      <p className="mt-2 text-[11px] leading-snug text-faint">
+        Tap a seat to name a substitute, or drag one in from the roster. Subs come on in this order — drag a row to
+        move it up.
+      </p>
+    </Section>
+  );
+}
+
+/** An unfilled bench seat: a drop target and a tap target both (v1.99). */
+function BenchSeat({
+  index,
+  registerZone,
+  isTarget,
+  dragging,
+  onClick,
+}: {
+  index: number;
+  registerZone: (t: Exclude<DropTarget, null>, surface?: string) => (node: HTMLElement | null) => void;
+  isTarget: boolean;
+  dragging: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <div ref={registerZone({ kind: "bench", index }, "bench")}>
+      <button
+        onClick={onClick}
+        title={`Pick substitute ${index + 1}`}
+        aria-label={`Pick substitute ${index + 1}`}
+        className={`flex w-full items-center gap-2 rounded-md border border-dashed px-2.5 py-2 text-left transition-colors sm:gap-3 sm:px-3 ${
+          isTarget
+            ? "border-gold bg-hover text-ink"
+            : dragging
+              ? "border-line/80 text-dim"
+              : "border-line text-faint hover:border-faint hover:text-dim"
+        }`}
+      >
+        <span className="w-4 shrink-0 text-center tnum text-[11px] text-faint">{index + 1}</span>
+        <span className="min-w-0 flex-1 truncate text-[11px]">Empty — tap to pick</span>
+      </button>
+    </div>
   );
 }
 
@@ -1769,6 +1891,7 @@ function BenchRow({
       <button
         onPointerDown={onPointerDown}
         onClick={onClick}
+        title={`${displayFullName(p)} — drag to reorder, tap to change`}
         className="flex min-w-0 flex-1 cursor-grab touch-none items-center gap-2 text-left sm:gap-3"
       >
         <span className="w-4 shrink-0 text-center tnum text-[11px] text-faint">{index + 1}</span>
@@ -1902,6 +2025,311 @@ function SaveTacticModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ── Tactic Creator (v1.99) ─────────────────────────────────────────────────
+//
+// Design a tactic as a PLAN rather than as a snapshot of today's side: pick a
+// formation and a style, then say what KIND of player belongs in each position.
+// The rules — what a brief is worth, and why it is zero-sum — live entirely in
+// lib/tacticbrief.ts; this draws them and decides nothing, per the project's
+// "React never implements rules".
+//
+// The live balance readout is the honest part of the screen. Because a brief
+// redistributes rather than adds, a manager needs to see BEFORE he saves whether
+// the plan suits the players he actually has — so every change re-reads the
+// same `briefBalance` the engine's arithmetic is built from.
+
+/** One row of the brief editor: a slot, and the role wanted in it. */
+function BriefRow({
+  slot,
+  brief,
+  incumbent,
+  onPick,
+}: {
+  slot: { id: string; pos: Pos; label: string };
+  brief?: string;
+  incumbent?: PlayerBio;
+  onPick: (archetypeId: string | undefined) => void;
+}) {
+  const options = archetypesForPosition(slot.pos);
+  const actual = incumbent?.attrs ? deriveArchetype(incumbent.attrs, slot.pos) : undefined;
+  const chosen = brief ? options.find((a) => a.id === brief) : undefined;
+
+  // How this slot currently grades against its own brief — the same three-way
+  // verdict the engine applies, so the row can never promise what the match
+  // won't pay.
+  const verdict = !chosen || !actual ? null : actual.id === chosen.id ? "met" : actual.cls === chosen.cls ? "near" : "miss";
+
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-line bg-surface px-2 py-1.5">
+      <div className="w-10 shrink-0">
+        <PosBadge pos={slot.label} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <Select
+          value={brief ?? ""}
+          onChange={(v) => onPick(v || undefined)}
+          options={[
+            { value: "", label: "— no brief —", hint: "This slot is judged on ability alone." },
+            ...options.map((a) => ({
+              value: a.id,
+              label: a.name,
+              group: ARCHETYPE_CLASS_LABEL[a.cls],
+            })),
+          ]}
+        />
+      </div>
+      {/* Who is actually standing there, and how he grades. The point of the
+          whole screen is the gap between the two columns. */}
+      <div className="w-32 shrink-0 truncate text-right text-[11px]">
+        {incumbent ? (
+          <>
+            <div className="truncate text-dim">{incumbent.name}</div>
+            <div
+              className={`truncate ${
+                verdict === "met"
+                  ? "text-win"
+                  : verdict === "near"
+                    ? "text-draw"
+                    : verdict === "miss"
+                      ? "text-loss"
+                      : "text-faint"
+              }`}
+            >
+              {actual?.name ?? "—"}
+              {verdict === "met" ? " ✓" : verdict === "near" ? " ~" : verdict === "miss" ? " ✗" : ""}
+            </div>
+          </>
+        ) : (
+          <span className="text-faint">empty</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TacticCreatorModal({ onClose }: { onClose: () => void }) {
+  const game = useGame((s) => s.game)!;
+  const saveDesigned = useGame((s) => s.saveDesignedTactic);
+  const applyDesigned = useGame((s) => s.applyDesignedTactic);
+  const presets = savedTactics(game);
+
+  const team = game.teams[game.userTeamId];
+  // Seeded from the side's current setup: the common case is "take what I play
+  // now and give it roles", not "start from nothing".
+  const [draft, setDraft] = useState<Tactic>(() => ({ ...team.tactic }));
+  const [name, setName] = useState("");
+
+  const formation = getFormation(draft.formationId);
+
+  // The XI as it stands, so each row can show who would answer its brief. Read
+  // through the live lineup rather than a fresh pick — this is a description of
+  // the side the manager has set, not a suggestion of another one.
+  const incumbents = useMemo(() => {
+    const out: Record<string, PlayerBio | undefined> = {};
+    for (const slot of formation.slots) {
+      const pid = game.lineup?.[slot.id];
+      out[slot.id] = pid ? game.players[pid] : undefined;
+    }
+    return out;
+  }, [formation, game.lineup, game.players]);
+
+  const balance = useMemo(
+    () =>
+      briefBalance(
+        draft,
+        formation.slots.map((s) => ({
+          slotId: s.id,
+          slotPos: s.pos,
+          attrs: incumbents[s.id]?.attrs,
+        }))
+      ),
+    [draft, formation, incumbents]
+  );
+
+  /** Changing formation re-keys every slot, so briefs naming a slot the new
+   * shape doesn't have are dropped — the same forgiveness `loadSavedTactic`
+   * applies to a stale player id. */
+  const setFormation = (formationId: string) =>
+    setDraft((d) => ({ ...d, formationId, roles: pruneBrief(d.roles, formationId) }));
+
+  const setRole = (slotId: string, archetypeId: string | undefined) =>
+    setDraft((d) => {
+      const roles = { ...(d.roles ?? {}) };
+      if (archetypeId) roles[slotId] = archetypeId;
+      else delete roles[slotId];
+      return { ...d, roles: Object.keys(roles).length ? roles : undefined };
+    });
+
+  /** Fill every slot with the role already standing in it — the fastest way to
+   * turn "the side I have" into "the side I meant". */
+  const briefFromXI = () =>
+    setDraft((d) => {
+      const roles: Record<string, string> = {};
+      for (const slot of formation.slots) {
+        const p = incumbents[slot.id];
+        const a = p?.attrs ? deriveArchetype(p.attrs, slot.pos) : undefined;
+        if (a) roles[slot.id] = a.id;
+      }
+      return { ...d, roles: Object.keys(roles).length ? roles : undefined };
+    });
+
+  /** Fill every slot with the role the assistant would pick for this setup —
+   * the ideal side for the style, which is a shopping list rather than a
+   * description. Uses the same blueprint the Assistant panel prints. */
+  const briefFromBlueprint = () => {
+    const bp = squadBlueprint(
+      formation.slots.map((s) => ({ id: s.id, pos: s.pos, label: s.label, x: s.x })),
+      Object.fromEntries(formation.slots.map((s) => [s.id, incumbents[s.id]])),
+      draft,
+      TUNING.instructionFitSwing
+    );
+    const roles: Record<string, string> = {};
+    for (const row of bp.slots) roles[row.slotId] = row.ideal.id;
+    setDraft((d) => ({ ...d, roles }));
+  };
+
+  const clash = presets.find((t) => t.name.toLowerCase() === name.trim().toLowerCase());
+  const full = !clash && presets.length >= MAX_SAVED_TACTICS;
+
+  const commit = () => {
+    if (!name.trim() || full) return;
+    saveDesigned(name, draft);
+    onClose();
+  };
+
+  return (
+    <Modal title="Tactic Creator" onClose={onClose} size="lg">
+      <div className="space-y-4">
+        <p className="text-[11px] leading-snug text-faint">
+          Design a tactic as a plan: the shape, the style, and the <b className="text-dim">kind of player</b> you
+          want in each position. A slot whose brief is met sharpens that player; one that is missed blunts him
+          by as much — a brief is a bet on the squad you have or intend to build, never free.
+        </p>
+
+        {/* Shape and style first — the brief below is keyed to the slots the
+            formation defines, so these two choices come before the roles. */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <div className="mb-1.5 text-[11px] uppercase tracking-widest text-faint">Formation</div>
+            <Select value={formationGroupOf(draft.formationId)?.id ?? draft.formationId}
+              onChange={(gid) => setFormation(FORMATION_GROUPS.find((g) => g.id === gid)?.formations[0].id ?? gid)}
+              options={FORMATION_OPTIONS} />
+          </div>
+          <div>
+            <div className="mb-1.5 text-[11px] uppercase tracking-widest text-faint">Style</div>
+            <Select
+              value={draft.style}
+              onChange={(style) => setDraft((d) => ({ ...d, style: style as Style }))}
+              options={STYLES.map((s) => ({ value: s, label: styleLabel(s), hint: OPTION_DETAIL[s] }))}
+            />
+          </div>
+        </div>
+
+        {/* The live verdict. This is the feature's honesty: it says plainly
+            whether the plan suits the side, before anything is saved. */}
+        <div
+          className={`flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 ${
+            balance.total > 0.5
+              ? "border-win/40 bg-win/5"
+              : balance.total < -0.5
+                ? "border-loss/40 bg-loss/5"
+                : "border-line bg-surface"
+          }`}
+        >
+          <div className="text-[11px] text-faint">
+            Against your current XI ·{" "}
+            <span className="tnum text-win">{balance.met}</span> met,{" "}
+            <span className="tnum text-draw">{balance.near}</span> close,{" "}
+            <span className="tnum text-loss">{balance.missed}</span> missed
+          </div>
+          <div
+            className={`display text-sm font-semibold tnum ${
+              balance.total > 0.5 ? "text-win" : balance.total < -0.5 ? "text-loss" : "text-dim"
+            }`}
+          >
+            {balance.total >= 0 ? "+" : ""}
+            {balance.total.toFixed(1)}%
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <GhostButton onClick={briefFromXI} className="!px-3 !py-1 text-xs">
+            Brief from current XI
+          </GhostButton>
+          <GhostButton onClick={briefFromBlueprint} className="!px-3 !py-1 text-xs">
+            Use assistant&rsquo;s ideal
+          </GhostButton>
+          <GhostButton
+            onClick={() => setDraft((d) => ({ ...d, roles: undefined }))}
+            className="!px-3 !py-1 text-xs"
+          >
+            Clear briefs
+          </GhostButton>
+        </div>
+
+        <div>
+          <div className="mb-1.5 flex items-center justify-between text-[11px] uppercase tracking-widest text-faint">
+            <span>Role brief</span>
+            <span className="normal-case tracking-normal">
+              <span className="tnum">{balance.briefed}</span>/{formation.slots.length} slots briefed
+            </span>
+          </div>
+          <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
+            {formation.slots.map((slot) => (
+              <BriefRow
+                key={slot.id}
+                slot={slot}
+                brief={draft.roles?.[slot.id]}
+                incumbent={incumbents[slot.id]}
+                onPick={(a) => setRole(slot.id, a)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-1.5 text-[11px] uppercase tracking-widest text-faint">Save as</div>
+          <input
+            value={name}
+            maxLength={32}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && commit()}
+            placeholder="e.g. Gegenpress 4-3-3"
+            className="w-full rounded-md border border-line bg-raised px-3 py-2 text-sm placeholder:text-faint focus:border-gold focus:outline-none"
+          />
+        </div>
+        {clash && (
+          <p className="text-[11px] text-draw">
+            &ldquo;{clash.name}&rdquo; already exists — saving will overwrite it.
+          </p>
+        )}
+        {full && (
+          <p className="text-[11px] text-loss">
+            You already have {MAX_SAVED_TACTICS} saved tactics. Delete one to make room.
+          </p>
+        )}
+
+        <div className="flex flex-wrap justify-end gap-2">
+          <GhostButton onClick={onClose}>Cancel</GhostButton>
+          {/* Adopting and saving are separate on purpose: a manager may design
+              next season's shape without tearing up this Saturday's. */}
+          <GhostButton
+            onClick={() => {
+              applyDesigned(draft);
+              onClose();
+            }}
+          >
+            APPLY NOW
+          </GhostButton>
+          <GoldButton onClick={commit} disabled={!name.trim() || full}>
+            {clash ? "OVERWRITE" : "SAVE TACTIC"}
+          </GoldButton>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function SavedTactics() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
@@ -1909,6 +2337,7 @@ function SavedTactics() {
   const remove = useGame((s) => s.deleteTactic);
   const save = useGame((s) => s.saveTactic);
   const [saving, setSaving] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const presets = savedTactics(game);
 
@@ -1917,9 +2346,17 @@ function SavedTactics() {
       <Section
         title="Saved Tactics"
         right={
-          <GhostButton onClick={() => setSaving(true)} className="!px-3 !py-1 text-xs">
-            Save current
-          </GhostButton>
+          <div className="flex gap-1.5">
+            {/* The Creator designs a PLAN (shape, style, roles); "Save current"
+                snapshots the side as it stands, players and all. Two different
+                things, so two buttons. */}
+            <GhostButton onClick={() => setCreating(true)} className="!px-3 !py-1 text-xs">
+              Creator
+            </GhostButton>
+            <GhostButton onClick={() => setSaving(true)} className="!px-3 !py-1 text-xs">
+              Save current
+            </GhostButton>
+          </div>
         }
       >
         {presets.length === 0 ? (
@@ -1936,10 +2373,23 @@ function SavedTactics() {
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium text-ink">{t.name}</div>
+                  {/* A Creator preset names no players by design, so counting
+                      "0 starters" at it would read as a broken save rather than
+                      as what it is — a plan. Say which kind it is instead. */}
                   <div className="truncate text-[11px] text-faint">
-                    {tacticSummary(t.tactic)} ·{" "}
-                    <span className="tnum">{Object.keys(t.lineup).length}</span> starters,{" "}
-                    <span className="tnum">{t.bench.length}</span> subs
+                    {tacticSummary(t.tactic)}
+                    {hasBrief(t.tactic) && (
+                      <span className="text-gold"> · {Object.keys(t.tactic.roles ?? {}).length} roles</span>
+                    )}
+                    {" · "}
+                    {Object.keys(t.lineup).length === 0 ? (
+                      "plan only"
+                    ) : (
+                      <>
+                        <span className="tnum">{Object.keys(t.lineup).length}</span> starters,{" "}
+                        <span className="tnum">{t.bench.length}</span> subs
+                      </>
+                    )}
                   </div>
                 </div>
                 <GhostButton onClick={() => load(t.id)} className="!px-3 !py-1 text-xs">
@@ -1967,6 +2417,7 @@ function SavedTactics() {
         )}
       </Section>
       {saving && <SaveTacticModal onClose={() => setSaving(false)} />}
+      {creating && <TacticCreatorModal onClose={() => setCreating(false)} />}
     </>
   );
 }
@@ -2233,8 +2684,14 @@ export default function TacticsScreen() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const setLineupSlot = useGame((s) => s.setLineupSlot);
+  const moveBench = useGame((s) => s.moveBench);
+  const dropFromMatchday = useGame((s) => s.dropFromMatchday);
   const viewPlayer = useGame((s) => s.viewPlayer);
   const [pickSlot, setPickSlot] = useState<string | null>(null);
+  // Which bench SEAT the sub picker is open on (v1.99). An index rather than a
+  // player id, because the seat is the thing being filled — seat 3 exists and
+  // is pickable whether or not anybody is sitting in it.
+  const [pickBench, setPickBench] = useState<number | null>(null);
   const [tab, setTab] = useState<TacticsTab>("team");
   // Phones get the tap-driven lineup instead of the drag-and-drop board.
   const isMobile = useIsMobile();
@@ -2284,9 +2741,21 @@ export default function TacticsScreen() {
           <Assignments />
         </>
       ) : (
-        <div className="grid grid-cols-1 items-start gap-x-6 xl:grid-cols-[30fr_30fr_40fr]">
-          <MatchdayBoard onPickSlot={setPickSlot} onOpenPlayer={viewPlayer} />
-          <div>
+        // `minmax(0, …)` on every track, not a bare `Nfr` (v1.99).
+        // An `fr` track's automatic minimum is its content's MIN-CONTENT width,
+        // so the three columns were only 30/30/40 while nothing in them was
+        // wider than that — and the moment the lineup filled, the longest
+        // player name in a bench row or a roster chip pushed its column's
+        // minimum past its share and the whole page re-proportioned itself.
+        // That is why populating four defenders visibly widened Setup and
+        // narrowed Lineup. Zeroing the minimum makes the ratio the ONLY thing
+        // that decides the widths, so the layout is a constant and content
+        // truncates inside it instead of moving it. Same class of bug as the
+        // formation description's `w-0 min-w-full` (v1.87), fixed at the grid
+        // rather than one item at a time.
+        <div className="grid grid-cols-1 items-start gap-x-6 xl:grid-cols-[minmax(0,30fr)_minmax(0,30fr)_minmax(0,40fr)]">
+          <MatchdayBoard onPickSlot={setPickSlot} onPickBench={setPickBench} onOpenPlayer={viewPlayer} />
+          <div className="min-w-0">
             <SetupPanel />
             <SavedTactics />
             <Assignments />
@@ -2337,6 +2806,67 @@ export default function TacticsScreen() {
             >
               Clear slot
             </GhostButton>
+          </div>
+        </Modal>
+      )}
+
+      {/* The bench's picker (v1.99) — the same dialogue a pitch slot opens, so
+          naming a substitute is the same gesture as naming a starter.
+          A bench seat has no position of its own, so the order is the squad's
+          own ranking rather than `selectionScore` at a slot: the question here
+          is "who is the best player still available", not "who is best at RB".
+          `moveBench` is what commits it — the same store action a drop calls,
+          so the picker can't put a player somewhere a drag couldn't. */}
+      {pickBench !== null && (
+        <Modal title={`Select substitute ${pickBench + 1}`} onClose={() => setPickBench(null)}>
+          <div className="space-y-1">
+            {squad
+              .slice()
+              .sort((a, b) => b.overall - a.overall)
+              .map((p) => {
+                const starting = inLineup.has(p.id);
+                const benchIdx = (game.userBench ?? []).indexOf(p.id);
+                const here = benchIdx === pickBench;
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => {
+                      moveBench(p.id, pickBench);
+                      setPickBench(null);
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-md border border-line px-3 py-2 text-left hover:bg-hover ${
+                      starting || (benchIdx >= 0 && !here) ? "opacity-50" : ""
+                    }`}
+                  >
+                    <PosBadge pos={p.positions[0]} />
+                    <Flag nat={p.nationality} size={12} />
+                    <span className="min-w-0 flex-1 truncate">
+                      {displayFullName(p)}
+                      {starting && <span className="ml-2 text-[10px] text-faint">in XI</span>}
+                      {benchIdx >= 0 && (
+                        <span className="ml-2 text-[10px] text-faint">
+                          {here ? "this seat" : `sub ${benchIdx + 1}`}
+                        </span>
+                      )}
+                    </span>
+                    <ArchetypeLabel p={p} className="text-[11px]" />
+                    <SynergyDot p={p} style={tactic.style} />
+                    <span className="w-8 text-right tnum text-xs text-dim">{Math.round(p.fitness)}%</span>
+                    <Ovr value={p.overall} size="sm" />
+                  </button>
+                );
+              })}
+            {(game.userBench ?? [])[pickBench] && (
+              <GhostButton
+                onClick={() => {
+                  dropFromMatchday((game.userBench ?? [])[pickBench]);
+                  setPickBench(null);
+                }}
+                className="mt-2 w-full"
+              >
+                Clear seat
+              </GhostButton>
+            )}
           </div>
         </Modal>
       )}

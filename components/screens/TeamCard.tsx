@@ -239,11 +239,16 @@ function TeamCardBody({ teamId, onClose }: { teamId: string; onClose: () => void
           </div>
         </div>
 
-        {/* KITS — the three outfield shirts (v1.97). The keeper is deliberately
-            not on the strip: a club card is about the team you'd face, and the
-            three a referee chooses between are that. The full set is in the
-            editor below, where it is a thing being designed rather than a thing
-            being read. */}
+        {/* KITS — all four shirts (v1.99).
+            v1.97 showed the three outfield kits only, on the argument that a
+            club card is about the team you'd face and those are the three a
+            referee chooses between. That was one shirt too few: a club's keeper
+            kit is part of its identity like any other, this is the only screen
+            that shows a club's kits at all, and leaving it out meant the one
+            jersey a manager could never see anywhere was the one the game
+            already draws on a keeper's own profile (v1.98). It reads as the
+            odd one out because it IS one, which is why it keeps the divider
+            and its own label. */}
         <div className="mb-5 rounded-lg border border-line bg-raised p-3">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-end gap-4">
@@ -253,6 +258,18 @@ function TeamCardBody({ teamId, onClose }: { teamId: string; onClose: () => void
                   <div className="display mt-1 text-[9px] uppercase tracking-wider text-faint">{slot}</div>
                 </div>
               ))}
+              <div className="self-stretch border-l border-line" />
+              <div className="text-center">
+                <ClubKit
+                  spec={shownKits.gk}
+                  size={54}
+                  badge={shownBadge}
+                  title={`${team.name} goalkeeper kit`}
+                />
+                <div className="display mt-1 text-[9px] uppercase tracking-wider text-faint">
+                  keeper
+                </div>
+              </div>
             </div>
             <div className="flex-1" />
             <div className="flex flex-wrap items-center gap-2">

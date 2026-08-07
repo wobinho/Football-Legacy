@@ -3,3 +3,7 @@ node_modules/
 out/
 *.tsbuildinfo
 next-env.d.ts
+
+# verify:sim-parity baseline — a local reference for before/after comparison,
+# not source. Regenerate with `npm run verify:sim-parity -- N --save`.
+scripts/.sim-parity-baseline.json

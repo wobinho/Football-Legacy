@@ -87,9 +87,32 @@ await page.waitForSelector("text=Actions", { state: "hidden" });
 // tactics
 await page.click('button:has-text("Tactics")');
 await page.waitForSelector("text=Formation");
-await page.click("text=Auto-pick");
+// Two "Auto-pick" buttons since v1.99 — the XI's and the bench's. Scoped to
+// their own Section headers, so a bare text match can't silently start
+// clicking the wrong one (it would fail Playwright's strict mode, which is the
+// good case; the bad case is a future third one making this ambiguous again).
+const panel = (title) => page.locator("section", { has: page.locator(`h2:text-is("${title}")`) }).first();
+await panel("Lineup").getByRole("button", { name: "Auto-pick" }).click();
 await page.waitForTimeout(300);
 await page.screenshot({ path: shot("04-tactics.png") });
+
+// The bench (v1.99): it sits under the pitch, holds nine seats, and every seat
+// opens the sub picker on a tap — the half of the matchday squad that used to
+// be drag-only. The capacity is read off the panel's own "n/9 subs" line, so
+// this tracks `benchSize` rather than restating it.
+const bench = panel("Bench");
+await bench.getByRole("button", { name: "Auto-pick" }).click();
+await page.waitForTimeout(300);
+if (!(await bench.getByText("/9 subs").count())) {
+  errors.push("Tactics: bench does not report a 9-sub capacity");
+}
+// Tap seat 1 → the sub picker opens → pick a name → it closes.
+await bench.getByTitle(/drag to reorder, tap to change/).first().click();
+await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+await page.screenshot({ path: shot("04b-bench-picker.png") });
+await page.locator('[role="dialog"] button').nth(1).click();
+await page.waitForSelector('[role="dialog"]', { state: "hidden", timeout: 5000 });
+await page.screenshot({ path: shot("04c-bench.png") });
 
 // continue until matchday
 for (let i = 0; i < 8; i++) {
@@ -108,10 +131,43 @@ await page.waitForSelector("text=Full-Time Report", { timeout: 20000 });
 await page.screenshot({ path: shot("06-fulltime.png") });
 await page.click("text=BACK TO THE WEEK ▸");
 
+// Home AFTER a match has been played (v1.99), which is the only state the
+// calendar's Results rail exists in — at kick-off of season 1 it is correctly
+// absent, so the day-1 shot above proves nothing about it.
+await page.click('button:has-text("Home")');
+await page.waitForSelector("text=Inbox");
+await page.waitForTimeout(600);
+await page.screenshot({ path: shot("02b-home-played.png"), fullPage: true });
+console.log(
+  (await page.locator("text=Results").count()) > 0
+    ? "  ok   the calendar shows a Results rail once a match has been played"
+    : "  FAIL no Results rail after a played match"
+);
+
 // competition + transfers + club
 await page.click('button:has-text("Competition")');
 await page.waitForSelector("text=Top Scorers");
 await page.screenshot({ path: shot("07-competition.png") });
+
+// The team card, opened off a table row (v1.99). It is the only screen in the
+// game that shows a club's kits, and since this version that means all FOUR of
+// them — the keeper shirt included. Nothing else renders a `gk` spec outside
+// the kit creator, so without this the one jersey the manager can now see here
+// would go undrawn by any harness.
+{
+  // The table row itself is not a button — the club NAME inside it is what
+  // opens the card, which is the trap a `tr button` selector falls into.
+  const row = page.locator("table tbody tr").filter({ hasText: /Everton|United|City/ }).first();
+  if (await row.count()) {
+    await row.click({ position: { x: 120, y: 10 } }).catch(() => {});
+    await page.waitForTimeout(900);
+    await page.screenshot({ path: shot("07b-team-card.png"), fullPage: true });
+    const keeper = await page.locator("text=keeper").count();
+    console.log(keeper > 0 ? "  ok   the team card shows the keeper kit" : "  FAIL keeper kit missing from the team card");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(500);
+  }
+}
 
 await page.click('button:has-text("Transfers")');
 // The listings tab is "Sell / Loan"; "My Listings" was its pre-rework name.

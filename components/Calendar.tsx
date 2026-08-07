@@ -78,6 +78,25 @@ export default function Calendar() {
       .slice(0, 10);
   }, [game.fixtures, game.userTeamId, game.currentDay]);
 
+  // The last five results, most recent first (v1.99). The counterpart to the
+  // rail above and deliberately its mirror image: Upcoming answers "what is
+  // coming" and this answers "how has it been going", which is the other half of
+  // the question a manager opens this screen with. Five rather than ten because
+  // that is what the column has room for under Upcoming, and because five is
+  // already the length every other form reading in the game uses.
+  //
+  // It reads only fixtures the engine has already played — like the grid cells
+  // and unlike nothing else on this screen, it never simulates and has no
+  // clickable target: there is nothing to fast-forward to in the past.
+  const results = useMemo(() => {
+    return game.fixtures
+      .filter(
+        (f) => (f.homeId === game.userTeamId || f.awayId === game.userTeamId) && f.played
+      )
+      .sort((a, b) => b.day - a.day)
+      .slice(0, 5);
+  }, [game.fixtures, game.userTeamId]);
+
   return (
     <div className="rounded-md border border-line bg-surface p-3">
       {/* 70/30 (v1.98): the month grid keeps the bulk of the width and the
@@ -158,7 +177,12 @@ export default function Calendar() {
                     {isHome ? "H" : "A"}
                   </span>
                   <Crest team={opp} size={22} />
-                  <span className="display mt-0.5 max-w-full truncate text-[9px] font-bold leading-none tracking-wide text-dim">
+                  {/* 9px → 11px, and `text-ink` (v1.99). At the old size and a
+                      dimmed colour the abbreviation was decoration under the
+                      crest rather than something you could read across the
+                      grid, which is the whole reason it was added in v1.97.
+                      `max-w-full truncate` still holds it inside the cell. */}
+                  <span className="display mt-0.5 max-w-full truncate text-[11px] font-bold leading-none tracking-wide text-ink">
                     {opp.short}
                   </span>
                   {fixture.played && (
@@ -249,7 +273,11 @@ export default function Calendar() {
                         {isHome ? "H" : "A"}
                       </span>
                       {opp && <Crest team={opp} size={16} />}
-                      <span className="display min-w-0 flex-1 truncate text-[11px] font-bold tracking-wide text-ink">
+                      {/* Bumped from 11px (v1.99). The short code is the one
+                          thing in the row that identifies the match, and at the
+                          rail's old size it was set smaller than the crest
+                          beside it — the label was losing to its own icon. */}
+                      <span className="display min-w-0 flex-1 truncate text-[13px] font-bold tracking-wide text-ink">
                         {opp?.short ?? "—"}
                       </span>
                       <span className="tnum shrink-0 text-[10px] leading-none text-faint">{formatDayShort(f.day)}</span>
@@ -262,6 +290,61 @@ export default function Calendar() {
           {!onMatchday && !seasonOver && upcoming.length > 0 && (
             <div className="mt-2 text-[10px] leading-snug text-faint">
               Click a fixture to simulate up to and including it.
+            </div>
+          )}
+
+          {/* ── Results (v1.99) ───────────────────────────────────────────
+              The last five, most recent first, in the same abbreviation as
+              Upcoming so the two read as one column: competition mark, H/A,
+              crest, short code, then the score with its W/D/L colour where the
+              date sits above. Nothing here is clickable — the past is not a
+              day you can fast-forward to. */}
+          {results.length > 0 && (
+            <div className="mt-4">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="display text-sm font-semibold">Results</div>
+                <span className="text-[10px] uppercase tracking-widest text-faint">
+                  Last {results.length}
+                </span>
+              </div>
+              <div className="gold-thread mb-2" />
+              <ul className="space-y-1">
+                {results.map((f) => {
+                  const isHome = f.homeId === game.userTeamId;
+                  const opp = game.teams[isHome ? f.awayId : f.homeId];
+                  return (
+                    <li key={f.id}>
+                      <div
+                        className="flex w-full items-center gap-2 rounded border border-line/50 bg-raised px-2 py-1.5 text-left"
+                        title={`${isHome ? "vs" : "@"} ${opp?.name} — ${formatDay(f.day)}`}
+                      >
+                        <span
+                          className={`display w-3 shrink-0 text-center text-[9px] font-bold leading-none ${
+                            f.competition === "CUP" ? "text-gold" : "text-faint"
+                          }`}
+                          title={f.competition === "CUP" ? "Cup" : "League"}
+                        >
+                          {f.competition === "CUP" ? "◆" : "·"}
+                        </span>
+                        <span
+                          className={`display w-3 shrink-0 text-[9px] font-bold leading-none ${
+                            isHome ? "text-win/80" : "text-dim"
+                          }`}
+                          title={isHome ? "Home" : "Away"}
+                        >
+                          {isHome ? "H" : "A"}
+                        </span>
+                        {opp && <Crest team={opp} size={16} />}
+                        <span className="display min-w-0 flex-1 truncate text-[13px] font-bold tracking-wide text-ink">
+                          {opp?.short ?? "—"}
+                        </span>
+                        <ResultDot fixture={f} userTeamId={game.userTeamId} />
+                        <ScoreLine fixture={f} userTeamId={game.userTeamId} size="rail" />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
           )}
         </div>
@@ -331,14 +414,32 @@ export default function Calendar() {
  *
  * A cup tie settled on penalties says so (`3–1p`): the goals alone would read as
  * a draw next to a win-coloured dot.
+ *
+ * Two sizes (v1.99), because it is drawn in two places that have very different
+ * room: `cell` inside a day of the month grid, where it shares a square with a
+ * crest and a date, and `rail` in the Results list, where the score IS the row's
+ * payload and was the smallest thing in it.
  */
-function ScoreLine({ fixture, userTeamId }: { fixture: Fixture; userTeamId: string }) {
+function ScoreLine({
+  fixture,
+  userTeamId,
+  size = "cell",
+}: {
+  fixture: Fixture;
+  userTeamId: string;
+  size?: "cell" | "rail";
+}) {
   const isHome = fixture.homeId === userTeamId;
   const gf = isHome ? fixture.homeGoals! : fixture.awayGoals!;
   const ga = isHome ? fixture.awayGoals! : fixture.homeGoals!;
   const pens = fixture.competition === "CUP" && gf === ga && !!fixture.shootoutWinnerId;
   return (
-    <span className="tnum text-[9px] font-semibold leading-none text-ink" title={`${gf}–${ga}`}>
+    <span
+      className={`tnum shrink-0 font-bold leading-none text-ink ${
+        size === "rail" ? "text-[13px]" : "text-[11px]"
+      }`}
+      title={`${gf}–${ga}`}
+    >
       {gf}–{ga}
       {pens && <span className="text-faint">p</span>}
     </span>

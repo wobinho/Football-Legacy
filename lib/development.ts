@@ -1065,11 +1065,21 @@ export function applyMatchFatigue(p: PlayerBio, minutes: number, cfg: TuningConf
  * the facilities rework. Recovery now runs at the same baseline for every club
  * until a facility is designed to own it, at which point this is where its
  * multiplier lands.
+ *
+ * v1.99: a KEEPER recovers `gkFitnessRecoveryMult` faster. He covers a fraction
+ * of the ground an outfielder does, takes almost none of the contact, and is
+ * the one player in the side expected to start every match of a congested week.
+ * The rate is a tuning number and the position test reads `positions[0]`, the
+ * same primary-position field every other position-dependent rule reads — the
+ * drain side is deliberately untouched, so ninety minutes still costs him what
+ * it always did.
  */
 export function dailyRecovery(state: GameState, cfg: TuningConfig) {
+  const outfield = cfg.fitnessRecoveryPerDay;
+  const keeper = outfield * cfg.gkFitnessRecoveryMult;
   for (const p of activePlayers(state)) {
     if (p.fitness >= 100) continue;
-    p.fitness = Math.min(100, p.fitness + cfg.fitnessRecoveryPerDay);
+    p.fitness = Math.min(100, p.fitness + (p.positions[0] === "GK" ? keeper : outfield));
   }
 }
 

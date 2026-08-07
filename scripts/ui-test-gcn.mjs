@@ -246,6 +246,45 @@ if (await region.count()) {
   await page.waitForTimeout(900);
   await page.screenshot({ path: shot("08-hub-built.png"), fullPage: true });
   check("the hub lands on the map", (await page.locator("text=Level 1").count()) > 0);
+
+  // The v1.99 levers, on the built hub's own dialog: the brief and the pause.
+  // Both are asserted only as far as "it drew and clicking it changed the
+  // screen" — whether a brief actually steers the finds is `verify:gcn`'s
+  // measured question, which is not one a browser can ask.
+  const built = page.locator('button:has-text("Level 1")').first();
+  if (await built.count()) {
+    await built.click();
+    await page.waitForTimeout(700);
+    check("a built hub's dialog offers the brief", (await page.locator("text=The brief").count()) > 0);
+    // Closing is no longer the routine lever — pausing is, and it must be the
+    // one on the action row.
+    check(
+      "...and pausing rather than only closing",
+      (await page.locator('button:has-text("Pause scouting")').count()) > 0
+    );
+    // Set a position focus through the real picker.
+    const posPicker = page.locator('button:has-text("Any position")').first();
+    if (await posPicker.count()) {
+      await posPicker.click();
+      await page.waitForTimeout(300);
+      await page.locator('[role="option"]').filter({ hasText: /^CB$/ }).first().click();
+      await page.waitForTimeout(600);
+    }
+    await page.screenshot({ path: shot("08b-hub-brief.png"), fullPage: true });
+    check(
+      "a brief can be set through the UI",
+      (await page.locator('button:has-text("Clear brief")').count()) > 0
+    );
+    await page.click('button:has-text("Pause scouting")');
+    await page.waitForTimeout(700);
+    await page.screenshot({ path: shot("08c-hub-paused.png"), fullPage: true });
+    check(
+      "pausing flips the control to resume",
+      (await page.locator('button:has-text("Resume scouting")').count()) > 0
+    );
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(500);
+  }
 }
 
 // The boardroom: open a seat's shortlist and appoint someone.
@@ -265,9 +304,17 @@ if (await appoint.count()) {
   await page.keyboard.press("Escape");
   await page.waitForTimeout(500);
   await page.screenshot({ path: shot("10-exec-hired.png"), fullPage: true });
-  check("the seat is filled and shows its effect", (await page.locator("text=seat +").count()) > 0
-    || (await page.locator("text=of 19% possible, text=possible").count()) > 0
-    || (await page.locator("text=stars +").count()) > 0);
+  // The three terms of the seat's arithmetic, by their LABELS (v1.99). This used
+  // to match the literal string "seat +" off the old one-line sum, which broke
+  // the moment that line was rewritten into labelled rows — the card was drawing
+  // perfectly and the harness said the seat was empty. Labels are the durable
+  // thing here; the numbers are `verify:gcn`'s job.
+  check(
+    "the seat is filled and shows its effect",
+    (await page.locator("text=The seat").count()) > 0 &&
+      (await page.locator("text=Pedigree").count()) > 0 &&
+      (await page.locator("text=Service").count()) > 0
+  );
 }
 
 // Back to Headquarters — the dashboard must now reflect the hub and the board.

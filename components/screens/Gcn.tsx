@@ -27,7 +27,6 @@ import { formatMoney } from "@/lib/value";
 import {
   GCN_FACILITY_SPEC,
   autoFundingOf,
-  brandDealsWeekly,
   clubBuyPrice,
   clubSalePrice,
   clubStanding,
@@ -35,7 +34,6 @@ import {
   fundableClubIds,
   gcnClubFinance,
   gcnClubStatus,
-  gcnDealsWeekly,
   gcnEmpire,
   gcnLevelOf,
   gcnNextCost,
@@ -63,6 +61,7 @@ import {
   hiredExecutives,
 } from "@/lib/gcnexec";
 import {
+  ALL_POS,
   HUB_REGIONS,
   hasPresenceIn,
   hubBuildCost,
@@ -83,11 +82,16 @@ import {
   type HubRegionDef,
 } from "@/lib/gcnhub";
 import { TIER_COLOR, TIER_LABEL } from "@/lib/scouts";
-import { deriveArchetype } from "@/lib/config/archetype";
+import {
+  ARCHETYPE_MAP,
+  ARCHETYPE_ROSTER,
+  deriveArchetype,
+  positionsOfArchetype,
+} from "@/lib/config/archetype";
 import type {
   BadgeTier,
   GcnExecRole,
-
+  GcnHubFocus,
   PlayerBio,
   Pos,
   ProspectReport,
@@ -243,6 +247,31 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     <div className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
       <span className="shrink-0 text-dim">{label}</span>
       <span className="min-w-0 text-right">{children}</span>
+    </div>
+  );
+}
+
+/**
+ * One term of an executive seat's arithmetic (v1.99): what it is, where it came
+ * from, and what it is worth.
+ *
+ * The `detail` is the load-bearing half. The three terms are worth wildly
+ * different amounts and the reason is never the same twice — the seat pays a
+ * flat rate for being filled, pedigree is his star rating times a per-star
+ * figure, service is the badge he earned by staying — so a bare "+15.0" says
+ * nothing about which lever the manager could pull to move it.
+ */
+function EffectTerm({ label, detail, value }: { label: string; detail: string; value: number }) {
+  const zero = value <= 0;
+  return (
+    <div className="flex items-baseline justify-between gap-2 text-[10px]">
+      <span className="min-w-0 truncate">
+        <span className={zero ? "text-faint" : "text-dim"}>{label}</span>
+        <span className="ml-1 text-faint">{detail}</span>
+      </span>
+      <span className={`tnum shrink-0 font-semibold ${zero ? "text-faint" : "text-ink"}`}>
+        +{value.toFixed(1)}%
+      </span>
     </div>
   );
 }
@@ -443,7 +472,6 @@ function HeadquartersTab() {
   const prospects = hubProspects(game);
   const seats = hiredExecutives(game);
 
-  const brandIn = brandDealsWeekly(game, TUNING);
   const autoOut = totalAutoFunding(game);
   const execOut = execWageBill(game);
   const hubOut = hubUpkeepWeekly(game, TUNING) + hubWageBill(game, TUNING);
@@ -484,7 +512,7 @@ function HeadquartersTab() {
       </Section>
 
       {/* The weekly ledger. One card rather than a paragraph of inline figures:
-          the network has five income and outflow lines now, and a sentence can
+          the network has several income and outflow lines, and a sentence can
           hold about two. Every line here is a term `gcnWeeklyTick` actually
           debits or credits — see `gcnEmpire`, which is where the arithmetic
           lives so the dashboard can't disagree with the simulation. */}
@@ -492,9 +520,6 @@ function HeadquartersTab() {
         <Card className="divide-y divide-line/50">
           <Row label="Clubs' own trading">
             <Net value={empire.clubsNet} suffix=" / wk" />
-          </Row>
-          <Row label="Brand Deals">
-            <Net value={brandIn} suffix=" / wk" />
           </Row>
           {execOut > 0 && (
             <Row label={`Executive wages (${seats.length})`}>
@@ -1977,9 +2002,18 @@ function HubRegionCard({ def, onOpen }: { def: HubRegionDef; onOpen: () => void 
       {/* A built hub wears the gold thread; an empty region reads as a site. */}
       {hub && <div className="gold-grad absolute inset-x-0 top-0 h-0.5" />}
       <div className="flex items-start gap-2">
-        <span className="text-lg leading-none">{hub ? "🛰️" : "📍"}</span>
+        <span className="text-lg leading-none">{hub ? (hub.paused ? "⏸️" : "🛰️") : "📍"}</span>
         <div className="min-w-0 flex-1">
-          <div className="display truncate text-[13px] font-semibold">{def.label}</div>
+          <div className="display flex items-center gap-1.5 truncate text-[13px] font-semibold">
+            <span className="truncate">{def.label}</span>
+            {/* A paused hub says so on the map, not only once you open it — it is
+                still costing upkeep, which is the fact worth seeing from here. */}
+            {hub?.paused && (
+              <span className="display shrink-0 rounded-sm border border-gold-lo/50 px-1 py-px text-[9px] font-bold uppercase tracking-wider text-gold">
+                Paused
+              </span>
+            )}
+          </div>
           {hub ? (
             <div className="mt-0.5 text-[11px] text-faint">
               <span className="text-gold">Level {hub.level}</span> ·{" "}
@@ -1987,6 +2021,7 @@ function HubRegionCard({ def, onOpen }: { def: HubRegionDef; onOpen: () => void 
                 {hubHeadcount(game, def.id)}/{hubCapacity(hub.level, TUNING)}
               </span>{" "}
               on the books
+              {hub.focus && <span className="text-dim"> · briefed</span>}
             </div>
           ) : (
             <div className="mt-0.5 text-[11px] text-faint">
@@ -2008,14 +2043,15 @@ function HubRegionCard({ def, onOpen }: { def: HubRegionDef; onOpen: () => void 
 }
 
 /** One region, opened: what a hub there is worth, what it costs, and the levers
- * on it. Build, upgrade and close all live here so a region is one place rather
- * than three lists. */
+ * on it. Build, upgrade, brief, pause and close all live here so a region is one
+ * place rather than five lists. */
 function HubRegionModal({ region, onClose }: { region: string; onClose: () => void }) {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const build = useGame((s) => s.gcnBuildHub);
   const upgrade = useGame((s) => s.gcnUpgradeHub);
   const close = useGame((s) => s.gcnCloseHub);
+  const setPaused = useGame((s) => s.gcnSetHubPaused);
   const def = hubRegion(region);
   const hub = hubIn(game, region);
   const treasury = game.gcn?.treasury ?? 0;
@@ -2042,13 +2078,28 @@ function HubRegionModal({ region, onClose }: { region: string; onClose: () => vo
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <Stat label="Level" value={`${hub.level} / ${TUNING.gcnHubMaxLevel}`} gold />
               <Stat label="On the books" value={`${onBooks} / ${hubCapacity(hub.level, TUNING)}`} />
-              <Stat label="Files every" value={`${hubReportDays(game, hub.level, TUNING)}d`} />
+              <Stat
+                label="Files every"
+                value={hub.paused ? "Paused" : `${hubReportDays(game, hub.level, TUNING)}d`}
+              />
               <Stat
                 label="Upkeep"
                 value={formatMoney(hub.level * TUNING.gcnHubUpkeepPerLevel)}
                 sub="per week"
               />
             </div>
+
+            {/* A paused hub still costs what it cost — saying so here is the
+                whole reason pausing is a decision rather than a free switch. */}
+            {hub.paused && (
+              <p className="rounded border border-gold-lo/50 bg-raised px-3 py-2 text-[11px] leading-relaxed text-gold">
+                Scouting is paused — no reports are coming back. The hub keeps its level, its{" "}
+                {onBooks} {onBooks === 1 ? "prospect" : "prospects"} and its full upkeep; restart it
+                whenever you want the reports again.
+              </p>
+            )}
+
+            <HubFocusPanel region={region} />
 
             {/* The level's effect, stated in the three units it actually moves.
                 Read from the same functions the pipeline runs on, so the card
@@ -2094,15 +2145,23 @@ function HubRegionModal({ region, onClose }: { region: string; onClose: () => vo
                 Treasury <span className="display gold-text tnum font-bold">{formatMoney(treasury)}</span>
               </span>
               <div className="flex gap-2">
-                <ConfirmButton
-                  label="Close hub"
-                  confirmLabel="Confirm — no refund"
-                  onConfirm={() => {
-                    close(region);
-                    onClose();
-                  }}
-                  className="!px-3 !py-1.5 !text-[12px]"
-                />
+                {/* Pause is the routine lever (v1.99); closing is not offered
+                    here at all. "Stop the reports" and "demolish the building
+                    and release everyone in it" are different decisions, and the
+                    screen used to offer only the second — so a manager whose
+                    board was simply full had no way to turn the tap off that
+                    didn't cost him the hub. Closing lives below, behind its own
+                    confirmation, where it reads as the last resort it is. */}
+                <GhostButton
+                  onClick={() => setPaused(region, !hub.paused)}
+                  title={
+                    hub.paused
+                      ? "Start filing reports again"
+                      : "Stop reports coming back. The hub, its prospects and its upkeep all stay."
+                  }
+                >
+                  {hub.paused ? "Resume scouting" : "Pause scouting"}
+                </GhostButton>
                 {upCost !== null ? (
                   <GoldButton disabled={upCost > treasury} onClick={() => upgrade(region)}>
                     Upgrade — {formatMoney(upCost)}
@@ -2112,10 +2171,22 @@ function HubRegionModal({ region, onClose }: { region: string; onClose: () => vo
                 )}
               </div>
             </div>
-            <p className="text-[11px] leading-relaxed text-faint">
-              Closing a hub returns nothing — the buildings stay where they were built. Any prospect
-              on its books is released.
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-3">
+              <p className="min-w-0 flex-1 text-[11px] leading-relaxed text-faint">
+                Pausing costs nothing and changes nothing but the reports. Closing the hub down
+                returns nothing — the buildings stay where they were built, and every prospect on its
+                books is released.
+              </p>
+              <ConfirmButton
+                label="Close hub"
+                confirmLabel="Confirm — no refund"
+                onConfirm={() => {
+                  close(region);
+                  onClose();
+                }}
+                className="!px-3 !py-1.5 !text-[12px]"
+              />
+            </div>
           </>
         ) : (
           <>
@@ -2165,6 +2236,128 @@ function HubRegionModal({ region, onClose }: { region: string; onClose: () => vo
   );
 }
 
+/**
+ * A hub's standing brief (v1.99): country, position, archetype.
+ *
+ * Three things about the shape are deliberate:
+ *
+ *  - It commits per field, with no Save button. Same reason the bulk identity
+ *    editor does (v1.97): each dropdown is one small, instantly reversible
+ *    decision, and "changed it, it's changed" is honest where a page-wide save
+ *    over three fields is just a chance to lose two of them.
+ *  - The country list is the REGION's own countries and nothing else, and the
+ *    archetype list is filtered by the chosen position. Both come from the rule
+ *    module (`hubFocusError` / `positionsOfArchetype`), so the picker can't
+ *    offer a brief the hub would then refuse.
+ *  - It states the hit rate in plain words. A focus that silently only worked
+ *    70% of the time would read as broken; said out loud it reads as scouting.
+ */
+function HubFocusPanel({ region }: { region: string }) {
+  const game = useGame((s) => s.game)!;
+  useGame((s) => s.rev);
+  const setFocus = useGame((s) => s.gcnSetHubFocus);
+  const def = hubRegion(region);
+  const hub = hubIn(game, region);
+  const focus = hub?.focus;
+  if (!def || !hub) return null;
+
+  const commit = (patch: Partial<GcnHubFocus>) => {
+    const next: GcnHubFocus = { ...focus, ...patch };
+    // An archetype the new position can't earn is dropped rather than left to
+    // be refused — picking a position must never be blocked by a stale role.
+    if (next.archetype && next.pos) {
+      const arch = ARCHETYPE_MAP[next.archetype];
+      if (arch && !positionsOfArchetype(arch).includes(next.pos)) delete next.archetype;
+    }
+    setFocus(region, next);
+  };
+
+  const posOptions: { value: string; label: string }[] = [
+    { value: "", label: "Any position" },
+    ...ALL_POS.map((p) => ({ value: p as string, label: p })),
+  ];
+
+  // Only roles that can actually be earned at the chosen position — an archetype
+  // is its plan's position set, which is the roster's own answer.
+  const archOptions = [
+    { value: "", label: "Any role" },
+    ...ARCHETYPE_ROSTER.filter(
+      (a) => !focus?.pos || positionsOfArchetype(a).includes(focus.pos)
+    )
+      .map((a) => ({
+        value: a.id,
+        label: `${a.name} · ${positionsOfArchetype(a).join("/")}`,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+  ];
+
+  const named = [focus?.nat, focus?.pos, focus?.archetype].filter(Boolean).length;
+
+  return (
+    <Card className="space-y-2.5 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="display text-[12px] font-semibold uppercase tracking-[0.14em] text-dim">
+          The brief
+        </span>
+        {named > 0 && (
+          <button
+            onClick={() => setFocus(region, {})}
+            className="text-[11px] text-faint transition-colors hover:text-loss"
+          >
+            Clear brief
+          </button>
+        )}
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <Field label="Country">
+          <Select
+            value={focus?.nat ?? ""}
+            options={[
+              { value: "", label: `Anywhere in ${def.label}` },
+              ...def.countries.map((c) => ({ value: c.id, label: c.label })),
+            ]}
+            onChange={(v) => commit({ nat: v || undefined })}
+            ariaLabel="Country to focus on"
+          />
+        </Field>
+        <Field label="Position">
+          <Select
+            value={focus?.pos ?? ""}
+            options={posOptions}
+            onChange={(v) => commit({ pos: (v || undefined) as Pos | undefined })}
+            ariaLabel="Position to focus on"
+          />
+        </Field>
+        <Field label="Archetype">
+          <Select
+            value={focus?.archetype ?? ""}
+            options={archOptions}
+            onChange={(v) => commit({ archetype: v || undefined })}
+            ariaLabel="Archetype to focus on"
+          />
+        </Field>
+      </div>
+      <p className="text-[11px] leading-relaxed text-faint">
+        {named === 0 ? (
+          <>
+            The hub reports whatever it finds across {def.label}. Name a country, a position or a
+            role and it goes looking for that instead.
+          </>
+        ) : (
+          <>
+            A brief steers the scouts, it doesn&apos;t bind them — each thing you name is honoured
+            about {Math.round(TUNING.gcnHubFocusHitChance * 100)}% of the time, so the hub still
+            turns up the player nobody asked for.
+            {focus?.archetype && (
+              <> A role brief shapes his training and attributes, not a label on his profile.</>
+            )}
+          </>
+        )}
+      </p>
+    </Card>
+  );
+}
+
 /** The reports board: what every hub has turned up, newest first. */
 function HubReports() {
   const game = useGame((s) => s.game)!;
@@ -2181,10 +2374,16 @@ function HubReports() {
       </Card>
     );
   }
+  // "Nothing yet" and "you switched it off" are different answers and the board
+  // used to give the first for both — a manager who paused every hub was told
+  // the next batch was on its way.
+  const allPaused = hubs(game).every((h) => h.paused);
   if (reports.length === 0) {
     return (
       <Card className="p-8 text-center text-sm text-dim">
-        Nothing on the board. The hubs file on their own clock — the next batch is on its way.
+        {allPaused
+          ? "Every hub is paused, so nothing is being reported. Resume one on the map."
+          : "Nothing on the board. The hubs file on their own clock — the next batch is on its way."}
       </Card>
     );
   }
@@ -2475,18 +2674,18 @@ function TreasuryTab() {
 function TreasuryBooks() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
-  const brandIn = brandDealsWeekly(game, TUNING);
-  const dealsOut = gcnDealsWeekly(game, TUNING) * (game.gcn?.clubIds.length ?? 0);
   const autoOut = totalAutoFunding(game);
   const execOut = execWageBill(game);
   const upkeep = hubUpkeepWeekly(game, TUNING);
   const youthWages = hubWageBill(game, TUNING);
-  const treasuryNet = brandIn - autoOut - execOut - upkeep - youthWages;
+  // Every line is an outflow since v1.99: the treasury has no weekly income of
+  // its own now that the two Operations tracks are gone. It is filled by
+  // depositing from your club and by selling a holding.
+  const treasuryNet = -autoOut - execOut - upkeep - youthWages;
   const treasury = game.gcn?.treasury ?? 0;
   const clubIds = game.gcn?.clubIds ?? [];
 
   const lines: { label: string; amount: number; note?: string }[] = [
-    { label: "Brand Deals", amount: brandIn, note: "into the treasury" },
     { label: "Executive wages", amount: -execOut },
     { label: "Hub upkeep", amount: -upkeep },
     { label: "Hub youth wages", amount: -youthWages },
@@ -2508,7 +2707,7 @@ function TreasuryBooks() {
           ))}
           {lines.length === 0 && (
             <p className="px-3 py-4 text-center text-[12px] text-faint">
-              Nothing moves the treasury yet — no Brand Deals, no board, no hubs, no standing orders.
+              Nothing moves the treasury yet — no board, no hubs, no standing orders.
             </p>
           )}
           <div className="flex items-center justify-between gap-3 px-3 py-2.5">
@@ -2519,11 +2718,10 @@ function TreasuryBooks() {
           </div>
         </Card>
         <p className="mt-2 text-[11px] leading-relaxed text-faint">
-          GCN Deals pay each owned club directly and never pass through the treasury —{" "}
-          {formatMoney(gcnDealsWeekly(game, TUNING))}/wk each,{" "}
-          <span className="tnum text-ink">{formatMoney(dealsOut)}</span> across the group. Wages and
-          upkeep are owed whether or not the treasury can cover them; only standing orders are
-          skipped in a week it can&apos;t.
+          The treasury earns nothing by itself — it is filled by depositing from your club and by
+          selling a holding, and an owned club&apos;s own trading stays on that club&apos;s books.
+          Wages and upkeep are owed whether or not the treasury can cover them; only standing orders
+          are skipped in a week it can&apos;t.
           {/* Only shown when the runway is short enough to be a decision — see
               the same rule on Headquarters. */}
           {treasuryNet < 0 && Math.floor(treasury / -treasuryNet) <= 104 && (
@@ -2566,6 +2764,10 @@ function TreasuryBooks() {
 }
 
 /** The two-way pipe between the manager's own club and the network's war chest. */
+/** The quick-amount ladder on the treasury transfer (v1.99). Absolute sums, not
+ * shares of the balance — see the note at the buttons. */
+const TRANSFER_STEPS = [1_000_000, 5_000_000, 10_000_000, 50_000_000, 100_000_000, 1_000_000_000];
+
 function TreasuryTransfer() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
@@ -2618,16 +2820,39 @@ function TreasuryTransfer() {
           showCurrency
           className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm tnum outline-none focus:border-gold"
         />
+        {/* Absolute steps rather than percentages (v1.99). A share of the source
+            is the wrong unit here: at an end-game treasury 10% and 25% are both
+            "some enormous number", and the manager's actual question is "move
+            fifty million", which took typing. The steps ADD to what is already
+            in the box, so a figure is built up rather than replaced — that is
+            what makes a short ladder cover the whole range, and it is why they
+            read "+£10M" rather than "£10M". Each is clipped to what the source
+            actually holds, so a step can never propose an illegal transfer. */}
         <div className="flex flex-wrap gap-1.5 pt-1">
-          {[0.1, 0.25, 0.5, 1].map((frac) => (
+          {TRANSFER_STEPS.map((step) => (
             <button
-              key={frac}
-              onClick={() => setAmount(Math.floor(source * frac))}
-              className="rounded border border-line px-2 py-1 text-[11px] text-dim transition-colors hover:border-gold/50 hover:text-ink"
+              key={step}
+              disabled={amount >= source}
+              onClick={() => setAmount(Math.min(source, amount + step))}
+              className="rounded border border-line px-2 py-1 text-[11px] text-dim transition-colors hover:border-gold/50 hover:text-ink disabled:opacity-40 disabled:hover:border-line disabled:hover:text-dim"
             >
-              {frac === 1 ? "All" : `${frac * 100}%`}
+              +{formatMoney(step)}
             </button>
           ))}
+          <button
+            onClick={() => setAmount(source)}
+            className="rounded border border-line px-2 py-1 text-[11px] text-dim transition-colors hover:border-gold/50 hover:text-ink"
+          >
+            All
+          </button>
+          {amount > 0 && (
+            <button
+              onClick={() => setAmount(0)}
+              className="rounded px-2 py-1 text-[11px] text-faint transition-colors hover:text-loss"
+            >
+              Clear
+            </button>
+          )}
         </div>
       </div>
 
@@ -2743,12 +2968,11 @@ function AutoFundingPanel() {
   );
 
   const committed = clubIds.reduce((s, id) => s + (draft[id] ?? 0), 0);
-  const brandIn = brandDealsWeekly(game, TUNING);
-  // The other treasury outflows are part of this decision — a standing order the
-  // treasury can afford against Brand Deals alone may still be unaffordable once
-  // the boardroom and the hubs are paid.
+  // The other treasury outflows are part of this decision — a standing order
+  // that looks affordable on its own may still not be, once the boardroom and
+  // the hubs are paid.
   const fixed = execWageBill(game) + hubUpkeepWeekly(game, TUNING) + hubWageBill(game, TUNING);
-  const net = brandIn - fixed - committed;
+  const net = -fixed - committed;
   const weeksOfCover = net < 0 ? Math.floor(treasury / -net) : null;
   const dirty = clubIds.some((id) => (draft[id] ?? 0) !== autoFundingOf(game, id));
 
@@ -2802,10 +3026,6 @@ function AutoFundingPanel() {
       </div>
 
       <div className="space-y-1 border-t border-line/60 pt-3 text-sm">
-        <div className="flex items-center justify-between">
-          <span className="text-dim">Brand Deals income</span>
-          <span className="tnum text-win">+{formatMoney(brandIn)}</span>
-        </div>
         {fixed > 0 && (
           <div className="flex items-center justify-between">
             <span className="text-dim">Executives &amp; hubs</span>
@@ -2868,17 +3088,14 @@ function OperationsTab() {
 
   const icons: Record<string, string> = {
     groupClubs: "🏛️",
-    brandDeals: "📣",
-    gcnDeals: "🤝",
   };
 
   const owned = game.gcn?.clubIds.length ?? 0;
   const cap = groupClubsCap(game, TUNING);
-  const brandNow = brandDealsWeekly(game, TUNING);
-  const dealsNow = gcnDealsWeekly(game, TUNING);
 
-  /** Each track states its effect in its own unit — club slots, treasury income,
-   * per-club income — so the card reads as what it actually buys. */
+  /** Each track states its effect in its own unit, so the card reads as what it
+   * actually buys. One track since v1.99 — the two weekly-income tracks were
+   * deleted; see `GcnFacility`. */
   const effects: Record<string, { now: string; next: string; note: (maxed: boolean) => string }> = {
     groupClubs: {
       now: `${cap} clubs`,
@@ -2889,22 +3106,6 @@ function OperationsTab() {
           : `+${TUNING.gcnGroupClubsPerLevel} slots per level, up to ${
               TUNING.gcnGroupClubsBase + TUNING.gcnGroupClubsMaxLevel * TUNING.gcnGroupClubsPerLevel
             }.`,
-    },
-    brandDeals: {
-      now: brandNow ? `${formatMoney(brandNow)} / wk` : "None",
-      next: `${formatMoney(brandDealsWeekly(game, TUNING, gcnLevelOf(game, "brandDeals") + 1))} / wk`,
-      note: (maxed) =>
-        maxed
-          ? `Brand Deals are maxed at ${formatMoney(brandNow)} a week into the treasury.`
-          : `+${formatMoney(TUNING.gcnBrandDealsPerLevel)}/wk per level, before the Director of Global Commerce multiplies it.`,
-    },
-    gcnDeals: {
-      now: dealsNow ? `${formatMoney(dealsNow)} / wk each` : "None",
-      next: `${formatMoney(gcnDealsWeekly(game, TUNING, gcnLevelOf(game, "gcnDeals") + 1))} / wk each`,
-      note: (maxed) =>
-        maxed
-          ? `GCN Deals are maxed at ${formatMoney(dealsNow)} a week to every owned club.`
-          : `+${formatMoney(TUNING.gcnDealsPerLevel)}/wk to each owned club per level, before the Director of Global Commerce multiplies it.`,
     },
   };
 
@@ -2928,11 +3129,9 @@ function OperationsTab() {
       </Section>
 
       <Section title="Network tracks">
-        <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="mb-3 grid grid-cols-2 gap-3">
           <Stat label="Treasury available" value={formatMoney(treasury)} gold />
           <Stat label="Clubs owned" value={`${owned} / ${cap}`} />
-          <Stat label="Brand income / wk" value={brandNow ? formatMoney(brandNow) : "—"} />
-          <Stat label="Club deals / wk" value={dealsNow ? `${formatMoney(dealsNow)} ea.` : "—"} />
         </div>
         <div className="space-y-4">
           {facilities.map((f) => {
@@ -3006,21 +3205,50 @@ function ExecSeatCard({ role, onHire }: { role: GcnExecRole; onHire: () => void 
             <span className="tnum">{formatMoney(exec.wage)}/wk</span>
           </div>
 
-          {/* The seat's arithmetic, shown rather than summarised — the same three
-              terms `execEffect` returns, so the card can't quote a number the
-              simulation won't use. */}
+          {/* The seat's arithmetic, shown rather than summarised — the same
+              three terms `execEffect` returns, so the card can't quote a number
+              the simulation won't use.
+              v1.99: it used to print them as a bare sum ("5.0 seat + 15.0 stars
+              + 10.5 badge"), which named the terms but not their UNIT or where
+              any of them came from — three unlabelled numbers over a headline
+              percentage, and no way to tell that "stars" meant his star rating
+              times a per-star rate. Each term is now a labelled row that states
+              what produced it, and the whole block says once, at the bottom,
+              what the percentage is a percentage OF. */}
           <div className="mt-2.5 rounded border border-line bg-raised px-2.5 py-2">
             <div className="flex items-baseline justify-between">
               <span className="display gold-text tnum text-lg font-bold">+{fx.total.toFixed(1)}%</span>
-              <span className="text-[10px] text-faint">of {fx.max.toFixed(0)}% possible</span>
+              <span className="text-[10px] text-faint">of +{fx.max.toFixed(0)}% possible</span>
             </div>
             <div className="mt-1 h-1 overflow-hidden rounded bg-line">
               <div className="gold-grad h-full" style={{ width: `${pct}%` }} />
             </div>
-            <div className="mt-1.5 text-[10px] text-faint">
-              {fx.base.toFixed(1)} seat + {fx.stars.toFixed(1)} stars + {fx.badges.toFixed(1)} badge
+            <div className="mt-2 space-y-0.5 border-t border-line/60 pt-1.5">
+              <EffectTerm
+                label="The seat"
+                detail="just for filling it"
+                value={fx.base}
+              />
+              <EffectTerm
+                label="Pedigree"
+                detail={`${exec.stars}★ × ${TUNING.gcnExecStarEffect[role].toFixed(1)}%`}
+                value={fx.stars}
+              />
+              <EffectTerm
+                label="Service"
+                detail={
+                  exec.badge
+                    ? `${exec.badge} badge, ${exec.seasonsServed} ${
+                        exec.seasonsServed === 1 ? "season" : "seasons"
+                      } in the chair`
+                    : `no badge yet${toNext !== null ? ` — ${toNext} to bronze` : ""}`
+                }
+                value={fx.badges}
+              />
             </div>
-            <div className="mt-1 text-[11px] leading-snug text-dim">{spec.effectLabel}</div>
+            <div className="mt-1.5 border-t border-line/60 pt-1.5 text-[11px] leading-snug text-dim">
+              Added {spec.effectLabel}.
+            </div>
           </div>
 
           <div className="mt-2.5 flex items-center justify-between gap-2">
@@ -3046,7 +3274,7 @@ function ExecSeatCard({ role, onHire }: { role: GcnExecRole; onHire: () => void 
           <div className="rounded border border-dashed border-line px-2.5 py-4 text-center">
             <div className="display text-[12px] font-semibold text-loss">Vacant</div>
             <p className="mt-1 text-[10px] leading-snug text-faint">
-              Up to +{fx.max.toFixed(0)}% {spec.effectLabel}
+              Up to +{fx.max.toFixed(0)}% {spec.effectLabel}. An empty seat is worth nothing at all.
             </p>
           </div>
           <GoldButton onClick={onHire} className="mt-2.5 w-full">

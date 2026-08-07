@@ -47,11 +47,30 @@ design session before changing, `[FUTURE]` must not be built but must not be blo
   executive seats (a vacant seat is worth zero, service is a large share of a seat's
   ceiling, the football seat reaches owned clubs and NOT the manager's own), the hub
   pipeline end to end (build → file → sign → place → close), and — the section that
-  matters most — that a save with **no network computes exactly what it always did**
+  matters most — that a save with **no network computes exactly what it always did**.
+  Extended v1.99: pausing (a paused hub files nothing, keeps its level/prospects/upkeep,
+  and resuming does NOT bank the batches the pause swallowed) and the hub brief, whose
+  two halves are both measured over 60 batches — a named criterion is honoured far more
+  often than chance, **and never 100% of the time**
 - `node scripts/ui-test-gcn.mjs` — drives the GCN screen itself: unlocks the network
   through the real UI, then clicks every tab, builds a hub and appoints an executive.
   Asserts only that things render and nothing throws (the numbers are `verify:gcn`'s
-  job) — which is the failure a rules verifier structurally cannot see
+  job) — which is the failure a rules verifier structurally cannot see. v1.99 adds the
+  hub's brief and its pause toggle, and re-anchors the seat-card check on the term
+  LABELS: it matched the literal string `"seat +"` off the old one-line sum, so rewriting
+  that line into labelled rows made the harness report an empty seat while the card drew
+  perfectly. Match labels, not arithmetic — the numbers are the verifier's job
+- `npm run verify:brief` — the Tactic Creator's role brief (v1.99): that an unbriefed
+  tactic is arithmetically inert, that a RANDOM brief is worth ~nothing across an XI (the
+  zero-sum claim, measured over 4000 random briefs — the check that caught the first cut
+  costing −16.7%), that briefing your own side gains and briefing roles you lack loses, and
+  that a brief can't outlive the slots it names
+- `npm run verify:sim-parity [n] [--save|--check]` — plays N seasons with the real loop and
+  hashes the finished world (every division's table, the honours, and every club's roster
+  with overalls/fitness/form). `--save` writes the baseline, `--check` asserts against it.
+  This is how a SPEED change is proved to have changed nothing: run `--save` before, `--check`
+  after. It is also the harness that found the fixture-id nondeterminism — before v1.99 two
+  runs of one seed never agreed, so nothing about the simulation was assertable at all
 - `npm run verify:squads [seasons]` — drive a real world N seasons (default 12) and assert every club can still field its formation naturally, that squads haven't decayed toward the matchday minimum, and that the free-agent market survives the AI's own rollover top-up. A measured sweep, not a table check — the v1.89 defects were all invisible in the tables
 - `npm run verify:standings [seasons]` — play N full 38-game seasons with the real engine and assert that squad quality actually decides the table (rank correlation, who wins it, champion points, draw rate). The companion to `calibrate`: that one asks whether a MATCH looks like football, this one asks whether a SEASON does. The v1.91 defect passed calibration cleanly
 - `npm run verify:reputation [seasons]` — assert that club reputation drifts with squad,
@@ -84,6 +103,15 @@ design session before changing, `[FUTURE]` must not be built but must not be blo
 - `npx tsx scripts/perf.ts [seasons] [sampleEvery]` — long-save scaling harness: player/career growth, save size, serialisation and rollover cost, extrapolated to S100
 - `node scripts/ui-test.mjs` — end-to-end UI drive via headless Edge (dev server must be running)
 - `node scripts/ui-test-mobile.mjs` — same at a 390×844 phone viewport (Academy/Scouting focus)
+- `node scripts/ui-test-tactics.mjs` — the Tactics board (v1.99): that the three-column
+  grid holds identical widths across five viewport widths as the XI and then the bench
+  fill (the layout shift a single viewport structurally cannot see), that the bench sits
+  in the pitch's column with `benchSize` seats and that filled AND empty seats both open
+  the sub picker, and that every roster row names an archetype. Also drives the **Tactic
+  Creator**: that it opens, that every slot in the shape gets a role row, that both fill
+  routes populate the brief and the live balance responds, and that a saved plan lands in
+  Saved Tactics reading as a PLAN rather than as a snapshot naming nobody — the numbers are
+  `verify:brief`'s job
 - `node scripts/ui-test-season.mjs` — plays a full season, then exercises the finances breakdowns and the season-review modal
 
 ## Architecture (mirrors GAME_DESIGN.md §2 module map)
@@ -121,7 +149,12 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
 - `lib/gcnhub.ts` — International Scouting Hubs (v1.95): the region map (derived from
   `SCOUT_WORLD`), build/upgrade/close, the report pipeline, and the three routes a hub
   prospect can leave by. `hubPlacementError` is the single ruling the UI greys
-  destinations out with.
+  destinations out with; `hubFocusError` (v1.99) is the other one, for the brief.
+  `setHubPaused`/`setHubFocus` are the two v1.99 levers.
+- `lib/tacticbrief.ts` — the Tactic Creator's per-slot role brief (v1.99). The whole of
+  what "I want a Sniper here" means to the simulation: `roleBriefMult` is the lever,
+  `briefBalance` is what the screen prints, `pruneBrief` drops briefs a formation change
+  orphaned. Rules only — `components/screens/Tactics.tsx` draws it.
 - `lib/visual/` — club badges and kits (v1.96). `patterns.ts` is the shared
   pattern engine and all the colour maths (both consumers import it — the two
   creators shipped with a copy each, which is how a pattern added to a kit ends
@@ -476,6 +509,52 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   ("ESP") — `countryCodeOf` is the bridge, and comparing the two directly (as the first
   cut did) makes every presence and placement check silently fail on a world where both
   are true.
+- **A hub brief is a BIAS, and pausing is not closing (v1.99).** Two additions to
+  `lib/gcnhub.ts`, and each exists because the obvious version is a different feature.
+  **The brief** (country / position / archetype, any subset) rolls
+  `gcnHubFocusHitChance` (0.7) **per named criterion**. At 1.0 it stops being an
+  instruction to a scouting network and becomes a prospect generator — pick the nation,
+  the position and the role and the hub mints exactly that, every batch, forever. At 0.7
+  a briefed hub is obviously working (~4 of 6 on brief, measured) while still turning up
+  the winger nobody asked for. The archetype steers the **training plan**, never a stored
+  label: an archetype is DERIVED from attributes (v1.77) and a plan's weights are what
+  worldgen shapes a line from, so `planId` is the only way to make a focused find
+  genuinely READ as that role. Where the archetype and the position disagree the
+  archetype wins (it is the more specific), and `hubFocusError` refuses a genuinely
+  impossible pairing up front rather than letting the brief quietly ignore half of
+  itself — it is the single ruling, and the picker greys options out with it.
+  **Pausing** stops the reports and nothing else: the hub keeps its level, its prospects
+  and its **full upkeep**. Closing was previously the only way to stop the tap, so a
+  manager whose board was simply full had to demolish the building and release everyone
+  in it. Resuming starts a FRESH cycle rather than delivering the batches the pause
+  swallowed — otherwise pausing is a way to stockpile reports. Closing still exists,
+  demoted to the dialog's footer behind its own confirmation, where it reads as the last
+  resort it is.
+- **The GCN's two weekly-income tracks are DELETED (v1.99).** `GcnFacility` is now
+  `"groupClubs"` alone. Brand Deals and GCN Deals were passive weekly income bought by
+  the level — precisely the shape v1.79 and v1.82 exist to delete on the club side — and
+  between them the network's money problem was solved by pressing Upgrade rather than by
+  running clubs and hubs well. `ops` is a partial record, so a pre-v1.99 save's two dead
+  keys are ignored exactly as v1.62's four were: no refund, no conversion, no migration.
+  **The Director of Global Commerce had to move, not just lose his multiplicand.** He now
+  scales an owned club's own weekly income in `gcnSimBooks`, which is the better home for
+  the same reason the tracks were the worse one — a return on running clubs rather than
+  on having pressed Upgrade. He still returns exactly 1 when the seat is vacant.
+  One consequence worth knowing: **the treasury now has no weekly inflow at all**. It is
+  filled by depositing from your club and by selling a holding, and every line in
+  `TreasuryBooks` is an outflow. That also broke a check in `verify:gcn` that asserted
+  "a club's own budget is untouched by the boardroom" by MAGNITUDE (the swing is smaller
+  than the exec wage bill) — a proxy that stopped separating the two things the moment a
+  club's own trading could legitimately exceed the payroll. It asserts the claim directly
+  against `gcnSimBooks` now.
+- **An executive seat's arithmetic states its UNITS (v1.99).** The card printed the three
+  terms `execEffect` returns as a bare sum — `5.0 seat + 15.0 stars + 10.5 badge` — which
+  named them but not what produced any of them or what the headline was a percentage OF.
+  They are labelled rows now (`EffectTerm` in `Gcn.tsx`): **The seat** *just for filling
+  it*, **Pedigree** *5★ × 1.4%*, **Service** *the badge, and how long he has served*. The
+  `detail` is the load-bearing half — the three terms are worth wildly different amounts
+  and never for the same reason, so a bare "+15.0" says nothing about which lever the
+  manager could actually pull to move it.
 - **Marketability is six 0–1 scores × six weights (v1.86).** `lib/marketability.ts`.
   A factor answers only "how well is this club doing at this thing, 0 to 1";
   `marketabilityWeights` alone says what that is worth, so re-balancing is one line and
@@ -1065,6 +1144,32 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   season, not while a match of yours is pending), so the rail can never fast-forward on
   terms the grid wouldn't. Adding a third way to skip ahead goes through that state too,
   not through a second dialog.
+  **Results is Upcoming's mirror image (v1.99)** — the last five PLAYED fixtures, most
+  recent first, under the same rail in the same abbreviation. "What is coming" and "how
+  has it been going" are the two halves of the question a manager opens this screen with,
+  and the column had the room. It is deliberately NOT clickable: every other surface here
+  is a way to fast-forward, and there is no such thing as fast-forwarding to the past.
+  `ScoreLine` gained a `size` (`cell` | `rail`) rather than a second copy — it is drawn
+  in a month-grid square that shares its space with a crest and a date, and in a rail row
+  where the score IS the payload.
+  The day cell's short code went 9px→11px and `text-dim`→`text-ink`, and both rails' codes
+  11px→13px: at the old sizes the abbreviation was set smaller than the crest beside it,
+  so the label was losing to its own icon — which is the whole thing v1.97 widened this
+  column to buy.
+- **The Home page is CALENDAR then inbox (v1.99).** Both belong in the wide column —
+  v1.97 moved the calendar out of the narrow sidebar because seven columns of month left
+  each day barely wide enough for a crest — but the ORDER was backwards. The calendar is
+  what the manager ACTS on (the only place he can fast-forward from); the inbox is what
+  he reads. The thing you press was below the thing you scroll, so a full mailbox pushed
+  it off the fold.
+- **The treasury's quick amounts are ABSOLUTE and they ADD (v1.99).** `TRANSFER_STEPS` in
+  `Gcn.tsx` — +£1M / £5M / £10M / £50M / £100M / £1B, plus All. The predecessor was
+  10/25/50%/All, and a share of the source is the wrong unit at end-game scale: 10% and
+  25% of a treasury are both "some enormous number", while the manager's actual question
+  is "move fifty million", which took typing. They add to what is already in the box
+  rather than replacing it (hence "+£10M", not "£10M") — that is what lets a six-rung
+  ladder cover the whole range — and each is clipped to what the source holds, so a step
+  can never propose an illegal transfer.
 - **The wire is THIS SEASON; Big Money is ALL TIME (v1.98).** `TransferNewsTab` in
   `Transfers.tsx` reads two slices of one feed and the split is the point. The Market
   Wire filters to `n.season === game.season`: a long save accumulates thousands of
@@ -1076,9 +1181,13 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   happened to be signed in twelve weeks, not a record, and once the two views answer
   genuinely different questions there is nothing left for a scope to pick between.
 - **A kit shows where the question it answers is being asked (v1.97).** The club card
-  carries the three OUTFIELD shirts — a club card is about the team you'd face, and
-  those are the three a referee chooses between; the keeper is in the editor, where it
-  is a thing being designed rather than read. The player profile carries ONE, his
+  carries the outfield shirts — a club card is about the team you'd face, and those are
+  the three a referee chooses between. **v1.99 added the keeper shirt beside them**, which
+  was one shirt too few: this is the only screen in the game that shows a club's kits at
+  all, so leaving it out meant the one jersey a manager could never see anywhere was the
+  one the game already draws on a keeper's own profile (v1.98). It keeps a divider and
+  its own label because it reads as the odd one out — it IS one. The player profile
+  carries ONE, his
   club's home shirt, turned to the BACK with his own `kitNumber` on it: that is the
   only place in the game the two facts meet, and it is why the number is worth drawing
   at all. Pass `title` to `ClubKit` itself and not just to a wrapping button — the
@@ -1089,7 +1198,60 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   the pitch contradicts. Keyed on `p.positions[0]`, the same primary-position field
   every other line of that header reads; `kitsFor(club)` already returns all four, so
   this is a slot choice and not a second source of kits.
-- **The pitch token is a HEXAGON, and every reading lives inside it (v1.98).**
+- **The pitch token is a CIRCLE, and `TOKEN_CLIP` is the one place that says so
+  (v1.99).** v1.98 clipped it to a hexagon to echo the archetype artwork's frame; at
+  44px on a dark pitch the flats read as a badge rather than as a player, so it is a
+  circle again. Everything the hex carried is unchanged — border is position fit,
+  opacity repeats it, the wash behind the rating is the class. Still a `clip-path`
+  rather than `border-radius`, because the same constant clips the drag GUIDE, and the
+  guide is a plain box the drag hit-testing measures by bounding box. The v1.98 legend
+  had shipped as **two copies** (desktop board and phone diagram), which is exactly how
+  a shape change gets made in one place and missed in the other — it is `FitLegend` now,
+  one definition beside `PitchToken` and `PitchMarkings`.
+- **The Tactics grid tracks are `minmax(0, Nfr)`, never a bare `Nfr` (v1.99).** An `fr`
+  track's automatic minimum is its content's MIN-CONTENT width, so the three columns
+  were only 30/30/40 while nothing in them was wider than that. Populating the XI put
+  player surnames into the tokens' name plates, pushed the Lineup column's minimum past
+  its share, and re-proportioned the whole row — **measured, Lineup collapsed 359 → 239px
+  and Setup blew out to 802px** the moment four defenders were named. Same class of bug
+  as the formation description's `w-0 min-w-full` (v1.87), fixed at the GRID so it holds
+  for every item at once rather than one `truncate` at a time. It only binds when a
+  column has no slack, so a single wide viewport cannot see it: `ui-test-tactics.mjs`
+  sweeps five widths and asserts the three widths are identical before the XI, after it,
+  and after the bench.
+- **The bench is the pitch's other half, and it lives in the pitch's column (v1.99).**
+  It used to hang below the Roster one column over, which put the two halves of ONE
+  decision — who starts and who is behind them — in different places. Every seat is
+  rendered whether or not anyone is in it, so the panel is a constant `benchCap()` rows
+  and naming a sub never moves the page; an empty seat is a real seat, which is what
+  lets it be BOTH a drop target and a tap target. Tapping any seat opens the same kind of
+  picker a pitch slot opens — the board's bench half was drag-only, so a keyboard user
+  or anyone who simply prefers a list could not name a bench at all. The picker commits
+  through `moveBench`, the same store action a drop calls, so it can never put a player
+  somewhere a drag couldn't.
+- **`benchSize` is stated, not derived from `matchdaySquad` (v1.99).** The bench cap was
+  `cfg.matchdaySquad - 11` spelled out at six sites — but `matchdaySquad` is ALSO read as
+  a squad-size FLOOR (`playerIds.length <= matchdaySquad` in contracts.ts and
+  transfers.ts, i.e. "this club may not sell"). Widening the bench by moving that number
+  would therefore also have told every AI club in the world to hoard two more players:
+  two answers hanging off one constant. They are separate now and `benchCap(cfg)` in
+  `lib/selection.ts` is the single accessor, so a seventh derivation is impossible.
+  Calibration and `verify:standings` are unmoved by the 7 → 9 change.
+- **The Tactics roster names each player's ARCHETYPE (v1.99).** It is the list you pick a
+  side FROM, and it said what a player is RATED without ever saying what he IS — so the
+  identity the whole tactical system runs on was the one fact you had to leave the screen
+  to read. Through `ArchetypeLabel` (ui.tsx), the canonical surface, so the colour matches
+  every other list in the game rather than being a fourth palette.
+- **A training plan steers ATTRIBUTES, and no longer promises an identity (v1.99).** The
+  conversion ETA is gone from the Development screen: the row's trailing "→ Sniper ≈ 14
+  weeks", the "no growth left" / "too far a shape" dead ends, the grid card's subtitle
+  and the drawer's "Becoming" slot, plus the class word that shared that slot — the
+  archetype column is the archetype NAME and nothing after it. `archetypeConversionEta`
+  in `lib/development.ts` is untouched and still verified by `verify:conversion`; only
+  the UI that quoted it is deleted. Retraining (`lib/archetypedev.ts`) remains the route
+  that CHANGES an identity, which is the distinction the two things always encoded.
+- **The pitch token was a HEXAGON, and every reading lives inside it (v1.98; the shape
+  itself superseded above).**
   `PitchToken` / `PitchMarkings` in `Tactics.tsx` are ONE definition each, used by both
   the desktop board and the phone's read-only diagram — the two had drifted into
   separate copies of the same token, which is how a change to one silently missed the
@@ -1125,6 +1287,74 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   the hardcoded name "Nottingham Foresters" — the exact trap `ui-test.mjs` documents —
   and now takes it by POSITION, and honours `UI_TEST_BASE` like every other harness so
   a busy port 3000 doesn't fail the run.
+  v1.99 added two states to `ui-test.mjs` that nothing rendered before: **Home after a
+  match has been played** (the calendar's Results rail correctly does not exist on day 1,
+  so the existing shot proved nothing about it) and **the team card**, opened off a
+  Competition table row — the only screen that draws a `gk` kit outside the creator.
+  Note the table ROW is not a button; the club name inside it is the click target, which
+  is what a `tr button` selector silently finds nothing for.
+  **`npm run build` deletes `.next` out from under a running `npm run dev`**, so every
+  browser harness starts failing at whatever step it happened to reach, with errors
+  (`Cannot find module './331.js'`, a `text=NEW LEGACY` timeout) that look like selector
+  rot and are not. If a UI harness starts failing mid-run, `curl` the dev server for a
+  500 before touching a single selector — and restart it after any build.
+- **A ROLE BRIEF redistributes; it never adds (v1.99).** `lib/tacticbrief.ts`. The Tactic
+  Creator lets the manager name, per formation slot, the archetype he wants standing there
+  — EA FC's player roles in this game's vocabulary. The obvious implementation breaks two
+  rules at once, and both matter: granting a bonus for a met brief is a **third channel**
+  (v1.78 says identity reaches the engine through `synergyMult × instructionMult` and
+  nothing else), and it is **not zero-sum** — every manager would collect a free rating rise
+  by briefing the roles his squad already holds, which is a world-wide buff needing
+  re-calibration. So a brief is a BET: met is worth `+ROLE_BRIEF_SWING`, missed costs the
+  same, and the expected value of a brief chosen at random is zero. It rides the existing
+  lever (multiplied into `effectiveRating` beside the other two, and folded into
+  `tacticalFitMult` so selection asks what the match answers — the v1.90 rule), and returns
+  **exactly 1** when a tactic carries no brief, which is what lets it sit in the hot path.
+  **The miss penalty is DERIVED per position, not authored**, and this is the part that had
+  to be measured rather than reasoned about. A flat −1 made a random brief worth **−16.7%**
+  across an XI — the Creator was a tax nobody would rationally open. The cause is that the
+  five roles at a position are not evenly spread across the classes and the spread differs
+  wildly by position: at CB four of five are Enforcers (a same-class near-miss is 48%
+  likely), at GK all five are different classes (a near-miss is impossible), so no constant
+  can centre both. The penalty now solves `pExact·1 + pSame·0.5 + pOther·x = 0` from the
+  position's own roster, so adding a role re-centres itself. `verify:brief` asserts the
+  mean, both directions of the bet, and the inert case.
+  `SWING` is 0.08 — deliberately between style (±15%) and the dials (±6%), so the brief is a
+  real decision that never outranks who you actually signed. A saved Creator preset names
+  **no players** (`saveDesignedTactic`): it is a plan you build before you own the squad for
+  it, and freezing today's XI into it would make it a snapshot instead.
+- **A fixture's id must be derived from the fixture (v1.99).** `fid` in `season.ts`,
+  `eufId` in `european.ts`. Both used to mix in `Math.random()`/`Date.now()`, and because
+  `matchSeed` seeds every match from `deriveSeed(state.seed, …fixture.id…)` that made
+  **every result in the game nondeterministic** — two runs of one save seed produced
+  different scores, tables and champions, in flat contradiction of the determinism rule.
+  It was invisible for as long as it existed because nothing compared two runs; it surfaced
+  the moment `verify:sim-parity` did, and it invalidates any before/after measurement taken
+  before this was fixed. Ids are now a pure function of competition, round and the two clubs
+  in leg order. **Anything that reaches a seed must be derived, never generated** — if a new
+  entity needs an id the engine will read, build it from what the entity IS.
+- **Optimise the hot path by caching INPUTS, never by re-associating the arithmetic
+  (v1.99).** The calendar advance was ~3.3× slower than it needed to be, and a CPU profile
+  put the cost in one place: `deriveArchetype` (five plans × 35 attributes) called from
+  `pickLineup`, `tacticalFitMult`, `tacticScore` and `selectionScore` on unchanged
+  attribute lines. Three fixes, all result-preserving and all verified by
+  `verify:sim-parity`: `deriveArchetype` is memoised on (attrs object, a checksum of its
+  values, position, incumbent) — the checksum is load-bearing because the development pass
+  MUTATES an attribute line in place before reassigning it, so an identity-keyed cache
+  would serve a pre-growth archetype; `archetypesForPosition` is memoised per position; and
+  `pickLineup` computes each player's slot-INVARIANT terms once instead of once per slot.
+  The trap worth remembering: the first cut of that last one pre-multiplied the invariant
+  factors into a single constant, which is the same arithmetic in a different order — and
+  floating-point multiplication is not associative, so scores that should tie stopped tying
+  and real league tables changed. Cache the inputs, keep the product in its original order.
+  Measured: 76.4s → 22.9s for two seasons, byte-identical world.
+- **A keeper recovers faster (v1.99).** `gkFitnessRecoveryMult` (1.5) in tuning, applied in
+  `dailyRecovery`. He covers a fraction of the ground, takes almost none of the contact, and
+  is the one player expected to start every match of a congested week. Deliberately a
+  RECOVERY term and not a drain one — ninety minutes should still cost him what it always
+  did; the two are different quantities and collapsing them would quietly change match
+  fatigue. Note `dailyRecovery` is still the named seam a future facility's multiplier lands
+  on (§19.5) — this is a position rule, not that lever.
 - Interim implementations pending owner design sessions (marked in-file): transfer market
   AI (§10), trait pool. `emergencyIntake()` in gameloop is a stopgap until the Youth
   Academy ships.

@@ -466,8 +466,15 @@ export function gcnSimBooks(
     Math.max(1, club.reputation) / cfg.gcnSimIncomeRepPivot,
     cfg.gcnSimIncomeRepPower
   );
+  // The Director of Global Commerce lands HERE (v1.99), and only here. He used
+  // to multiply the two Operations income tracks; with those deleted, an owned
+  // club's own commercial week is what a commercial director is for, and it is
+  // the better home for the same reason the tracks were the worse one — it is a
+  // return on running clubs rather than on having pressed Upgrade. He returns
+  // exactly 1 when the seat is vacant, so a network with no boardroom banks what
+  // it always did.
   return {
-    income: Math.round(gross * cfg.gcnSimIncomeFactor * repMult),
+    income: Math.round(gross * cfg.gcnSimIncomeFactor * repMult * globalCommerceMult(state, cfg)),
     wages: Math.round(w.wageBill * cfg.gcnSimWageFactor),
   };
 }
@@ -475,19 +482,20 @@ export function gcnSimBooks(
 // ── Weekly network tick ──────────────────────────────────────────────────────
 
 /** The Monday pass over the network (v1.63), run alongside weeklyEconomyTick:
- *  1. Brand Deals pay the treasury.
+ *  1. The network's own payroll leaves the treasury.
  *  2. Every owned sim-league club banks its own abstracted books (v1.88).
- *  3. GCN Deals pay every owned club's own budget.
- *  4. Standing auto-funding orders move treasury → club budgets, in club order,
+ *  3. Standing auto-funding orders move treasury → club budgets, in club order,
  *     each paid in full or skipped when the treasury can't cover it.
  * A sim-league club is invisible to weeklyEconomyTick, so this is where its
  * income and wages are banked; a playable-league holding keeps real books there
- * and is skipped here, so nothing is ever counted twice. */
+ * and is skipped here, so nothing is ever counted twice.
+ *
+ * v1.99 deleted steps that paid the treasury and every owned club a weekly sum
+ * bought by an Operations level (Brand Deals, GCN Deals). The treasury's income
+ * is now what the manager puts in and what his clubs earn — see `GcnFacility`. */
 export function gcnWeeklyTick(state: GameState, cfg: TuningConfig) {
   const gcn = state.gcn;
   if (!gcn) return;
-
-  gcn.treasury += brandDealsWeekly(state, cfg);
 
   // The network's own payroll (v1.95): the boardroom's wages, the hubs' upkeep
   // and the wages of every prospect on a hub's books. All three are paid from
@@ -512,13 +520,8 @@ export function gcnWeeklyTick(state: GameState, cfg: TuningConfig) {
   }
 
   // Ring-fenced (home-country) clubs draw no network money at all — they live on
-  // their own books plus the same AI subsidy every other club gets.
-  const perClub = gcnDealsWeekly(state, cfg);
-  for (const id of gcn.clubIds) {
-    const club = state.teams[id];
-    if (club && !club.gcnRingFenced) club.budget += perClub;
-  }
-
+  // their own books plus the same AI subsidy every other club gets. That rule is
+  // what the standing orders below still enforce.
   for (const id of gcn.clubIds) {
     const amount = autoFundingOf(state, id);
     const club = state.teams[id];
@@ -778,18 +781,6 @@ export const GCN_FACILITY_SPEC: Record<GcnFacility, GcnFacilitySpec> = {
     label: "Group Clubs",
     blurb: "How many clubs the network may own. Every level buys more slots to found or buy into.",
   },
-  brandDeals: {
-    costKey: "gcnBrandDealsUpgradeCost",
-    maxKey: "gcnBrandDealsMaxLevel",
-    label: "Brand Deals",
-    blurb: "Global sponsorship sold in the network's name. Pays the GCN treasury every week.",
-  },
-  gcnDeals: {
-    costKey: "gcnDealsUpgradeCost",
-    maxKey: "gcnDealsMaxLevel",
-    label: "GCN Deals",
-    blurb: "Commercial deals struck for the group's clubs. Pays every owned club's own budget every week.",
-  },
 };
 
 export function gcnLevelOf(state: GameState, facility: GcnFacility): number {
@@ -803,42 +794,11 @@ export function groupClubsCap(state: GameState, cfg: TuningConfig): number {
   return cfg.gcnGroupClubsBase + gcnLevelOf(state, "groupClubs") * cfg.gcnGroupClubsPerLevel;
 }
 
-/** A weekly-income track's payout at a given level (v1.63): nothing at level 0,
- * the base at level 1, then the step for each level above. Shared by Brand Deals
- * and GCN Deals so the two read the same and neither hard-codes its curve. */
-function weeklyTrackAt(level: number, base: number, perLevel: number): number {
-  return level <= 0 ? 0 : base + (level - 1) * perLevel;
-}
-
-/** What Brand Deals pays the treasury each week at the current level.
- *
- * The Director of Global Commerce multiplies it (v1.95). He is the seat that
- * "acts as the financial engine", and this is the engine: a track the manager
- * already chose to buy, made to pay back more. Deliberately a multiplier on an
- * investment rather than a flat payment — an executive who prints money
- * regardless of what the network has built would make the Operations tracks
- * pointless, which is the opposite of a director's job. */
-export function brandDealsWeekly(state: GameState, cfg: TuningConfig, level?: number): number {
-  const raw = weeklyTrackAt(
-    level ?? gcnLevelOf(state, "brandDeals"),
-    cfg.gcnBrandDealsBase,
-    cfg.gcnBrandDealsPerLevel
-  );
-  return Math.round(raw * globalCommerceMult(state, cfg));
-}
-
-/** What GCN Deals pays *each* owned club each week at the current level. Also
- * multiplied by the Director of Global Commerce — it is the other half of the
- * network's passive income, and the two must scale together or the seat quietly
- * becomes a reason to prefer one Operations track over the other. */
-export function gcnDealsWeekly(state: GameState, cfg: TuningConfig, level?: number): number {
-  const raw = weeklyTrackAt(
-    level ?? gcnLevelOf(state, "gcnDeals"),
-    cfg.gcnDealsBase,
-    cfg.gcnDealsPerLevel
-  );
-  return Math.round(raw * globalCommerceMult(state, cfg));
-}
+// The two weekly-income tracks (Brand Deals, GCN Deals) were deleted in v1.99 —
+// see `GcnFacility` in types.ts. The Director of Global Commerce's multiplier
+// still exists and still has work: it scales an owned sim club's own income
+// (`gcnSimBooks`), which is a return on running clubs rather than on pressing
+// Upgrade, and is the shape the seat was always described as having.
 
 /** True when the network is at its owned-club cap and can't take on another. */
 export function atGroupClubsCap(state: GameState, cfg: TuningConfig): boolean {
@@ -1026,14 +986,14 @@ export function gcnEmpire(state: GameState, cfg: TuningConfig): GcnEmpire {
     }
   }
 
-  // The treasury's own week (v1.95): Brand Deals in, everything the network is
-  // committed to out. It must name the SAME four outflows `gcnWeeklyTick` debits
-  // or the Headquarters dashboard reports a solvency the simulation doesn't
-  // honour — which was the whole point of `gcnSimBooks` in v1.88, one function
-  // behind both the banking and the panel.
+  // The treasury's own week (v1.95): everything the network is committed to,
+  // out. It must name the SAME four outflows `gcnWeeklyTick` debits or the
+  // Headquarters dashboard reports a solvency the simulation doesn't honour —
+  // which was the whole point of `gcnSimBooks` in v1.88, one function behind
+  // both the banking and the panel. Since v1.99 there is no inflow term: the
+  // treasury is filled by deposits and by selling clubs, not by a weekly track.
   const treasuryNet =
-    brandDealsWeekly(state, cfg) -
-    totalAutoFunding(state) -
+    -totalAutoFunding(state) -
     execWageBill(state) -
     hubUpkeepWeekly(state, cfg) -
     hubWageBill(state, cfg);
@@ -1105,11 +1065,12 @@ export function gcnClubFinance(state: GameState, clubId: string, cfg: TuningConf
   const club = state.teams[clubId];
   if (!club) return null;
   const w = weeklyBreakdown(state, clubId, cfg);
-  // What the network itself sends this club each week: the GCN Deals track plus
-  // any standing order. A ring-fenced club draws neither — it takes the central
-  // solidarity payment instead, the same one every AI club gets.
+  // What the network itself sends this club each week: since v1.99, a standing
+  // order and nothing else — the GCN Deals track that used to top every owned
+  // club up automatically is gone. A ring-fenced club draws neither; it takes
+  // the central solidarity payment instead, the same one every AI club gets.
   const fenced = !!club.gcnRingFenced;
-  const networkIncome = fenced ? 0 : gcnDealsWeekly(state, cfg) + autoFundingOf(state, clubId);
+  const networkIncome = fenced ? 0 : autoFundingOf(state, clubId);
   // A club in a PLAYABLE league itemises the ordinary weekly lines. A sim-league
   // club can't — it has no fixture table to rank for a position bonus and no
   // facilities to bill — so since v1.88 it books ONE abstracted trading figure

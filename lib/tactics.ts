@@ -18,6 +18,7 @@
 import type { AttrKey } from "./config/attributes";
 import type { GameState, PlayerBio, SavedTactic, Tactic, TeamAssignments } from "./types";
 import { getFormation, styleLabel } from "./config/formations";
+import { benchCap } from "./selection";
 import { TUNING } from "./config/tuning";
 import { uid } from "./rng";
 
@@ -100,6 +101,57 @@ export function saveTactic(state: GameState, rawName: string): string | null {
   return null;
 }
 
+/**
+ * Save a DESIGNED tactic — the Tactic Creator's output (v1.99).
+ *
+ * The sibling of `saveTactic` above, and the difference is what it captures.
+ * `saveTactic` snapshots the side as it stands: the instructions plus the exact
+ * XI and bench. This one saves a PLAN — a formation, a style, the dials and a
+ * per-slot role brief — with no players named at all.
+ *
+ * That distinction is the whole point of the Creator. A designed tactic is
+ * something you build before you own the squad for it: "this is the 4-3-3 I am
+ * trying to assemble". Naming today's XI inside it would freeze a shopping list
+ * to the players who happen to be at the club this week, and loading it a season
+ * later would drag eleven stale ids back onto the pitch.
+ *
+ * `loadSavedTactic` already handles an empty lineup correctly — every slot is
+ * simply reported as unfilled — so nothing downstream needs to know which of the
+ * two kinds it is holding.
+ */
+export function saveDesignedTactic(
+  state: GameState,
+  rawName: string,
+  tactic: Tactic
+): string | null {
+  const name = rawName.trim();
+  if (!name) return "Give the tactic a name.";
+  if (name.length > 32) return "That name is too long — 32 characters at most.";
+
+  const list = (state.savedTactics ??= []);
+  const existing = list.findIndex((t) => t.name.toLowerCase() === name.toLowerCase());
+  if (existing === -1 && list.length >= MAX_SAVED_TACTICS) {
+    return `You can keep ${MAX_SAVED_TACTICS} saved tactics — delete one to make room.`;
+  }
+
+  const preset: SavedTactic = {
+    id: existing === -1 ? uid("tac") : list[existing].id,
+    name,
+    // Deep-copied for the same reason `saveTactic` copies: a preset is a
+    // snapshot, and a later edit in the Creator must not rewrite it. The role
+    // brief is copied too, or the two would share one object.
+    tactic: { ...tactic, roles: tactic.roles ? { ...tactic.roles } : undefined },
+    lineup: {},
+    bench: [],
+    season: state.season,
+    day: state.currentDay,
+  };
+
+  if (existing === -1) list.unshift(preset);
+  else list[existing] = preset;
+  return null;
+}
+
 export function deleteSavedTactic(state: GameState, id: string) {
   state.savedTactics = savedTactics(state).filter((t) => t.id !== id);
 }
@@ -166,7 +218,7 @@ export function loadSavedTactic(state: GameState, id: string): LoadTacticResult 
   }
   state.lineup = lineup;
 
-  const cap = TUNING.matchdaySquad - 11;
+  const cap = benchCap(TUNING);
   const bench: string[] = [];
   let missingSubs = 0;
   for (const pid of preset.bench) {

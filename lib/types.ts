@@ -44,6 +44,18 @@ export type DefLine = "Deep" | "Standard" | "High";
  * flank, applied to left and right together. */
 export type Focus = "Left" | "Central" | "Right" | "Wide" | "Mixed";
 
+/**
+ * Per-slot role brief (v1.99) — formation slot id → archetype id.
+ *
+ * What the Tactic Creator authors: the KIND of player the manager wants in each
+ * position. Sparse by design — an unbriefed slot is the normal case and costs
+ * nothing. Keyed by slot id rather than by position because two centre backs
+ * are two different jobs, which is the whole reason the feature exists.
+ *
+ * See lib/tacticbrief.ts for what a brief is worth; nothing else decides.
+ */
+export type RoleBrief = Record<string, string>;
+
 export interface Tactic {
   formationId: string;
   mentality: Mentality;
@@ -53,6 +65,10 @@ export interface Tactic {
   press?: Press;
   line?: DefLine;
   focus?: Focus;
+  /** The Tactic Creator's per-slot role brief (v1.99). Absent on every tactic
+   * that never used the Creator, and the engine returns exactly 1 for an absent
+   * brief — so an old save computes precisely what it always did. */
+  roles?: RoleBrief;
 }
 
 /**
@@ -1956,6 +1972,37 @@ export interface GcnHub {
   /** How many batches this hub has filed, stamped onto reports so a hub's finds
    * stay distinguishable as they accumulate. */
   reportsFiled?: number;
+  /**
+   * Scouting paused (v1.99). A paused hub files nothing — no batch is generated
+   * and `nextReportDay` stops advancing — but it keeps its level, its prospects
+   * and its upkeep. It is the reversible half of what closing a hub used to be
+   * the only version of: "stop the reports coming" and "demolish the building"
+   * are different decisions and only the second is irreversible.
+   */
+  paused?: boolean;
+  /**
+   * The brief (v1.99): what this hub looks for. Every field is optional and an
+   * absent one means "no preference" — a hub with no brief behaves exactly as
+   * it did before this existed, which is what keeps a pre-v1.99 save unchanged.
+   *
+   * A focus is a BIAS, not a filter (`gcnHubFocusHitChance`): a hub told to look
+   * for Brazilian centre-backs still turns up the odd winger, because a scouting
+   * network reports what it finds and a hard filter would make the brief a
+   * player-generator rather than an instruction.
+   */
+  focus?: GcnHubFocus;
+}
+
+/** A hub's standing instruction (v1.99). Stored on the hub, read only by
+ * `generateHubProspect` — nothing else in the engine consults it. */
+export interface GcnHubFocus {
+  /** Nationality code, and it must be one of the hub region's own `nats`. */
+  nat?: string;
+  pos?: Pos;
+  /** An `Archetype` id. The brief steers the prospect's TRAINING PLAN, which is
+   * what worldgen shapes an attribute line from — so a focused find genuinely
+   * reads as that archetype rather than being labelled one. */
+  archetype?: string;
 }
 
 /** A GCN Operations upgrade track (v34). Table-driven like TrainingFacility —
@@ -1968,9 +2015,16 @@ export interface GcnHub {
  * can hold. `ops` is a partial record, so a pre-v1.62 save's dead keys are
  * simply ignored.
  *
- * v1.63 added the two revenue tracks: `brandDeals` pays the treasury weekly,
- * `gcnDeals` pays every owned club's own budget weekly. */
-export type GcnFacility = "groupClubs" | "brandDeals" | "gcnDeals";
+ * v1.63 added two revenue tracks (`brandDeals`, `gcnDeals`); **v1.99 removed
+ * them both**. They were passive weekly income bought by the level — the exact
+ * shape v1.79 and v1.82 exist to delete on the club side — and between them they
+ * meant the network's money problem was solved by pressing Upgrade rather than
+ * by running clubs and hubs well. What remains is the one track that gates the
+ * thing the network is actually about: how many clubs it can hold.
+ *
+ * `ops` is a partial record, so a pre-v1.99 save's two dead keys are simply
+ * ignored, exactly as v1.62's four were. No refund, no conversion. */
+export type GcnFacility = "groupClubs";
 
 /** One expiring deal awaiting the manager's call at the end of a season (v1.51). */
 export interface ExpiringContract {
