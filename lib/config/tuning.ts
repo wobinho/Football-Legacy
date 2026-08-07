@@ -1355,8 +1355,12 @@ export interface TuningConfig {
 
   // Prospect generation. The annual intake day these were written for is gone
   // (v1.89) — what remains reads them is `seedInitialAcademy`, the starting crop
-  // a new save needs to register a legal U21 seven. The class-size pair is dead
-  // weight kept only so an old save's tuning still parses.
+  // a new save opens with. The class-size pair is dead weight kept only so an
+  // old save's tuning still parses.
+  /** Prospects a new save's academy opens with (v2.1). Was `u21RegistrationSize
+   * + 2` — a legal U21 seven plus cover — and is stated directly now that the
+   * competition it was sized for is gone. */
+  academySeedSize: number;
   intakeClassBase: number; // dead since v1.89 (was: class size at level 0)
   intakeClassPerLevel: number; // dead since v1.89
   intakeAgeMin: number;
@@ -1387,12 +1391,16 @@ export interface TuningConfig {
   starScaleMax: number; // bottom of the 5★ band — a full five stars means "this or better"
   starScalePerHalf: number; // potential points per half-star step
 
-  // U21 league (12 teams, double round-robin, statistical)
+  // Youth minutes + focus prospects. The U21 league these were named for is
+  // gone (v2.1, pending a rework); the names are kept because renaming a tuning
+  // key is churn that reaches every save, and what they DO is unchanged — a
+  // youth minute is still worth less than a senior one (it now only ever weights
+  // LOAN minutes), and a focus prospect still gets the coaching staff's
+  // attention.
   u21MinutesWeight: number; // youth minute worth vs a senior minute (development)
   u21FocusBase: number; // focus slots with no Youth Academy built (v1.82)
   u21FocusMax: number; // absolute cap on focus slots, whatever the facility says
   u21FocusGrowthBonus: number; // extra growth multiplier for focus prospects
-  u21SquadGrowthBonus: number; // extra growth multiplier for players tagged into the U21 squad
   /**
    * ── The academy is a better place to be YOUNG (v1.93) ──
    *
@@ -1492,33 +1500,6 @@ export interface TuningConfig {
    * rivals has none — the word has to keep meaning something, and the payouts
    * are large enough that an uncapped list would become the main income line. */
   rivalryMaxActive: number;
-  u21GoalsPerMatch: number; // youth football is looser than the senior game
-  u21OppStrengthBase: number; // opponent strength = base + rep * perRep (+noise)
-  u21OppStrengthPerRep: number;
-  u21CoachStrengthPerStar: number; // youth-coach bonus to user U21 strength
-
-  // U21 competitions (v18): two runnings a season, each a 22-round double
-  // round-robin, each opened by a registration window the user must meet.
-  u21CompetitionsPerSeason: number;
-  u21RoundsPerCompetition: number;
-  u21FirstKickoffDays: number; // days after the senior season starts that competition 1 begins
-  u21RegistrationLeadDays: number; // registration opens this many days before kickoff
-  u21RoundIntervalDays: number; // days between U21 rounds
-  u21RegistrationSize: number; // players a club registers per competition
-
-  // Rival prospect trading (v18). Each U21 side rolls a stance on selling the
-  // seven it registered; the stance sets the multiplier on the asking price.
-  u21SellStanceWeights: { willing: number; premium: number; unwilling: number };
-  u21SellPricePremiumMult: number; // "sell it high" asking-price multiplier
-  u21SellPriceWillingMult: number; // an ordinary, fair-value ask
-  /** Extra multiplier applied on top of the stance, per prospect tier — a club
-   * does not let its obsidian or legacy kid go at the going rate. A tier absent
-   * from the table asks no premium (multiplier 1). */
-  u21SellTierMult: Partial<Record<ProspectTier, number>>;
-  /** Chance a "willing"/"premium" club refuses outright anyway, rolled per
-   * approach — even a seller has kids it will not part with. */
-  u21SellRefusalChance: number;
-
   // Youth scouting (set a focus, reports arrive)
   scoutReportDaysBase: number; // days between reports at 1 star
   scoutReportDaysPerStar: number; // days shaved per star
@@ -1673,15 +1654,6 @@ export interface TuningConfig {
   /** Cap on the per-appearance loan bonus, so a full season of games doesn't run
    * the multiplier away. */
   academyLoanGrowthPerAppCap: number;
-  /** Playing in the U21 league is a development boost in its own right. */
-  academyU21GrowthBonus: number;
-  /** …lifted when the user's U21 side finishes well — extra growth scaled by how
-   * high up the table they placed (1st = full bonus, mid-table = none). */
-  academyU21TeamPerfBonus: number;
-  /** …and lifted again for a prospect who personally starred: scaled by how far
-   * his average U21 rating cleared this pivot. */
-  academyU21RatingPivot: number;
-  academyU21RatingBonus: number;
 
   // ── Player regen (v1.55) ──
   // When a genuinely good player retires, a fresh teenager is generated to carry
@@ -3080,6 +3052,10 @@ export const TUNING: TuningConfig = {
   // better deal, small enough that clearing an academy place isn't a punishment.
   quickSellShareOfBestOffer: 0.8,
 
+  // 9 — a legal U21 seven plus two spare, which is what this was before v2.1
+  // deleted the competition it was sized against. Kept at the same number: the
+  // crop was a reasonable academy to start with independently of why.
+  academySeedSize: 9,
   intakeClassBase: 3,
   intakeClassPerLevel: 0.5,
   // v1.90: the academy intake band is 13–17, matching `prospectOverallByAge`.
@@ -3124,9 +3100,8 @@ export const TUNING: TuningConfig = {
   u21FocusBase: 3,
   u21FocusMax: 15,
   u21FocusGrowthBonus: 0.1,
-  u21SquadGrowthBonus: 0.06,
   // +25% at 16 and below, decaying to 0 at academyMaxAge (21). Sized against
-  // the levers beside it: bigger than focus (+10%) or U21 selection (+6%),
+  // the lever beside it: bigger than focus (+10%),
   // because it is the one that should decide whether a prospect is in the
   // academy at all, and small enough that senior minutes — worth up to a 0.35 →
   // 1.0 swing on the whole growth stack in `developPlayer` — still beat it for
@@ -3157,33 +3132,6 @@ export const TUNING: TuningConfig = {
   rivalryOfferLeadDays: 7,
   rivalryDormantSeasons: 3,
   rivalryMaxActive: 4,
-  u21GoalsPerMatch: 3.2,
-  u21OppStrengthBase: 26,
-  u21OppStrengthPerRep: 0.34,
-  u21CoachStrengthPerStar: 0.8,
-
-  u21CompetitionsPerSeason: 2,
-  u21RoundsPerCompetition: 22,
-  u21FirstKickoffDays: 30, // a month after the senior season gets going
-  u21RegistrationLeadDays: 14,
-  u21RoundIntervalDays: 7,
-  u21RegistrationSize: 7,
-
-  // Most clubs will deal for the right money; a third want a premium; a quarter
-  // simply aren't selling. Elite prospects then multiply on top of that, which
-  // is what makes an obsidian or legacy kid harder to prise away.
-  //
-  // v1.68 — the two multipliers COMPOUND, which nobody had priced: a legacy kid at
-  // a premium club asked 2.6 × 5.0 = 13× his valuation, and even a willing seller
-  // wanted 6.75×. A rival's prospect is worth a premium, not a fantasy, so the
-  // stance is now a modest markup and the tier ladder tops out at 1.6× — the worst
-  // case a manager can be quoted is ~2.9× value instead of 13×.
-  u21SellStanceWeights: { willing: 42, premium: 33, unwilling: 25 },
-  u21SellPricePremiumMult: 1.8,
-  u21SellPriceWillingMult: 1.15,
-  u21SellTierMult: { diamond: 1.2, obsidian: 1.4, legacy: 1.6, platinum: 1.2 },
-  u21SellRefusalChance: 0.12,
-
   scoutReportDaysBase: 40,
   scoutReportDaysPerStar: 5,
   // Must comfortably outlast the report cadence (40 − 5×stars, floor 10) or a
@@ -3328,10 +3276,6 @@ export const TUNING: TuningConfig = {
   academyLoanGrowthBonus: 0.06, // +6% for a developmental season out on loan
   academyLoanGrowthPerApp: 0.005, // +0.5% per loan appearance made
   academyLoanGrowthPerAppCap: 0.12, // …up to +12% from appearances alone
-  academyU21GrowthBonus: 0.1, // +10% for playing the U21 league
-  academyU21TeamPerfBonus: 0.08, // + up to this again for a top U21 finish
-  academyU21RatingPivot: 7.0, // a U21 average rating above here counts as starring
-  academyU21RatingBonus: 0.1, // + up to this again for a standout U21 campaign
 
   // Player regen (v1.55)
   regenMinPeakOverall: 75,

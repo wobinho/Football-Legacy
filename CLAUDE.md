@@ -29,6 +29,14 @@ design session before changing, `[FUTURE]` must not be built but must not be blo
   only for the user, that the one-off sponsors expire with the fixture and are deterministic,
   dormancy and revival, and that a save with no rivalries computes exactly what it always did
 - `npm run verify:quicksell` — drive a real world into an academy quick sell; asserts the prospect leaves the world and no club receives him
+- `npm run verify:retirement [seasons]` — that a retiree is REMEMBERED and nobody is
+  generated on top of him (v2.0). Simulates the page refresh the id-collision bug needed
+  (serialise → reset the module counter → play), then asserts no generated player reuses an
+  existing id, **no existing player is overwritten in place** (the check that catches it —
+  it compares the person behind each id across seasons, which adding/removing keys cannot
+  see), that retirees keep their career rows and their names, and that no newcomer sits in
+  the user's squad carrying appearances he cannot have earned. `FL_REPRO_BUG=1` skips the
+  fix and the harness fails loudly, which is how it is known to be able to
 - `npm run verify:visual` — club badges and kits (v1.96): that derivation is stable and
   distinct, that a hand-edited spec degrades instead of blanking a crest, that a fresh
   world stores NO specs at all (the claim the whole design rests on — it also prints the
@@ -1011,6 +1019,28 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   opened and re-saved the club. `npm run verify:squadfile` drives the round trip through the
   real `materializePlayer` — that the JSON round-trips and that worldgen can BUILD the club
   are different claims.
+  **A squad file names ONE roster, and has a third destination (v2.0).** `SquadRoster`
+  (`"senior" | "academy"`) replaced an `includeAcademy` flag, because the two are different
+  exports rather than one with an extra: a senior squad is a TEAM, an academy is a PIPELINE
+  of teenagers rated 48 who are only interesting for what they might become, and bolting the
+  second onto the first produced a club seed nothing downstream could separate again. The
+  field is optional, so a pre-v2.0 file reads as `"senior"` and needs no migration.
+  `importSquadFile` is the third destination — signing a file into a world already being
+  played, which is what the format was NOT built for and why a manager who wanted his old
+  academy in his current legacy previously had no route at all. It borrows the player file's
+  three rules wholesale (nothing world-bound travels, every arrival is re-keyed, no history
+  comes with it) and adds two:
+  **A loan does not survive the crossing** — a player out on loan arrives at his parent club,
+  available. That falls out of the format (a `PlayerSeed` has no `loan` field) rather than
+  being enforced, which is exactly why `verify:squadfile` asserts it: the rule is a promise
+  the feature makes, not a line anyone would notice deleting.
+  **The file's own roster decides where it lands**, and the caller may not override it — a
+  14-year-old rated 44 dropped into a first-team squad is not a signing anyone meant to make,
+  and a 31-year-old in the youth roster breaks every age gate the academy owns. The
+  destination's cap is passed IN (the two caps live in different modules), and whatever
+  doesn't fit comes back in `skipped` for the caller to report: silently landing half a squad
+  is the worst outcome this path has. Like a player import it is deliberately not a transfer
+  — no fee, no negotiation, no consent roll, no window.
 - **Ten facilities now, and the level term is no longer the exception (v1.93).** Six
   landed at once: the commercial pair (**Club Income Center**, **Club Expense Center**) and
   four **archetype development centers**, one per class. The `verify:facilities` sanctioned-
@@ -1489,6 +1519,53 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   before this was fixed. Ids are now a pure function of competition, round and the two clubs
   in leg order. **Anything that reaches a seed must be derived, never generated** — if a new
   entity needs an id the engine will read, build it from what the entity IS.
+- **A player id minted during PLAY must not continue worldgen's sequence (v2.0).**
+  `playerCounter` in `worldgen.ts` is MODULE state: it counts from 0 and is reset only by
+  `generateWorld`. That is right for worldgen, which mints every id in one deterministic
+  pass that `verify:sim-parity` hashes. It is wrong for everything after, and the failure
+  is silent and destructive: **loading a save restores thousands of `p1..pN` but leaves the
+  counter at 0**, so the first player generated after a page refresh — a regen, a youth
+  intake, a free-agent replenishment — took `p1`, an id a real player already held.
+  `state.players[id] = newPlayer` then OVERWROTE him in place, and since the club roster,
+  `state.careers`, the honours and the appearance tallies all key on that id, a brand-new
+  teenager inherited a fifteen-year career and a squad place. Reported from play as "two of
+  my players retired, turned into regens, and are already in my club with 50 appearances
+  before the season started" — the retiring player's id was being handed to his successor.
+  `beginLivePlay()` is the switch, called by the store at **every** point a world starts
+  being played (`newGame`, `loadSave`, the `bootstrap` auto-resume, `importFile`); after it,
+  `pid()` returns `uid("p")` instead. `generateWorld` clears it so a new game started after
+  a load still builds byte-identically. The academy and the GCN hub had each already
+  defended themselves with a private `freshId` — the fix generalises that to the source
+  rather than to one caller at a time, which is why the regen and both replenishment passes
+  were still exposed.
+  **Reproducing it needs a JSON round trip AND a counter reset**, which is why no existing
+  harness saw it: a script that calls `generateWorld` in-process leaves the counter sitting
+  safely past every id it just minted, so the collision cannot occur. `verify:retirement`
+  simulates the page refresh (serialise → `resetIdCounterForTest()` → play) and fails
+  loudly without the fix, naming the players being overwritten.
+- **A regen SUCCEEDS a player; he never REPLACES one (v2.0).** `regenFromRetiree` always
+  built a distinct free agent — it was only the id collision above that made the successor
+  and the retiree read as one man. The properties are now structural rather than assumed:
+  a regen is explicitly clubless (`clubId`, `academyClubId`, `contract`, `loan`,
+  `kitNumber` all cleared, so he can never be born into a squad — least of all the user's,
+  where a stranger appearing the week a veteran retired is indistinguishable from that
+  veteran having been transformed) and explicitly historyless (`stats`, `youthStats`,
+  `devLog`, `acquiredSeason` cleared, so nothing of the retiree's record travels). He
+  inherits a PROFILE — position, nationality, frame, training plan, peak ceiling — which is
+  heritage, not identity. The retiree keeps his own career, honours and appearances forever.
+- **A retirement at the user's club is club news, whatever he was rated (v2.0).** The
+  rollover's world-wide "End of an era" line only ever named players rated 78+, so a squad
+  player hanging up his boots left the roster in complete silence and the manager found out
+  by noticing a name missing. `retiredUser` in `gameloop.ts` pushes one inbox item per
+  player — one each rather than a combined list, because each is a squad place that now has
+  to be filled and a shared line buries the second name — quoting the career it is ending
+  via `careerSummary`. Two placement rules: it is captured INSIDE the development loop
+  (retirement nulls `clubId`, so `isUser` is unreadable a few lines later, and the running
+  `p.stats` reset would take the final season's numbers with it), and it passes
+  `includeCurrent: false` because `appendCareerRows` has already banked that season.
+  Retirement also now purges the player from saved tactics, alongside the existing roster
+  filter in `academy.ts` — selling and releasing always did, retirement did not, so a preset
+  went on naming a man who had retired.
 - **Optimise the hot path by caching INPUTS, never by re-associating the arithmetic
   (v1.99).** The calendar advance was ~3.3× slower than it needed to be, and a CPU profile
   put the cost in one place: `deriveArchetype` (five plans × 35 attributes) called from

@@ -62,98 +62,25 @@ export default function HomeScreen() {
 
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-      {/* The wide column is calendar THEN inbox (v1.99). Both belong here — the
-          calendar moved out of the narrow sidebar in v1.97 because a month of
-          seven columns left each day cell barely wide enough for a crest — but
-          the ORDER was the wrong way round: the calendar is what the manager
-          acts on (it is the only place he can fast-forward from), and the inbox
-          is what he reads. The thing you press was below the thing you scroll,
-          so a full mailbox pushed the Continue-adjacent control off the fold. */}
+      {/* The wide column is the CALENDAR alone (v2.1). It moved out of the
+          narrow sidebar in v1.97 because a month of seven columns left each day
+          cell barely wide enough for a crest, and v1.99 put it above the inbox
+          because it is the thing the manager acts on. The inbox has now moved
+          out of this column entirely — see the sidebar below. */}
       <div className="space-y-6 xl:col-span-2">
         <Section title="Calendar">
           <Calendar />
         </Section>
-
-        <Section
-          title="Inbox"
-          right={
-            game.inbox.length > 0 ? (
-              <span className="flex items-center gap-3">
-                {unread > 1 && (
-                  <button onClick={markAllRead} className="text-xs text-faint transition-colors hover:text-dim">
-                    Mark all read ({unread})
-                  </button>
-                )}
-                {confirmClearAll ? (
-                  <span className="flex items-center gap-2 text-xs">
-                    <button
-                      onClick={() => {
-                        deleteAllMail();
-                        setConfirmClearAll(false);
-                        setExpanded(null);
-                      }}
-                      className="text-loss transition-colors hover:text-loss/80"
-                    >
-                      Delete all?
-                    </button>
-                    <button onClick={() => setConfirmClearAll(false)} className="text-faint transition-colors hover:text-dim">
-                      Cancel
-                    </button>
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => setConfirmClearAll(true)}
-                    className="text-xs text-faint transition-colors hover:text-loss"
-                  >
-                    Delete all
-                  </button>
-                )}
-              </span>
-            ) : undefined
-          }
-        >
-          {/* Pre-grouped folders (v1.94), collapsed by default. The mail is
-              filed the moment it arrives rather than piling into one list, so
-              the resting state of this column is four rows and a count — the
-              manager opens the folder they came for. The whole column still
-              scrolls inside itself (v1.67) so the page stays one screen tall. */}
-          <div className="max-h-[calc(100vh-22rem)] min-h-[18rem] space-y-2 overflow-y-auto pr-1">
-            {groups.map((group) => (
-              <InboxFolder
-                key={group.id}
-                group={group}
-                open={openGroups.has(group.id)}
-                onToggle={() => toggleGroup(group.id)}
-                expandedId={expanded}
-                onExpand={(item) => {
-                  const isOpen = expanded === item.id;
-                  setExpanded(isOpen ? null : item.id);
-                  if (!isOpen && !item.read) markRead(item.id);
-                }}
-                onDelete={(item) => {
-                  if (expanded === item.id) setExpanded(null);
-                  deleteMail(item.id);
-                }}
-                onMarkGroupRead={() => markGroupReadAction(group.id)}
-                onClearGroup={() => {
-                  setExpanded(null);
-                  deleteGroupMail(group.id);
-                }}
-                hasPendingOffer={(item) =>
-                  !!item.offerId && game.offers.find((o) => o.id === item.offerId)?.status === "pending"
-                }
-                onRespond={() => setScreen("transfers")}
-              />
-            ))}
-            {game.inbox.length === 0 && (
-              <div className="px-1 pt-1 text-center text-xs text-faint">
-                Hit <span className="display text-gold">CONTINUE ▸</span> to start the season.
-              </div>
-            )}
-          </div>
-        </Section>
       </div>
 
+      {/* The sidebar is fixture → table → INBOX (v2.1). "Around the League"
+          used to end this column: eight lines of `game.news`, a feed with no
+          filtering and nothing to click, saying things the inbox already files
+          properly and the record book keeps permanently. It is deleted, and the
+          inbox takes the slot — which also gives the wide column back to the
+          calendar alone. The mail is grouped into collapsed folders (v1.94), so
+          its resting state is a handful of rows and it fits a narrow column at
+          rest far better than a month grid ever did. */}
       <div className="space-y-6">
         <Section title="Next Fixture">
           {next ? (
@@ -222,16 +149,87 @@ export default function HomeScreen() {
           </button>
         </Section>
 
-        <Section title="Around the League">
-          <ul className="space-y-1.5">
-            {game.news.slice(0, 8).map((n, i) => (
-              <li key={i} className="text-[13px] leading-snug text-dim">
-                <span className="gold-text mr-1.5">·</span>
-                {n}
-              </li>
+        <Section
+          title="Inbox"
+          right={
+            game.inbox.length > 0 ? (
+              <span className="flex items-center gap-3">
+                {unread > 1 && (
+                  <button onClick={markAllRead} className="text-xs text-faint transition-colors hover:text-dim">
+                    Mark all read ({unread})
+                  </button>
+                )}
+                {confirmClearAll ? (
+                  <span className="flex items-center gap-2 text-xs">
+                    <button
+                      onClick={() => {
+                        deleteAllMail();
+                        setConfirmClearAll(false);
+                        setExpanded(null);
+                      }}
+                      className="text-loss transition-colors hover:text-loss/80"
+                    >
+                      Delete all?
+                    </button>
+                    <button onClick={() => setConfirmClearAll(false)} className="text-faint transition-colors hover:text-dim">
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setConfirmClearAll(true)}
+                    className="text-xs text-faint transition-colors hover:text-loss"
+                  >
+                    Delete all
+                  </button>
+                )}
+              </span>
+            ) : undefined
+          }
+        >
+          {/* Pre-grouped folders (v1.94), collapsed by default. The mail is
+              filed the moment it arrives rather than piling into one list, so
+              the resting state is four rows and a count — the manager opens the
+              folder they came for, which is what lets the inbox live in the
+              narrow column at all (v2.1). It still scrolls inside itself
+              (v1.67); the cap is a fixed height rather than the old viewport
+              expression, since in a sidebar it no longer sets the page's own
+              height and `min-h` would reserve empty space under a quiet
+              mailbox. */}
+          <div className="max-h-[36rem] space-y-2 overflow-y-auto pr-1">
+            {groups.map((group) => (
+              <InboxFolder
+                key={group.id}
+                group={group}
+                open={openGroups.has(group.id)}
+                onToggle={() => toggleGroup(group.id)}
+                expandedId={expanded}
+                onExpand={(item) => {
+                  const isOpen = expanded === item.id;
+                  setExpanded(isOpen ? null : item.id);
+                  if (!isOpen && !item.read) markRead(item.id);
+                }}
+                onDelete={(item) => {
+                  if (expanded === item.id) setExpanded(null);
+                  deleteMail(item.id);
+                }}
+                onMarkGroupRead={() => markGroupReadAction(group.id)}
+                onClearGroup={() => {
+                  setExpanded(null);
+                  deleteGroupMail(group.id);
+                }}
+                hasPendingOffer={(item) =>
+                  !!item.offerId && game.offers.find((o) => o.id === item.offerId)?.status === "pending"
+                }
+                onRespond={() => setScreen("transfers")}
+              />
             ))}
-            {game.news.length === 0 && <li className="text-sm text-faint">No headlines yet.</li>}
-          </ul>
+            {game.inbox.length === 0 && (
+              <div className="px-1 pt-1 text-center text-xs text-faint">
+                Hit <span className="display text-gold">CONTINUE ▸</span> to start the season.
+              </div>
+            )}
+          </div>
         </Section>
       </div>
     </div>

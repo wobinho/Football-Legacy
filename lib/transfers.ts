@@ -162,7 +162,6 @@ export function completeTransfer(
   // leaving the club ends any academy involvement (§18)
   p.loan = undefined;
   state.academy.focusIds = state.academy.focusIds.filter((id) => id !== playerId);
-  state.academy.u21Squad = (state.academy.u21Squad ?? []).filter((id) => id !== playerId);
   state.academy.loanList = state.academy.loanList.filter((id) => id !== playerId);
   if (toClubId) {
     const to = state.teams[toClubId];
@@ -1492,13 +1491,7 @@ export function sellToClub(
   if (!p || p.clubId !== state.userTeamId) return "Not your player.";
   if (signedThisSeason(state, p)) return "Signed this season — he can't be sold until next season.";
   if (p.loan) return "Recall him from his loan spell first.";
-  // An academy prospect can be sold like anyone else (v1.71), with one exception:
-  // a prospect registered for the U21 competition is locked to that squad for its
-  // duration, exactly as he is for promotion and loans. Same rule, same reason —
-  // he can no longer be replaced in a submitted squad.
-  if ((state.academy?.u21?.registered ?? []).includes(playerId)) {
-    return "Registered for the U21 competition — he can't be sold until the next registration window.";
-  }
+  // An academy prospect can be sold like anyone else (v1.71).
   if (!windowOpen(state)) return "The transfer window is closed.";
   const buyer = state.teams[clubId];
   if (!buyer) return "That club no longer exists.";

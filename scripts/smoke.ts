@@ -107,16 +107,10 @@ const academyKids = (user.academyPlayerIds ?? []).map((id) => state.players[id])
 console.log(`\n── Academy ──`);
 console.log(`academy squad: ${academyKids.length} (ages ${academyKids.length ? academyKids.map((p) => p.age).join(",") : "—"})`);
 console.log(`last intake: season ${academy.lastIntake?.season ?? "—"}, class of ${academy.lastIntake?.playerIds.length ?? 0}${academy.lastIntake?.golden ? " (GOLDEN)" : ""}`);
-// The U21 pair is rebuilt at rollover, so at season end `u21` is next season's
-// opening competition — report the shape rather than a meaningless 0/22.
-console.log(
-  `U21: ${TUNING.u21CompetitionsPerSeason} competitions/season x ${academy.u21.matchDays.length} rounds, ` +
-    `next kicks off day ${academy.u21.matchDays[0]} (register by ${academy.u21.registrationDay})`
-);
-const u21Registered = (academy.u21.registered ?? []).length;
-console.log(`U21 registration: ${u21Registered}/${TUNING.u21RegistrationSize} submitted for the coming competition`);
-const rivalProspects = academy.u21.opponents.reduce((n, o) => n + (o.prospectIds?.length ?? 0), 0);
-console.log(`rival U21 prospects on file: ${rivalProspects} across ${academy.u21.opponents.length} sides`);
+// The U21 league is gone (v2.1) — a prospect's only route to competitive
+// minutes is a loan now, so that is what is worth reporting here.
+const onLoan = academyKids.filter((p) => p.loan).length;
+console.log(`out on loan: ${onLoan} of ${academyKids.length}`);
 const overAge = academyKids.filter((p) => p.age > TUNING.academyMaxAge);
 if (overAge.length) console.error(`!! age-out failed: ${overAge.map((p) => `${p.name} (${p.age})`).join(", ")}`);
 const graduates = Object.values(state.players).filter((p) => p.academyClubId === state.userTeamId);
@@ -214,7 +208,7 @@ console.log(`inbox items: ${state.inbox.length}, careers tracked: ${Object.keys(
 // raised him — `academyClubId` is never rewritten by a transfer.
 const sellable = (state.teams[state.userTeamId].academyPlayerIds ?? [])
   .map((id) => state.players[id])
-  .filter((p) => p && !p.loan && !(state.academy.u21.registered ?? []).includes(p.id))
+  .filter((p) => p && !p.loan)
   .sort((a, b) => b.overall - a.overall);
 const forSale = sellable.find((p) => saleSuitors(state, p.id, TUNING).length > 0);
 console.log(`\n── Academy sale ──`);

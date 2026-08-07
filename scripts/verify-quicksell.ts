@@ -97,8 +97,6 @@ check("the world holds exactly one fewer player", Object.keys(state.players).len
 check("off the academy list", !(team.academyPlayerIds ?? []).includes(target));
 check("off the senior list", !team.playerIds.includes(target));
 check("off the focus list", !state.academy.focusIds.includes(target));
-check("off the U21 squad", !(state.academy.u21Squad ?? []).includes(target));
-check("off the U21 registration", !(state.academy.u21.registered ?? []).includes(target));
 check("off the loan list", !state.academy.loanList.includes(target));
 check("out of the lineup", !Object.values(state.lineup ?? {}).includes(target));
 

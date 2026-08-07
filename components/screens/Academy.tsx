@@ -1,54 +1,32 @@
 "use client";
 
 // Academy (§18, 9th screen): the youth pillar. Academy squad with fog-of-war
-// potential, the background U21 league, the scouting pipeline, and loans —
-// all the "grow your own" decisions in one place.
+// potential, the scouting pipeline, and loans — all the "grow your own"
+// decisions in one place.
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useGame } from "@/store/gameStore";
-import type { Pos, PlayerBio, ProspectReport, ProspectTier, ScoutPosGroup, ScoutRegion, U21Opponent } from "@/lib/types";
+import type { Pos, PlayerBio, ProspectReport, ScoutPosGroup, ScoutRegion } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
-import { ARCHETYPE_MAP, archetypesForPositions, positionsOfArchetype } from "@/lib/config/archetype";
+import { ARCHETYPE_MAP } from "@/lib/config/archetype";
 import {
   academyGrowthSummary,
   academyPlayers,
   prospectGrowth,
-  isAcademyLoanee,
   type ProspectGrowth,
-  loanedOutPlayers,
   focusSlots,
   pendingGraduates,
   potentialView,
   reportCadence,
   describeFilter,
   filterIsActive,
-  filterPassRate,
-  normalizeFilter,
   prospectSignFee,
   quickSellQuote,
   scoutCapacity,
-  scoutFilterUnlocked,
-  u21Eligible,
-  u21OpponentByName,
-  u21OpponentProspects,
-  u21ProspectQuote,
-  u21RegistrationDaysLeft,
-  u21RegistrationOpen,
-  u21Registered,
-  u21Shortfall,
-  U21_SIDE_SIZE,
-  U21_MIN_GK,
-  U21_MIN_OUTFIELD,
 } from "@/lib/academy";
 import { POS_GROUP_COLORS, POS_LABELS, POS_ORDER, posGroup } from "@/lib/config/positions";
 import { academySquadCap } from "@/lib/economy";
-import { optimalTrainingPlan, resolveTrainingPlan, type TrainingPlanDef } from "@/lib/config/training";
-// The plan picker, its status dot and its attribute chips are the senior
-// Training Plans implementation (v1.74) — prospects set the same 45 plans, so
-// there is one control rather than two that drift.
-import { PlanStatus, PlanTargets, planOptions } from "./Development";
-import { devPhase, seasonFamilyFocus, seasonGrowth, seasonGrowthEstimate } from "@/lib/development";
-import { ATTR_FAMILY_LABELS, ATTR_FAMILY_ORDER, GK_FAMILY_LABELS } from "@/lib/config/attributes";
+import { seasonGrowth } from "@/lib/development";
 import { SCOUT_WORLD, locateTarget, scoutRegion } from "@/lib/config/scouting";
 import {
   expectedReportSize,
@@ -61,11 +39,10 @@ import {
   TIER_LABEL,
   TRAVEL_BAND_LABEL,
 } from "@/lib/scouts";
-import { transferWindowState, formatDayShort } from "@/lib/calendar";
+import { transferWindowState } from "@/lib/calendar";
 import { formatMoney } from "@/lib/value";
 import { matchesPlayerName } from "@/lib/search";
-import { eliteResistRelief, growthMultiplier } from "@/lib/facilities";
-import { Card, ConfirmButton, CountryFlag, Crest, displayFullName, Flag, GhostButton, GoldButton, Modal, Ovr, ArchetypeLabel, PlayerCard, PlayerGrid, PosBadge, PotentialBadge, Section, Select, Stars, StarRange, Tabs, usePlayerView, ViewToggle } from "../ui";
+import { Card, ConfirmButton, displayFullName, Flag, GhostButton, GoldButton, Modal, Ovr, ArchetypeLabel, PlayerCard, PlayerGrid, PosBadge, PotentialBadge, Section, Stars, StarRange, Tabs, usePlayerView, ViewToggle } from "../ui";
 // The loan and sale choosers are shared with the senior squad (v1.52, v1.71) —
 // both squads resolve a move the same way, so the modals live outside this
 // screen and a prospect is sold through exactly the path a senior pro is.
@@ -80,14 +57,20 @@ import { signedThisSeason } from "@/lib/transfers";
 // slots, prospect value, max scouts, report speed and the brief auto-filter —
 // is produced by the Youth Academy and Scouting Network facilities now, so it
 // is bought and read on the Facilities screen like every other building.
-type Tab = "squad" | "development" | "growth" | "loaned" | "u21" | "scouting";
+// v2.1: three tabs gone. **Development** is deleted because a prospect's plan is
+// no longer his manager's to pick — `optimalTrainingPlan` is stamped on him when
+// he joins and re-asserted every rollover, so a screen for choosing one would
+// have been a control that silently reverted every summer. **Loaned Players** is
+// deleted as a TAB only: loaning a prospect out is unchanged, and the squad list
+// tags a loanee and offers his recall in place, which is where the decision
+// already was. **U21 League** is removed outright pending a rework.
+type Tab = "squad" | "growth" | "scouting";
 
 export default function AcademyScreen() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const [tab, setTab] = useState<Tab>("squad");
   const reports = game.academy.reports.filter((r) => r.expiresDay > game.currentDay);
-  const loanedCount = loanedOutPlayers(game).length;
 
   return (
     <div>
@@ -95,19 +78,13 @@ export default function AcademyScreen() {
         tabs={[
           { id: "squad", label: "Academy Squad" },
           { id: "scouting", label: "Scouting", badge: reports.length },
-          { id: "development", label: "Development" },
           { id: "growth", label: "Growth" },
-          { id: "loaned", label: "Loaned Players", badge: loanedCount },
-          { id: "u21", label: "U21 League" },
         ]}
         active={tab}
         onChange={setTab}
       />
       {tab === "squad" && <SquadTab />}
-      {tab === "development" && <AcademyDevelopmentTab />}
       {tab === "growth" && <AcademyGrowthTab />}
-      {tab === "loaned" && <LoanedTab />}
-      {tab === "u21" && <U21Tab />}
       {tab === "scouting" && <ScoutingTab />}
     </div>
   );
@@ -352,7 +329,6 @@ function TierTag({ tier, className = "" }: { tier: PlayerBio["u21Tier"]; classNa
 function statusChips(game: NonNullable<ReturnType<typeof useGame.getState>["game"]>, p: PlayerBio) {
   const chips: { label: string; cls: string }[] = [];
   if (game.academy.focusIds.includes(p.id)) chips.push({ label: "FOCUS", cls: "border-gold-lo/60 text-gold" });
-  if ((game.academy.u21.registered ?? []).includes(p.id)) chips.push({ label: "U21 REG", cls: "border-win/40 text-win" });
   if (p.loan) chips.push({ label: `LOAN · ${game.teams[p.loan.toClubId]?.short ?? "?"}`, cls: "border-win/40 text-win" });
   else if (game.academy.loanList.includes(p.id)) chips.push({ label: "LOAN-LISTED", cls: "border-line text-dim" });
   if (p.age === TUNING.academyMaxAge) chips.push({ label: "FINAL SEASON", cls: "border-loss/40 text-loss" });
@@ -583,8 +559,6 @@ function SquadTab() {
   const team = game.teams[game.userTeamId];
   const seniorRoom = TUNING.squadCap - team.playerIds.length;
   const windowOpen = transferWindowState(game.currentDay, game.schedule).open;
-  // Prospects locked to the U21 competition can't be promoted mid-competition.
-  const u21Registered = new Set(game.academy.u21.registered ?? []);
 
   // Squad filters (v1.45): a position filter, a live name search, and a sort key.
   // Held in local state so the roster below is a filtered+sorted view.
@@ -682,7 +656,6 @@ function SquadTab() {
         {roster.map((p) => {
           const chips = statusChips(game, p);
           const isFocus = game.academy.focusIds.includes(p.id);
-          const registered = u21Registered.has(p.id);
           return (
             <div key={p.id} className={`px-4 py-2.5 md:grid ${SQUAD_GRID} md:items-center md:gap-3`}>
               {/* identity line — md:contents dissolves the wrapper so these
@@ -724,7 +697,6 @@ function SquadTab() {
                 <SquadActions
                   p={p}
                   isFocus={isFocus}
-                  registered={registered}
                   windowOpen={windowOpen}
                   signedLock={signedThisSeason(game, p)}
                   seniorRoom={seniorRoom}
@@ -770,7 +742,6 @@ function SquadTab() {
             {roster.map((p) => {
               const chips = statusChips(game, p);
               const isFocus = game.academy.focusIds.includes(p.id);
-              const registered = u21Registered.has(p.id);
               return (
                 <PlayerCard
                   key={p.id}
@@ -796,7 +767,6 @@ function SquadTab() {
                     <SquadActions
                       p={p}
                       isFocus={isFocus}
-                      registered={registered}
                       windowOpen={windowOpen}
                       signedLock={signedThisSeason(game, p)}
                       seniorRoom={seniorRoom}
@@ -825,7 +795,6 @@ function SquadTab() {
 function SquadActions({
   p,
   isFocus,
-  registered,
   windowOpen,
   signedLock,
   seniorRoom,
@@ -839,7 +808,6 @@ function SquadActions({
 }: {
   p: PlayerBio;
   isFocus: boolean;
-  registered: boolean;
   windowOpen: boolean;
   signedLock: boolean;
   seniorRoom: number;
@@ -851,8 +819,9 @@ function SquadActions({
   onRelease: (id: string) => void;
   onQuickSell: (id: string) => void;
 }) {
-  // Training-plan selection lives on the Academy Development tab now, not in the
-  // per-prospect action cluster, so the squad row stays about squad decisions.
+  // A prospect's training plan is set by the coaching staff (v2.1) — the
+  // Development tab that used to pick it is gone — so the squad row is entirely
+  // about squad decisions.
   //
   // The quick-sell figure is quoted on the button rather than behind a modal:
   // the whole point of the route is that it's one click, and a price you have to
@@ -862,13 +831,13 @@ function SquadActions({
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const quote = quickSellQuote(game, p.id, TUNING);
-  const canQuickSell = windowOpen && !registered && !p.loan && !signedLock && quote.fee > 0;
+  const canQuickSell = windowOpen && !p.loan && !signedLock && quote.fee > 0;
 
   return (
     <>
       <TextBtn
         label={isFocus ? "★ Focus" : "☆ Focus"}
-        title={isFocus ? "Remove focus" : "Make focus prospect (guaranteed U21 starts + coaching)"}
+        title={isFocus ? "Remove focus" : "Make focus prospect (the youth coaches concentrate on him)"}
         active={isFocus}
         onClick={() => onToggleFocus(p.id)}
         disabled={!!p.loan}
@@ -884,49 +853,43 @@ function SquadActions({
         <TextBtn
           label="Send on Loan"
           title={
-            registered
-              ? "Registered for the U21 competition — can't be loaned out until the next window"
-              : windowOpen
-                ? "Find clubs willing to take them on a development loan"
-                : "Loans can only be arranged during a transfer window"
+            windowOpen
+              ? "Find clubs willing to take them on a development loan"
+              : "Loans can only be arranged during a transfer window"
           }
           onClick={() => onLoanClick(p.id)}
-          disabled={!windowOpen || registered}
+          disabled={!windowOpen}
         />
       )}
       <TextBtn
         label="Promote"
         title={
-          registered
-            ? "Registered for the U21 competition — can't be promoted until the next registration window"
-            : p.age < TUNING.academyPromoteMinAge
-              ? `Too young — prospects join the senior squad at ${TUNING.academyPromoteMinAge}`
-              : seniorRoom > 0
-                ? "Promote to the senior (first) team"
-                : "Senior squad is full — sell or release someone first"
+          p.age < TUNING.academyPromoteMinAge
+            ? `Too young — prospects join the senior squad at ${TUNING.academyPromoteMinAge}`
+            : seniorRoom > 0
+              ? "Promote to the senior (first) team"
+              : "Senior squad is full — sell or release someone first"
         }
         onClick={() => onPromote(p.id)}
-        disabled={seniorRoom <= 0 || !!p.loan || p.age < TUNING.academyPromoteMinAge || registered}
+        disabled={seniorRoom <= 0 || !!p.loan || p.age < TUNING.academyPromoteMinAge}
       />
       {/* Sell a prospect straight out of the academy (v1.71). Releasing him gets
           you nothing; a club that actually wants him pays for him. Same chooser
-          the senior squad uses, and the same rules gate it — an open window, no
-          live loan, and not locked into a registered U21 squad. */}
+          the senior squad uses, and the same rules gate it — an open window and
+          no live loan. */}
       <TextBtn
         label="Sell"
         title={
           p.loan
             ? "Recall him from his loan spell first"
-            : registered
-              ? "Registered for the U21 competition — he can't be sold until the next registration window"
-              : signedLock
-                ? "Signed this season — he can't be sold until next season"
-                : windowOpen
-                  ? "See which clubs would buy him and what each would pay"
-                  : "Players can only be sold while a transfer window is open"
+            : signedLock
+              ? "Signed this season — he can't be sold until next season"
+              : windowOpen
+                ? "See which clubs would buy him and what each would pay"
+                : "Players can only be sold while a transfer window is open"
         }
         onClick={() => onSellClick(p.id)}
-        disabled={!windowOpen || registered || !!p.loan || signedLock}
+        disabled={!windowOpen || !!p.loan || signedLock}
       />
       {/* Quick sell (v1.87) — 80% of the best offer, and the prospect leaves the
           world rather than joining the buyer. That's the trade: less money, but
@@ -940,9 +903,7 @@ function SquadActions({
         title={
           p.loan
             ? "Recall him from his loan spell first"
-            : registered
-              ? "Registered for the U21 competition — he can't be sold until the next registration window"
-              : signedLock
+            : signedLock
                 ? "Signed this season — he can't be sold until next season"
                 : !windowOpen
                   ? "Players can only be sold while a transfer window is open"
@@ -995,297 +956,6 @@ function TextBtn({
     >
       {label}
     </button>
-  );
-}
-
-// ── Academy development (v1.46) ─────────────────────────────────────────────
-// The academy's own Training Plans tab: the same per-player development focus
-// the senior squad gets on the Development screen, but scoped to the academy
-// prospects (who were removed from the senior Training Plans tab). Each row
-// expands to show a one-season growth projection, where that growth flows, and
-// the growth history — exactly like the senior tab, so a manager grows a
-// prospect here the same way he grows a first-teamer there.
-
-// Shared grid template for the academy training-plan header + rows. The focus
-// dropdown track narrows on phones so a row still fits a small screen.
-// v1.74: widened in step with the senior Training Plans grid — the plan names
-// are the same length here, so they were truncating for the same reason.
-const ACADEMY_PLAN_GRID = "grid-cols-[2rem_1fr_2rem_2.5rem_9rem] sm:grid-cols-[2.25rem_1fr_2.5rem_3rem_15rem]";
-
-
-function academyDevPhaseChip(phase: "growth" | "prime" | "decline") {
-  const map = {
-    growth: { label: "Growing", cls: "text-win border-win/40" },
-    prime: { label: "Prime", cls: "text-gold border-gold-lo/40" },
-    decline: { label: "Declining", cls: "text-loss border-loss/40" },
-  } as const;
-  const m = map[phase];
-  return <span className={`display rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold ${m.cls}`}>{m.label}</span>;
-}
-
-function AcademyAttrProjection({ p, delta, plan }: { p: PlayerBio; delta: number; plan: TrainingPlanDef }) {
-  // Rolled up to the six card faces, as on the Development screen — the full
-  // 35-attribute sheet is on the prospect's profile.
-  const proj = seasonFamilyFocus(p, delta, plan);
-  const labels = p.positions[0] === "GK" ? GK_FAMILY_LABELS : ATTR_FAMILY_LABELS;
-  return (
-    <div className="space-y-1.5">
-      {ATTR_FAMILY_ORDER.map((f) => {
-        const { now, gain } = proj[f];
-        const next = Math.min(99, now + gain);
-        return (
-          <div key={f} className="flex items-center gap-2 text-xs">
-            <span className="display w-8 text-faint">{labels[f].slice(0, 3).toUpperCase()}</span>
-            <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-line">
-              <div className="absolute inset-y-0 left-0 bg-dim/60" style={{ width: `${now}%` }} />
-              {gain > 0 && (
-                <div className="absolute inset-y-0 gold-grad opacity-70" style={{ left: `${now}%`, width: `${next - now}%` }} />
-              )}
-            </div>
-            <span className="w-14 text-right tnum">
-              {now}
-              {gain > 0 && <span className="text-win"> → {next}</span>}
-            </span>
-          </div>
-        );
-      })}
-      <p className="pt-1 text-[11px] leading-snug text-faint">
-        {delta > 0
-          ? "Where this season's growth is expected to flow — steered by the archetype and the training focus."
-          : "No growth expected this season, so no attribute movement projected."}
-      </p>
-    </div>
-  );
-}
-
-function AcademyDevelopmentTab() {
-  const game = useGame((s) => s.game)!;
-  useGame((s) => s.rev);
-  const setPlan = useGame((s) => s.setTrainingPlan);
-  const viewPlayer = useGame((s) => s.viewPlayer);
-  const [open, setOpen] = useState<string | null>(null);
-  const [view, setView] = usePlayerView("academyDev");
-
-  // The club's facilities multiplier (v1.79) — one number, from one building.
-  const facilityMult = growthMultiplier(game, game.userTeamId);
-  // v1.81: and the HPC's relief. Near-irrelevant for most of an academy, which
-  // is the point — a prospect below the elite band has no penalty to relieve.
-  const eliteRelief = eliteResistRelief(game, game.userTeamId);
-
-  // Academy prospects only, ordered position-first (keepers lead) so the list
-  // reads in team-sheet order — the same default as the senior tab.
-  const squad = academyPlayers(game).sort(
-    (a, b) => (POS_ORDER.indexOf(a.positions[0]) - POS_ORDER.indexOf(b.positions[0])) || a.name.localeCompare(b.name)
-  );
-
-  const suboptimal = squad.filter(
-    (p) => resolveTrainingPlan(p.trainingPlan, p.positions[0]).id !== optimalTrainingPlan(p).id
-  );
-
-  const autoAssignAll = () => {
-    for (const p of suboptimal) setPlan(p.id, optimalTrainingPlan(p).id);
-  };
-
-  return (
-    <div className="space-y-5">
-      <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
-        <div className="min-w-0 flex-1">
-          <div className="display font-semibold text-ink">Optimal training focus</div>
-          <div className="text-[12px] leading-relaxed text-faint">
-            {squad.length === 0 ? (
-              "No academy prospects yet — send a scout out, and sign what they find."
-            ) : suboptimal.length > 0 ? (
-              <>
-                <span className="text-gold">{suboptimal.length}</span> prospect{suboptimal.length === 1 ? " is" : "s are"} on a
-                focus that isn&apos;t the best fit. Auto-assign picks the plan that lifts each prospect&apos;s overall
-                fastest, from their archetype, position and how much room each attribute still has.
-              </>
-            ) : (
-              "Every prospect is already training the focus that suits them best."
-            )}
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-3">
-          <ViewToggle view={view} onChange={setView} />
-          <GoldButton onClick={autoAssignAll} disabled={suboptimal.length === 0} className="!py-1.5 text-xs">
-            AUTO-ASSIGN ALL
-          </GoldButton>
-        </div>
-      </Card>
-
-      {squad.length === 0 ? null : view === "grid" ? (
-        <PlayerGrid>
-          {squad.map((p) => {
-            const plan = resolveTrainingPlan(p.trainingPlan, p.positions[0]);
-            const best = optimalTrainingPlan(p);
-            const isOptimal = plan.id === best.id;
-            const growing = p.age <= TUNING.growthEndAge;
-            const last = p.devLog && p.devLog.length ? p.devLog[p.devLog.length - 1] : null;
-            return (
-              <PlayerCard
-                key={p.id}
-                p={p}
-                onOpen={() => viewPlayer(p.id)}
-                ovr={<Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />}
-                sub={
-                  <span className="flex items-center gap-1.5 truncate">
-                    <TierTag tier={p.u21Tier} />
-                    <span className="truncate">{growing ? "Still developing" : "Reached maturity"}</span>
-                  </span>
-                }
-                stats={
-                  <span className="flex items-center gap-1.5">
-                    <PlanTargets plan={plan} attrs={p.attrs} max={3} />
-                    {last && last.toOverall !== last.fromOverall && (
-                      <span className={`tnum ${last.toOverall > last.fromOverall ? "text-win" : "text-loss"}`}>
-                        {last.toOverall > last.fromOverall ? "+" : ""}
-                        {last.toOverall - last.fromOverall}
-                      </span>
-                    )}
-                  </span>
-                }
-                actions={
-                  <span className="flex w-full items-center gap-1.5">
-                    <PlanStatus optimal={isOptimal} growing={growing} best={best} />
-                    <Select
-                      value={plan.id}
-                      options={planOptions(p.positions[0], p.attrs, best.id)}
-                      onChange={(v) => setPlan(p.id, v)}
-                      className="min-w-0 flex-1"
-                      buttonClassName="!py-1 text-xs"
-                      title={plan.blurb}
-                      ariaLabel={`Training focus for ${p.name}`}
-                    />
-                  </span>
-                }
-              />
-            );
-          })}
-        </PlayerGrid>
-      ) : (
-        <Card className="divide-y divide-line/50">
-          <div className={`grid ${ACADEMY_PLAN_GRID} items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-faint`}>
-            <span>Pos</span>
-            <span>Prospect</span>
-            <span className="text-center">Age</span>
-            <span className="text-center">OVR</span>
-            <span className="text-center">Training focus</span>
-          </div>
-          {squad.map((p) => {
-            const plan = resolveTrainingPlan(p.trainingPlan, p.positions[0]);
-            const best = optimalTrainingPlan(p);
-            const isOptimal = plan.id === best.id;
-            const isOpen = open === p.id;
-            const phase = devPhase(p, TUNING);
-            const season = seasonGrowthEstimate(p, TUNING, facilityMult, plan, eliteRelief);
-            const last = p.devLog && p.devLog.length ? p.devLog[p.devLog.length - 1] : null;
-
-            return (
-              <div key={p.id}>
-                <div className={`grid ${ACADEMY_PLAN_GRID} items-center gap-3 px-4 py-2.5`}>
-                  <PosBadge pos={p.positions[0]} />
-                  <button
-                    onClick={() => setOpen(isOpen ? null : p.id)}
-                    className="group flex min-w-0 items-center gap-2 text-left"
-                  >
-                    <span className={`shrink-0 text-[10px] text-faint transition-transform ${isOpen ? "rotate-90" : ""}`}>▶</span>
-                    <Flag nat={p.nationality} size={12} />
-                    <span className="truncate font-medium transition-colors group-hover:text-gold">{displayFullName(p)}</span>
-                    <TierTag tier={p.u21Tier} />
-                    {last && last.toOverall !== last.fromOverall && (
-                      <span className={`text-[11px] tnum ${last.toOverall > last.fromOverall ? "text-win" : "text-loss"}`}>
-                        {last.toOverall > last.fromOverall ? "+" : ""}{last.toOverall - last.fromOverall} last season
-                      </span>
-                    )}
-                  </button>
-                  <span className="text-center tnum text-sm text-dim">{p.age}</span>
-                  <span className="flex items-center justify-center">
-                    <Ovr value={p.overall} size="sm" growth={seasonGrowth(p)} />
-                  </span>
-                  <span className="flex items-center justify-end gap-1.5">
-                    <PlanStatus optimal={isOptimal} growing={p.age <= TUNING.growthEndAge} best={best} />
-                    <Select
-                      value={plan.id}
-                      options={planOptions(p.positions[0], p.attrs, best.id)}
-                      onChange={(v) => setPlan(p.id, v)}
-                      className="min-w-0 flex-1"
-                      title={plan.blurb}
-                      ariaLabel={`Training focus for ${p.name}`}
-                    />
-                  </span>
-                </div>
-
-                {isOpen && (
-                  <div className="border-t border-line/50 bg-raised px-4 py-4">
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                      <div>
-                        <div className="mb-2 flex items-center gap-2 text-[10px] uppercase tracking-widest text-faint">
-                          This season {academyDevPhaseChip(phase)}
-                        </div>
-                        {season && season.shown > 0 ? (
-                          <div className="space-y-1 text-sm">
-                            <div className="flex items-center justify-between">
-                              <span className="text-faint">Projected OVR</span>
-                              <span className="tnum font-semibold text-win">{p.overall} → {p.overall + season.shown}</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-faint">Est. growth this season</span>
-                              <span className="tnum">≈ +{season.shown}</span>
-                            </div>
-                            <p className="pt-1 text-[11px] leading-snug text-faint">
-                              An estimate for the coming season only, at academy game time with your current youth coach
-                              &amp; facilities. More U21 minutes, a focus slot, or a better-staffed Elite Training Center
-                              all lift it — the Youth Academy buys room and reputation, not development.
-                            </p>
-                          </div>
-                        ) : (
-                          <p className="text-sm text-faint">
-                            {phase === "decline"
-                              ? "Past their peak — unusual for a prospect, but the focus now is managing minutes."
-                              : "Settled — little growth expected this season."}
-                          </p>
-                        )}
-                      </div>
-
-                      <div>
-                        <div className="mb-2 text-[10px] uppercase tracking-widest text-faint">
-                          This season&apos;s attribute focus
-                        </div>
-                        <AcademyAttrProjection p={p} delta={season?.delta ?? 0} plan={plan} />
-                      </div>
-
-                      <div>
-                        <div className="mb-2 text-[10px] uppercase tracking-widest text-faint">Growth history</div>
-                        {p.devLog && p.devLog.length > 0 ? (
-                          <div className="flex flex-wrap gap-2">
-                            {p.devLog.slice().reverse().map((d, i) => {
-                              const delta = d.toOverall - d.fromOverall;
-                              return (
-                                <span key={i} className="rounded-sm border border-line bg-surface px-2 py-1 text-[11px] tnum">
-                                  S{d.season}: {d.fromOverall}
-                                  <span className={delta >= 0 ? "text-win" : "text-loss"}> → {d.toOverall}</span>
-                                </span>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-faint">No seasons on record yet.</p>
-                        )}
-                        <div className="mt-3">
-                          <GhostButton onClick={() => viewPlayer(p.id)} className="!py-1 text-xs">
-                            Full profile
-                          </GhostButton>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </Card>
-      )}
-    </div>
   );
 }
 
@@ -1504,493 +1174,6 @@ function AcademyGrowthTab() {
   );
 }
 
-// ── Loaned players ─────────────────────────────────────────────────────────
-
-/** The Loaned Players tab (v1.44; academy-only from v1.54): a monitor for the
- * ACADEMY prospects the club has out on loan. Senior pros on loan are managed
- * from the Squad page (tagged "on loan", recalled from their profile), so they
- * no longer appear here. Each row shows where he is, how he's doing (the
- * statistical loan minutes credited to youthStats this season), and a
- * window-gated Recall. */
-function LoanedTab() {
-  const game = useGame((s) => s.game)!;
-  useGame((s) => s.rev);
-  const viewPlayer = useGame((s) => s.viewPlayer);
-  const recall = useGame((s) => s.academyRecall);
-  const windowOpen = transferWindowState(game.currentDay, game.schedule).open;
-
-  const loanees = loanedOutPlayers(game).sort((a, b) => b.overall - a.overall);
-
-  if (loanees.length === 0) {
-    return (
-      <Card className="border-dashed px-4 py-8 text-center text-sm text-faint">
-        No players out on loan. Send an academy prospect out from the{" "}
-        <b className="text-ink">Academy Squad</b> tab to get them regular football.
-      </Card>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap gap-2">
-        <div className="rounded-md border border-line bg-surface px-3 py-1.5">
-          <div className="text-[9px] uppercase tracking-widest text-faint">Out on loan</div>
-          <div className="display tnum text-sm font-semibold text-ink">{loanees.length}</div>
-        </div>
-        {!windowOpen && (
-          <div className="rounded-md border border-line bg-surface px-3 py-1.5">
-            <div className="text-[9px] uppercase tracking-widest text-faint">Recalls</div>
-            <div className="display text-sm font-semibold text-dim">Window shut</div>
-          </div>
-        )}
-      </div>
-
-      <Card className="divide-y divide-line/50">
-        <div className="hidden grid-cols-[auto_1fr_1.2fr_auto_auto] items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-faint md:grid">
-          <span>Pos</span>
-          <span>Player</span>
-          <span>Loan club</span>
-          <span className="text-center">This season</span>
-          <span className="text-right">Actions</span>
-        </div>
-        {loanees.map((p) => {
-          const dest = game.teams[p.loan!.toClubId];
-          const league = dest ? game.leagues[dest.leagueId] : undefined;
-          const ys = p.youthStats;
-          const avg = ys?.apps ? (ys.ratingSum / ys.apps).toFixed(2) : null;
-          const academy = isAcademyLoanee(game, p.id);
-          return (
-            <div
-              key={p.id}
-              className="grid grid-cols-[auto_1fr_auto] items-center gap-3 px-4 py-2.5 md:grid-cols-[auto_1fr_1.2fr_auto_auto]"
-            >
-              <PosBadge pos={p.positions[0]} />
-              <button onClick={() => viewPlayer(p.id)} className="group min-w-0 text-left">
-                <span className="flex items-center gap-1.5">
-                  <Flag nat={p.nationality} size={11} />
-                  <span className="truncate font-medium transition-colors group-hover:text-gold">{displayFullName(p)}</span>
-                  <span
-                    className={`display rounded-sm border px-1 text-[9px] font-semibold ${
-                      academy ? "border-gold-lo/50 text-gold" : "border-line text-dim"
-                    }`}
-                  >
-                    {academy ? "ACADEMY" : "SENIOR"}
-                  </span>
-                </span>
-                <span className="flex items-center gap-1.5 text-[11px] text-faint">
-                  {p.age}y · <Ovr value={p.overall} size="sm" />
-                </span>
-              </button>
-              <div className="col-span-3 mt-1 flex items-center gap-2 md:col-span-1 md:mt-0">
-                {dest ? (
-                  <>
-                    <Crest team={dest} size={24} />
-                    <div className="min-w-0 leading-tight">
-                      <div className="truncate text-sm text-ink">{dest.name}</div>
-                      <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-faint">
-                        {/* Fixed 14px flag slot so the league name starts at the same x
-                            whether or not this country has a flag asset — otherwise
-                            rows without a flag shift left and the column looks ragged. */}
-                        <span className="flex h-[10px] w-[14px] shrink-0 items-center justify-center">
-                          <CountryFlag country={league?.country ?? ""} size={10} />
-                        </span>
-                        <span className="truncate">{league?.name ?? "—"}</span>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <Crest colors={["#26282e", "#6b7280"]} short="?" size={24} />
-                    <span className="text-sm text-faint">Unknown club</span>
-                  </>
-                )}
-              </div>
-              <div className="col-span-3 flex items-center gap-3 text-[11px] tnum text-dim md:col-span-1 md:justify-center">
-                {ys?.apps ? (
-                  <>
-                    <span>
-                      <span className="text-faint">Apps</span> {ys.apps}
-                    </span>
-                    <span>
-                      <span className="text-faint">Gls</span> {ys.goals}
-                    </span>
-                    {avg && (
-                      <span className={avg && Number(avg) >= 7.2 ? "gold-text font-semibold" : ""}>
-                        <span className="text-faint">Avg</span> {avg}
-                      </span>
-                    )}
-                  </>
-                ) : (
-                  <span className="text-faint">Yet to feature</span>
-                )}
-              </div>
-              <span className="col-span-3 flex justify-end md:col-span-1">
-                <TextBtn
-                  label="Recall"
-                  title={windowOpen ? "Recall from loan — he returns early and is available again" : "Loans can only be recalled during a transfer window"}
-                  onClick={() => recall(p.id)}
-                  disabled={!windowOpen}
-                />
-              </span>
-            </div>
-          );
-        })}
-      </Card>
-    </div>
-  );
-}
-
-// ── U21 league ────────────────────────────────────────────────────────────
-
-/** Registration panel (v18): pick exactly seven prospects (≥1 GK) and submit
- * them before the deadline. Miss it and the entry is forfeited to another club,
- * so the deadline is the loudest thing on the panel. Once submitted the seven
- * are locked for that competition — they are the only players eligible. */
-function U21RegistrationPanel() {
-  const game = useGame((s) => s.game)!;
-  useGame((s) => s.rev);
-  const viewPlayer = useGame((s) => s.viewPlayer);
-  const register = useGame((s) => s.academyRegisterU21);
-
-  const u21 = game.academy.u21;
-  const done = u21Registered(game);
-  const open = u21RegistrationOpen(game);
-  const daysLeft = u21RegistrationDaysLeft(game);
-  const focus = new Set(game.academy.focusIds);
-
-  // Locked-in seven get shown as-is; while the window is open this is a draft
-  // the user is assembling, so it lives in local state until submitted.
-  const [draft, setDraft] = useState<string[]>(() => u21.registered ?? []);
-  useEffect(() => setDraft(u21.registered ?? []), [u21.registered, u21.half]);
-
-  const players = academyPlayers(game)
-    .filter((p) => !p.loan)
-    .sort((a, b) => {
-      const da = draft.includes(a.id) ? 1 : 0;
-      const db = draft.includes(b.id) ? 1 : 0;
-      if (da !== db) return db - da;
-      return (focus.has(b.id) ? 1 : 0) - (focus.has(a.id) ? 1 : 0) || b.overall - a.overall;
-    });
-
-  const hasGk = draft.some((id) => game.players[id]?.positions[0] === "GK");
-  const complete = draft.length === TUNING.u21RegistrationSize && hasGk;
-
-  const toggle = (id: string) =>
-    setDraft((d) =>
-      d.includes(id) ? d.filter((x) => x !== id) : d.length >= TUNING.u21RegistrationSize ? d : [...d, id]
-    );
-
-  if (u21.forfeited) {
-    return (
-      <Card className="border-loss/40 p-4">
-        <div className="display text-sm font-bold text-loss">Entry Forfeited</div>
-        <p className="mt-1 text-[13px] leading-relaxed text-dim">
-          No squad was registered in time, so <span className="text-ink">{u21.replacedBy}</span> took our place in this
-          competition. Our prospects sit it out — watch for the next registration window.
-        </p>
-      </Card>
-    );
-  }
-
-  return (
-    <Section
-      title={`U21 Registration · pick ${TUNING.u21RegistrationSize}`}
-      right={
-        done ? (
-          <span className="text-xs text-win">registered ✓</span>
-        ) : daysLeft !== null ? (
-          <span className={`text-xs ${daysLeft <= 3 ? "text-loss" : "text-faint"}`}>
-            <span className="tnum">{daysLeft}</span>d to register
-          </span>
-        ) : (
-          <span className="text-xs text-loss">window closed</span>
-        )
-      }
-    >
-      <Card className="p-3">
-        <p className="mb-2 px-1 text-[11px] leading-snug text-faint">
-          {done
-            ? "These seven are your registered squad for this competition — only they can play in it."
-            : `Submit ${TUNING.u21RegistrationSize} prospects (at least one goalkeeper) before the deadline, or our place goes to another club.`}
-        </p>
-        {players.length === 0 ? (
-          <div className="px-1 py-3 text-sm text-faint">No academy players available. Loanees can&apos;t be registered.</div>
-        ) : (
-          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-            {players.map((p) => {
-              const on = draft.includes(p.id);
-              const locked = done || !open;
-              return (
-                <div
-                  key={p.id}
-                  className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 ${
-                    on ? "border-gold-lo/50 bg-hover" : "border-line bg-raised"
-                  }`}
-                >
-                  <PosBadge pos={p.positions[0]} />
-                  <button onClick={() => viewPlayer(p.id)} className="group min-w-0 flex-1 truncate text-left text-sm">
-                    <span className="flex items-center gap-1.5">
-                      <Flag nat={p.nationality} size={11} />
-                      <span className="truncate font-medium transition-colors group-hover:text-gold">{displayFullName(p)}</span>
-                      <span className="tnum text-[11px] text-faint">{p.age}y</span>
-                      {focus.has(p.id) && <span className="display text-[9px] font-semibold text-gold">★</span>}
-                    </span>
-                  </button>
-                  <Ovr value={p.overall} size="sm" />
-                  <button
-                    disabled={locked}
-                    onClick={() => toggle(p.id)}
-                    className={`display w-16 rounded px-2 py-1 text-[11px] font-semibold tracking-wide ${
-                      on ? "gold-grad text-black" : "border border-line text-faint hover:text-dim"
-                    } ${locked ? "cursor-not-allowed opacity-60" : ""}`}
-                  >
-                    {on ? "IN ✓" : "Add"}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-        {!done && open && (
-          <div className="mt-3 flex items-center justify-between gap-3 border-t border-line/60 pt-3">
-            <span className="text-[11px] text-faint">
-              <span className={`tnum ${complete ? "text-win" : "text-ink"}`}>{draft.length}</span>/
-              {TUNING.u21RegistrationSize} selected
-              {!hasGk && draft.length > 0 && <span className="ml-1 text-loss">· needs a goalkeeper</span>}
-            </span>
-            <GoldButton disabled={!complete} onClick={() => register(draft)} className="!px-4 !py-1.5 text-xs">
-              Register Squad
-            </GoldButton>
-          </div>
-        )}
-      </Card>
-    </Section>
-  );
-}
-
-/** Rival prospect list (v18): the seven a U21 side registered, and what it would
- * take to prise one away. Opened by clicking that club in the U21 table. */
-function U21ProspectsModal({ opp, onClose }: { opp: U21Opponent; onClose: () => void }) {
-  const game = useGame((s) => s.game)!;
-  useGame((s) => s.rev);
-  const viewPlayer = useGame((s) => s.viewPlayer);
-  const sign = useGame((s) => s.academySignU21Prospect);
-  const prospects = u21OpponentProspects(game, opp);
-  const budget = game.teams[game.userTeamId].budget;
-
-  return (
-    <Modal onClose={onClose} title={`${opp.name} · registered prospects`}>
-      <p className="mb-3 text-[12px] leading-relaxed text-dim">
-        {opp.sellStance === "unwilling"
-          ? "This club has no interest in selling any of its prospects."
-          : opp.sellStance === "premium"
-          ? "This club will deal, but only at a premium — they know exactly what they have."
-          : "This club is open to business at the right price."}
-      </p>
-      <div className="space-y-1.5">
-        {prospects.length === 0 && (
-          <div className="px-1 py-4 text-sm text-faint">No registered prospects on file for this side.</div>
-        )}
-        {prospects.map((p) => {
-          const quote = u21ProspectQuote(game, opp, p, TUNING);
-          const view = potentialView(game, p, TUNING);
-          const afford = quote.price !== null && quote.price <= budget;
-          return (
-            <div key={p.id} className="rounded-md border border-line bg-raised px-3 py-2">
-              <div className="flex items-center gap-2">
-                <PosBadge pos={p.positions[0]} />
-                <button onClick={() => viewPlayer(p.id)} className="group min-w-0 flex-1 truncate text-left text-sm">
-                  <span className="truncate font-medium transition-colors group-hover:text-gold">{displayFullName(p)}</span>
-                  <span className="ml-1.5 tnum text-[11px] text-faint">{p.age}y</span>
-                  {/* The rival's badge in the tier's own colour — the price he
-                      is quoted at keys off exactly this, so it should read the
-                      same as it does on our own prospects. */}
-                  {p.u21Tier && <TierTag tier={p.u21Tier} className="ml-1.5" />}
-                </button>
-                <StarRange lo={view.loStars} hi={view.hiStars} />
-                <Ovr value={p.overall} size="sm" />
-              </div>
-              <div className="mt-2 flex items-center justify-between gap-2 border-t border-line/50 pt-2">
-                <span className="text-[11px] text-faint">
-                  {quote.price === null ? (
-                    <span className="text-loss">Not for sale</span>
-                  ) : (
-                    <>
-                      Asking <span className="display text-[13px] font-semibold text-ink">{formatMoney(quote.price)}</span>
-                      {!afford && <span className="ml-1 text-loss">· over budget</span>}
-                    </>
-                  )}
-                </span>
-                <GhostButton
-                  disabled={quote.price === null || !afford}
-                  onClick={() => sign(p.id)}
-                  className="!px-3 !py-1 text-xs"
-                >
-                  Make Approach
-                </GhostButton>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </Modal>
-  );
-}
-
-/** Shown when the academy can't field a legal 7-a-side U21 side — the league is
- * locked until the roster has at least one keeper and six outfielders. */
-function U21LockedBanner() {
-  const game = useGame((s) => s.game)!;
-  const short = u21Shortfall(game);
-  const need: string[] = [];
-  if (short.gk > 0) need.push(`${short.gk} goalkeeper${short.gk > 1 ? "s" : ""}`);
-  if (short.outfield > 0) need.push(`${short.outfield} outfield player${short.outfield > 1 ? "s" : ""}`);
-  return (
-    <Card className="border-loss/60 bg-gradient-to-br from-loss/[0.10] to-transparent p-4 shadow-[0_0_0_1px_rgba(220,80,80,0.15)]">
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-loss/40 bg-loss/10 text-2xl">
-          🔒
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="display text-sm font-bold text-loss">U21 League Locked</div>
-          <p className="mt-0.5 text-[13px] leading-relaxed text-dim">
-            The U21s play {U21_SIDE_SIZE}-a-side. You need at least{" "}
-            <span className="text-ink">{U21_MIN_GK} goalkeeper</span> and{" "}
-            <span className="text-ink">{U21_MIN_OUTFIELD} outfield players</span> in the academy (loanees don&apos;t
-            count) before the side can take the field.
-            {need.length > 0 && (
-              <>
-                {" "}Still needed: <span className="font-semibold text-loss">{need.join(" and ")}</span>.
-              </>
-            )}
-          </p>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-function U21Tab() {
-  const game = useGame((s) => s.game)!;
-  useGame((s) => s.rev);
-  const u21 = game.academy.u21;
-  const results = [...u21.results].reverse().slice(0, 8);
-  const performers = academyPlayers(game)
-    .filter((p) => (p.youthStats?.apps ?? 0) > 0 && !p.loan)
-    .sort((a, b) => (b.youthStats!.goals - a.youthStats!.goals) || b.youthStats!.ratingSum / b.youthStats!.apps - a.youthStats!.ratingSum / a.youthStats!.apps);
-
-  const eligible = u21Eligible(game);
-  // Clicking a rival in the table opens its registered seven — the youth
-  // scouting entry point (v18).
-  const [scouting, setScouting] = useState<U21Opponent | null>(null);
-
-  return (
-    <div className="space-y-6">
-      {!eligible && <U21LockedBanner />}
-      <U21RegistrationPanel />
-      {scouting && <U21ProspectsModal opp={scouting} onClose={() => setScouting(null)} />}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <Section
-        title={`U21 Table · competition ${(u21.half ?? 0) + 1} of ${TUNING.u21CompetitionsPerSeason}`}
-        right={<span className="text-xs text-faint">round {u21.roundsPlayed} of {u21.matchDays.length}</span>}
-      >
-        <Card>
-          <div className="grid grid-cols-[auto_1fr_repeat(5,2.2rem)] gap-1 px-3 py-1.5 text-[10px] uppercase tracking-widest text-faint">
-            <span className="w-5">#</span>
-            <span>Team</span>
-            <span className="text-center">P</span>
-            <span className="text-center">GF</span>
-            <span className="text-center">GA</span>
-            <span className="text-center">GD</span>
-            <span className="text-center">Pts</span>
-          </div>
-          {u21.table.map((r, i) => {
-            const opp = r.isUser ? null : u21OpponentByName(game, r.name);
-            const scoutable = !!opp && (opp.prospectIds?.length ?? 0) > 0;
-            return (
-              <div
-                key={r.name}
-                onClick={() => scoutable && setScouting(opp)}
-                role={scoutable ? "button" : undefined}
-                tabIndex={scoutable ? 0 : undefined}
-                onKeyDown={(e) => {
-                  if (scoutable && (e.key === "Enter" || e.key === " ")) {
-                    e.preventDefault();
-                    setScouting(opp);
-                  }
-                }}
-                className={`grid grid-cols-[auto_1fr_repeat(5,2.2rem)] items-center gap-1 border-t border-line/40 px-3 py-1.5 text-sm ${
-                  r.isUser ? "bg-hover font-semibold" : ""
-                } ${scoutable ? "cursor-pointer hover:bg-hover" : ""}`}
-              >
-                <span className="w-5 tnum text-xs text-faint">{i + 1}</span>
-                <span className={`truncate ${r.isUser ? "gold-text" : scoutable ? "hover:text-gold" : ""}`}>
-                  {r.name}
-                </span>
-                <span className="text-center tnum">{r.played}</span>
-                <span className="text-center tnum">{r.gf}</span>
-                <span className="text-center tnum">{r.ga}</span>
-                <span className="text-center tnum">{r.gf - r.ga}</span>
-                <span className="text-center tnum font-semibold">{r.points}</span>
-              </div>
-            );
-          })}
-        </Card>
-        <p className="mt-2 text-[11px] leading-snug text-faint">
-          The U21s play {U21_SIDE_SIZE}-a-side, automatically — a fixture every week or so, across{" "}
-          {TUNING.u21CompetitionsPerSeason} competitions of {TUNING.u21RoundsPerCompetition} rounds each season. Only your{" "}
-          {TUNING.u21RegistrationSize} registered prospects can play; U21 minutes feed development at{" "}
-          {Math.round(TUNING.u21MinutesWeight * 100)}% of senior weight.{" "}
-          <span className="text-dim">Click a rival to scout the prospects they registered.</span>
-        </p>
-      </Section>
-
-      <div className="space-y-6">
-        <Section title="Recent Results">
-          <Card className="divide-y divide-line/40">
-            {results.length === 0 && <div className="px-4 py-5 text-sm text-faint">The U21 season hasn&apos;t started yet.</div>}
-            {results.map((r) => (
-              <div key={`${r.day}-${r.opponent}`} className="px-4 py-2 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="truncate">
-                    <span className="tnum text-xs text-faint">{formatDayShort(r.day)}</span>{" "}
-                    {r.home ? "vs" : "at"} {r.opponent}
-                  </span>
-                  <span className={`display tnum font-bold ${r.gf > r.ga ? "text-win" : r.gf < r.ga ? "text-loss" : "text-dim"}`}>
-                    {r.gf}–{r.ga}
-                  </span>
-                </div>
-                {r.scorers.length > 0 && <div className="text-[11px] text-faint">{r.scorers.join(", ")}</div>}
-              </div>
-            ))}
-          </Card>
-        </Section>
-
-        <Section title="Top Performers">
-          <Card className="divide-y divide-line/40">
-            {performers.length === 0 && <div className="px-4 py-5 text-sm text-faint">No U21 minutes yet this season.</div>}
-            {performers.slice(0, 6).map((p) => {
-              const ys = p.youthStats!;
-              return (
-                <div key={p.id} className="flex items-center justify-between px-4 py-2 text-sm">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <PosBadge pos={p.positions[0]} />
-                    <span className="truncate">{displayFullName(p)}</span>
-                  </span>
-                  <span className="tnum text-xs text-dim">
-                    {ys.apps} apps · {ys.goals}g · {(ys.ratingSum / ys.apps).toFixed(2)}
-                  </span>
-                </div>
-              );
-            })}
-          </Card>
-        </Section>
-      </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Scouting ──────────────────────────────────────────────────────────────
 
 /** Position briefs offered when sending a scout. The broad groups come first,
@@ -2010,43 +1193,11 @@ const POS_OPTIONS: { id: ScoutPosGroup; label: string; group?: string }[] = [
   })),
 ];
 
-/** The ability window a scouted find can actually land in — the union of every
- * prospect tier's overall band. The auto-filter's slider runs across this, so it
- * can never be set to a number no 15–18-year-old prospect is ever generated at.
- * Derived from tuning rather than written down, so a band change carries. */
-const OVR_FLOOR = Math.min(...TUNING.prospectTierOrder.map((t) => TUNING.prospectTierBands[t].overall[0]));
-const OVR_CEIL = Math.max(...TUNING.prospectTierOrder.map((t) => TUNING.prospectTierBands[t].overall[1]));
-
-/** Shared pill-button styling for the scouting selectors (region + duration). */
+/** Shared pill-button styling for the scouting selectors (region). */
 const chipClass = (active: boolean) =>
   `rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors ${
     active ? "border-gold bg-hover text-ink" : "border-line bg-raised text-dim hover:border-faint hover:text-ink"
   }`;
-
-// Which positions each brief covers (mirrors POS_GROUPS in lib/academy).
-const GROUP_POSITIONS: Record<ScoutPosGroup, Pos[]> = {
-  GK: ["GK"],
-  DEF: ["CB", "LB", "RB"],
-  MID: ["DM", "CM", "LM", "RM", "AM"],
-  ATT: ["LW", "RW", "ST"],
-  ANY: ["GK", "CB", "LB", "RB", "DM", "CM", "LM", "RM", "AM", "LW", "RW", "ST"],
-  CB: ["CB"],
-  LB: ["LB"],
-  RB: ["RB"],
-  DM: ["DM"],
-  CM: ["CM"],
-  LM: ["LM"],
-  RM: ["RM"],
-  AM: ["AM"],
-  LW: ["LW"],
-  RW: ["RW"],
-  ST: ["ST"],
-};
-
-/** Archetypes a scout can be briefed to look for within a position group. */
-function archetypesForGroup(group: ScoutPosGroup) {
-  return archetypesForPositions(GROUP_POSITIONS[group]);
-}
 
 const posGroupLabel = (id: ScoutPosGroup) =>
   POS_OPTIONS.find((o) => o.id === id)?.label ?? POS_LABELS[id as Pos] ?? id;
@@ -2695,77 +1846,41 @@ function RegionPicker({ region, onChange }: { region: ScoutRegion; onChange: (r:
   );
 }
 
-/** Lock-in send-scout flow (§18 v7): choose region, position group and an optional
- * archetype focus, then confirm. The brief is fixed once the scout is out — recall
- * and re-send to change it. */
+
+/**
+ * Send a scout (v2.1): pick who goes and WHERE, and nothing else.
+ *
+ * The brief used to carry five more decisions — a position group, an archetype
+ * shortlist, a trip length and, behind a level-5 facility, a whole acceptance
+ * filter with age, ability and rarity clauses. That is a form, and it stood
+ * between the manager and the one question sending a scout actually asks: which
+ * part of the world do you want to look at. Region alone also makes the price
+ * legible, since the travel band — the only thing that moves the cost — is now
+ * the only thing on the screen that can change it.
+ *
+ * The trip is open-ended by construction: with no duration control there is no
+ * duration to commit to, so the scout files until he is recalled from the
+ * Operations pane. The engine's brief fields still exist and are simply left at
+ * their "no preference" values, so nothing downstream had to change.
+ */
 function SendScoutModal({ onClose }: { onClose: () => void }) {
   const game = useGame((s) => s.game)!;
   const addScout = useGame((s) => s.academyAddScout);
   const free = idleScouts(game);
   const [scoutId, setScoutId] = useState<string>(free[0]?.id ?? "");
   const [region, setRegion] = useState<ScoutRegion>("ENG");
-  const [positions, setPositions] = useState<ScoutPosGroup>("ANY");
-  const [archetypes, setArchetypes] = useState<string[]>([]);
-  // Trip length (v25): 0 = open-ended (stay out until recalled), otherwise the
-  // scout files reports for this many months then comes home automatically.
-  const [durationMonths, setDurationMonths] = useState<number>(3);
-  // Auto-filter (v1.67): the brief's own acceptance criteria. A scout only files
-  // finds that clear these, so the board holds nothing the manager didn't ask
-  // for. Every clause is optional and off by default. From v1.68 the whole panel
-  // is what a level-5 Scouting Network unlocks — locked until the club gets there.
-  const filterUnlocked = scoutFilterUnlocked(game);
-  const [filterOn, setFilterOn] = useState(false);
-  const [minAge, setMinAge] = useState(TUNING.scoutProspectAgeMin);
-  const [maxAge, setMaxAge] = useState(TUNING.scoutProspectAgeMax);
-  const [minOverall, setMinOverall] = useState(OVR_FLOOR);
-  const [maxOverall, setMaxOverall] = useState(OVR_CEIL);
-  const [tiers, setTiers] = useState<ProspectTier[]>([]);
-  const DURATION_OPTIONS: { months: number; label: string }[] = [
-    { months: 1, label: "1 month" },
-    { months: 3, label: "3 months" },
-    { months: 6, label: "6 months" },
-    { months: 12, label: "1 season" },
-    { months: 0, label: "Until recalled" },
-  ];
-
-  const archOptions = archetypesForGroup(positions);
-  const briefPositions = new Set(GROUP_POSITIONS[positions] ?? []);
-  // Drop any selected archetype that isn't valid for the current position group.
-  const validArchIds = new Set(archOptions.map((a) => a.id));
-  const selected = archetypes.filter((id) => validArchIds.has(id));
-
-  const toggleArch = (id: string) =>
-    setArchetypes((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
-
-  // The brief as the engine will store it — normalised here so the yield estimate
-  // below is computed on exactly the filter the scout is sent with, not on the
-  // raw slider values.
-  const filter =
-    filterOn && filterUnlocked
-      ? normalizeFilter(TUNING, {
-          minAge,
-          maxAge,
-          // The ends of the slider are the "no ability filter" positions.
-          minOverall: minOverall > OVR_FLOOR ? minOverall : undefined,
-          maxOverall: maxOverall < OVR_CEIL ? maxOverall : undefined,
-          tiers: tiers.length ? tiers : undefined,
-        })
-      : undefined;
 
   const chosenScout = free.find((s) => s.id === scoutId);
-  const passRate = filterPassRate(TUNING, chosenScout?.judgement ?? 1, filter);
-  const perReport = chosenScout ? expectedReportSize(TUNING, chosenScout.experience) * passRate : 0;
-
-  const toggleTier = (t: ProspectTier) =>
-    setTiers((cur) => (cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t]));
+  const perReport = chosenScout ? expectedReportSize(TUNING, chosenScout.experience) : 0;
 
   // What this trip costs (v1.85). Quoted from the same function that charges it,
   // so the modal can never advertise a price the engine then doesn't take.
-  const quote = scoutTripQuote(game, TUNING, region, durationMonths);
+  // Duration 0 = open-ended, which is the only shape of trip this modal sends.
+  const quote = scoutTripQuote(game, TUNING, region, 0);
   const affordable = game.teams[game.userTeamId].budget >= quote.total;
 
   const confirm = () => {
-    addScout(region, positions, selected, scoutId || undefined, durationMonths, filter);
+    addScout(region, "ANY", [], scoutId || undefined, 0, undefined);
     onClose();
   };
 
@@ -2811,51 +1926,6 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
 
         <RegionPicker region={region} onChange={setRegion} />
 
-        <div>
-          <div className="mb-1 text-[10px] uppercase tracking-widest text-faint">Position focus</div>
-          <select
-            value={positions}
-            onChange={(e) => {
-              setPositions(e.target.value as ScoutPosGroup);
-              setArchetypes([]); // reset the archetype brief when the group changes
-            }}
-            className="w-full rounded border border-line bg-raised px-2 py-2 text-sm"
-          >
-            {POS_OPTIONS.filter((o) => !o.group).map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-            {/* Specific positions, grouped by line so RB/RW are easy to find. */}
-            {["Defender", "Midfielder", "Attacker"].map((group) => (
-              <optgroup key={group} label={group}>
-                {POS_OPTIONS.filter((o) => o.group === group).map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </div>
-
-        {/* Trip length (v25): how long the scout stays out before returning. */}
-        <div>
-          <div className="mb-1 text-[10px] uppercase tracking-widest text-faint">Assignment length</div>
-          <div className="flex flex-wrap gap-1.5">
-            {DURATION_OPTIONS.map((o) => (
-              <button key={o.months} onClick={() => setDurationMonths(o.months)} className={chipClass(durationMonths === o.months)}>
-                {o.label}
-              </button>
-            ))}
-          </div>
-          <p className="mt-1.5 text-[11px] leading-snug text-faint">
-            {durationMonths === 0
-              ? "The scout stays out until you recall them."
-              : `The scout files reports for ${durationMonths} month${durationMonths === 1 ? "" : "s"}, then returns automatically.`}
-          </p>
-        </div>
-
         {/* What the trip costs (v1.85). The band is shown alongside the money
             because the band is the thing the manager can actually change — the
             price follows from how far the brief sends him. */}
@@ -2869,250 +1939,27 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
             </span>
           </div>
           <p className="mt-1 text-[11px] leading-snug text-dim">
-            {formatMoney(quote.upfront)} up front
-            {quote.openEnded
-              ? `, then ${formatMoney(quote.weekly)}/wk for as long as they stay out.`
-              : ` plus ${formatMoney(quote.retainer)} for ${durationMonths} month${
-                  durationMonths === 1 ? "" : "s"
-                } at ${formatMoney(quote.weekly)}/wk — paid in full now.`}
+            {formatMoney(quote.upfront)} up front, then {formatMoney(quote.weekly)}/wk for as long as they stay out.
+            Recall them from the Operations pane when you&apos;ve seen enough.
           </p>
           {!affordable && (
             <p className="mt-1 text-[11px] leading-snug text-loss">
-              Your budget is {formatMoney(game.teams[game.userTeamId].budget)}. Shorten the trip, or
-              send them somewhere closer to home.
+              Your budget is {formatMoney(game.teams[game.userTeamId].budget)}. Send them somewhere closer to home.
             </p>
           )}
         </div>
 
-        {/* Auto-filter (v1.67): acceptance criteria on the brief itself. The scout
-            works its normal cadence either way — a narrow brief buys quality with
-            volume, which is why the expected yield is shown right here. */}
-        <div className="rounded-md border border-line bg-raised/50 p-3">
-          <button
-            onClick={() => filterUnlocked && setFilterOn((v) => !v)}
-            disabled={!filterUnlocked}
-            className={`flex w-full items-center justify-between gap-2 text-left ${filterUnlocked ? "" : "cursor-default"}`}
-          >
-            <span>
-              <span className="text-[10px] uppercase tracking-widest text-faint">Scouting network</span>
-              <span className="mt-0.5 block text-[11px] leading-snug text-dim">
-                {filterUnlocked
-                  ? "Only accept reports matching an age, ability and rarity brief."
-                  : "Take the Scouting Network facility to level 5 to filter who reaches your board. Until then your scouts file everything they find."}
-              </span>
-            </span>
-            <span
-              className={`display shrink-0 rounded-sm border px-2 py-0.5 text-[10px] font-bold ${
-                !filterUnlocked
-                  ? "border-line text-mute"
-                  : filterOn
-                    ? "border-gold bg-hover text-gold"
-                    : "border-line text-faint"
-              }`}
-            >
-              {!filterUnlocked ? "🔒 LOCKED" : filterOn ? "ON" : "OFF"}
-            </span>
-          </button>
-
-          {filterOn && filterUnlocked && (
-            <div className="mt-3 space-y-3 border-t border-line/60 pt-3">
-              {/* Age. Prospects are generated inside the tuning band, so the
-                  inputs are bounded by it — an out-of-band age would silence the
-                  scout for good. */}
-              <div>
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-[10px] uppercase tracking-widest text-faint">Age</span>
-                  <span className="tnum text-[11px] text-dim">
-                    {minAge}–{maxAge}
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {Array.from(
-                    { length: TUNING.scoutProspectAgeMax - TUNING.scoutProspectAgeMin + 1 },
-                    (_, i) => TUNING.scoutProspectAgeMin + i
-                  ).map((age) => {
-                    const on = age >= minAge && age <= maxAge;
-                    return (
-                      <button
-                        key={age}
-                        onClick={() => {
-                          // Click inside the band to narrow to it; outside to extend.
-                          if (age < minAge) setMinAge(age);
-                          else if (age > maxAge) setMaxAge(age);
-                          else if (age === minAge && age === maxAge) {
-                            setMinAge(TUNING.scoutProspectAgeMin);
-                            setMaxAge(TUNING.scoutProspectAgeMax);
-                          } else {
-                            setMinAge(age);
-                            setMaxAge(age);
-                          }
-                        }}
-                        className={`tnum ${chipClass(on)}`}
-                      >
-                        {age}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Ability band (v1.68). Both ends are settable, so a brief can ask
-                  for "60–65" and not just "60+" — a manager filling a specific hole
-                  in the U21 side doesn't always want the best kid available. Each
-                  slider pushes the other rather than crossing it, so the band can
-                  never invert. */}
-              <div>
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-[10px] uppercase tracking-widest text-faint">Overall</span>
-                  <span className="tnum text-[11px] text-dim">
-                    {minOverall > OVR_FLOOR || maxOverall < OVR_CEIL ? `${minOverall}–${maxOverall}` : "any"}
-                  </span>
-                </div>
-                <div className="space-y-1.5">
-                  {(
-                    [
-                      ["Min", minOverall, (n: number) => { setMinOverall(n); if (n > maxOverall) setMaxOverall(n); }],
-                      ["Max", maxOverall, (n: number) => { setMaxOverall(n); if (n < minOverall) setMinOverall(n); }],
-                    ] as const
-                  ).map(([label, value, set]) => (
-                    <label key={label} className="flex items-center gap-2">
-                      <span className="w-7 shrink-0 text-[10px] uppercase tracking-widest text-mute">{label}</span>
-                      <input
-                        type="range"
-                        min={OVR_FLOOR}
-                        max={OVR_CEIL}
-                        value={value}
-                        onChange={(e) => set(Number(e.target.value))}
-                        className="w-full accent-[color:var(--color-gold-lo)]"
-                      />
-                      <span className="tnum w-6 shrink-0 text-right text-[11px] text-dim">{value}</span>
-                    </label>
-                  ))}
-                </div>
-                <p className="mt-1 text-[11px] leading-snug text-faint">
-                  A scouted prospect arrives raw — the whole band is {OVR_FLOOR}–{OVR_CEIL}. Narrow it and only the tiers
-                  whose own range overlaps can clear the brief.
-                </p>
-              </div>
-
-              {/* Rarity tiers. Table-driven off the tuning ladder, so a new rung
-                  appears here without a code change. */}
-              <div>
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-[10px] uppercase tracking-widest text-faint">Rarity tier</span>
-                  {tiers.length > 0 && (
-                    <button onClick={() => setTiers([])} className="text-[11px] text-faint hover:text-dim">
-                      Any
-                    </button>
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {TUNING.prospectTierOrder.map((t) => {
-                    const on = tiers.includes(t);
-                    return (
-                      <button
-                        key={t}
-                        onClick={() => toggleTier(t)}
-                        className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                          on ? "bg-hover" : "border-line bg-raised text-dim hover:border-faint hover:text-ink"
-                        }`}
-                        style={on ? { borderColor: TIER_COLOR[t], color: TIER_COLOR[t] } : undefined}
-                      >
-                        {TIER_LABEL[t]}
-                        <span className="ml-1.5 text-[10px] text-faint">
-                          {tierPct(tierChance(TUNING, chosenScout?.judgement ?? 1, t))}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="mt-1 text-[11px] leading-snug text-faint">
-                  Percentages are this scout&apos;s own chance of turning up each tier. Leave all off to accept any.
-                </p>
-              </div>
-
-              {/* What the brief actually costs, in the only currency that matters
-                  here: how many names come back. */}
-              <div
-                className={`rounded border px-2.5 py-2 text-[11px] leading-snug ${
-                  perReport < 0.35 ? "border-danger/50 text-danger" : "border-line/60 text-dim"
-                }`}
-              >
-                {!filterIsActive(TUNING, filter) ? (
-                  <>Nothing set — the scout will file everything they find.</>
-                ) : perReport < 0.05 ? (
-                  <>
-                    <b>This brief is too narrow.</b> Effectively nothing your scout finds will clear it — loosen the
-                    ability floor or accept more tiers.
-                  </>
-                ) : (
-                  <>
-                    Expected yield <b className="tnum">~{perReport.toFixed(2)}</b> prospect
-                    {perReport === 1 ? "" : "s"} per report ({Math.round(passRate * 100)}% of what they see clears the
-                    brief). Reports still arrive on the same cadence — the ones that miss simply aren&apos;t filed.
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div>
-          <div className="mb-1 flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-widest text-faint">Player type (optional)</span>
-            {selected.length > 0 && (
-              <button onClick={() => setArchetypes([])} className="text-[11px] text-faint hover:text-dim">
-                Clear
-              </button>
-            )}
-          </div>
-          <p className="mb-2 text-[11px] leading-snug text-faint">
-            Brief the scout on the archetypes to hunt for. Leave all off to consider any player type in this group.
-          </p>
-          <div className="grid max-h-48 grid-cols-1 gap-1.5 overflow-y-auto sm:grid-cols-2">
-            {archOptions.map((a) => {
-              const on = selected.includes(a.id);
-              // Badge EVERY position in the brief this archetype covers, not just
-              // its first — a wing-back covers LB and RB and a winger LW and RW,
-              // so showing only the first flank made RB/RW look absent from an
-              // "Any position" list. Falls back to the primary if none intersect.
-              const archPositions = positionsOfArchetype(a);
-              const covered = archPositions.filter((p) => briefPositions.has(p));
-              const badges = covered.length > 0 ? covered : [archPositions[0]];
-              return (
-                <button
-                  key={a.id}
-                  onClick={() => toggleArch(a.id)}
-                  title={a.desc}
-                  className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs ${
-                    on ? "border-gold-lo/60 bg-hover text-gold" : "border-line bg-raised text-dim hover:border-faint hover:text-ink"
-                  }`}
-                >
-                  <span className="flex shrink-0 items-center gap-1">
-                    {badges.map((p) => (
-                      <PosBadge key={p} pos={p} />
-                    ))}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate font-medium">{a.name}</span>
-                  {on && <span className="display text-[10px] font-bold">✓</span>}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
         <div className="flex items-center justify-between border-t border-line/60 pt-3">
           <span className="min-w-0 flex-1 truncate text-[11px] text-faint">
-            {describeFilter(filter) ||
-              (selected.length > 0
-                ? `${selected.length} archetype${selected.length === 1 ? "" : "s"} briefed`
-                : "No filter — anything goes")}
+            {chosenScout
+              ? `~${perReport.toFixed(1)} prospects per report — anything they find is filed.`
+              : "Hire a scout first."}
           </span>
           <span className="flex items-center gap-2">
             <GhostButton onClick={onClose} className="!px-3 !py-1.5 text-xs">
               Cancel
             </GhostButton>
-            <GoldButton onClick={confirm} disabled={!affordable} className="!px-5 !py-1.5 text-xs">
+            <GoldButton onClick={confirm} disabled={!affordable || !chosenScout} className="!px-5 !py-1.5 text-xs">
               SEND · {formatMoney(quote.total)}
             </GoldButton>
           </span>

@@ -27,7 +27,7 @@ import { assignAllKitNumbers } from "./kitnumbers";
 import { pushInboxItem } from "./inbox";
 import { trackBiggestWin } from "./recordbook";
 import { ensureProgress, syncProgress, userPlayerAwardsIn } from "./achievements";
-import { deriveSeed, hashString, mulberry32, pickWeighted, randNormal, uid } from "./rng";
+import { deriveSeed, hashString, mulberry32, randNormal, uid } from "./rng";
 
 /**
  * v1 → v2: the position enum split FB → LB/RB and W → LW/RW. Old players stored
@@ -197,13 +197,14 @@ function migrateV7toV8(state: GameState): void {
 
 /**
  * v8 → v9: the U21 matchday squad (explicit tagging) plus transfer-negotiation
- * state on offers. Both are optional with read-time defaults: an absent
- * `u21Squad` means "auto-select" (unchanged behaviour), and pending offers gain
- * no ceiling until first countered (it's computed lazily). Nothing to backfill.
+ * state on offers.
+ *
+ * A no-op since v2.1 removed the U21 league: the `u21Squad` this backfilled no
+ * longer exists on `AcademyState`, and `migrateV49toV50` deletes it outright a
+ * few steps later. Kept as an empty step rather than deleted so the version
+ * ladder stays contiguous and readable.
  */
-function migrateV8toV9(state: GameState): void {
-  state.academy.u21Squad ??= [];
-}
+function migrateV8toV9(_state: GameState): void {}
 
 /**
  * v9 → v10: the attribute-driven model. Overall is now DERIVED from a player's
@@ -566,6 +567,10 @@ export function migrateSave(state: GameState): GameState {
     migrateV48toV49(state);
     state.schemaVersion = 49;
   }
+  if (state.schemaVersion < 50) {
+    migrateV49toV50(state);
+    state.schemaVersion = 50;
+  }
   // future migrations chain here
   state.schemaVersion = SCHEMA_VERSION;
   return state;
@@ -623,47 +628,12 @@ function migrateV16toV17(state: GameState): void {
  * v17 → v18: two U21 competitions a season with registration windows, rival U21
  * prospect rosters, and the floor-based potential star scale.
  *
- * The in-flight competition is preserved exactly as it stands — rounds played,
- * table and results all carry over — and is simply relabelled as the season's
- * first running. What it lacks is the v18 furniture: a half index, a
- * registration deadline, and rosters for the eleven rival sides. The deadline is
- * backdated to before the current day and the existing squad is auto-registered,
- * so a save mid-competition is never retroactively forfeited for missing a
- * window that did not exist when it was played.
+ * The U21 half is a no-op since v2.1 removed that league — everything this
+ * backfilled is deleted by `migrateV49toV50` further down the ladder, so
+ * building it here just to throw it away would be work with a wrong answer in
+ * the middle. The star scale it shipped alongside needs no backfill.
  */
-function migrateV17toV18(state: GameState, cfg: typeof TUNING): void {
-  const ac = state.academy;
-  if (!ac?.u21) return;
-  const u21 = ac.u21;
-  u21.half ??= 0;
-  u21.registered ??= [];
-  ac.u21History ??= [];
-
-  // Grandfather the running competition: a deadline already in the past plus a
-  // registered seven means enforceU21Registration leaves it alone.
-  u21.registrationDay ??= (u21.matchDays[0] ?? state.currentDay) - cfg.u21RegistrationLeadDays;
-  if (u21.registered.length === 0) {
-    const team = state.teams[state.userTeamId];
-    const pool = (team?.academyPlayerIds ?? [])
-      .map((id) => state.players[id])
-      .filter((p) => p && !p.retired && !p.loan);
-    const gk = pool.find((p) => p.positions[0] === "GK");
-    const rest = pool.filter((p) => p !== gk).sort((a, b) => b.overall - a.overall);
-    const seven = [...(gk ? [gk] : []), ...rest].slice(0, cfg.u21RegistrationSize);
-    // Only a legal seven counts as registered; a short academy stays unregistered
-    // and will simply be prompted to register for the next competition.
-    if (seven.length === cfg.u21RegistrationSize && gk) u21.registered = seven.map((p) => p.id);
-    else u21.registrationDay = state.currentDay + cfg.u21RegistrationLeadDays;
-  }
-
-  // Rival sides predate rosters; rebuilding them is left to the next competition
-  // (buildU21Season fills them in). Existing opponents just gain a stance so any
-  // prospect list the UI does find is priceable.
-  const rng = mulberry32(deriveSeed(state.seed, `u21migrate:${state.season}`));
-  for (const o of u21.opponents ?? []) {
-    o.sellStance ??= pickWeighted(rng, ["willing", "premium", "unwilling"] as const, (s) => cfg.u21SellStanceWeights[s]);
-  }
-}
+function migrateV17toV18(_state: GameState, _cfg: typeof TUNING): void {}
 
 /**
  * v18 → v19: six playing styles, the Wide attacking focus, a widened sponsor
@@ -1668,6 +1638,62 @@ function migrateV48toV49(state: GameState): void {
     "The club shop opens",
     "Every club in the world now has a crest and a full set of four kits — home, away, third and goalkeeper — drawn from its own name and colours. Yours are yours to change: the Club screen has an Identity panel where you can design the badge and all four jerseys, and whatever you make there is what the game draws everywhere it draws your club."
   );
+}
+
+/**
+ * v49 → v50: the U21 league is gone (v2.1), pending a rework.
+ *
+ * Two competitions a season, twelve sides, registration windows and eleven
+ * rival academies' worth of prospects — all deleted outright. No refund and no
+ * conversion, the same shape v1.87's academy-upgrade removal took: the feature
+ * is coming back in a different form, and converting a half-played competition
+ * into something the new one has no concept of would be inventing a result.
+ *
+ * The one thing that DOES need doing is the reason this is a real migration and
+ * not just dropped fields. Each rival side carried seven genuine `PlayerBio`
+ * records in `state.players`, owned by that club purely so youth scouting had
+ * something to look at. Left behind they would be a few hundred players per save
+ * sitting on AI academy rosters with nothing that reads them — so they are
+ * released the way `closeHub` releases a hub's prospects rather than the way the
+ * academy's quick sell deletes one: anyone a rival still holds is erased, but a
+ * prospect the MANAGER bought out of that league is already his and is left
+ * completely alone.
+ *
+ * `youthStats` is deliberately kept. A prospect's U21 minutes are already folded
+ * into the career rows his profile draws, and those rows are history — the
+ * league not existing any more does not mean the seasons did not happen.
+ */
+function migrateV49toV50(state: GameState): void {
+  const ac = state.academy as unknown as {
+    u21?: { opponents?: { prospectIds?: string[] }[] };
+    u21Next?: { opponents?: { prospectIds?: string[] }[] };
+    u21History?: { opponents?: { prospectIds?: string[] }[] }[];
+    u21Squad?: string[];
+  };
+  if (!ac) return;
+
+  const seasons = [ac.u21, ac.u21Next, ...(ac.u21History ?? [])];
+  for (const season of seasons) {
+    for (const opp of season?.opponents ?? []) {
+      for (const id of opp.prospectIds ?? []) {
+        const p = state.players[id];
+        // Only erase one a rival still owns. A prospect the manager signed has
+        // moved clubs and is an ordinary player of his now.
+        if (!p || p.clubId === state.userTeamId) continue;
+        const club = p.clubId ? state.teams[p.clubId] : undefined;
+        if (club) {
+          club.academyPlayerIds = (club.academyPlayerIds ?? []).filter((x) => x !== id);
+          club.playerIds = club.playerIds.filter((x) => x !== id);
+        }
+        delete state.players[id];
+      }
+    }
+  }
+
+  delete ac.u21;
+  delete ac.u21Next;
+  delete ac.u21History;
+  delete ac.u21Squad;
 }
 
 /** True if the save is a version this build knows how to bring up to date. */

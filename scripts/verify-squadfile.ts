@@ -14,13 +14,21 @@
 //     world that starts at season 1.
 //   • Two imports of one file sharing a library id and overwriting each other.
 //   • A player file being accepted as a squad file (or vice versa).
+//   • (v2.0) The two roster scopes overlapping, so a "senior squad" file quietly
+//     carries a 14-year-old or an academy file carries the first team.
+//   • (v2.0) A mid-save import that collides with the destination's ids, lands a
+//     contract that has already expired, or drops half a squad without saying so.
+//   • (v2.0) A LOAN surviving the crossing. It can't today — a PlayerSeed has no
+//     `loan` field — which is precisely why it is asserted rather than assumed:
+//     the rule is a promise the feature makes, not a line of code anyone would
+//     notice deleting.
 //
 // It also materialises the imported club through the REAL worldgen path, since
 // "the JSON round-trips" and "the club can actually be built" are different
 // claims and only the second one matters.
 
 import { generateWorld, materializePlayer } from "../lib/worldgen";
-import { exportSquad, parseSquadFile, squadFileToLibraryClub, SQUAD_FILE_VERSION } from "../lib/squadfile";
+import { exportSquad, importSquadFile, parseSquadFile, squadFileToLibraryClub, SQUAD_FILE_VERSION } from "../lib/squadfile";
 import { exportPlayer } from "../lib/playerfile";
 import { libraryClubToSeed } from "../lib/customdb";
 import { TUNING } from "../lib/config/tuning";
@@ -86,11 +94,23 @@ if (withContract) {
   );
 }
 
-// Academy is opt-in.
-const withAcademy = exportSquad(src, src.userTeamId, { includeAcademy: true })!;
+// ── The roster scope (v2.0) ───────────────────────────────────────────────
+// The two exports are DISJOINT — that is the whole point of replacing the old
+// "include the academy too" flag with a choice. A senior file that quietly
+// carried a 14-year-old, or an academy file that carried the first team, would
+// be exactly the mixed roster the split exists to prevent.
+const academyIds = (team.academyPlayerIds ?? []).filter((id) => src.players[id] && !src.players[id].retired);
+const youth = exportSquad(src, src.userTeamId, { roster: "academy" })!;
+check(file.roster === "senior", "a default export is stamped as the senior squad");
+check(youth.roster === "academy", "an academy export is stamped as such");
 check(
-  (withAcademy.club.players?.length ?? 0) >= (file.club.players?.length ?? 0),
-  "includeAcademy never drops senior players"
+  (youth.club.players?.length ?? 0) === academyIds.length,
+  `every prospect travels (${youth.club.players?.length}/${academyIds.length})`
+);
+const seniorNames = new Set((file.club.players ?? []).map((p) => p.name));
+check(
+  (youth.club.players ?? []).every((p) => !seniorNames.has(p.name)),
+  "the two rosters are disjoint — neither export leaks into the other"
 );
 
 // ── Round trip through JSON ───────────────────────────────────────────────
@@ -126,6 +146,84 @@ for (const seed of seedClub.players ?? []) {
 }
 check(built === squadIds.length, `every seed materializes into a real player (${built}/${squadIds.length})`);
 check(overallDrift <= 1, `overall survives the trip (max drift ${overallDrift})`);
+
+// ── Mid-save import (v2.0) ────────────────────────────────────────────────
+// The third destination, and the one the round-trip checks above say nothing
+// about: signing the file into a world that is already being played.
+const dst = world(99, "destination-legacy");
+dst.season = 4;
+const dstTeam = dst.teams[dst.userTeamId];
+const beforeSquad = dstTeam.playerIds.length;
+const beforeWorld = Object.keys(dst.players).length;
+
+const landed = importSquadFile(dst, parsed, dst.userTeamId, TUNING, 99);
+check(landed.roster === "senior", "a senior file lands in the senior squad");
+check(landed.playerIds.length === squadIds.length, `every player is signed (${landed.playerIds.length}/${squadIds.length})`);
+check(!landed.skipped.length, "nothing is skipped when there is room");
+check(dstTeam.playerIds.length === beforeSquad + landed.playerIds.length, "the destination squad grows by exactly what arrived");
+check(
+  Object.keys(dst.players).length === beforeWorld + landed.playerIds.length,
+  "every arrival is a real player in the world"
+);
+
+const arrivals = landed.playerIds.map((id) => dst.players[id]);
+check(arrivals.every((p) => p.clubId === dst.userTeamId), "every arrival is at the destination club");
+check(arrivals.every((p) => !src.players[p.id]), "arrivals are re-keyed — no id collides with the source world");
+// A contract term must be re-expressed against the DESTINATION's season, or a
+// deal exported in season 7 expires before it starts in a save at season 4.
+check(
+  arrivals.every((p) => !p.contract || p.contract.expirySeason >= dst.season),
+  "no arrival lands on a contract that has already expired"
+);
+check(arrivals.every((p) => p.acquiredSeason === dst.season), "arrivals carry the same-season resale lock");
+check(arrivals.every((p) => p.fitness === 100 && p.form === 1), "arrivals are fit and neutral");
+
+// THE LOAN RULE. A player out on loan when the file was written must arrive at
+// his parent club, available. It falls out of the format (a PlayerSeed has no
+// `loan` field) rather than being enforced — which is exactly why it is checked
+// here: a field added to the seed later could reintroduce it silently.
+const loanee = squadIds.map((id) => src.players[id])[0];
+loanee.loan = { toClubId: "ENG1_t1", startDay: src.currentDay, minutesWeight: 0.8, role: "starter" };
+const withLoan = parseSquadFile(JSON.stringify(exportSquad(src, src.userTeamId)!));
+check(
+  (withLoan.club.players ?? []).every((p) => !("loan" in p)),
+  "a loan does not survive the export"
+);
+const loanDst = world(1234, "loan-destination");
+const loanLanded = importSquadFile(loanDst, withLoan, loanDst.userTeamId, TUNING, 99);
+const loanArrival = loanLanded.playerIds.map((id) => loanDst.players[id]).find((p) => p.name === loanee.name);
+check(!!loanArrival, "the loaned-out player travels with the squad");
+check(!loanArrival?.loan, "he arrives at the club, NOT on loan");
+check(loanArrival?.clubId === loanDst.userTeamId, "and he is available to his new club");
+delete loanee.loan;
+
+// An academy file lands in the ACADEMY, never the senior squad — the file
+// decides, so a 14-year-old can't be dropped into a first-team roster.
+const youthParsed = parseSquadFile(JSON.stringify(youth));
+const yDst = world(777, "youth-destination");
+const yTeam = yDst.teams[yDst.userTeamId];
+const yBeforeSenior = yTeam.playerIds.length;
+const yBeforeAcademy = (yTeam.academyPlayerIds ?? []).length;
+const yLanded = importSquadFile(yDst, youthParsed, yDst.userTeamId, TUNING, 99);
+check(yLanded.roster === "academy", "an academy file lands in the academy");
+check(yTeam.playerIds.length === yBeforeSenior, "the senior squad is untouched by an academy import");
+check(
+  (yTeam.academyPlayerIds ?? []).length === yBeforeAcademy + yLanded.playerIds.length,
+  "the academy grows by exactly what arrived"
+);
+const prospects = yLanded.playerIds.map((id) => yDst.players[id]);
+check(prospects.every((p) => p.academyClubId === yDst.userTeamId), "every prospect is registered to the academy");
+check(prospects.every((p) => !!p.u21Tier), "every prospect wears an academy badge");
+
+// The cap is honoured and a partial import is REPORTED — silently dropping half
+// a squad is the worst outcome this path has.
+const capped = world(555, "capped-destination");
+const cappedLanded = importSquadFile(capped, parsed, capped.userTeamId, TUNING, 3);
+check(cappedLanded.playerIds.length === 3, "the limit is respected");
+check(
+  cappedLanded.skipped.length === squadIds.length - 3,
+  `everything over the limit is reported as skipped (${cappedLanded.skipped.length})`
+);
 
 // ── Rejections ────────────────────────────────────────────────────────────
 const rejects = (text: string, why: string) => {

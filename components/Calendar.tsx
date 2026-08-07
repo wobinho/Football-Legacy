@@ -16,8 +16,20 @@ const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
 
 export default function Calendar() {
   const game = useGame((s) => s.game)!;
-  useGame((s) => s.rev);
+  const rev = useGame((s) => s.rev);
   const simulateToDay = useGame((s) => s.simulateToDay);
+  // A manual re-read of the fixture list, bumped by the ↻ on either rail.
+  //
+  // It exists because of a real staleness and not as a placebo: the store
+  // MUTATES `game.fixtures` in place and bumps `rev` to re-render, so the array's
+  // object identity never changes and a `useMemo` keyed on `[game.fixtures, …]`
+  // never invalidates. That is the same trap v1.97 documents for `badgeFor`/
+  // `kitsFor` on a club object. Simulating a long stretch is exactly when it
+  // shows: fixtures are played, but the rails go on listing what they computed
+  // before the run. `rev` is in the dep arrays below now, which is the actual
+  // fix — the button is the manual override for anything that still slips
+  // through, and it costs one number in a dep array.
+  const [refreshTick, setRefreshTick] = useState(0);
   const onMatchday = game.pendingMatchFixtureId !== null;
   const seasonOver = isSeasonComplete(game);
 
@@ -28,7 +40,7 @@ export default function Calendar() {
       if (f.homeId === game.userTeamId || f.awayId === game.userTeamId) m.set(f.day, f);
     }
     return m;
-  }, [game.fixtures, game.userTeamId]);
+  }, [game.fixtures, game.userTeamId, rev, refreshTick]);
 
   const cur = dayMonth(game.currentDay);
   const [view, setView] = useState<{ year: number; month0: number }>(cur);
@@ -76,7 +88,7 @@ export default function Calendar() {
       )
       .sort((a, b) => a.day - b.day)
       .slice(0, 10);
-  }, [game.fixtures, game.userTeamId, game.currentDay]);
+  }, [game.fixtures, game.userTeamId, game.currentDay, rev, refreshTick]);
 
   // The last five results, most recent first (v1.99). The counterpart to the
   // rail above and deliberately its mirror image: Upcoming answers "what is
@@ -95,7 +107,7 @@ export default function Calendar() {
       )
       .sort((a, b) => b.day - a.day)
       .slice(0, 5);
-  }, [game.fixtures, game.userTeamId]);
+  }, [game.fixtures, game.userTeamId, rev, refreshTick]);
 
   return (
     <div className="rounded-md border border-line bg-surface p-3">
@@ -223,7 +235,10 @@ export default function Calendar() {
         <div className="min-w-0 lg:border-l lg:border-line/60 lg:pl-3">
           <div className="mb-2 flex items-center justify-between">
             <div className="display text-sm font-semibold">Upcoming</div>
-            <span className="text-[10px] uppercase tracking-widest text-faint">Next {upcoming.length}</span>
+            <span className="flex items-center gap-1.5">
+              <span className="text-[10px] uppercase tracking-widest text-faint">Next {upcoming.length}</span>
+              <RailRefresh onClick={() => setRefreshTick((n) => n + 1)} what="upcoming fixtures" />
+            </span>
           </div>
           <div className="gold-thread mb-2" />
           {upcoming.length === 0 ? (
@@ -304,8 +319,11 @@ export default function Calendar() {
             <div className="mt-4">
               <div className="mb-2 flex items-center justify-between">
                 <div className="display text-sm font-semibold">Results</div>
-                <span className="text-[10px] uppercase tracking-widest text-faint">
-                  Last {results.length}
+                <span className="flex items-center gap-1.5">
+                  <span className="text-[10px] uppercase tracking-widest text-faint">
+                    Last {results.length}
+                  </span>
+                  <RailRefresh onClick={() => setRefreshTick((n) => n + 1)} what="results" />
                 </span>
               </div>
               <div className="gold-thread mb-2" />
@@ -405,6 +423,29 @@ export default function Calendar() {
           day. The user acts on it, keeps going, or stays here. */}
       <GateModal />
     </div>
+  );
+}
+
+/**
+ * The ↻ on a rail header (v2.1): re-read the fixture list and redraw.
+ *
+ * Deliberately the same control on both rails, driving one piece of state — they
+ * are two views of one list, so a manager who refreshes "Results" and finds
+ * "Upcoming" still stale would have learned that the button doesn't mean what it
+ * says. It is an icon rather than a labelled button because it sits in a header
+ * that already carries a count, in a 30% column; the `title` and `aria-label`
+ * carry the meaning for anyone who needs it.
+ */
+function RailRefresh({ onClick, what }: { onClick: () => void; what: string }) {
+  return (
+    <button
+      onClick={onClick}
+      title={`Refresh the ${what}`}
+      aria-label={`Refresh the ${what}`}
+      className="rounded px-1 text-[11px] leading-none text-faint transition-colors hover:bg-hover hover:text-gold"
+    >
+      ↻
+    </button>
   );
 }
 

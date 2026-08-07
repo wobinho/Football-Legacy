@@ -71,10 +71,11 @@ await page.waitForSelector("text=Academy Squad");
 await page.waitForTimeout(300);
 await page.screenshot({ path: shot("m03-academy-squad.png"), fullPage: true });
 
-await page.click('button:has-text("U21 League")');
-await page.waitForSelector("text=U21 Table");
+// The U21 League tab is gone (v2.1, pending a rework); Growth is the second
+// tab a manager reads on a phone.
+await page.click('button:has-text("Growth")');
 await page.waitForTimeout(300);
-await page.screenshot({ path: shot("m04-academy-u21.png"), fullPage: true });
+await page.screenshot({ path: shot("m04-academy-growth.png"), fullPage: true });
 
 // The Scouting tab owns the whole department, split across its own OPERATIONS
 // (assignments + reports) and PERSONNEL (the hired roster) sub-tabs. The
@@ -100,7 +101,10 @@ await page.waitForTimeout(400);
 await page.click('button:has-text("OPERATIONS")');
 await page.waitForSelector("text=SEND A SCOUT");
 await page.click("text=+ SEND A SCOUT");
-await page.waitForSelector("text=Position focus");
+// The brief is REGION ONLY as of v2.1 — the position group, the archetype
+// shortlist, the trip length and the auto-filter are all gone, so "Region" is
+// what proves the modal is open now.
+await page.waitForSelector("text=Region");
 await page.screenshot({ path: shot("m08-send-scout-modal.png"), fullPage: true });
 // The submit carries the quoted trip cost ("SEND · £1.2M") since scouting
 // became billable in v1.85, so match the prefix rather than a bare label.
@@ -110,7 +114,7 @@ await page.screenshot({ path: shot("m09-scouting-active.png"), fullPage: true })
 
 // horizontal overflow check on each tab
 const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-console.log("html overflow-x px (upgrades tab):", overflow);
+console.log("html overflow-x px (scouting tab):", overflow);
 
 console.log("MOBILE SHOTS OK ->", OUT);
 console.log("console errors:", errors.length ? errors.slice(0, 10) : "none");

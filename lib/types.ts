@@ -2,7 +2,7 @@
 // Single source of truth for all game data shapes. Schema-versioned so the
 // save/export format doubles as the modding format (GAME_DESIGN.md §2, §13).
 
-export const SCHEMA_VERSION = 49;
+export const SCHEMA_VERSION = 50;
 
 // Visual identity (v1.96). Types only — the rules and the defaults live in
 // lib/visual/, and nothing in the schema depends on them at runtime.
@@ -216,9 +216,12 @@ export interface PlayerBio {
    * in the Career section of his profile. Stamped from `u21Tier` when the tier
    * is set, and never cleared. */
   academyTier?: ProspectTier;
-  /** Quality tier this player was rolled at as a registered U21 prospect (v18).
-   * Set on rival prospects so youth scouting can price and badge them; the elite
-   * tiers are what make a kid genuinely hard to buy. */
+  /** The prospect's LIVE academy badge (Bronze→Legacy) — what a manager sees
+   * beside him on the academy squad list, and what his wage and signing fee are
+   * priced off. Cleared when he is promoted, which is why `academyTier` above
+   * exists to keep the permanent record. (Named for the U21 registration it was
+   * introduced with in v18; that competition is gone as of v2.1, the badge is
+   * not.) */
   u21Tier?: ProspectTier;
   /** The International Scouting Hub this prospect is developing at (v1.95) — a
    * SCOUT_WORLD sub-region id. Present ONLY while he is on the hub's books:
@@ -228,8 +231,9 @@ export interface PlayerBio {
    *
    * A hub prospect has no `clubId`: the network holds him, and no club does. */
   gcnHubRegion?: string;
-  /** Current-season U21-league + loan stats. Raw (unweighted); the rollover
-   * folds them into development at the §18 minute weights. Optional (v4). */
+  /** Current-season YOUTH stats — loan minutes, since v2.1 removed the U21
+   * league that was the other source. Raw (unweighted); the rollover folds them
+   * into development at the §18 minute weights. Optional (v4). */
   youthStats?: SeasonPlayerStats;
   /** Season-long loan away from the owning club (§18, out only). */
   loan?: LoanState;
@@ -1473,85 +1477,9 @@ export interface ProspectReport {
   scoutId?: string;
 }
 
-/** How a club treats offers for its own registered prospects (v18). The stance
- * is rolled per club per competition and drives the asking price youth scouting
- * has to beat — see `lib/config/tuning.ts` u21SellStance*. */
-export type U21SellStance = "willing" | "premium" | "unwilling";
-
-/** One U21 opponent: a strength number wearing a parent club's name, plus the
- * seven prospects it registered for the competition (v18).
- *
- * The §4 sim-league performance rule still holds for the world at large — this
- * is a bounded exception: only the 11 sides in the user's own U21 league carry
- * rosters, and only the 7 registered names each, because youth scouting needs
- * something real to look at. Their prospects are stored in `state.players` like
- * anyone else so the profile screen, valuation and transfer code all just work. */
-export interface U21Opponent {
-  name: string;
-  short: string;
-  strength: number;
-  /** Parent club id — the side is that club's U21 team. */
-  clubId?: string;
-  /** The 7 prospects registered for this competition (ids into state.players). */
-  prospectIds?: string[];
-  /** This club's stance on selling its registered prospects, rolled per competition. */
-  sellStance?: U21SellStance;
-}
-
-export interface U21TableRow {
-  name: string; // "user" row carries the club's U21 name
-  isUser: boolean;
-  played: number;
-  won: number;
-  drawn: number;
-  lost: number;
-  gf: number;
-  ga: number;
-  points: number;
-}
-
-export interface U21Result {
-  day: number;
-  opponent: string;
-  home: boolean;
-  gf: number;
-  ga: number;
-  /** User scorers only — names for the report line. */
-  scorers: string[];
-}
-
-/** One running of the U21 league (§18 v18): 12 teams, double round-robin over 22
- * rounds, resolved statistically with zero interaction. Two of these run per
- * season — the first kicking off a month after the senior season, the second
- * once the first has finished — each with its own registration window. */
-export interface U21Season {
-  /** Which running this is within the season: 0 = first, 1 = second (v18). */
-  half?: number;
-  opponents: U21Opponent[]; // 11 sides; the user U21s are team 0
-  matchDays: number[]; // 22 midweek days
-  roundsPlayed: number;
-  table: U21TableRow[];
-  results: U21Result[]; // user matches only
-  /** Last day the user may register a side. Registration closes the day before
-   * the first round; miss it and the entry is forfeited (v18). */
-  registrationDay?: number;
-  /** The 7 academy players the user registered for this competition. Empty until
-   * they submit; the U21 side is drawn only from these once set (v18). */
-  registered?: string[];
-  /** Set when the user failed to register in time and a randomly drawn side took
-   * their place for this running. The league plays on; the user sits it out. */
-  forfeited?: boolean;
-  /** Name of the side that replaced the user after a forfeit, for the table. */
-  replacedBy?: string;
-}
-
 export interface AcademyState {
-  /** Focus prospects (≤3): guaranteed U21 starts + youth-coach attention. */
+  /** Focus prospects: the ones the youth coaches concentrate on. */
   focusIds: string[];
-  /** Players tagged into the U21 matchday squad (like a lineup, no tactics). When
-   * non-empty, only tagged academy players are fielded in the U21 league; empty
-   * falls back to auto-selection (focus first, then best available). */
-  u21Squad?: string[];
   /** Players (≤21) listed for a season loan; AI uptake during windows. */
   loanList: string[];
   /** Legacy single-scout focus (v4). Kept for save migration only — the live
@@ -1563,14 +1491,6 @@ export interface AcademyState {
   reports: ProspectReport[];
   /** Legacy global cadence (v4); the live cadence is per-assignment. */
   nextReportDay: number;
-  /** The competition currently running (or the next one due). */
-  u21: U21Season;
-  /** The season's second U21 competition, built at rollover alongside the first
-   * and swapped into `u21` when the first finishes (v18). */
-  u21Next?: U21Season;
-  /** Finished U21 competitions from this season, oldest first — kept so the
-   * first half's final table survives the swap (v18). */
-  u21History?: U21Season[];
   lastIntake: { season: number; playerIds: string[]; golden: boolean } | null;
 }
 

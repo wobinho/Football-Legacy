@@ -50,7 +50,7 @@ import { deriveSeed, mulberry32, pick, randInt, uid, type RNG } from "./rng";
 import { generatePlayer } from "./worldgen";
 import { formatMoney, playerValue } from "./value";
 import { migrateProspectTier, rollProspectTier, rollTierQuality, tierRank, TIER_LABEL } from "./scouts";
-import { prospectSignFee, ensureProspectTier } from "./academy";
+import { prospectSignFee, ensureProspectTier, ensureOptimalPlan } from "./academy";
 import { assignKitNumber } from "./kitnumbers";
 import { pushInboxItem } from "./inbox";
 import { globalScoutingCostMult, globalScoutingSpeedMult } from "./gcnexec";
@@ -690,6 +690,8 @@ export function promoteHubProspect(
   p.clubId = team.id;
   p.academyClubId = team.id;
   (team.academyPlayerIds ??= []).push(playerId);
+  // Joining an academy puts him on the coaching staff's plan (v2.1).
+  ensureOptimalPlan(p);
   assignKitNumber(state, p);
   state.careers[playerId]?.transfers.push({
     season: state.season,

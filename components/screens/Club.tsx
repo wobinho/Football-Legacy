@@ -2,7 +2,7 @@
 
 // Club (§15.7): finances, staff slots, club history & records, save tools.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useGame } from "@/store/gameStore";
 import { TUNING } from "@/lib/config/tuning";
 import {
@@ -26,7 +26,8 @@ import {
   type Facility,
 } from "@/lib/economy";
 import { facilityEffect, facilityLevel } from "@/lib/facilities";
-import { downloadSquadFile, exportSquad } from "@/lib/squadfile";
+import { downloadSquadFile, exportSquad, parseSquadFile } from "@/lib/squadfile";
+import type { SquadFile, SquadRoster } from "@/lib/squadfile";
 import { clubAllTimeRecords, clubHonours, competitionHistories } from "@/lib/recordbook";
 import { academyGraduates } from "@/lib/academy";
 import { TIER_LABEL, TRAVEL_BAND_LABEL } from "@/lib/scouts";
@@ -48,7 +49,7 @@ import type { SponsorDeal, SponsorOffer } from "@/lib/types";
 import { formatMoney } from "@/lib/value";
 import { gcnFundsOf, gcnOverview } from "@/lib/gcn";
 import { isRival, rivalriesOf, rivalryRecordLine } from "@/lib/rivalry";
-import { Card, Crest, Flag, GhostButton, GoldButton, MoneyInput, Section, Stars, Tabs } from "../ui";
+import { Card, Crest, Flag, GhostButton, GoldButton, Modal, MoneyInput, Section, Stars, Tabs } from "../ui";
 import SeasonDetailModal from "./SeasonDetailModal";
 import IdentityTab from "./Identity";
 
@@ -1426,7 +1427,6 @@ function HistoryTab() {
   const viewPlayer = useGame((s) => s.viewPlayer);
   const records = clubAllTimeRecords(game, game.userTeamId);
   const seasons = game.recordBook.seasons.slice().reverse();
-  const topDivId = game.divisionIds?.[0] ?? "ENG1";
   // The season whose full review is open (v21). Held by season number rather
   // than by object so it survives a re-render of the record book.
   const [openSeason, setOpenSeason] = useState<number | null>(null);
@@ -1449,10 +1449,18 @@ function HistoryTab() {
       <RollOfHonour />
 
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-      {/* Seasons Past (v1.91). Each season is one clickable CARD rather than a
-          block of text under a caption saying it was clickable: the whole card
-          is the hit target, it lifts on hover and shows a "Full review →" cue,
-          so the affordance lives on the thing it applies to. */}
+      {/* Seasons Past (v1.91; collapsed v2.1). Each season is one clickable ROW
+          rather than a card: the year, the season number and nothing else.
+          The expanded card printed the champion, the cup, the continental
+          winner, the player of the season, the top scorer, every promotion and
+          relegation and the record transfer — seven-odd lines per season, so a
+          ten-season save was a wall of text tall enough that finding a
+          particular year meant scrolling past everything about the nine either
+          side of it. Every one of those facts is already in the season review
+          the row opens, laid out properly and with room; repeating a digest of
+          it here made the list long without making it more informative.
+          The whole row stays the hit target and keeps its "Full review →" cue,
+          so what the list is FOR is unchanged — it is an index now. */}
       <Section
         title="Seasons Past"
         right={
@@ -1464,69 +1472,25 @@ function HistoryTab() {
         {seasons.length === 0 && (
           <div className="text-sm text-faint">The history books are empty. Finish a season and they begin.</div>
         )}
-        <div className="space-y-3">
+        <Card className="divide-y divide-line/50">
           {seasons.map((s) => (
             <button
               key={s.season}
               onClick={() => setOpenSeason(s.season)}
-              className="group block w-full rounded-lg border border-line bg-surface p-4 text-left transition-colors hover:border-gold-lo/50 hover:bg-hover"
+              className="group flex w-full items-baseline gap-3 px-4 py-2.5 text-left transition-colors hover:bg-hover"
               aria-label={`Open the ${s.yearLabel} season review`}
             >
-              <div className="mb-2 flex items-baseline justify-between gap-2">
-                <span className="display gold-text text-lg font-bold">{s.yearLabel}</span>
-                <span className="flex items-baseline gap-2 text-xs text-dim">
-                  <span>You: {s.userFinish}</span>
-                  <span className="text-faint transition-colors group-hover:text-gold">
-                    Full review <span className="inline-block transition-transform group-hover:translate-x-0.5">→</span>
-                  </span>
-                </span>
-              </div>
-              <div className="grid grid-cols-1 gap-1 text-[13px] text-dim sm:grid-cols-2">
-                <div>🏆 {s.championsByLeague[topDivId]?.teamName ?? "—"}</div>
-                <div>🏅 Cup: {s.cupWinner?.teamName ?? "—"}</div>
-                {/* The top continental champion (v1.67) — the season's biggest
-                    trophy after the league, so it belongs on the summary line. */}
-                {s.europeanWinners?.[0] && (
-                  <div>
-                    ⭐ {s.europeanWinners[0].cupName}: {s.europeanWinners[0].teamName}
-                  </div>
-                )}
-                {s.playerOfSeason && <div>Player of the Season: {s.playerOfSeason.name}</div>}
-                {s.topScorers[topDivId] && (
-                  <div>
-                    Top scorer: {s.topScorers[topDivId].name} ({s.topScorers[topDivId].goals})
-                  </div>
-                )}
-                {/* Same contrast rule as the season review (v1.91): the arrow
-                    carries the colour, the club names stay readable. */}
-                {s.promoted.length > 0 && (
-                  <div className="text-ink">
-                    <span className="mr-1 text-[11px] text-emerald-400">▲</span>
-                    {s.promoted.join(", ")}
-                  </div>
-                )}
-                {s.relegated.length > 0 && (
-                  <div className="text-ink">
-                    <span className="mr-1 text-[11px] text-rose-400">▼</span>
-                    {s.relegated.join(", ")}
-                  </div>
-                )}
-              </div>
-              {s.notableTransfers.length > 0 && (
-                // `text-dim`, not `text-faint` (v1.91): this is secondary
-                // information, not disabled text, and at faint it disappeared
-                // into the card entirely.
-                <div className="mt-2 border-t border-line pt-2 text-[12px] text-dim">
-                  <span className="text-faint">Record deal </span>
-                  {s.notableTransfers[0].playerName} to {s.notableTransfers[0].to}{" "}
-                  <span className="display font-semibold tnum text-ink">
-                    {formatMoney(s.notableTransfers[0].fee)}
-                  </span>
-                </div>
-              )}
+              <span className="display gold-text shrink-0 text-[15px] font-bold tnum">{s.yearLabel}</span>
+              <span className="display shrink-0 text-[11px] uppercase tracking-widest text-faint">
+                Season {s.season}
+              </span>
+              <span className="flex-1" />
+              <span className="shrink-0 text-[11px] text-faint transition-colors group-hover:text-gold">
+                Full review <span className="inline-block transition-transform group-hover:translate-x-0.5">→</span>
+              </span>
             </button>
           ))}
-        </div>
+        </Card>
         {openSummary && (
           <SeasonDetailModal
             summary={openSummary}
@@ -1883,6 +1847,7 @@ function SaveTab() {
         </div>
       </Section>
       <ExportSquadSection />
+      <ImportSquadSection />
       <Section title="Save Details">
         <Card className="divide-y divide-line/50 text-sm">
           {[
@@ -1914,7 +1879,6 @@ function SaveTab() {
 function ExportSquadSection() {
   const game = useGame((s) => s.game)!;
   const showToast = useGame((s) => s.showToast);
-  const [includeAcademy, setIncludeAcademy] = useState(false);
 
   const team = game.teams[game.userTeamId];
   const seniorCount = team.playerIds.filter((id) => game.players[id] && !game.players[id].retired).length;
@@ -1922,41 +1886,113 @@ function ExportSquadSection() {
     (id) => game.players[id] && !game.players[id].retired
   ).length;
 
+  const write = (roster: SquadRoster, count: number) => {
+    const file = exportSquad(game, game.userTeamId, { roster });
+    if (!file || !file.club.players?.length) {
+      showToast(roster === "academy" ? "No prospects in your academy to export." : "Couldn't export this squad.");
+      return;
+    }
+    downloadSquadFile(file);
+    showToast(`Exported ${count} ${count === 1 ? "player" : "players"}.`);
+  };
+
   return (
     <Section title="Export Squad">
       <p className="mb-3 text-sm leading-relaxed text-dim">
-        Save {team.name} into your <b className="text-ink">Database Editor</b> as a custom club — the whole squad,
-        attributes and potential intact. Import it there, then start a new legacy with this team in any league you like.
-        Career history and honours stay with this save: the exported club is a blueprint for a world that hasn&apos;t been
-        played yet.
+        Save {team.name} into your <b className="text-ink">Database Editor</b> as a custom club, or bring it into another
+        legacy through Import below — attributes and potential intact. Career history and honours stay with this save:
+        an exported roster is a blueprint, not a record.
       </p>
-      {academyCount > 0 && (
-        <label className="mb-3 flex items-center gap-2 text-[13px] text-dim">
-          <input
-            type="checkbox"
-            checked={includeAcademy}
-            onChange={(e) => setIncludeAcademy(e.target.checked)}
-            className="accent-[var(--color-gold-hi)]"
-          />
-          Include the {academyCount} academy {academyCount === 1 ? "prospect" : "prospects"} as well
-        </label>
-      )}
-      <GhostButton
-        onClick={() => {
-          const file = exportSquad(game, game.userTeamId, { includeAcademy });
-          if (!file) {
-            showToast("Couldn't export this squad.");
-            return;
-          }
-          downloadSquadFile(file);
-          showToast(`Exported ${file.club.players?.length ?? 0} players. Import it in the Database Editor.`);
-        }}
-      >
-        Export squad (.flsquad.json)
-      </GhostButton>
+      <div className="flex flex-wrap gap-3">
+        <GhostButton onClick={() => write("senior", seniorCount)}>Export senior squad</GhostButton>
+        <GhostButton disabled={academyCount === 0} onClick={() => write("academy", academyCount)}>
+          Export academy prospects
+        </GhostButton>
+      </div>
       <p className="mt-2 text-[11px] text-faint tnum">
-        {seniorCount} senior{includeAcademy && academyCount > 0 ? ` + ${academyCount} academy` : ""} players
+        {seniorCount} senior · {academyCount} academy
       </p>
+    </Section>
+  );
+}
+
+/**
+ * Import a squad file into THIS save (v2.0).
+ *
+ * The counterpart to the export above, and the reason the two sit together: a
+ * squad file used to have exactly one destination (the Database Editor, for a
+ * world that hadn't started), so a manager who wanted his old academy in the
+ * legacy he was already playing had no route at all. Signing is free and
+ * unconditional — see lib/squadfile.ts for why an import deliberately isn't a
+ * transfer — and a player who was out on loan when the file was written arrives
+ * back at the club, available.
+ *
+ * The senior/academy destination comes off the file, so there is nothing to
+ * pick here: the confirmation names where the roster is going, which is the
+ * only thing a chooser would have said.
+ */
+function ImportSquadSection() {
+  const game = useGame((s) => s.game)!;
+  const showToast = useGame((s) => s.showToast);
+  const importSquad = useGame((s) => s.importSquad);
+  const [pending, setPending] = useState<SquadFile | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const team = game.teams[game.userTeamId];
+  const roster = pending?.roster ?? "senior";
+  const count = pending?.club.players?.length ?? 0;
+
+  return (
+    <Section title="Import Squad">
+      <p className="mb-3 text-sm leading-relaxed text-dim">
+        Sign a squad or academy file exported from another legacy straight into {team.name}. No fee, no negotiation —
+        the players arrive as they were, on fresh contracts, and anyone out on loan comes back to the club.
+      </p>
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        onChange={async (e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (!f) return;
+          try {
+            setPending(parseSquadFile(await f.text()));
+          } catch (err) {
+            showToast(err instanceof Error ? err.message : "Couldn't read that file.");
+          }
+        }}
+      />
+      <GhostButton onClick={() => fileRef.current?.click()}>Choose squad file…</GhostButton>
+
+      {pending && (
+        <Modal onClose={() => setPending(null)} title="Import squad">
+          <div className="space-y-4">
+            <p className="text-sm leading-relaxed text-dim">
+              <b className="text-ink">{pending.club.name}</b> — {count} {count === 1 ? "player" : "players"} from{" "}
+              {pending.origin.saveName}, season {pending.origin.season}.
+            </p>
+            <p className="text-sm leading-relaxed text-dim">
+              They will join{" "}
+              <b className="text-ink">{roster === "academy" ? `${team.name}'s academy` : `${team.name}'s senior squad`}</b>{" "}
+              on new contracts. Anything over the {roster === "academy" ? "academy" : "squad"} limit is left behind.
+            </p>
+            <div className="flex justify-end gap-3">
+              <GhostButton onClick={() => setPending(null)}>Cancel</GhostButton>
+              <GoldButton
+                onClick={() => {
+                  const err = importSquad(pending);
+                  if (err) showToast(err);
+                  setPending(null);
+                }}
+              >
+                Sign them
+              </GoldButton>
+            </div>
+          </div>
+        </Modal>
+      )}
     </Section>
   );
 }

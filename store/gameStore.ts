@@ -7,7 +7,7 @@ import { create } from "zustand";
 import type { GameState, PlayerBio, Pos, ScreenId, Tactic } from "@/lib/types";
 import { TUNING } from "@/lib/config/tuning";
 import { benchCap } from "@/lib/selection";
-import { generateWorld, type NewGameOptions } from "@/lib/worldgen";
+import { beginLivePlay, generateWorld, type NewGameOptions } from "@/lib/worldgen";
 import {
   advanceUntilEvent,
   advanceOneDay,
@@ -24,6 +24,7 @@ import { cloudOwner } from "@/lib/cloud";
 import { forgetKey, rememberLastSave, lastSave, clearLastSave } from "@/lib/auth";
 import { userBid, respondToOffer, releasePlayer, sellToClub, signedThisSeason, type BidOutcome, type OfferResponse } from "@/lib/transfers";
 import { importPlayer, type PlayerFile } from "@/lib/playerfile";
+import { importSquadFile, type SquadFile } from "@/lib/squadfile";
 import { markAvailable, clearAvailable } from "@/lib/consent";
 import {
   hireStaff,
@@ -126,9 +127,6 @@ import {
   quickSellFromAcademy,
   quickSellQuote,
   toggleFocus,
-  toggleU21Squad,
-  registerU21Squad,
-  signU21Prospect,
   toggleLoanList,
   sendAcademyLoan,
   recallLoan,
@@ -266,7 +264,7 @@ interface GameStore {
   continueGame: () => void;
   advanceDayOnce: () => void;
   /** Calendar "simulate to this day". Pauses the day before an important
-   * calendar event (a U21 deadline, a window opening/closing, the youth intake)
+   * calendar event (a window opening/closing, the youth intake)
    * and records it in `pendingGate` so the UI can prompt. Pass `ignoreGateId`
    * (the gate the user acknowledged) to carry on through it toward the same
    * target. */
@@ -487,9 +485,6 @@ interface GameStore {
    * world, so no rival club is handed a player they never chose (v1.87). */
   academyQuickSell: (playerId: string) => void;
   academyToggleFocus: (playerId: string) => void;
-  academyToggleU21Squad: (playerId: string) => void;
-  academyRegisterU21: (playerIds: string[]) => void;
-  academySignU21Prospect: (playerId: string) => void;
   academyToggleLoan: (playerId: string) => void;
   academySendLoan: (playerId: string, clubId: string) => void;
   academyRecall: (playerId: string) => void;
@@ -509,6 +504,7 @@ interface GameStore {
   /** Sign a player-file import into a club (v1.91). `clubId` null = free agent.
    * Returns an error string, or null on success. */
   importPlayerFile: (file: PlayerFile, clubId: string | null) => string | null;
+  importSquad: (file: SquadFile) => string | null;
 
   // ── Custom content library (v25): reusable saved clubs & players ──
   /** The active game-key owner's saved library. Loaded at boot; persisted on
@@ -713,6 +709,9 @@ export const useGame = create<GameStore>((set, get) => ({
         try {
           const game = await loadGame(last);
           if (game) {
+            // Auto-resume is the commonest load of all — a page refresh — and so
+            // the likeliest way a stale id counter reached live play.
+            beginLivePlay();
             set({ game, saves, booted: true, screen: "home", selectedPlayerId: null, selectedTeamId: null, overlayStack: [], lastStop: null });
             return;
           }
@@ -728,6 +727,10 @@ export const useGame = create<GameStore>((set, get) => ({
 
   newGame: async (opts) => {
     const game = generateWorld(opts);
+    // The world is built; from here every player minted (regens, youth intake,
+    // free-agent replenishment, academy, hubs) takes a collision-proof id rather
+    // than continuing worldgen's `p<n>` sequence. See `beginLivePlay`.
+    beginLivePlay();
     set({ game, screen: "home", rev: get().rev + 1, selectedPlayerId: null, selectedTeamId: null, overlayStack: [], lastStop: null });
     await saveGame(game);
     const owner = cloudOwner();
@@ -738,6 +741,10 @@ export const useGame = create<GameStore>((set, get) => ({
   loadSave: async (name) => {
     const game = await loadGame(name);
     if (game) {
+      // A loaded save restores `p1..pN` but not worldgen's counter, so anything
+      // generated from here must take a collision-proof id — otherwise the next
+      // regen overwrites a real player, career and all. See `beginLivePlay`.
+      beginLivePlay();
       const owner = cloudOwner();
       if (owner) rememberLastSave(owner, name);
       set({ game, screen: "home", rev: get().rev + 1, selectedPlayerId: null, selectedTeamId: null, overlayStack: [], lastStop: null });
@@ -759,6 +766,8 @@ export const useGame = create<GameStore>((set, get) => ({
 
   importFile: async (file) => {
     const game = await importSave(file);
+    // An imported save is a loaded world like any other. See `beginLivePlay`.
+    beginLivePlay();
     await saveGame(game);
     const owner = cloudOwner();
     if (owner) rememberLastSave(owner, game.saveName);
@@ -1916,31 +1925,6 @@ export const useGame = create<GameStore>((set, get) => ({
     get().bump(true);
   },
 
-  academyToggleU21Squad: (playerId) => {
-    const g = get().game;
-    if (!g) return;
-    const err = toggleU21Squad(g, playerId);
-    if (err) get().showToast(err);
-    get().bump(true);
-  },
-
-  academyRegisterU21: (playerIds) => {
-    const g = get().game;
-    if (!g) return;
-    const err = registerU21Squad(g, playerIds, TUNING);
-    get().showToast(err ?? `Squad registered — ${playerIds.length} prospects submitted for the U21 competition.`);
-    get().bump(true);
-  },
-
-  academySignU21Prospect: (playerId) => {
-    const g = get().game;
-    if (!g) return;
-    const name = g.players[playerId]?.name ?? "The prospect";
-    const err = signU21Prospect(g, playerId, TUNING);
-    get().showToast(err ?? `${name} joins the academy.`);
-    get().bump(true);
-  },
-
   academyToggleLoan: (playerId) => {
     const g = get().game;
     if (!g) return;
@@ -2056,6 +2040,42 @@ export const useGame = create<GameStore>((set, get) => ({
     const { name } = importPlayer(g, file, clubId);
     get().showToast(
       clubId ? `${name} signed from a player file.` : `${name} added to this world as a free agent.`
+    );
+    get().bump(true);
+    return null;
+  },
+
+  // ── Squad file import (v2.0) ──
+  //
+  // The senior/academy destination comes off the FILE, never from here: an
+  // academy file signs into the academy and a senior one into the squad. Each
+  // roster has its own cap and they are enforced the same way — whatever
+  // doesn't fit is reported rather than silently dropped, because a half-landed
+  // squad the user isn't told about is the worst outcome this action has.
+  importSquad: (file) => {
+    const g = get().game;
+    if (!g) return "No game loaded.";
+    const team = g.teams[g.userTeamId];
+    if (!team) return "No club loaded.";
+
+    const roster = file.roster ?? "senior";
+    const limit =
+      roster === "academy"
+        ? academySquadCap(g, team.id, TUNING) - (team.academyPlayerIds?.length ?? 0)
+        : TUNING.squadCap - team.playerIds.length;
+    if (limit <= 0) {
+      return roster === "academy"
+        ? "Your academy is full — release a prospect first."
+        : `Your squad is full (${TUNING.squadCap}). Release or sell someone first.`;
+    }
+
+    const out = importSquadFile(g, file, team.id, TUNING, limit);
+    if (!out.playerIds.length) return "Nothing in that file could be signed.";
+    const where = out.roster === "academy" ? "the academy" : "your squad";
+    get().showToast(
+      out.skipped.length
+        ? `Signed ${out.playerIds.length} into ${where}; ${out.skipped.length} didn't fit.`
+        : `Signed ${out.playerIds.length} ${out.playerIds.length === 1 ? "player" : "players"} into ${where}.`
     );
     get().bump(true);
     return null;

@@ -18,18 +18,15 @@ import type {
   ScoutPosGroup,
   ScoutRegion,
   Team,
-  U21Opponent,
-  U21Season,
-  U21SellStance,
-  U21TableRow,
 } from "./types";
 import type { TuningConfig } from "./config/tuning";
-import { mulberry32, deriveSeed, pick, pickWeighted, randInt, randRange, randPoisson, shuffle, uid, type RNG } from "./rng";
+import { mulberry32, deriveSeed, pick, randInt, randRange, uid, type RNG } from "./rng";
 import { generatePlayer } from "./worldgen";
 import { formatMoney, playerValue } from "./value";
 import { transferWindowState } from "./calendar";
 import { regionNats } from "./config/scouting";
 import { ARCHETYPE_MAP, positionsOfArchetype } from "./config/archetype";
+import { optimalTrainingPlan } from "./config/training";
 import { applyContract, grantDefaultContract } from "./contracts";
 import { academySquadCap } from "./economy";
 import {
@@ -135,6 +132,32 @@ export function ensureProspectTier(p: PlayerBio, cfg: TuningConfig) {
   p.academyTier ??= tier;
 }
 
+/**
+ * A prospect's training plan is the coaching staff's call, not the manager's
+ * (v2.1) — the Academy's Development tab is gone, so nobody picks one by hand.
+ *
+ * `optimalTrainingPlan` reads the ATTRIBUTE shape, which is the right question
+ * here and the opposite of the one growth asks: the emphasis a prospect GROWS
+ * under reads his stored plan (deriving it would entrench an identity training
+ * could never move — v1.77), while choosing the plan in the first place has to
+ * look at what he actually is. That is `planScore`'s documented job.
+ *
+ * Re-asserted every rollover rather than stamped once, because the shape it
+ * reads MOVES: a 15-year-old's best plan is routinely not his best plan at 18,
+ * and a one-time stamp would quietly leave him developing toward a role he grew
+ * out of. It is also what brings a save made before this change into line.
+ */
+export function ensureOptimalPlan(p: PlayerBio) {
+  p.trainingPlan = optimalTrainingPlan(p).id;
+}
+
+/** Re-assert the optimal plan across the whole academy. Called at the rollover,
+ * after the development pass has moved everyone's attributes — the plan for next
+ * season should be chosen from who he is NOW, not who he was last August. */
+export function refreshAcademyPlans(state: GameState) {
+  for (const p of academyPlayers(state)) ensureOptimalPlan(p);
+}
+
 function userTeam(state: GameState): Team {
   return state.teams[state.userTeamId];
 }
@@ -230,123 +253,15 @@ export function starRangeLabel(state: GameState, p: PlayerBio, cfg: TuningConfig
   return v.loStars === v.hiStars ? `${fmt(v.loStars)}★` : `${fmt(v.loStars)}–${fmt(v.hiStars)}★`;
 }
 
-// ── Academy state / U21 season construction ───────────────────────────────
-
-/** Roll the seven prospects a rival club registers for a U21 competition (v18).
- *
- * These are real PlayerBio records living in `state.players` and owned by the
- * parent club, because youth scouting has to be able to look at them, value
- * them, and buy them. The club's reputation plays the part a scout's judgement
- * plays elsewhere — a big academy registers better kids — so the tier ladder is
- * the same one the user's own intake and scout reports roll on. */
-function rollRivalProspects(state: GameState, cfg: TuningConfig, rng: RNG, club: Team): string[] {
-  const judgement = Math.max(1, Math.min(5, Math.round(1 + (club.reputation - 38) * 0.055)));
-  const ids: string[] = [];
-  // one keeper, six outfielders — the same shape the user must register
-  const slots: Pos[] = ["GK", ...shuffle(rng, INTAKE_POS_POOL.filter((p) => p !== "GK")).slice(0, 6)];
-  for (const pos of slots) {
-    const tier = rollProspectTier(rng, cfg, judgement);
-    // A registered U21 squad is competition-age, not the whole academy: the
-    // floor is the age a prospect could step up at, not intake age. Rolled
-    // BEFORE the quality band (v1.90) — the band is keyed on it.
-    const age = randInt(rng, cfg.academyPromoteMinAge, cfg.academyMaxAge);
-    const band = rollTierQuality(rng, cfg, tier, age);
-    const prodigy = isEliteTier(cfg, tier);
-    const p = freshId(
-      generatePlayer(rng, cfg, {
-        pos,
-        overall: band.overall,
-        nat: "ENG",
-        age,
-        prodigy,
-      })
-    );
-    p.potential = Math.round(Math.min(cfg.potentialAbsoluteCap, Math.max(p.overall + 2, band.potential)));
-    p.value = playerValue(p, cfg);
-    p.clubId = club.id;
-    p.academyClubId = club.id;
-    p.u21Tier = tier;
-    p.academyTier = tier; // permanent history label (survives promotion/transfer)
-    state.players[p.id] = p;
-    ids.push(p.id);
-  }
-  return ids;
-}
-
-/** Build one 12-team U21 competition: the user U21s plus 11 sides wearing other
- * playable clubs' names, each registering seven of its own prospects (v18).
- *
- * `half` is which running of the season this is (0 or 1). The first kicks off
- * u21FirstKickoffDays after the senior season starts; the second follows on
- * directly once the first's 22 rounds are done. Registration closes
- * u21RegistrationLeadDays before round 1. */
-export function buildU21Season(state: GameState, cfg: TuningConfig, half = 0, startDay?: number): U21Season {
-  const rng = mulberry32(deriveSeed(state.seed, `u21:${state.season}:${half}`));
-  const user = userTeam(state);
-  const clubs = Object.values(state.teams).filter((t) => t.id !== user.id && state.leagues[t.leagueId]?.playable);
-  const opponents = shuffle(rng, clubs)
-    .slice(0, 11)
-    .map((t) => ({
-      name: `${t.name} U21`,
-      short: t.short,
-      clubId: t.id,
-      strength: cfg.u21OppStrengthBase + t.reputation * cfg.u21OppStrengthPerRep + randRange(rng, -3, 3),
-      prospectIds: rollRivalProspects(state, cfg, rng, t),
-      sellStance: pickWeighted(
-        rng,
-        ["willing", "premium", "unwilling"] as const,
-        (s) => cfg.u21SellStanceWeights[s]
-      ),
-    }));
-
-  // Both competitions have to fit between the first kickoff (a month into the
-  // senior season) and the season's end, so the round interval is derived from
-  // the window actually available rather than assumed. It is capped at the
-  // nominal weekly spacing — a short calendar tightens the fixture list, it
-  // never stretches it past a week.
-  const firstKickoff = state.schedule.seasonStartDay + cfg.u21FirstKickoffDays;
-  const window = state.schedule.seasonEndDay - firstKickoff;
-  const totalRounds = cfg.u21RoundsPerCompetition * cfg.u21CompetitionsPerSeason;
-  const interval = Math.max(1, Math.min(cfg.u21RoundIntervalDays, Math.floor(window / totalRounds)));
-  const kickoff = startDay ?? firstKickoff;
-  const matchDays = Array.from({ length: cfg.u21RoundsPerCompetition }, (_, i) => kickoff + i * interval);
-  const table: U21TableRow[] = [
-    { name: `${user.name} U21`, isUser: true, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, points: 0 },
-    ...opponents.map((o) => ({ name: o.name, isUser: false, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, points: 0 })),
-  ];
-  return {
-    half,
-    opponents,
-    matchDays,
-    roundsPlayed: 0,
-    table,
-    results: [],
-    registrationDay: kickoff - cfg.u21RegistrationLeadDays,
-    registered: [],
-  };
-}
-
-/** The day the competition after `u21` should kick off — one round interval past
- * the last round of the current one, reusing that competition's own spacing so
- * the two runnings stay flush inside the season. */
-export function nextU21Kickoff(u21: U21Season, cfg: TuningConfig): number {
-  const days = u21.matchDays;
-  const interval = days.length > 1 ? days[1] - days[0] : cfg.u21RoundIntervalDays;
-  return days[days.length - 1] + interval;
-}
+// ── Academy state ─────────────────────────────────────────────────────────
 
 export function initAcademyState(state: GameState, cfg: TuningConfig): AcademyState {
-  const first = buildU21Season(state, cfg, 0);
   return {
     focusIds: [],
-    u21Squad: [],
     loanList: [],
     assignments: [],
     reports: [],
     nextReportDay: state.currentDay + cfg.scoutReportDaysBase,
-    u21: first,
-    u21Next: buildU21Season(state, cfg, 1, nextU21Kickoff(first, cfg)),
-    u21History: [],
     lastIntake: null,
   };
 }
@@ -447,25 +362,25 @@ function rollIntakeProspect(
 // `rollIntakeProspect` above survives because `seedInitialAcademy` still needs a
 // starting crop, without which a new save forfeits its first U21 competition.
 
-/** A fresh save starts with an academy that can actually enter the season's
- * first U21 competition (v18): enough bodies to register a legal seven, keeper
- * included. Before v18 this seeded three prospects, which meant the opening
- * competition was forfeited before the user could do anything about it. Silent
- * — no inbox. Called from worldgen. */
+/** A fresh save starts with a working academy rather than an empty room (v18;
+ * re-based v2.1). The size used to be "a legal U21 seven plus two spare"; with
+ * the U21 league gone the number is stated directly as `academySeedSize`, which
+ * keeps the crop the same size it has always been while no longer hanging off a
+ * competition that no longer exists. Silent — no inbox. Called from worldgen. */
 export function seedInitialAcademy(state: GameState, cfg: TuningConfig) {
   const team = userTeam(state);
   const rng = mulberry32(deriveSeed(state.seed, "intake:0:user"));
-  // A couple spare beyond the registration seven, so there is a choice to make
-  // rather than a single legal line-up.
-  const size = cfg.u21RegistrationSize + 2;
+  const size = cfg.academySeedSize;
   for (let i = 0; i < size; i++) {
     const p = rollIntakeProspect(state, rng, cfg, { golden: false });
+    ensureOptimalPlan(p);
     state.players[p.id] = p;
     (team.academyPlayerIds ??= []).push(p.id);
     assignKitNumber(state, p);
   }
-  // Guarantee a keeper — registration is illegal without one, and the intake
-  // position pool can easily return none in a small class.
+  // Guarantee a keeper — the intake position pool can easily return none in a
+  // small class, and an academy with no goalkeeper in it is a hole the manager
+  // has to fill from the market before he can loan anybody out.
   const players = (team.academyPlayerIds ?? []).map((id) => state.players[id]);
   if (!players.some((p) => p.positions[0] === "GK")) {
     const gk = freshId(
@@ -483,6 +398,7 @@ export function seedInitialAcademy(state: GameState, cfg: TuningConfig) {
     // This keeper is generated directly rather than rolled through the tier
     // ladder, so his badge is read off the quality he was given.
     ensureProspectTier(gk, cfg);
+    ensureOptimalPlan(gk);
     state.players[gk.id] = gk;
     (team.academyPlayerIds ??= []).push(gk.id);
     assignKitNumber(state, gk);
@@ -520,393 +436,18 @@ export function aiIntake(state: GameState, cfg: TuningConfig, rngSeed: number) {
   }
   // the user's own squad still needs the retiree cleanup pass
   const user = userTeam(state);
+  const retiredFromUser = [
+    ...user.playerIds,
+    ...(user.academyPlayerIds ?? []),
+  ].filter((id) => !state.players[id] || state.players[id].retired);
   user.playerIds = user.playerIds.filter((id) => state.players[id] && !state.players[id].retired);
   user.academyPlayerIds = (user.academyPlayerIds ?? []).filter((id) => state.players[id] && !state.players[id].retired);
-}
-
-// ── U21 league sim (§18) ──────────────────────────────────────────────────
-
-// The U21s play 7-a-side. The user's side is locked out of the league until the
-// academy can field a full seven: at least one goalkeeper and six outfielders
-// (loanees are away, so they don't count toward eligibility).
-export const U21_SIDE_SIZE = 7;
-export const U21_MIN_GK = 1;
-export const U21_MIN_OUTFIELD = 6;
-
-/** Non-loan academy players split into keepers and outfielders — the pool the
- * U21 side is drawn from and the basis for the lock check. */
-function u21Pool(state: GameState): { gks: PlayerBio[]; outfield: PlayerBio[] } {
-  const avail = academyPlayers(state).filter((p) => !p.loan);
-  return {
-    gks: avail.filter((p) => p.positions[0] === "GK"),
-    outfield: avail.filter((p) => p.positions[0] !== "GK"),
-  };
-}
-
-/** Whether the academy can field a legal 7-a-side U21 side (≥1 GK, ≥6 outfield).
- * While false the U21 league is locked — no rounds are resolved. */
-export function u21Eligible(state: GameState): boolean {
-  const { gks, outfield } = u21Pool(state);
-  return gks.length >= U21_MIN_GK && outfield.length >= U21_MIN_OUTFIELD;
-}
-
-/** How many more players of each kind the academy still needs to unlock the U21s. */
-export function u21Shortfall(state: GameState): { gk: number; outfield: number } {
-  const { gks, outfield } = u21Pool(state);
-  return {
-    gk: Math.max(0, U21_MIN_GK - gks.length),
-    outfield: Math.max(0, U21_MIN_OUTFIELD - outfield.length),
-  };
-}
-
-// ── Registration (§18 v18) ────────────────────────────────────────────────
-// Each competition opens with a registration window: the club submits exactly
-// seven prospects (≥1 GK) before the deadline. Miss it — or fail to field a
-// legal seven at all — and a randomly drawn side takes the entry for that
-// running. The competition never waits for the user.
-
-/** Whether registration for this competition is still open. */
-export function u21RegistrationOpen(state: GameState, u21: U21Season = state.academy.u21): boolean {
-  return !u21.forfeited && state.currentDay <= (u21.registrationDay ?? 0);
-}
-
-/** Whether the user has a valid seven registered for this competition. */
-export function u21Registered(state: GameState, u21: U21Season = state.academy.u21): boolean {
-  return (u21.registered?.length ?? 0) === U21_SIDE_SIZE;
-}
-
-/** Days left to register, or null once the window has closed. */
-export function u21RegistrationDaysLeft(state: GameState, u21: U21Season = state.academy.u21): number | null {
-  const left = (u21.registrationDay ?? 0) - state.currentDay;
-  return left >= 0 ? left : null;
-}
-
-/** Submit the club's seven for the current competition. Validates squad shape
- * (exactly seven, at least one keeper, all fit academy players not out on loan)
- * so a registration can never produce an illegal side. */
-export function registerU21Squad(state: GameState, playerIds: string[], cfg: TuningConfig): string | null {
-  const u21 = state.academy.u21;
-  if (u21.forfeited) return "You forfeited this competition — the next one opens for registration soon.";
-  if (!u21RegistrationOpen(state, u21)) return "Registration for this competition has closed.";
-  if (playerIds.length !== cfg.u21RegistrationSize) {
-    return `Register exactly ${cfg.u21RegistrationSize} prospects — you have ${playerIds.length}.`;
-  }
-  const academy = new Set(userTeam(state).academyPlayerIds ?? []);
-  const players = playerIds.map((id) => state.players[id]);
-  if (players.some((p, i) => !p || !academy.has(playerIds[i]))) return "Only academy players can be registered.";
-  if (players.some((p) => p.loan)) return "A prospect out on loan can't be registered.";
-  if (players.some((p) => p.retired)) return "That prospect has retired.";
-  if (new Set(playerIds).size !== playerIds.length) return "Each prospect can only be registered once.";
-  if (!players.some((p) => p.positions[0] === "GK")) return "Your seven must include at least one goalkeeper.";
-  u21.registered = [...playerIds];
-  return null;
-}
-
-/** Deadline check, run daily. If the user hasn't registered a legal seven by the
- * close of the window, the entry is forfeited and a randomly drawn side replaces
- * them for the whole competition — the other eleven play on around it. */
-export function enforceU21Registration(state: GameState, cfg: TuningConfig) {
-  const u21 = state.academy.u21;
-  if (u21.forfeited || u21Registered(state, u21)) return;
-  if (state.currentDay <= (u21.registrationDay ?? 0)) return; // window still open
-
-  const rng = mulberry32(deriveSeed(state.seed, `u21forfeit:${state.season}:${u21.half ?? 0}`));
-  const taken = new Set(u21.opponents.map((o) => o.clubId));
-  const replacements = Object.values(state.teams).filter(
-    (t) => t.id !== state.userTeamId && !taken.has(t.id) && state.leagues[t.leagueId]?.playable
-  );
-  const stand = replacements.length ? pick(rng, replacements) : null;
-  const name = stand ? `${stand.name} U21` : "Invited XI";
-
-  u21.forfeited = true;
-  u21.replacedBy = name;
-  u21.registered = [];
-  // The replacement inherits the user's slot outright: row 0 becomes their row,
-  // so the table still reads as a full twelve and the pairings never change.
-  const row = u21.table.find((r) => r.isUser);
-  if (row) {
-    row.isUser = false;
-    row.name = name;
-  }
-  if (stand) {
-    u21.opponents.push({
-      name,
-      short: stand.short,
-      clubId: stand.id,
-      strength: cfg.u21OppStrengthBase + stand.reputation * cfg.u21OppStrengthPerRep,
-      prospectIds: rollRivalProspects(state, cfg, rng, stand),
-      sellStance: pickWeighted(rng, ["willing", "premium", "unwilling"] as const, (s) => cfg.u21SellStanceWeights[s]),
-    });
-  }
-  pushInbox(
-    state,
-    "academy",
-    "U21 entry forfeited — no squad registered",
-    `The registration deadline passed without a legal seven submitted, so ${name} have taken our place in this U21 competition. ` +
-      `Our prospects sit this one out. Register a squad in good time for the next competition — the Academy → U21 League tab shows the deadline.`
-  );
-}
-
-/** Circle-method pairings for a 12-team double round-robin. Team 0 = user. */
-function roundPairings(round: number): [number, number][] {
-  const n = 12;
-  const r = round % (n - 1);
-  const secondLeg = round >= n - 1;
-  const rot = Array.from({ length: n - 1 }, (_, i) => 1 + ((i + r) % (n - 1)));
-  const pairs: [number, number][] = [[0, rot[0]]];
-  for (let i = 1; i < n / 2; i++) pairs.push([rot[i], rot[n - 1 - i]]);
-  return pairs.map(([a, b], i) => {
-    const swap = (r + i) % 2 === 0 ? secondLeg : !secondLeg;
-    return swap ? [b, a] : [a, b];
-  });
-}
-
-/** The 7-a-side side the youth coach fields (one keeper + six outfielders).
- *
- * From v18 the REGISTERED seven are the squad — once a competition is under way
- * only those names are eligible, which is the whole point of a registration
- * window. Anyone since sold, released or loaned out simply leaves a hole. Before
- * registration (and on pre-v18 saves) it falls back to the old behaviour: the
- * tagged matchday squad if there is one, else focus prospects then the best of
- * the rest. */
-function u21Seven(state: GameState): PlayerBio[] {
-  const focus = new Set(state.academy.focusIds);
-  const u21 = state.academy.u21;
-  let avail = academyPlayers(state).filter((p) => !p.loan);
-  if (u21Registered(state, u21)) {
-    const reg = new Set(u21.registered);
-    avail = avail.filter((p) => reg.has(p.id));
-  } else {
-    const tagged = new Set(state.academy.u21Squad ?? []);
-    if (tagged.size > 0) avail = avail.filter((p) => tagged.has(p.id) || focus.has(p.id));
-  }
-  const rank = (a: PlayerBio, b: PlayerBio) =>
-    (focus.has(b.id) ? 1 : 0) - (focus.has(a.id) ? 1 : 0) || b.overall - a.overall;
-  const gks = avail.filter((p) => p.positions[0] === "GK").sort(rank);
-  const outfield = avail.filter((p) => p.positions[0] !== "GK").sort(rank);
-  const side: PlayerBio[] = [];
-  if (gks.length > 0) side.push(gks[0]); // one keeper leads the side
-  for (const p of outfield) {
-    if (side.length >= U21_SIDE_SIZE) break;
-    side.push(p);
-  }
-  return side.slice(0, U21_SIDE_SIZE);
-}
-
-export function userU21Strength(state: GameState, cfg: TuningConfig): number {
-  const side = u21Seven(state);
-  const total = side.reduce((s, p) => s + p.overall, 0) + (U21_SIDE_SIZE - side.length) * 30;
-  return total / U21_SIDE_SIZE + youthCoachStars(state) * cfg.u21CoachStrengthPerStar;
-}
-
-/** Projected U21 role for an academy player — how many minutes they'll get.
- * The youth coach fields focus prospects first, then the best of the rest, so
- * this is the same logic the sim uses (u21Seven). Loanees are away entirely. */
-export type U21Role = "Starter" | "Rotation" | "Bench" | "On loan";
-export function u21RoleFor(state: GameState, playerId: string): U21Role {
-  const p = state.players[playerId];
-  if (!p) return "Bench";
-  if (p.loan) return "On loan";
-  const side = u21Seven(state);
-  const idx = side.findIndex((x) => x.id === playerId);
-  if (idx === -1) return "Bench";
-  // focus prospects + the top of the side are nailed-on starters; the tail rotates
-  if (state.academy.focusIds.includes(playerId) || idx < 5) return "Starter";
-  return "Rotation";
-}
-
-const U21_SCORER_WEIGHT: Partial<Record<Pos, number>> = {
-  ST: 4, LW: 2.5, RW: 2.5, AM: 2, LM: 1.5, RM: 1.5, CM: 1, DM: 0.5, CB: 0.4, LB: 0.4, RB: 0.4, GK: 0.05,
-};
-
-function tableRowFor(u21: U21Season, teamIdx: number): U21TableRow {
-  return u21.table[teamIdx];
-}
-
-function applyU21Score(u21: U21Season, homeIdx: number, awayIdx: number, hg: number, ag: number) {
-  const h = tableRowFor(u21, homeIdx);
-  const a = tableRowFor(u21, awayIdx);
-  h.played++; a.played++;
-  h.gf += hg; h.ga += ag; a.gf += ag; a.ga += hg;
-  if (hg > ag) { h.won++; a.lost++; h.points += 3; }
-  else if (hg < ag) { a.won++; h.lost++; a.points += 3; }
-  else { h.drawn++; a.drawn++; h.points++; a.points++; }
-}
-
-/** Resolve any due U21 rounds. Statistical, zero-interaction: scorelines from
- * strength shares, minutes/goals/ratings credited to academy players'
- * youthStats. Never touches fitness or the real match engine. Catch-up loop so
- * a mid-season migrated save (or any skipped day) can't strand the season. */
-export function runU21MatchDay(state: GameState, cfg: TuningConfig) {
-  // The registration deadline is checked first so a competition that kicks off
-  // today already knows whether the user is in it.
-  enforceU21Registration(state, cfg);
-  let u21 = state.academy.u21;
-  while (u21.roundsPlayed < u21.matchDays.length && u21.matchDays[u21.roundsPlayed] <= state.currentDay) {
-    resolveU21Round(state, cfg, u21.roundsPlayed++);
-  }
-  // Competition over: file the review and roll the next one in (v18). The loop
-  // repeats so a long skipped stretch can't strand a whole competition.
-  while (u21.roundsPlayed >= u21.matchDays.length && advanceU21Competition(state, cfg)) {
-    u21 = state.academy.u21;
-    enforceU21Registration(state, cfg);
-    while (u21.roundsPlayed < u21.matchDays.length && u21.matchDays[u21.roundsPlayed] <= state.currentDay) {
-      resolveU21Round(state, cfg, u21.roundsPlayed++);
-    }
-  }
-}
-
-/** Drop a retired competition's rival prospects from the world.
- *
- * These exist only so the user can scout that competition's registered sides; a
- * competition generates 77 of them and two run per season, so keeping them would
- * add ~150 dead player records to the save every year. Anyone the user actually
- * signed has moved to their academy (clubId changed) and is skipped, as is
- * anyone with career history worth preserving. */
-function releaseU21Prospects(state: GameState, u21: U21Season) {
-  for (const o of u21.opponents) {
-    for (const id of o.prospectIds ?? []) {
-      const p = state.players[id];
-      // still at the club that registered him, and never transacted → disposable
-      if (!p || p.clubId !== o.clubId) continue;
-      if (state.careers[id]?.transfers?.length) continue;
-      delete state.players[id];
-      const club = state.teams[o.clubId ?? ""];
-      if (club) club.playerIds = club.playerIds.filter((x) => x !== id);
-    }
-    o.prospectIds = [];
-  }
-}
-
-/** Retire the finished competition into history and promote the next one. Returns
- * false when the season has no competition left to run — the rollover builds the
- * next season's pair. */
-function advanceU21Competition(state: GameState, cfg: TuningConfig): boolean {
-  const ac = state.academy;
-  // Nothing to promote: the season's last competition stays in place, finished,
-  // until the rollover builds next season's pair. Retiring it here would re-file
-  // its review and re-push it into history on every subsequent day.
-  if (!ac.u21Next) return false;
-  const done = ac.u21;
-  fileU21Review(state, done);
-  releaseU21Prospects(state, done);
-  (ac.u21History ??= []).push(done);
-  ac.u21 = ac.u21Next;
-  ac.u21Next = undefined;
-  // Youth stats are cumulative across the season by design (they feed one
-  // development pass at rollover), so nothing is cleared between competitions —
-  // only the registration slate is new.
-  pushInbox(
-    state,
-    "academy",
-    "U21 registration open — second competition",
-    `The season's second U21 competition kicks off soon. Register ${cfg.u21RegistrationSize} prospects before the deadline ` +
-      `or our place goes to another club. Academy → U21 League.`
-  );
-  return true;
-}
-
-/** The end-of-competition inbox review (was the end-of-season review pre-v18). */
-function fileU21Review(state: GameState, u21: U21Season) {
-  if (u21.roundsPlayed <= 0) return;
-  const label = `U21 competition ${(u21.half ?? 0) + 1}`;
-  if (u21.forfeited) {
-    pushInbox(
-      state,
-      "academy",
-      `${label}: forfeited`,
-      `We took no part — ${u21.replacedBy ?? "another club"} filled our place. The prospects lost a half-season of competitive minutes.`
-    );
-    return;
-  }
-  const pos = u21.table.findIndex((r) => r.isUser) + 1;
-  const suffix = pos === 1 ? "st" : pos === 2 ? "nd" : pos === 3 ? "rd" : "th";
-  const topKid = academyPlayers(state)
-    .filter((p) => p.youthStats?.apps)
-    .sort((a, b) => (b.youthStats!.goals || 0) - (a.youthStats!.goals || 0))[0];
-  pushInbox(
-    state,
-    "academy",
-    `${label} review: ${pos}${suffix}`,
-    `The U21s finished ${pos}${suffix} of 12.` +
-      (topKid?.youthStats?.goals ? ` Top scorer: ${topKid.name} with ${topKid.youthStats.goals}.` : "") +
-      (pos === 1 ? " Champions — the academy is producing." : "")
-  );
-}
-
-function resolveU21Round(state: GameState, cfg: TuningConfig, round: number) {
-  const u21 = state.academy.u21;
-  const rng = mulberry32(deriveSeed(state.seed, `u21:${state.season}:${u21.half ?? 0}:r${round}`));
-  // On a forfeit the replacement side occupies slot 0 and plays the full card as
-  // an ordinary opponent — the league is always a full twelve.
-  const standIn = u21.forfeited ? u21.opponents[u21.opponents.length - 1] : null;
-  const strengthOf = (idx: number) =>
-    idx === 0 ? standIn?.strength ?? userU21Strength(state, cfg) : u21.opponents[idx - 1].strength;
-  // The user's fixtures only count while the academy can field a legal seven.
-  // While locked, their matches are skipped (no result, no youth minutes) —
-  // the rest of the league plays on around the empty slot.
-  const eligible = u21Eligible(state);
-
-  for (const [homeIdx, awayIdx] of roundPairings(round)) {
-    // Slot 0 is only "the user's match" while they still hold the entry.
-    const userMatch = (homeIdx === 0 || awayIdx === 0) && !u21.forfeited;
-    if (userMatch && !eligible) continue; // U21 league locked for the user
-
-    const sh = strengthOf(homeIdx) + 2; // small youth home edge
-    const sa = strengthOf(awayIdx);
-    const share = Math.pow(sh, 2.2) / (Math.pow(sh, 2.2) + Math.pow(sa, 2.2));
-    const hg = randPoisson(rng, cfg.u21GoalsPerMatch * share);
-    const ag = randPoisson(rng, cfg.u21GoalsPerMatch * (1 - share));
-    applyU21Score(u21, homeIdx, awayIdx, hg, ag);
-
-    if (!userMatch) continue;
-
-    // the user's match: credit minutes, goals and ratings to the side
-    const home = homeIdx === 0;
-    const [gf, ga] = home ? [hg, ag] : [ag, hg];
-    const eleven = u21Seven(state);
-    const scorers: string[] = [];
-    const outfield = eleven.filter((p) => p.positions[0] !== "GK");
-    for (let g = 0; g < gf && outfield.length; g++) {
-      const scorer = pickWeighted(rng, outfield, (p) => (U21_SCORER_WEIGHT[p.positions[0]] ?? 1) * (p.overall / 50));
-      (scorer.youthStats ??= { apps: 0, goals: 0, assists: 0, ratingSum: 0, minutes: 0 }).goals += 1;
-      scorers.push(scorer.name);
-    }
-    const perf = gf - ga;
-    for (const p of eleven) {
-      const ys = (p.youthStats ??= { apps: 0, goals: 0, assists: 0, ratingSum: 0, minutes: 0 });
-      ys.apps += 1;
-      ys.minutes += 90;
-      const goals = scorers.filter((n) => n === p.name).length;
-      const rating = Math.min(10, Math.max(4, 6.4 + perf * 0.15 + goals * 0.7 + randRange(rng, -0.5, 0.6)));
-      ys.ratingSum += Math.round(rating * 10) / 10;
-    }
-    const oppName = u21.opponents[(home ? awayIdx : homeIdx) - 1].name;
-    u21.results.push({ day: u21.matchDays[round], opponent: oppName, home, gf, ga, scorers });
-
-    // standouts stream past as ticker news, never an interrupt
-    const hatTrick = scorers.find((n) => scorers.filter((x) => x === n).length >= 3);
-    if (hatTrick) state.news.unshift(`U21s: ${hatTrick} hits a hat-trick against ${oppName}.`);
-    else if (gf - ga >= 4) state.news.unshift(`U21s put ${gf} past ${oppName}.`);
-  }
-  u21.table.sort((a, b) => b.points - a.points || b.gf - b.ga - (a.gf - a.ga) || b.gf - a.gf);
-}
-
-/** Tag/untag an academy player into the U21 matchday squad. Only academy
- * players can be tagged; a tagged squad overrides auto-selection in the U21
- * league (focus prospects always start regardless). */
-export function toggleU21Squad(state: GameState, playerId: string): string | null {
-  const ac = state.academy;
-  ac.u21Squad ??= [];
-  if (!(userTeam(state).academyPlayerIds ?? []).includes(playerId)) {
-    return "Only academy players can be added to the U21 squad.";
-  }
-  if (ac.u21Squad.includes(playerId)) {
-    ac.u21Squad = ac.u21Squad.filter((id) => id !== playerId);
-  } else {
-    ac.u21Squad.push(playerId);
-  }
-  return null;
+  // A retiree is a departure like any other, so he leaves the saved tactics too
+  // (v2.0). Selling or releasing a player has always purged him; retirement did
+  // not, so a preset went on naming a man who had hung up his boots — the exact
+  // stale reference `purgePlayerFromTactics` exists to prevent. His RECORD is
+  // untouched: this clears lineups, never history.
+  for (const id of retiredFromUser) purgePlayerFromTactics(state, id);
 }
 
 /** How many focus prospects the user may flag — the Youth Academy facility's
@@ -969,18 +510,11 @@ export function promoteToSenior(state: GameState, playerId: string, cfg: TuningC
     return `Too young to promote — prospects join the senior squad at ${cfg.academyPromoteMinAge}.`;
   }
   if (prospect?.loan) return "Recall the loan first.";
-  // A prospect registered for the U21 competition is locked to that side for the
-  // duration — promoting mid-competition would pull him from a squad he can no
-  // longer be replaced in, so the registration bars the promotion until it lapses.
-  if ((state.academy.u21.registered ?? []).includes(playerId)) {
-    return "Registered for the U21 competition — he can't be promoted until the next registration window.";
-  }
   // No senior squad cap (v14) — promotion is a football decision, not a slot
   // hunt. The academy squad cap is still the pipeline's real constraint.
   team.academyPlayerIds = academy.filter((id) => id !== playerId);
   team.playerIds.push(playerId);
   state.academy.focusIds = state.academy.focusIds.filter((id) => id !== playerId);
-  state.academy.u21Squad = (state.academy.u21Squad ?? []).filter((id) => id !== playerId);
   // A promoted graduate signs his first professional deal (§10 v5 contracts)
   // and takes a senior shirt (the academy and senior squads number separately).
   const p = state.players[playerId];
@@ -1007,6 +541,8 @@ export function demoteToAcademy(state: GameState, playerId: string, cfg: TuningC
   // Promotion strips the live badge, so a player sent back down needs it again —
   // restored from his permanent academyTier where he has one.
   ensureProspectTier(p, cfg);
+  // Back in the academy, back on the coaching staff's plan (v2.1).
+  ensureOptimalPlan(p);
   clearKitNumber(p);
   assignKitNumber(state, p);
   for (const [slot, id] of Object.entries(state.lineup)) {
@@ -1021,7 +557,6 @@ export function releaseFromAcademy(state: GameState, playerId: string): string |
   if (!(team.academyPlayerIds ?? []).includes(playerId) || !p) return "Not an academy player.";
   team.academyPlayerIds = (team.academyPlayerIds ?? []).filter((id) => id !== playerId);
   state.academy.focusIds = state.academy.focusIds.filter((id) => id !== playerId);
-  state.academy.u21Squad = (state.academy.u21Squad ?? []).filter((id) => id !== playerId);
   state.academy.loanList = state.academy.loanList.filter((id) => id !== playerId);
   p.clubId = null;
   p.loan = undefined;
@@ -1102,9 +637,6 @@ export function quickSellFromAcademy(
   const p = state.players[playerId];
   if (!(team.academyPlayerIds ?? []).includes(playerId) || !p) return "Not an academy player.";
   if (p.loan) return "Recall him from his loan spell first.";
-  if ((state.academy.u21.registered ?? []).includes(playerId)) {
-    return "Registered for the U21 competition — he can't be sold until the next registration window.";
-  }
   const quote = quickSellQuote(state, playerId, cfg);
   if (quote.fee <= 0) return "No club would buy him right now — release him instead.";
 
@@ -1114,9 +646,7 @@ export function quickSellFromAcademy(
   team.academyPlayerIds = (team.academyPlayerIds ?? []).filter((id) => id !== playerId);
   team.playerIds = team.playerIds.filter((id) => id !== playerId);
   state.academy.focusIds = state.academy.focusIds.filter((id) => id !== playerId);
-  state.academy.u21Squad = (state.academy.u21Squad ?? []).filter((id) => id !== playerId);
   state.academy.loanList = state.academy.loanList.filter((id) => id !== playerId);
-  state.academy.u21.registered = (state.academy.u21.registered ?? []).filter((id) => id !== playerId);
   state.shortlist = (state.shortlist ?? []).filter((id) => id !== playerId);
   state.loanList = (state.loanList ?? []).filter((id) => id !== playerId);
   state.hallOfFame = (state.hallOfFame ?? []).filter((id) => id !== playerId);
@@ -1199,7 +729,6 @@ export function releaseGraduate(state: GameState, playerId: string): string | nu
   const team = userTeam(state);
   state.pendingGraduates = (state.pendingGraduates ?? []).filter((g) => g.playerId !== playerId);
   state.academy.focusIds = state.academy.focusIds.filter((id) => id !== playerId);
-  state.academy.u21Squad = (state.academy.u21Squad ?? []).filter((id) => id !== playerId);
   state.academy.loanList = state.academy.loanList.filter((id) => id !== playerId);
   p.clubId = null;
   p.contract = undefined;
@@ -1794,6 +1323,7 @@ export function signProspect(state: GameState, reportId: string, cfg: TuningConf
   // An older report may carry no tier at all — fall back to the one his numbers
   // describe so no signing lands on the squad list unbadged.
   ensureProspectTier(p, cfg);
+  ensureOptimalPlan(p);
   state.players[p.id] = p;
   (team.academyPlayerIds ??= []).push(p.id);
   assignKitNumber(state, p);
@@ -1820,137 +1350,6 @@ export function signProspect(state: GameState, reportId: string, cfg: TuningConf
 
 export function dismissReport(state: GameState, reportId: string) {
   state.academy.reports = state.academy.reports.filter((r) => r.id !== reportId);
-}
-
-// ── Rival U21 prospects (§18 v18) ─────────────────────────────────────────
-// Every side in the U21 league registered seven of its own kids, and they can be
-// approached. Unlike a scout's find these cost real money and can simply be
-// refused: a club's stance decides whether it deals at a fair price, holds out
-// for a premium, or won't sell at all — and the elite tiers multiply on top, so
-// prising away an obsidian or legacy prospect is meant to be a genuine coup.
-
-/** The U21 side an opponent index or club id belongs to, if it's in this
- * competition. Looked up by name because the table row is what the UI clicks. */
-export function u21OpponentByName(state: GameState, name: string): U21Opponent | null {
-  return state.academy.u21.opponents.find((o) => o.name === name) ?? null;
-}
-
-/** The seven prospects a rival side registered, best first. Retired or already
- * transferred-away players are filtered out so the list always reads true. */
-export function u21OpponentProspects(state: GameState, opp: U21Opponent): PlayerBio[] {
-  return (opp.prospectIds ?? [])
-    .map((id) => state.players[id])
-    .filter((p): p is PlayerBio => !!p && !p.retired && p.clubId === opp.clubId)
-    .sort((a, b) => b.potential - a.potential || b.overall - a.overall);
-}
-
-export interface U21ProspectQuote {
-  /** What the club wants for him, or null if they simply won't deal. */
-  price: number | null;
-  stance: U21SellStance;
-  /** Player-facing explanation of the stance — shown on the approach button. */
-  note: string;
-}
-
-/** What a rival wants for one of its registered prospects. Deterministic per
- * (player, season) so a quote can't be re-rolled by reopening the screen. */
-export function u21ProspectQuote(
-  state: GameState,
-  opp: U21Opponent,
-  p: PlayerBio,
-  cfg: TuningConfig
-): U21ProspectQuote {
-  const stance = opp.sellStance ?? "willing";
-  const clubName = state.teams[opp.clubId ?? ""]?.name ?? opp.name;
-  if (stance === "unwilling") {
-    return {
-      price: null,
-      stance,
-      note: `${clubName} are not selling their prospects at any price.`,
-    };
-  }
-  // Elite kids are multiplied on top of the stance — that is what makes the top
-  // of the tier ladder hard to buy rather than merely expensive. Table lookup,
-  // so a new rung in tuning prices itself.
-  const badge = migrateProspectTier(p.u21Tier);
-  const tierMult = (badge && cfg.u21SellTierMult[badge]) || 1;
-  const stanceMult = stance === "premium" ? cfg.u21SellPricePremiumMult : cfg.u21SellPriceWillingMult;
-  const price = Math.round((playerValue(p, cfg) * stanceMult * tierMult) / 1000) * 1000;
-  return {
-    price,
-    stance,
-    note:
-      stance === "premium"
-        ? `${clubName} will listen, but they know what they have.`
-        : `${clubName} would do business at the right price.`,
-  };
-}
-
-/** Approach a rival for one of its registered U21 prospects. Success moves him
- * straight into the user's academy for the quoted fee; a refusal costs nothing
- * but the answer, and is deterministic per player per season so it can't be
- * re-rolled by asking again the same year. */
-export function signU21Prospect(state: GameState, playerId: string, cfg: TuningConfig): string | null {
-  const u21 = state.academy.u21;
-  const opp = u21.opponents.find((o) => (o.prospectIds ?? []).includes(playerId));
-  const p = state.players[playerId];
-  if (!opp || !p) return "That prospect is no longer registered in this competition.";
-  if (p.clubId !== opp.clubId) return `${p.name} has already left ${opp.name}.`;
-
-  const team = userTeam(state);
-  if ((team.academyPlayerIds?.length ?? 0) >= academySquadCap(state, team.id, cfg)) {
-    return "Academy is full — release a prospect or upgrade Academy Squad Size to sign more.";
-  }
-  const quote = u21ProspectQuote(state, opp, p, cfg);
-  if (quote.price === null) return `${opp.name} refuse to discuss their prospects.`;
-  if (team.budget < quote.price) return `Not enough budget — ${opp.name} want ${formatFee(quote.price)}.`;
-
-  // Even a willing seller keeps a few kids back. Seeded per player per season so
-  // the answer is the same however many times it is asked this year.
-  const refuse = mulberry32(deriveSeed(state.seed, `u21buy:${state.season}:${p.id}`))();
-  if (refuse < cfg.u21SellRefusalChance) {
-    return `${opp.name} have taken ${p.name} off the market — he's part of their plans.`;
-  }
-
-  const from = state.teams[opp.clubId ?? ""];
-  team.budget -= quote.price;
-  if (from) from.budget += quote.price;
-
-  // He leaves the rival's registered seven and joins the user's academy. His
-  // academyClubId is NOT rewritten — he came through their academy, and the
-  // Academy DNA ledger should keep saying so.
-  opp.prospectIds = (opp.prospectIds ?? []).filter((id) => id !== playerId);
-  if (from) from.playerIds = from.playerIds.filter((id) => id !== playerId);
-  p.clubId = team.id;
-  // He keeps the badge his old club's academy gave him; this only covers a
-  // rival prospect that somehow reached us without one.
-  ensureProspectTier(p, cfg);
-  (team.academyPlayerIds ??= []).push(p.id);
-  assignKitNumber(state, p);
-  state.careers[p.id] ??= { playerId: p.id, seasons: [], transfers: [] };
-  state.careers[p.id].transfers.push({
-    season: state.season,
-    day: state.currentDay,
-    from: from?.name ?? opp.name,
-    to: team.name,
-    fee: quote.price,
-    fromId: from?.id ?? opp.clubId,
-    toId: team.id,
-  });
-  pushInbox(
-    state,
-    "academy",
-    `${p.name} joins the academy from ${opp.name}`,
-    `We've agreed ${formatFee(quote.price)} with ${from?.name ?? opp.name} for ${p.age}-year-old ${p.name} ` +
-      `(${p.positions[0]}, ${starRangeLabel(state, p, cfg)}). He goes straight into the academy — ` +
-      `register him for the U21s to get him playing.`
-  );
-  state.news.unshift(`${team.name} land ${p.name}, ${p.age}, from ${from?.name ?? opp.name}'s academy.`);
-  return null;
-}
-
-function formatFee(n: number): string {
-  return n >= 1_000_000 ? `£${(n / 1_000_000).toFixed(1)}m` : `£${Math.round(n / 1000)}k`;
 }
 
 // ── Loans out (§18) ───────────────────────────────────────────────────────
@@ -2073,9 +1472,6 @@ export function sendAcademyLoan(state: GameState, playerId: string, clubId: stri
   if (!p || !isUserPlayer(state, playerId)) return "Not your player.";
   if (p.loan) return "Already out on loan.";
   if (p.retired) return "That player has retired.";
-  if ((state.academy.u21.registered ?? []).includes(playerId)) {
-    return "Registered for the U21 competition — he can't go out on loan until the next registration window.";
-  }
   const dest = state.teams[clubId];
   if (!dest || dest.id === state.userTeamId) return "That club can't take him.";
   const w = transferWindowState(state.currentDay, state.schedule);
@@ -2221,31 +1617,13 @@ export function recallLoan(state: GameState, playerId: string): string | null {
 
 // ── Season rollover hooks (§18) ───────────────────────────────────────────
 
-/** The user U21 side's best league finish across the season's competitions,
- * as a 0..1 factor: 1 = won a competition, 0 = mid-table or worse (12 teams).
- * Reads every finished + running competition so a strong first half still
- * counts even if the second slipped. */
-function u21TeamPerfFactor(state: GameState): number {
-  const ac = state.academy;
-  const seasons = [...(ac.u21History ?? []), ac.u21, ...(ac.u21Next ? [ac.u21Next] : [])];
-  let best = 0;
-  for (const u21 of seasons) {
-    if (!u21 || u21.roundsPlayed <= 0 || u21.forfeited) continue;
-    const pos = u21.table.findIndex((r) => r.isUser) + 1;
-    if (pos <= 0) continue;
-    // 1st = 1.0, tapering to 0 by mid-table (6th of 12) and staying there.
-    const factor = Math.max(0, (6 - (pos - 1)) / 5);
-    best = Math.max(best, factor);
-  }
-  return Math.min(1, best);
-}
-
 /**
  * Per-academy-player seasonal growth multiplier from the youth setup (v1.55).
  *
  * The academy is a development environment, and the routes through it develop a
  * prospect at different rates — a season of competitive loan football is worth
- * more than a season of U21s, which is worth more than training alone. This is
+ * more than a season of training alone (v2.1: the U21 league that sat between
+ * the two is gone, pending a rework). This is
  * the multiplier the rollover applies ON TOP of the minutes those routes already
  * credit, so a prospect who was out on loan AND flagged for focus stacks both.
  *
@@ -2255,9 +1633,6 @@ function u21TeamPerfFactor(state: GameState): number {
  *   • Loan:  academyLoanGrowthBonus, plus academyLoanGrowthPerApp per appearance
  *            he actually made (capped) — a loan where he plays every week is the
  *            real prize.
- *   • U21:   academyU21GrowthBonus for taking part, lifted by how well the side
- *            finished (team factor) and how far his own average rating cleared
- *            the "starring" pivot.
  *   • Focus: u21FocusGrowthBonus (focus already earns it in the dev pass; this
  *            keeps the whole youth boost in one place so the two never double up).
  *   • Youth: academyYouthGrowthBonus (v1.93), the age-ramped edge that being IN
@@ -2288,7 +1663,6 @@ export function academyDevBonuses(state: GameState, cfg: TuningConfig): Record<s
   const team = userTeam(state);
   const academy = new Set(team.academyPlayerIds ?? []);
   const focus = new Set(state.academy.focusIds);
-  const teamPerf = u21TeamPerfFactor(state);
   const out: Record<string, number> = {};
   for (const id of academy) {
     const p = state.players[id];
@@ -2302,19 +1676,10 @@ export function academyDevBonuses(state: GameState, cfg: TuningConfig): Record<s
         const perApp = Math.min(cfg.academyLoanGrowthPerAppCap, ys.apps * cfg.academyLoanGrowthPerApp);
         mult *= 1 + cfg.academyLoanGrowthBonus + perApp;
       }
-    } else if (ys && ys.apps > 0) {
-      // A U21-league campaign: taking part, plus team + individual performance.
-      const avg = ys.ratingSum / ys.apps;
-      const ratingFactor = Math.max(0, Math.min(1, (avg - cfg.academyU21RatingPivot) / 1.0));
-      mult *=
-        1 +
-        cfg.academyU21GrowthBonus +
-        cfg.academyU21TeamPerfBonus * teamPerf +
-        cfg.academyU21RatingBonus * ratingFactor;
     }
     if (focus.has(id)) mult *= 1 + cfg.u21FocusGrowthBonus;
     // The academy's own edge (v1.93). Applied to every prospect on the roster
-    // regardless of which route he took this season — loan, U21 or neither —
+    // regardless of which route he took this season — out on loan or not —
     // because it is what the age-group coaching is worth, not a reward for
     // having played. It is the only bonus here a prospect who never featured
     // gets at all, which is the point: a 15-year-old is in the academy to be
@@ -2325,12 +1690,12 @@ export function academyDevBonuses(state: GameState, cfg: TuningConfig): Record<s
   return out;
 }
 
-/** Before the development pass: compute the academy growth boosts (loan/U21/focus)
+/** Before the development pass: compute the academy growth boosts (loan/focus)
  * while loans + youth stats are still present, send loan season reviews, fold this
- * season's youth/loan minutes into the stats the aging function reads (at §18
- * weights), end all loans, and file the U21 season review. Career rows must
- * already be written — youth stats fold in *after* history is recorded. Returns
- * the per-player growth multipliers for the development pass to apply. */
+ * season's loan minutes into the stats the aging function reads (at §18
+ * weights) and end all loans. Career rows must already be written — youth stats
+ * fold in *after* history is recorded. Returns the per-player growth multipliers
+ * for the development pass to apply. */
 export function academyPreDevRollover(state: GameState, cfg: TuningConfig): Record<string, number> {
   // Boosts first — they read `loan`/`youthStats`, which the fold below clears.
   const bonuses = academyDevBonuses(state, cfg);
@@ -2363,11 +1728,6 @@ export function academyPreDevRollover(state: GameState, cfg: TuningConfig): Reco
     p.loan = undefined;
   }
 
-  // Review whatever competition was still running when the season ended (a
-  // completed one already filed its own review as it was retired).
-  const u21 = state.academy.u21;
-  if (u21.roundsPlayed > 0 && !state.academy.u21History?.includes(u21)) fileU21Review(state, u21);
-
   return bonuses;
 }
 
@@ -2377,6 +1737,14 @@ export function academyPreDevRollover(state: GameState, cfg: TuningConfig): Reco
 export function academyPostDevRollover(state: GameState, cfg: TuningConfig) {
   const team = userTeam(state);
   const academy = team.academyPlayerIds ?? [];
+
+  // The coaching staff re-read every prospect and set next season's plan (v2.1).
+  // Here rather than anywhere earlier in the rollover because it has to run after
+  // BOTH the development pass and `rolloverConversions` — each of those rewrites
+  // attribute lines, and the plan is chosen from the shape a prospect actually
+  // has now. It runs before the age-out below purely so a graduating player
+  // leaves on the plan his last academy season earned him.
+  refreshAcademyPlans(state);
 
   // Age-out at academyMaxAge+1 (v1.51): a prospect who outgrows the academy no
   // longer walks into the senior squad on his own. He leaves the academy and
@@ -2435,18 +1803,6 @@ export function academyPostDevRollover(state: GameState, cfg: TuningConfig) {
   for (const a of ac.assignments) {
     a.nextReportDay = state.schedule.seasonStartDay + reportCadence(state, cfg, scoutById(state, a.scoutId));
   }
-  // Release every rival prospect this season's competitions put on the board
-  // before building next season's — otherwise ~150 dead records accumulate per
-  // season. Anyone signed has already moved clubs and is left alone.
-  for (const past of [...(ac.u21History ?? []), ac.u21]) releaseU21Prospects(state, past);
-
-  // Both of next season's competitions are built up front (v18) so the
-  // registration deadline for the first is visible from day one.
-  const first = buildU21Season(state, cfg, 0);
-  ac.u21 = first;
-  ac.u21Next = buildU21Season(state, cfg, 1, nextU21Kickoff(first, cfg));
-  ac.u21History = [];
-  ac.u21Squad = [];
 }
 
 // ── Academy DNA (§18): the graduate ledger ────────────────────────────────

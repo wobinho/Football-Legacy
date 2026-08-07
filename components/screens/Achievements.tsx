@@ -806,11 +806,20 @@ function PlayerHonoursModal({
                     {s.winners.map((w) => {
                       // A long save prunes retirees, so the click-through is
                       // gated on the player still existing rather than assumed.
-                      const exists = !!game.players[w.playerId];
+                      // The same lookup is where his flag and position come from
+                      // (v2.1) — `PlayerHonourRow` records who won and when, not
+                      // who the man was, and reading them here means a pruned
+                      // winner simply shows neither rather than a guess.
+                      const player = game.players[w.playerId];
+                      const exists = !!player;
                       const inner = (
                         <>
+                          {player && <PosBadge pos={player.positions[0]} />}
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[12px] font-semibold text-ink">{w.name}</span>
+                            <span className="flex items-center gap-1.5">
+                              {player && <Flag nat={player.nationality} size={11} />}
+                              <span className="min-w-0 truncate text-[12px] font-semibold text-ink">{w.name}</span>
+                            </span>
                             <span className="block truncate text-[10px] tnum text-faint">
                               {w.years.join(" · ")}
                             </span>

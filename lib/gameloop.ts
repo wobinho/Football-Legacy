@@ -57,7 +57,7 @@ import { rotationContextFor, rotationMultiplier } from "./rotation";
 import { refreshClubStances, reviewClubTactics } from "./ai/strategy";
 import { rolloverContracts, ensureContracts, openContractResolution, repriceSquadForLeague } from "./contracts";
 import { resolveSimLeagues } from "./simresolver";
-import { buildSeasonSummary, trackBiggestWin } from "./recordbook";
+import { buildSeasonSummary, careerSummary, trackBiggestWin, type CareerSummary } from "./recordbook";
 import { ACCOLADE_META, runSeasonAwardsCeremony } from "./accolades";
 import { trackUserMatch, trackRollover, syncProgress, userPlayerAwardsIn, achievementTitles } from "./achievements";
 import {
@@ -82,7 +82,6 @@ import {
 } from "./sponsors";
 import { getFormation } from "./config/formations";
 import {
-  runU21MatchDay,
   dailyScoutTick,
   weeklyLoanTick,
   loanMidseasonReports,
@@ -128,7 +127,6 @@ export interface CalendarGate {
  * The first important day strictly after `fromDay` and on/before `targetDay`
  * that a fast-forward should pause at — or null if the stretch is clear. Only
  * gates the user can still do something about are returned:
- *  - a U21 registration deadline they haven't met yet,
  *  - a transfer window about to open (a chance to shop),
  *  - a transfer window about to close (last chance to act),
  *  - the youth intake day (a class is about to arrive).
@@ -141,20 +139,6 @@ export function nextCalendarGate(state: GameState, fromDay: number, targetDay: n
   const push = (day: number, id: string, title: string, body: string, screen?: import("./types").ScreenId) => {
     if (day > fromDay && day <= targetDay) gates.push({ day, id, title, body, screen });
   };
-
-  // U21 registration deadline — only if the user still needs to act (window open,
-  // not yet registered, not already forfeited). Pausing exactly on the deadline
-  // still leaves the day to register.
-  const u21 = state.academy?.u21;
-  if (u21 && !u21.forfeited && u21.registrationDay !== undefined && (u21.registered?.length ?? 0) === 0) {
-    push(
-      u21.registrationDay,
-      `u21reg:${state.season}:${u21.half ?? 0}`,
-      "U21 registration closing",
-      "The registration deadline for the U21 competition is here. Submit your seven prospects on the Academy screen before it closes, or a drawn side takes your entry.",
-      "academy"
-    );
-  }
 
   // Winter window opens — a fresh chance to shop, with updated sim tables.
   push(
@@ -596,7 +580,6 @@ function advanceDay(state: GameState): StopReason | null {
   refreshSponsorOffers(state, cfg);
 
   // Youth Academy (§18): all background — none of this stops the loop
-  runU21MatchDay(state, cfg);
   dailyScoutTick(state, cfg);
   // The network's own pipelines (v1.95), on the same daily beat as the club's.
   // Both no-op instantly when the GCN isn't unlocked, which is most saves.
@@ -604,7 +587,7 @@ function advanceDay(state: GameState): StopReason | null {
   execMarketTick(state, cfg);
   if (isMonday(day)) weeklyLoanTick(state, cfg);
   // No annual intake class (v1.89): the academy is filled only by moves the
-  // manager makes — a scout's find or a U21 opponent's prospect, both paid for.
+  // manager makes — a scout's find or a hub prospect, both paid for.
   // A yearly crop that arrived on its own put players on the books nobody chose,
   // which is the same complaint the graduate queue answers at the other end.
   if (day === sched.summerCloseDay || day === sched.winterCloseDay) {
@@ -683,7 +666,7 @@ export function advanceOneDay(state: GameState): StopReason {
  * past a safety bound. `targetDay` is inclusive of that day's fixtures.
  *
  * Progress gate (§3): a multi-day jump won't silently skip an important calendar
- * day (a U21 registration deadline, a window opening or closing, the youth
+ * day (a window opening or closing, the youth
  * intake). When one falls inside the span, the sim pauses the day BEFORE it and
  * returns a `gate` stop so the UI can surface it — the user then acts and
  * continues past it. Pass `ignoreGate` (the same target the gate stopped at) to
@@ -808,7 +791,7 @@ function appendCareerRows(state: GameState) {
       awards: seasonAwardTitles(p, state.season),
       cleanSheets: p.stats.cleanSheets || undefined,
     });
-    // youth football gets its own history line (§18): U21 league or loan spell
+    // youth football gets its own history line (§18): a loan spell
     const ys = p.youthStats;
     if (ys && ys.apps > 0) {
       const loanClubId = p.loan?.toClubId;
@@ -818,7 +801,7 @@ function appendCareerRows(state: GameState) {
         clubName: loanClub ?? clubName,
         // The club actually played for — the loan destination on a loan row.
         clubId: (loanClub ? loanClubId : p.clubId) ?? undefined,
-        competition: loanClub ? `Loan from ${clubName}` : "U21 League",
+        competition: loanClub ? `Loan from ${clubName}` : "Youth football",
         startOverall: p.seasonStartOverall,
         apps: ys.apps,
         goals: ys.goals,
@@ -927,7 +910,7 @@ export function runSeasonRollover(state: GameState) {
 
   // Loan reviews + fold youth/loan minutes into development inputs (§18).
   // Must run after career rows are written, before the development pass. Returns
-  // the academy growth boosts (loan/U21/focus), which the pass below applies.
+  // the academy growth boosts (loan/focus), which the pass below applies.
   const academyBonuses = academyPreDevRollover(state, cfg);
 
   // aging + retirement for every player in the world (bulk, same function).
@@ -942,15 +925,17 @@ export function runSeasonRollover(state: GameState) {
   // penalty, which is the only thing that moves a player who is already at 88.
   const userEliteRelief = eliteResistRelief(state, state.userTeamId);
   const academySet = new Set(userTeam.academyPlayerIds ?? []);
-  // Tagging a prospect into the U21 matchday squad earns them a small extra
-  // growth bump on top of their minutes (§18) when he didn't actually feature —
-  // a prospect who played gets the far bigger U21-participation boost instead
-  // (folded into `academyBonuses`), so this only tops up the untagged-but-selected.
-  const u21SquadSet = new Set(state.academy.u21Squad ?? []);
   // Mentor trait (v6): experienced pros in the user's dressing room speed up
   // every young teammate's growth. Summed across the senior squad + academy.
   const userMentorBonus = mentorGrowthBonus(state, state.userTeamId);
   const retiredNotable: string[] = [];
+  // The manager's OWN retirements (v2.0). The world-wide "End of an era" line
+  // below only ever named players rated 78+, so a squad player hanging up his
+  // boots left the user's roster in complete silence — the manager found out by
+  // noticing a name missing, if at all. A player leaving your club is club news
+  // whatever he was rated, and it is the one retirement the manager has to plan
+  // around, so it gets its own item with the career it is ending attached.
+  const retiredUser: { name: string; age: number; overall: number; summary: CareerSummary }[] = [];
   // Regens (v1.55): teenagers born to succeed a genuinely good retiring player.
   // Collected here and inserted after the loop so the world isn't mutated mid
   // iteration; `activePlayers` returns a snapshot, but a fresh regen must not be
@@ -993,28 +978,33 @@ export function runSeasonRollover(state: GameState) {
       : globalFootballMult(state, p.clubId ?? "", cfg);
     const facilityMult = (isUser || inAcademy ? userFacilityMult : 1) * classMult * networkMult;
     const eliteRelief = isUser || inAcademy ? userEliteRelief : 0;
-    // Academy development boosts (v1.55): loan (base + per-appearance), U21-league
-    // participation (with team + individual performance), and focus, all computed
-    // in academyPreDevRollover while loans/youth stats were still present. Focus
-    // is folded into that map, so the old inline focus/U21-squad bumps are gone.
+    // Academy development boosts (v1.55): loan (base + per-appearance) and
+    // focus, both computed in academyPreDevRollover while loans/youth stats were
+    // still present. Focus is folded into that map, so the old inline focus bump
+    // is gone.
     let extraGrowth = academyBonuses[p.id] ?? 1;
-    // A U21-squad prospect who never actually FEATURED still gets the small
-    // squad-attention nudge he always did.
-    //
-    // The test is "did he play", read off `youthStats`, not "does he have a
-    // bonus entry" (v1.93). Those were the same question until the academy's
-    // own age-ramped bonus landed, which gives essentially every prospect an
-    // entry — so the old `!academyBonuses[p.id]` guard would have quietly
-    // stopped paying this nudge to anyone. `youthStats` is cleared later in the
-    // rollover, but this loop runs before that, so it is still readable here.
-    const featured = (p.youthStats?.apps ?? 0) > 0;
-    if (inAcademy && !featured && u21SquadSet.has(p.id)) extraGrowth *= 1 + cfg.u21SquadGrowthBonus;
     if ((isUser || inAcademy) && p.age <= cfg.growthEndAge) extraGrowth *= 1 + userMentorBonus;
     const wasOverall = p.overall;
     // training plans steer only the user's own senior + academy players
     const applyPlan = isUser || inAcademy;
     const out = applySeasonDevelopment(state, p, cfg, devRng, facilityMult, extraGrowth, applyPlan, eliteRelief);
     if (out.retired && wasOverall >= 78) retiredNotable.push(`${p.name} (${wasOverall})`);
+    // Captured here, inside the loop, for two reasons that both matter: `isUser`
+    // still reads his club (retirement nulls `clubId` a few lines up in
+    // `applySeasonDevelopment`), and the running `p.stats` reset below would
+    // otherwise take the final season's numbers with it. `appendCareerRows` has
+    // already banked every season including the one just played, so the summary
+    // is his complete record.
+    if (out.retired && (isUser || inAcademy)) {
+      retiredUser.push({
+        name: p.name,
+        age: p.age,
+        overall: wasOverall,
+        // `false`: the final season is already a banked career row, and the
+        // running `p.stats` would double-count it.
+        summary: careerSummary(state, p.id, false),
+      });
+    }
     // A good enough player leaves a regen behind: a raw teenager carrying his
     // profile and peak ceiling, born a free agent for the market to place.
     if (out.retired && wasOverall >= cfg.regenMinPeakOverall) {
@@ -1032,6 +1022,34 @@ export function runSeasonRollover(state: GameState) {
   for (const r of regens) state.players[r.id] = r;
   if (retiredNotable.length) {
     pushInbox(state, "news", "End of an era", `Retiring this summer: ${retiredNotable.slice(0, 6).join(", ")}.`);
+  }
+  // One item per player rather than a combined list: each is a squad place the
+  // manager now has to fill, and a shared line would bury the second name. The
+  // career is quoted because this is the last time the game will volunteer it —
+  // his record stays readable forever, but nothing else goes looking for it.
+  for (const r of retiredUser) {
+    const s = r.summary;
+    const parts = [`${s.apps} appearance${s.apps === 1 ? "" : "s"}`];
+    if (s.goals > 0) parts.push(`${s.goals} goal${s.goals === 1 ? "" : "s"}`);
+    if (s.assists > 0) parts.push(`${s.assists} assist${s.assists === 1 ? "" : "s"}`);
+    if (s.cleanSheets > 0) parts.push(`${s.cleanSheets} clean sheet${s.cleanSheets === 1 ? "" : "s"}`);
+    const honours = s.awards.length
+      ? ` He leaves with ${s.awards.map((a) => (a.count > 1 ? `${a.name} ×${a.count}` : a.name)).join(", ")}.`
+      : "";
+    const span = s.span
+      ? s.span.from === s.span.to
+        ? ` (season ${s.span.from})`
+        : ` (seasons ${s.span.from}–${s.span.to})`
+      : "";
+    pushInbox(
+      state,
+      "news",
+      `${r.name} retires`,
+      `${r.name} has retired at ${r.age}, rated ${r.overall} at the end. ` +
+        `He finishes his career${span} with ${parts.join(", ")} across ${s.seasons} season${s.seasons === 1 ? "" : "s"}` +
+        (s.avgRating > 0 ? `, averaging ${s.avgRating.toFixed(2)}` : "") +
+        `.${honours} His record stays in the club's history.`
+    );
   }
 
   // Archetype retraining (v1.93). Deliberately AFTER the development pass: the
@@ -1243,7 +1261,7 @@ export function runSeasonRollover(state: GameState) {
   pruneGraduateQueue(state);
 
   // Academy new-season pass (§18): age-outs (ages are +1 now), AI intake to
-  // keep the world stocked, and a fresh U21 season on the new schedule.
+  // keep the world stocked.
   academyPostDevRollover(state, cfg);
 
   // Every AI club in the world lets its aged-out players go (v1.92). Runs BEFORE

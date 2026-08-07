@@ -466,7 +466,6 @@ function releaseToFreeAgency(state: GameState, p: PlayerBio) {
   team.academyPlayerIds = (team.academyPlayerIds ?? []).filter((id) => id !== p.id);
   state.academy.focusIds = state.academy.focusIds.filter((id) => id !== p.id);
   state.academy.loanList = state.academy.loanList.filter((id) => id !== p.id);
-  state.academy.u21Squad = (state.academy.u21Squad ?? []).filter((id) => id !== p.id);
   p.clubId = null;
   p.contract = undefined;
   p.loan = undefined;

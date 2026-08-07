@@ -21,7 +21,7 @@ import {
 } from "./config/divisions";
 import { leagueReputationOf } from "./config/leaguerep";
 import { isFreeAgent } from "./archive";
-import { mulberry32, deriveSeed, pick, pickWeighted, randInt, randNormal, randRange, shuffle, type RNG } from "./rng";
+import { mulberry32, deriveSeed, pick, pickWeighted, randInt, randNormal, randRange, shuffle, uid, type RNG } from "./rng";
 import { formatMoney, playerValue } from "./value";
 import { buildSeasonSchedule, leagueRoundCount } from "./calendar";
 import { generateLeagueFixtures, initCup } from "./season";
@@ -90,8 +90,54 @@ function rollSecondary(rng: RNG, primary: Pos): Pos[] {
   return [];
 }
 
+/**
+ * Player ids, and the trap that made them a bug (v2.0).
+ *
+ * `playerCounter` is MODULE state, not save state: it counts up from 0 when the
+ * module is first evaluated and is reset only by `generateWorld`. That is fine
+ * for worldgen, which mints every id in one pass and wants them deterministic —
+ * two runs of a seed must produce the same `p1..pN`, which is what
+ * `verify:sim-parity` hashes.
+ *
+ * It is NOT fine for anything generated during PLAY. Loading a save restores
+ * thousands of players named `p1..pN` but leaves the counter at 0, so the first
+ * regen, youth-intake or free-agent replenishment minted after a page reload
+ * gets `p1` — an id a real player in the world already holds. `state.players[id]
+ * = newPlayer` then OVERWRITES him in place: the club roster, the record book's
+ * career rows, the honours and the appearance tallies all key on that id, so a
+ * brand-new teenager silently inherits a fifteen-year career. Reported as
+ * "two of my players retired, became regens, and are already in my squad with
+ * 50 appearances before the season kicked off" — the retiring player's id was
+ * being handed to his own successor.
+ *
+ * So: worldgen keeps the deterministic sequence, and everything minted after it
+ * takes a collision-proof id instead. `beginLivePlay()` is the switch, called
+ * wherever a world starts being PLAYED rather than built — see `store/gameStore`.
+ * The academy and the GCN hub already defended themselves with a private
+ * `freshId`; this closes the same hole for every other path (regen, both
+ * replenishment passes) at the source rather than one caller at a time.
+ */
 let playerCounter = 0;
+let livePlay = false;
+
+/** Leave worldgen's deterministic id sequence: from here on every generated
+ * player takes a unique id that cannot collide with a loaded save's. */
+export function beginLivePlay() {
+  livePlay = true;
+}
+
+/** Test hook only: put the module back to the state a FRESH page load leaves it
+ * in — counter at zero, live play off. `scripts/verify-retirement.ts` uses it
+ * with a JSON round trip to reproduce a page refresh, which is the only
+ * situation the id collision this guards against can arise in. Never called by
+ * the app. */
+export function resetIdCounterForTest() {
+  playerCounter = 0;
+  livePlay = false;
+}
+
 function pid(): string {
+  if (livePlay) return uid("p");
   return `p${(++playerCounter).toString(36)}`;
 }
 
@@ -404,6 +450,21 @@ export function generatePlayer(
  * `retiree.potential` is read as the peak: by retirement age a player's potential
  * has long since converged onto (and been dragged up by) his best rating, so it
  * is the honest high-water mark of the career being succeeded.
+ *
+ * **A regen SUCCEEDS a player; he never REPLACES one (v2.0).** He is a new
+ * person — his own id, his own name, an empty career — who happens to share a
+ * profile with someone who has just retired, the way a young forward gets
+ * compared to the man whose shirt he is chasing. Three properties make that true
+ * rather than merely intended, and all three were violated by the id-counter bug
+ * that `beginLivePlay` fixes (the regen was handed his predecessor's id and so
+ * inherited his club, his career rows and his appearance record wholesale):
+ *
+ *   - He gets a FRESH id, so nothing keyed on the retiree's id follows him.
+ *   - He starts CLUBLESS, so he is never born into a squad — least of all the
+ *     user's, where a stranger appearing in the roster the week a veteran
+ *     retired is indistinguishable from that veteran having been transformed.
+ *   - He carries NO history: the retiree keeps his own career, honours and
+ *     appearance tallies forever, and the regen's are empty until he plays.
  */
 export function regenFromRetiree(rng: RNG, cfg: TuningConfig, retiree: PlayerBio): PlayerBio {
   const age = randInt(rng, cfg.regenAgeMin, cfg.regenAgeMax);
@@ -428,9 +489,21 @@ export function regenFromRetiree(rng: RNG, cfg: TuningConfig, retiree: PlayerBio
   // down to the foot he plays off.
   if (typeof retiree.heightCm === "number") p.heightCm = retiree.heightCm;
   if (retiree.foot) p.foot = retiree.foot;
-  // A free agent: no club, ready to be signed off the market.
+  // A free agent: no club, ready to be signed off the market. Explicitly NOT the
+  // retiree's club — a successor who materialised in the squad the man he
+  // succeeds just left would read as that man having been transformed into a
+  // teenager, which is the one thing a regen must never look like.
   p.clubId = null;
+  p.academyClubId = undefined;
   p.contract = undefined;
+  p.loan = undefined;
+  p.kitNumber = undefined;
+  // A new person: no career, no honours, no appearances. Nothing of the retiree's
+  // record travels — his is his, and he keeps it.
+  p.stats = { apps: 0, goals: 0, assists: 0, ratingSum: 0, minutes: 0 };
+  p.youthStats = undefined;
+  p.devLog = undefined;
+  p.acquiredSeason = undefined;
   p.value = playerValue(p, cfg);
   return p;
 }
@@ -1140,7 +1213,11 @@ export function generateWorld(opts: NewGameOptions): GameState {
   // preview the exact clubs the world will contain (see divisionSeed).
   const divSeed = divisionSeed(opts);
   const cfg = TUNING;
+  // Back to the deterministic sequence for the build itself — a new game started
+  // after a save was loaded must still hash identically to one started cold.
+  // `beginLivePlay()` is called again the moment this world starts being played.
   playerCounter = 0;
+  livePlay = false;
 
   const players: Record<string, PlayerBio> = {};
   const teams: Record<string, Team> = {};

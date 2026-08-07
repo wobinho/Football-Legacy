@@ -23,6 +23,7 @@
     "verify:sim-parity": "tsx scripts/verify-sim-parity.ts",
     "verify:rivalry": "tsx scripts/verify-rivalry.ts",
     "verify:quicksell": "tsx scripts/verify-quicksell.ts",
+    "verify:retirement": "tsx scripts/verify-retirement.ts",
     "verify:gcn": "tsx scripts/verify-gcn.ts",
     "verify:squads": "tsx scripts/verify-squads.ts",
     "verify:standings": "tsx scripts/verify-standings.ts",

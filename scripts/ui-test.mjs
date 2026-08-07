@@ -188,13 +188,16 @@ await page.click('button:has-text("Club")');
 await page.waitForSelector("text=Weekly Breakdown");
 await page.screenshot({ path: shot("09-club.png") });
 
-// academy (§18): squad tab, U21 league, scouting
+// academy (§18): squad tab, growth, scouting. The U21 League tab is gone
+// (v2.1, removed pending a rework), and so are Development (a prospect's plan
+// is set by the coaching staff now) and Loaned Players (loans are unchanged —
+// the tab was, the squad list tags a loanee and recalls him in place).
 await page.click('nav >> button:has-text("Academy")');
 await page.waitForSelector("text=Academy Squad");
 await page.screenshot({ path: shot("10-academy.png") });
-await page.click('button:has-text("U21 League")');
-await page.waitForSelector("text=U21 Table");
-await page.screenshot({ path: shot("11-academy-u21.png") });
+await page.click('button:has-text("Growth")');
+await page.waitForTimeout(300);
+await page.screenshot({ path: shot("11-academy-growth.png") });
 // Scouting owns the whole department now: the assignments AND the hired roster
 // live on this one tab. The Academy's separate Staff tab is gone (staff are a
 // facility concern since v1.79) and so is its Upgrades tab, deleted outright in

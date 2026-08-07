@@ -989,23 +989,27 @@ function PitchToken({
     <>
       {p ? (
         <span
-          className={`display relative flex h-11 w-11 items-center justify-center text-sm font-bold transition-all ${fitRing(fit)} ${fitText(fit)} ${
+          className={`display relative flex h-11 w-11 items-center justify-center overflow-hidden rounded-full text-sm font-bold transition-all ${fitRing(fit)} ${fitText(fit)} ${
             isSource ? "opacity-30" : fitOpacity(fit)
           } ${isTarget ? "scale-110 !border-gold" : ""}`}
           style={{ clipPath: TOKEN_CLIP, background: "#16181d" }}
           title={cls ? `${cls} — ${ARCHETYPE_CLASS_BLURB[cls]}` : undefined}
         >
-          {/* The class wash, behind the number and clipped to the same circle. */}
+          {/* The class wash, behind the number and clipped to the same circle.
+              `rounded-full` on the wash as well as the parent: the parent's
+              border sits OUTSIDE its padding box, so an `inset-0` child squares
+              off the corners the border curves around and the wash reads as a
+              dark box inside a ring. */}
           <span
             aria-hidden
-            className="pointer-events-none absolute inset-0"
+            className="pointer-events-none absolute inset-0 rounded-full"
             style={{ background: classFill(cls) }}
           />
           <span className="relative">{p.overall}</span>
         </span>
       ) : (
         <span
-          className={`display flex h-11 w-11 items-center justify-center border border-dashed border-line text-sm font-bold text-faint transition-all ${
+          className={`display flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-dashed border-line text-sm font-bold text-faint transition-all ${
             isTarget ? "scale-110 border-solid !border-gold" : ""
           }`}
           style={{ clipPath: TOKEN_CLIP, background: "#101216" }}
@@ -1059,7 +1063,7 @@ function FitLegend() {
     <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] text-faint">
       {swatches.map(([cls, label]) => (
         <span key={label} className="flex items-center gap-1">
-          <span className={`inline-block h-3 w-3 border-2 ${cls}`} style={{ clipPath: TOKEN_CLIP }} /> {label}
+          <span className={`inline-block h-3 w-3 rounded-full border-2 ${cls}`} style={{ clipPath: TOKEN_CLIP }} /> {label}
         </span>
       ))}
     </div>
@@ -1577,7 +1581,7 @@ function MatchdayBoard({
                       <span className="relative inline-flex items-center justify-center">
                         {guideHalo && (
                           <span
-                            className={`pointer-events-none absolute h-[3.6rem] w-[3.6rem] ${guideHalo}`}
+                            className={`pointer-events-none absolute h-[3.6rem] w-[3.6rem] rounded-full ${guideHalo}`}
                             style={{ clipPath: TOKEN_CLIP }}
                           />
                         )}
@@ -2198,7 +2202,7 @@ function CreatorPitch({
               className="flex w-16 cursor-pointer flex-col items-center"
             >
               <span
-                className={`display relative flex h-11 w-11 items-center justify-center border-2 text-sm font-bold transition-all ${
+                className={`display relative flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border-2 text-sm font-bold transition-all ${
                   isSel
                     ? "scale-110 border-gold"
                     : verdict === "met"
@@ -2217,7 +2221,7 @@ function CreatorPitch({
                   <>
                     <span
                       aria-hidden
-                      className="pointer-events-none absolute inset-0"
+                      className="pointer-events-none absolute inset-0 rounded-full"
                       style={{ background: classFill(role.cls) }}
                     />
                     <ArchetypeIcon archetype={role} size={26} ring={false} />
