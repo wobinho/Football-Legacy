@@ -16,11 +16,25 @@ import type { Focus, MatchEvent, MatchResult, Mentality, Pos, Style, Tactic } fr
 import type { TuningConfig } from "../config/tuning";
 import {
   NEUTRAL_ARCHETYPE_PROFILE,
+  deriveArchetype,
   profileForAttrs,
   type ArchetypeProfile,
 } from "../config/archetype";
 import { TRAIT_MAP } from "../config/traits";
-import { roleBriefMult } from "../tacticbrief";
+import {
+  executionOf,
+  roleAt,
+  rollChanceType,
+  shapeResistance,
+  sideExecution,
+  sideMix,
+  sideResistance,
+  typeConversionMult,
+  type ChanceMix,
+  type ChanceType,
+  type MixPlayer,
+  type Resistance,
+} from "../chancetypes";
 import { familiarityMult } from "../familiarity";
 import type { ClubFamiliarity } from "../types";
 import { PHASE_WEIGHTS, positionFit } from "../config/positions";
@@ -283,9 +297,16 @@ export function tacticalFitMult(
   );
   const instructions =
     1 + instructionFitScore(prof.instructionPrefs, resolveInstructions(tactic)) * cfg.instructionFitSwing;
-  const brief = slot ? roleBriefMult(p.attrs, slot.pos, slot.id, tactic) : 1;
+  // v2.2: a role no longer multiplies a rating (the brief is deleted), so what
+  // selection reads here is how well this player would EXECUTE the role his
+  // slot was given — the same `executionOf` the match applies to the chances
+  // that role manufactures. It is not a bonus: it is 1 for the role asked for
+  // and below 1 for a player who is not built for it, which is exactly the
+  // ordering a manager picking that slot wants.
+  const role = slot ? roleAt(tactic, slot.id) : undefined;
+  const exec = role && p.attrs ? executionOf(deriveArchetype(p.attrs, slot!.pos), role) : 1;
   const settled = familiarity ? familiarityMult(familiarity, p.id, slot?.id) : 1;
-  return synergy * instructions * brief * settled;
+  return synergy * instructions * exec * settled;
 }
 
 /** The intrinsic shape of a side's chosen style (v19). A pure table lookup —
@@ -326,11 +347,6 @@ function effectiveRating(
     fit *
     // What KIND of player he is, against the STYLE (class-level).
     synergyMult(p, side.tactic, cfg) *
-    // v1.99: and whether he is the role the manager's own brief asked for in
-    // THIS slot. Exactly 1 unless the Tactic Creator was used — and the brief
-    // redistributes rather than adds (see lib/tacticbrief.ts), so this is the
-    // same one-lever channel as the two around it, not a third.
-    roleBriefMult(p.attrs, op.entry.slotPos, op.entry.slotId ?? "", side.tactic) *
     // v1.78: and how well HIS ROLE suits the five advanced dials. Style is a
     // class question, the dials are a role question — which is why a Sniper and
     // a Ram, the same class at the same position, now diverge here.
@@ -793,19 +809,74 @@ function playSegment(state: MatchState) {
     exposure(state.home) *
     paceExploit(state.away, state.home);
 
+  /**
+   * The chance-type contest (v2.2) — where archetypes reach the simulation.
+   *
+   * Each side's MIX (what kind of chances its roles manufacture) and each
+   * side's RESISTANCE (what kind its personnel and shape smother) are computed
+   * once per segment, not per chance: they are pure functions of who is on the
+   * pitch, which only changes at a substitution, and a match makes far more
+   * chance rolls than it makes segments.
+   *
+   * `sideExecution` is the other half of a role assignment: the mix says the
+   * side is manufacturing the ROLE's chances, and this says how well the player
+   * actually standing there takes them. See lib/chancetypes.ts.
+   */
+  const mixOf = (side: SideState): { mix: ChanceMix; exec: number } => {
+    const players: MixPlayer[] = [];
+    for (const op of side.onPitch) {
+      if (op.leftMinute !== null) continue;
+      players.push({ attrs: op.entry.player.attrs, slotPos: op.entry.slotPos, slotId: op.entry.slotId });
+    }
+    return { mix: sideMix(players, side.tactic), exec: sideExecution(players, side.tactic) };
+  };
+  const resistOf = (side: SideState): { personnel: Resistance; shape: Resistance } => {
+    const players: MixPlayer[] = [];
+    for (const op of side.onPitch) {
+      if (op.leftMinute !== null) continue;
+      players.push({ attrs: op.entry.player.attrs, slotPos: op.entry.slotPos, slotId: op.entry.slotId });
+    }
+    return { personnel: sideResistance(players), shape: shapeResistance(side.tactic) };
+  };
+  const homeAttack = mixOf(state.home);
+  const awayAttack = mixOf(state.away);
+  const homeDefence = resistOf(state.home);
+  const awayDefence = resistOf(state.away);
+
   interface PendingChance {
     side: SideState;
     opp: { defense: number; concedeMult: number };
     attack: number;
     minute: number;
+    /** What this side manufactures and how well it finishes it. */
+    mix: ChanceMix;
+    exec: number;
+    /** What the side facing it smothers. */
+    resist: { personnel: Resistance; shape: Resistance };
   }
   const chances: PendingChance[] = [];
   const nHome = randPoisson(rng, homeLambda);
   const nAway = randPoisson(rng, awayLambda);
   for (let i = 0; i < nHome; i++)
-    chances.push({ side: state.home, opp: ap, attack: hp.attack, minute: segStart + 1 + Math.floor(rng() * (cfg.minutesPerSegment - 1)) });
+    chances.push({
+      side: state.home,
+      opp: ap,
+      attack: hp.attack,
+      minute: segStart + 1 + Math.floor(rng() * (cfg.minutesPerSegment - 1)),
+      mix: homeAttack.mix,
+      exec: homeAttack.exec,
+      resist: awayDefence,
+    });
   for (let i = 0; i < nAway; i++)
-    chances.push({ side: state.away, opp: hp, attack: ap.attack, minute: segStart + 1 + Math.floor(rng() * (cfg.minutesPerSegment - 1)) });
+    chances.push({
+      side: state.away,
+      opp: hp,
+      attack: ap.attack,
+      minute: segStart + 1 + Math.floor(rng() * (cfg.minutesPerSegment - 1)),
+      mix: awayAttack.mix,
+      exec: awayAttack.exec,
+      resist: homeDefence,
+    });
   chances.sort((a, b) => a.minute - b.minute);
 
   // Step 4 — contested rolls
@@ -819,6 +890,25 @@ function playSegment(state: MatchState) {
     let pGoal = cfg.goalProbFloor + (cfg.goalProbCeil - cfg.goalProbFloor) * squash;
     // the opponent's back line (Wall) makes goals harder to come by
     pGoal *= c.opp.concedeMult;
+    /**
+     * v2.2 — what KIND of chance this was, and whether they can defend it.
+     *
+     * Rolled from the attacking side's own mix, then contested against the
+     * defending side's resistance to that specific type. This is the archetype
+     * system reaching the match: a crossing side against two Towers converts
+     * worse than the same side against two ball-playing centre backs, at
+     * identical ratings on both sides.
+     *
+     * `exec` is the role half — how well the players actually fielded take the
+     * chances their assigned roles manufacture. Both are exactly 1 for a side
+     * with no roles and an ordinarily-shaped defence, which is why a save that
+     * never opens the Creator computes what it always did.
+     *
+     * A penalty is exempt: it is a dead ball from twelve yards and belongs to
+     * no chance type, which is why the type roll happens before the override.
+     */
+    const chanceType: ChanceType = rollChanceType(rng(), c.mix);
+    pGoal *= typeConversionMult(chanceType, c.resist.personnel, c.resist.shape, cfg.chanceTypeSwing) * c.exec;
     if (setPiece === "penalty") pGoal = cfg.penaltyConversion;
     if (rng() < pGoal) {
       c.side.goals++;

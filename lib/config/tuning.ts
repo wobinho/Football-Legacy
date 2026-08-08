@@ -80,6 +80,23 @@ export interface TuningConfig {
   /** How hard pace punishes an exposed defensive line (v2.1). Multiplied by how
    * exposed the line actually is, so a deep block is never affected. */
   paceExploitSwing: number;
+  /**
+   * How hard a defence's SHAPE against a chance type moves that chance's
+   * conversion (v2.2) — the single dial for the chance-type system in
+   * `lib/chancetypes.ts`, which replaced the role brief's rating bonus.
+   *
+   * Multiplies a resistance already centred on a measured pivot, so an ordinary
+   * defence lands on exactly 1 whatever this is set to and the world's scoring
+   * cannot drift. It therefore scales how much SHAPE matters against SHAPE —
+   * whether a crossing side is genuinely blunted by two towering centre backs —
+   * without touching how many chances anybody creates.
+   *
+   * Re-run `npm run calibrate` (conversion is what it measures) plus
+   * `verify:standings` and `verify:reputation` if it moves: this is the channel
+   * that replaced the largest lookup lever, and the note beside `synergyCap`
+   * records how sharply those two harnesses react to compressing identity.
+   */
+  chanceTypeSwing: number;
   /** Attacking focus biases scorer/assist weighting toward a flank or the centre.
    * "Wide" (v19) applies this same bias to BOTH flanks at once. */
   focusFlankBias: number; // extra scorer weight applied to the emphasised side (0..1)
@@ -2087,6 +2104,12 @@ export const TUNING: TuningConfig = {
   // moves — it is chance volume, which is the thing that harness measures.
   paceExploitPivot: 0.524,
   paceExploitSwing: 2.5,
+  // v2.2: the chance-type system's one dial. Sized so a strongly-shaped defence
+  // (two Towers and a Shield against a crossing side) moves that type's
+  // conversion by roughly a fifth, while an ordinary back line moves it by
+  // exactly nothing — the pivot in `lib/chancetypes.ts` guarantees the second
+  // by construction, which is what keeps `calibrate` on target.
+  chanceTypeSwing: 0.55,
   focusFlankBias: 0.5,
 
   penaltyChance: 0.022,

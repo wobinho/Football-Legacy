@@ -15,7 +15,7 @@ import {
   STYLE_OPTIONS,
   styleLabel,
 } from "@/lib/config/formations";
-import { instructionFitScore, profileForAttrs, type InstructionPrefs } from "@/lib/config/archetype";
+import { profileForAttrs } from "@/lib/config/archetype";
 import { positionFit } from "@/lib/config/positions";
 import { TUNING } from "@/lib/config/tuning";
 import { benchCap, selectionScore } from "@/lib/selection";
@@ -28,11 +28,20 @@ import {
   ARCHETYPE_CLASS_BLURB,
   ARCHETYPE_CLASS_COLOR,
   ARCHETYPE_CLASS_LABEL,
-  ARCHETYPE_CLASS_ORDER,
   type ArchetypeClass,
 } from "@/lib/config/archetype";
-import { briefBalance, hasBrief, pruneBrief } from "@/lib/tacticbrief";
-import { assistantReport, instructionViewOf, squadBlueprint, type BlueprintSlot, type NoteTone, type ReportSlot, type SlotGrade } from "@/lib/assistant";
+import {
+  CHANCE_TYPES,
+  CHANCE_TYPE_BLURB,
+  CHANCE_TYPE_LABEL,
+  hasRoles,
+  pruneRoles,
+  sideExecution,
+  sideMix,
+  type ChanceMix,
+  type ChanceType,
+} from "@/lib/chancetypes";
+import { suggestRoles } from "@/lib/rolesuggest";
 import { familiaritySummary } from "@/lib/familiarity";
 import { ConfirmButton, displayFullName, Flag, GhostButton, GoldButton, Modal, Ovr, ArchetypeIcon, ArchetypeLabel, PlayerSelect, PosBadge, Section, Select, Tabs, useIsMobile, type SelectOption } from "../ui";
 import TacticsHelp from "./TacticsHelp";
@@ -252,202 +261,6 @@ function SynergyDot({ p, style }: { p: PlayerBio; style: Style }) {
   return <span className="text-faint" title="Neutral">•</span>;
 }
 
-/** A labelled segmented control with a "what this does" line beneath it. */
-/**
- * How the XI's own roles feel about the setting currently selected (v1.78).
- *
- * The five advanced dials became an ARCHETYPE-level question in v1.78, and
- * without this the whole layer is invisible on the screen where it is chosen —
- * `EffectTags` above shows only the team-level multiplier from TUNING. This is
- * the point of contact between the decision and its consequence: change the
- * dial and watch the counts move.
- */
-/** How many of the XI want / reject one setting on one axis. */
-function tallyAxis(xi: ReportSlot[], axis: keyof InstructionPrefs, value: string) {
-  let want = 0;
-  let hate = 0;
-  const wanters: string[] = [];
-  const haters: string[] = [];
-  for (const s of xi) {
-    const pref = profileForAttrs(s.player.attrs, s.slotPos).instructionPrefs[axis] as
-      | { likes?: readonly string[]; dislikes?: readonly string[] }
-      | undefined;
-    if (!pref) continue;
-    const name = deriveArchetype(s.player.attrs, s.slotPos)?.name ?? s.slotPos;
-    if (pref.likes?.includes(value)) {
-      want++;
-      wanters.push(name);
-    } else if (pref.dislikes?.includes(value)) {
-      hate++;
-      haters.push(name);
-    }
-  }
-  return { want, hate, wanters, haters };
-}
-
-/**
- * The squad's verdict on the SELECTED setting, as a diverging bar (v1.79).
- *
- * v1.78 shipped this as a sentence ("4 of your XI want this · 2 don't"), which
- * was accurate and completely flat: two numbers in prose that the eye has to
- * parse before it can compare. A diverging bar answers "is this setting good for
- * my side?" pre-attentively, and the names on hover answer "who?" — which is the
- * only follow-up question, and the one the sentence could never fit.
- */
-function RolesLine({
-  axis,
-  value,
-  options,
-  xi,
-}: {
-  axis: keyof InstructionPrefs;
-  value: string;
-  options: readonly string[];
-  xi: ReportSlot[];
-}) {
-  const { want, hate, wanters, haters } = useMemo(() => tallyAxis(xi, axis, value), [axis, value, xi]);
-
-  // Which option this XI would actually prefer. Every dial defaults to a
-  // "Standard" that no archetype names, so without this the panel opens with
-  // five identical "no one minds" lines in exactly the state a new game starts
-  // in — informative only once the manager has already changed something.
-  const best = useMemo(() => {
-    if (xi.length === 0) return undefined;
-    let top: { option: string; net: number } | undefined;
-    for (const o of options) {
-      const { want: w, hate: h } = tallyAxis(xi, axis, o);
-      if (w === 0 && h === 0) continue;
-      if (!top || w - h > top.net) top = { option: o, net: w - h };
-    }
-    return top && top.net > 0 && top.option !== value ? top : undefined;
-  }, [axis, options, value, xi]);
-
-  if (xi.length === 0) return null;
-  if (want === 0 && hate === 0) {
-    return (
-      <span className="text-[10px] text-faint">
-        No one in your XI minds either way.
-        {best && (
-          <>
-            {" "}
-            <b className="text-win">{best.option}</b> would suit {best.net} of them.
-          </>
-        )}
-      </span>
-    );
-  }
-  // Scaled against the loudest voice on this axis, not against eleven: a dial
-  // only three roles have an opinion about should still fill its bar.
-  const span = Math.max(want, hate, 3);
-  const net = want - hate;
-  return (
-    <span
-      className="flex items-center gap-2 text-[10px]"
-      title={[
-        wanters.length ? `Wants it: ${wanters.join(", ")}` : "",
-        haters.length ? `Fighting it: ${haters.join(", ")}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n")}
-    >
-      {/* Two bars growing out from a shared centre line. */}
-      <span className="flex h-2 w-24 shrink-0 items-center">
-        <span className="flex h-full flex-1 justify-end">
-          <span className="h-full rounded-l-sm bg-loss/70" style={{ width: `${(hate / span) * 100}%` }} />
-        </span>
-        <span className="h-full w-px shrink-0 bg-line" />
-        <span className="flex h-full flex-1">
-          <span className="h-full rounded-r-sm bg-win/70" style={{ width: `${(want / span) * 100}%` }} />
-        </span>
-      </span>
-      <span className={net > 0 ? "text-win" : net < 0 ? "text-loss" : "text-faint"}>
-        {want > 0 && `${want} want${want === 1 ? "s" : ""} this`}
-        {want > 0 && hate > 0 && " · "}
-        {hate > 0 && `${hate} ${hate === 1 ? "doesn't" : "don't"}`}
-      </span>
-      {/* Only when another option is strictly better for this XI — otherwise the
-          current pick already is the best one and saying so is noise. */}
-      {best && (
-        <span className="text-faint">
-          → <b className="text-win">{best.option}</b> suits {best.net} more
-        </span>
-      )}
-    </span>
-  );
-}
-
-/**
- * A dot on each unselected option showing what the XI would make of it (v1.79).
- *
- * The bar above reports the setting you already chose; this is what makes the
- * choice comparable without clicking through all three. Green means more of your
- * roles want that option than fight it — so the best setting for the side you
- * picked is visible on the button itself, which is the whole point of moving the
- * instructions to archetype level.
- */
-function OptionMood({ axis, value, xi }: { axis: keyof InstructionPrefs; value: string; xi: ReportSlot[] }) {
-  const { want, hate } = useMemo(() => tallyAxis(xi, axis, value), [axis, value, xi]);
-  const net = want - hate;
-  if (want === 0 && hate === 0) return null;
-  return (
-    <span
-      className={`ml-1 align-middle text-[9px] ${net > 0 ? "text-win" : net < 0 ? "text-loss" : "text-faint"}`}
-      title={`${want} of your XI want this, ${hate} don't`}
-      aria-hidden
-    >
-      {net > 0 ? "▲" : net < 0 ? "▼" : "•"}
-    </span>
-  );
-}
-
-/**
- * What the five advanced dials are worth to this XI, as one line (v1.79).
- *
- * Shown on the Basic tab, where the advanced instructions are otherwise a tab
- * label with nothing on it. Reads the same `instructionFitScore` the engine
- * multiplies onto each player's rating, averaged across the XI and expressed as
- * the percentage swing it actually is — so "worth +2.1%" is a real figure, not a
- * proxy, and a manager can decide from the Basic tab whether fine-tuning is
- * worth their time.
- */
-function InstructionSummary({ xi, tactic, onOpen }: { xi: ReportSlot[]; tactic: Tactic; onOpen: () => void }) {
-  const { pct, worst } = useMemo(() => {
-    if (xi.length === 0) return { pct: 0, worst: undefined as undefined | { name: string; score: number } };
-    const view = instructionViewOf(tactic);
-    let sum = 0;
-    let worst: { name: string; score: number } | undefined;
-    for (const s of xi) {
-      const prof = profileForAttrs(s.player.attrs, s.slotPos);
-      const score = instructionFitScore(prof.instructionPrefs, view);
-      sum += score;
-      const name = deriveArchetype(s.player.attrs, s.slotPos)?.name;
-      if (name && score < 0 && (!worst || score < worst.score)) worst = { name, score };
-    }
-    return { pct: (sum / xi.length) * TUNING.instructionFitSwing * 100, worst };
-  }, [xi, tactic]);
-
-  if (xi.length === 0) return null;
-  const tone = pct >= 0.5 ? "text-win" : pct <= -0.5 ? "text-loss" : "text-faint";
-  return (
-    <p className="text-[10px] leading-snug text-faint">
-      Your roles make these dials worth{" "}
-      <b className={`tnum ${tone}`}>
-        {pct > 0 ? "+" : ""}
-        {pct.toFixed(1)}%
-      </b>
-      {worst ? (
-        <>
-          {" "}— your <b className="text-dim">{worst.name}</b> is fighting them.{" "}
-          <button onClick={onOpen} className="text-dim underline underline-offset-2 hover:text-ink">
-            Fix
-          </button>
-        </>
-      ) : (
-        " across the XI."
-      )}
-    </p>
-  );
-}
 
 /**
  * One dial (v1.84 rework).
@@ -474,8 +287,6 @@ function Instruction<T extends string>({
   current,
   onPick,
   styleFit,
-  axis,
-  xi,
 }: {
   label: string;
   options: readonly T[];
@@ -483,9 +294,6 @@ function Instruction<T extends string>({
   onPick: (v: T) => void;
   /** Style row only: the current XI's average synergy, as a percentage. */
   styleFit?: number;
-  /** Advanced-dial rows only: which axis this is, for the roles readout. */
-  axis?: keyof InstructionPrefs;
-  xi?: ReportSlot[];
 }) {
   const [detail, setDetail] = useState(false);
   // Focus overrides the shared copy for "Wide" (Width uses the same word for a
@@ -506,7 +314,7 @@ function Instruction<T extends string>({
         <button
           onClick={() => setDetail((v) => !v)}
           aria-expanded={detail}
-          title={`What ${label} does, and what your XI makes of it`}
+          title={`What ${label} does`}
           className={`display shrink-0 rounded-full border px-1.5 text-[10px] leading-[1.35] transition-colors ${
             detail ? "border-gold text-gold" : "border-line text-faint hover:border-faint hover:text-dim"
           }`}
@@ -527,11 +335,6 @@ function Instruction<T extends string>({
             }`}
           >
             {textFor(o)}
-            {/* What the XI makes of the options you HAVEN'T picked. This one
-                signal stays inline at all times: it is what makes the buttons
-                comparable at a glance, which is the whole reason the rest can
-                be folded away. */}
-            {axis && xi && current !== o && <OptionMood axis={axis} value={o} xi={xi} />}
           </button>
         ))}
       </div>
@@ -547,11 +350,6 @@ function Instruction<T extends string>({
           <div>
             <EffectTags label={label} option={current} styleFit={styleFit} />
           </div>
-          {axis && xi && (
-            <div>
-              <RolesLine axis={axis} value={current} options={options} xi={xi} />
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -858,7 +656,7 @@ const TOKEN_CLIP = "circle(50% at 50% 50%)";
 
 /**
  * The archetype class a player reads as in the slot he is FILLING (v1.77),
- * resolved exactly as the engine and the assistant's report do so all three
+ * resolved exactly as the engine does, so the two
  * agree about what he is being asked to be. Null when no archetype derives.
  */
 function classOf(p: PlayerBio, slotPos: Pos): ArchetypeClass | null {
@@ -2096,7 +1894,7 @@ function BriefRow({
           value={brief ?? ""}
           onChange={(v) => onPick(v || undefined)}
           options={[
-            { value: "", label: "— no brief —", hint: "This slot is judged on ability alone." },
+            { value: "", label: "— no role —", hint: "This slot creates whatever its player naturally creates." },
             // The archetype ART, in the menu AND on the closed control (v2.0).
             // A manager reads the Sniper mark long before he reads 45 role
             // names, and this is the one screen in the game where naming a role
@@ -2198,7 +1996,7 @@ function CreatorPitch({
               title={
                 role
                   ? `${slot.label} — ${role.name}${actual ? ` · ${p?.name} reads as ${actual.name}` : ""}`
-                  : `${slot.label} — no brief yet`
+                  : `${slot.label} — no role yet`
               }
               className="flex w-16 cursor-pointer flex-col items-center"
             >
@@ -2254,6 +2052,105 @@ function CreatorPitch({
   );
 }
 
+/**
+ * One instruction dial inside the Creator (v2.2).
+ *
+ * Deliberately a compact segmented control rather than the Setup tab's
+ * `Instruction` component: that one carries per-option ▲▼ marks reporting how
+ * the current XI feels about each setting, which is the graded, assistant-style
+ * readout this rework removes. Here the manager is designing a PLAN, and may
+ * not even own the players for it yet.
+ */
+function CreatorDial({
+  label,
+  options,
+  value,
+  onPick,
+}: {
+  label: string;
+  options: readonly string[];
+  value: string;
+  onPick: (v: string) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-1 text-[10px] uppercase tracking-widest text-faint">{label}</div>
+      <div className="flex flex-wrap gap-1">
+        {options.map((o) => (
+          <button
+            key={o}
+            onClick={() => onPick(o)}
+            className={`rounded px-1.5 py-1 text-[10.5px] transition-colors ${
+              value === o
+                ? "border border-gold bg-hover text-gold"
+                : "border border-line text-faint hover:text-ink"
+            }`}
+          >
+            {o}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * What a plan manufactures, as a stacked bar (v2.2).
+ *
+ * The Creator's honest readout, and the thing that makes the chance-type system
+ * legible: a manager can see that his 4-3-3 with two wingers is a crossing side
+ * before he has played a match with it, and that briefing a target man turns it
+ * into a box-play side.
+ *
+ * `exec` is the other half — how well the XI he currently owns would carry out
+ * the roles he has assigned. Below 1 means he is asking players to do things
+ * they are not built for, which is a real cost and is stated as one. It is
+ * omitted entirely when no roles are assigned, since there is then nothing to
+ * execute badly.
+ */
+function ChanceMixBar({ mix, exec }: { mix: ChanceMix; exec: number }) {
+  const color: Record<ChanceType, string> = {
+    through: "var(--color-gold-hi)",
+    cross: "#4c8fd6",
+    longshot: "#c06fd0",
+    box: "#d08a4c",
+  };
+  const execPct = Math.round((exec - 1) * 100);
+  return (
+    <div className="rounded-md border border-line bg-surface px-3 py-2.5">
+      <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2">
+        <span className="text-[11px] uppercase tracking-widest text-faint">Chances created</span>
+        {execPct < 0 && (
+          <span
+            className="text-[10.5px] text-loss"
+            title="Your current XI is not built for the roles you have assigned, so it takes the chances this plan creates less well. Assign roles your players actually match, or sign the players for them."
+          >
+            XI executes at <span className="tnum">{execPct}%</span>
+          </span>
+        )}
+      </div>
+      <div className="flex h-2.5 overflow-hidden rounded-full bg-base">
+        {CHANCE_TYPES.map((t) => (
+          <div
+            key={t}
+            style={{ width: `${mix[t] * 100}%`, background: color[t] }}
+            title={`${CHANCE_TYPE_LABEL[t]} — ${Math.round(mix[t] * 100)}%. ${CHANCE_TYPE_BLURB[t]}`}
+          />
+        ))}
+      </div>
+      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+        {CHANCE_TYPES.map((t) => (
+          <span key={t} className="flex items-center gap-1.5 text-[10.5px] whitespace-nowrap">
+            <span className="h-2 w-2 rounded-full" style={{ background: color[t] }} />
+            <span className="text-faint">{CHANCE_TYPE_LABEL[t]}</span>
+            <span className="tnum text-dim">{Math.round(mix[t] * 100)}%</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function TacticCreatorModal({ onClose }: { onClose: () => void }) {
   const game = useGame((s) => s.game)!;
   const saveDesigned = useGame((s) => s.saveDesignedTactic);
@@ -2284,24 +2181,34 @@ function TacticCreatorModal({ onClose }: { onClose: () => void }) {
     return out;
   }, [formation, game.lineup, game.players]);
 
-  const balance = useMemo(
-    () =>
-      briefBalance(
-        draft,
-        formation.slots.map((s) => ({
-          slotId: s.id,
-          slotPos: s.pos,
-          attrs: incumbents[s.id]?.attrs,
-        }))
-      ),
-    [draft, formation, incumbents]
-  );
+  /**
+   * What this plan manufactures, and how well the current XI would carry it out
+   * (v2.2). The replacement for the old brief-balance percentage, and a
+   * genuinely different statement: that number was what the brief was WORTH as
+   * a rating bonus, and there is no such bonus any more.
+   *
+   * This says what the side is built to DO — through balls, crosses, long
+   * shots, box play — computed by the same `sideMix` the engine reads, so the
+   * screen cannot claim a shape the simulation won't produce.
+   */
+  const preview = useMemo(() => {
+    const players = formation.slots.map((s) => ({
+      slotId: s.id,
+      slotPos: s.pos,
+      attrs: incumbents[s.id]?.attrs,
+    }));
+    return {
+      mix: sideMix(players, draft),
+      exec: sideExecution(players, draft),
+      briefed: formation.slots.filter((s) => draft.roles?.[s.id]).length,
+    };
+  }, [draft, formation, incumbents]);
 
-  /** Changing formation re-keys every slot, so briefs naming a slot the new
+  /** Changing formation re-keys every slot, so roles naming a slot the new
    * shape doesn't have are dropped — the same forgiveness `loadSavedTactic`
    * applies to a stale player id. */
   const setFormation = (formationId: string) =>
-    setDraft((d) => ({ ...d, formationId, roles: pruneBrief(d.roles, formationId) }));
+    setDraft((d) => ({ ...d, formationId, roles: pruneRoles(d.roles, formationId) }));
 
   const setRole = (slotId: string, archetypeId: string | undefined) =>
     setDraft((d) => {
@@ -2324,19 +2231,19 @@ function TacticCreatorModal({ onClose }: { onClose: () => void }) {
       return { ...d, roles: Object.keys(roles).length ? roles : undefined };
     });
 
-  /** Fill every slot with the role the assistant would pick for this setup —
-   * the ideal side for the style, which is a shopping list rather than a
-   * description. Uses the same blueprint the Assistant panel prints. */
-  const briefFromBlueprint = () => {
-    const bp = squadBlueprint(
-      formation.slots.map((s) => ({ id: s.id, pos: s.pos, label: s.label, x: s.x })),
-      Object.fromEntries(formation.slots.map((s) => [s.id, incumbents[s.id]])),
+  /** Fill every slot with the role best suited to this shape and style — a
+   * shopping list rather than a description of what you already own. The same
+   * `suggestRoles` the help tab's style chapter prints, so the two can never
+   * disagree. */
+  const rolesFromStyle = () => {
+    const suggested = suggestRoles(
+      formation.slots.map((s) => ({ id: s.id, pos: s.pos, x: s.x })),
       draft,
       TUNING.instructionFitSwing
     );
     const roles: Record<string, string> = {};
-    for (const row of bp.slots) roles[row.slotId] = row.ideal.id;
-    setDraft((d) => ({ ...d, roles }));
+    for (const s of suggested) roles[s.slotId] = s.role.id;
+    setDraft((d) => ({ ...d, roles: Object.keys(roles).length ? roles : undefined }));
   };
 
   const clash = presets.find((t) => t.name.toLowerCase() === name.trim().toLowerCase());
@@ -2352,9 +2259,11 @@ function TacticCreatorModal({ onClose }: { onClose: () => void }) {
     <Modal title="Tactic Creator" onClose={onClose} size="xl">
       <div className="space-y-4">
         <p className="text-[11px] leading-snug text-faint">
-          Design a tactic as a plan: the shape, the style, and the <b className="text-dim">kind of player</b> you
-          want in each position. A slot whose brief is met sharpens that player; one that is missed blunts him
-          by as much — a brief is a bet on the squad you have or intend to build, never free.
+          Design a tactic as a plan: the shape, the style, the instructions, and the{" "}
+          <b className="text-dim">kind of player</b> you want in each position. A role decides what{" "}
+          <b className="text-dim">kind of chance</b> that slot creates — runs in behind, crosses, shots from
+          distance, work in the box — and the player you field there decides how well they are taken. No role
+          is a bonus; asking a target man to hit long shots simply means he hits them badly.
         </p>
 
         {/* ── Two columns (v2.0): the shape on the left, everything you set on
@@ -2374,15 +2283,15 @@ function TacticCreatorModal({ onClose }: { onClose: () => void }) {
               onSelect={(id) => setSelected((cur) => (cur === id ? null : id))}
             />
             <p className="mt-2 text-[10px] leading-snug text-faint">
-              Each circle is the role you want there, not the player in it. Click one to jump to its brief.
+              Each circle is the role you want there, not the player in it. Click one to jump to its row.
             </p>
           </div>
 
           {/* Right: the controls. */}
           <div className="min-w-0 space-y-4">
 
-        {/* Shape and style first — the brief below is keyed to the slots the
-            formation defines, so these two choices come before the roles. */}
+        {/* Shape and style first — the roles below are keyed to the slots the
+            formation defines, so these two choices come before them. */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <div className="mb-1.5 text-[11px] uppercase tracking-widest text-faint">Formation</div>
@@ -2400,53 +2309,55 @@ function TacticCreatorModal({ onClose }: { onClose: () => void }) {
           </div>
         </div>
 
-        {/* The live verdict. This is the feature's honesty: it says plainly
-            whether the plan suits the side, before anything is saved. */}
-        <div
-          className={`flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 ${
-            balance.total > 0.5
-              ? "border-win/40 bg-win/5"
-              : balance.total < -0.5
-                ? "border-loss/40 bg-loss/5"
-                : "border-line bg-surface"
-          }`}
-        >
-          <div className="text-[11px] text-faint">
-            Against your current XI ·{" "}
-            <span className="tnum text-win">{balance.met}</span> met,{" "}
-            <span className="tnum text-draw">{balance.near}</span> close,{" "}
-            <span className="tnum text-loss">{balance.missed}</span> missed
-          </div>
-          <div
-            className={`display text-sm font-semibold tnum ${
-              balance.total > 0.5 ? "text-win" : balance.total < -0.5 ? "text-loss" : "text-dim"
-            }`}
-          >
-            {balance.total >= 0 ? "+" : ""}
-            {balance.total.toFixed(1)}%
+        {/* v2.2: the Creator owns the WHOLE plan — mentality and the five dials
+            included. This is the flow's central claim: a tactic is one complete
+            thing you design, save, and load back intact, rather than a shape and
+            some roles with the dials living somewhere else entirely. */}
+        <div>
+          <div className="mb-1.5 text-[11px] uppercase tracking-widest text-faint">Instructions</div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <CreatorDial label="Mentality" options={MENTALITIES} value={draft.mentality}
+              onPick={(v) => setDraft((d) => ({ ...d, mentality: v as Tactic["mentality"] }))} />
+            <CreatorDial label="Tempo" options={TEMPOS} value={draft.tempo ?? "Standard"}
+              onPick={(v) => setDraft((d) => ({ ...d, tempo: v as Tactic["tempo"] }))} />
+            <CreatorDial label="Width" options={WIDTHS} value={draft.width ?? "Standard"}
+              onPick={(v) => setDraft((d) => ({ ...d, width: v as Tactic["width"] }))} />
+            <CreatorDial label="Press" options={PRESSES} value={draft.press ?? "Medium"}
+              onPick={(v) => setDraft((d) => ({ ...d, press: v as Tactic["press"] }))} />
+            <CreatorDial label="Line" options={LINES} value={draft.line ?? "Standard"}
+              onPick={(v) => setDraft((d) => ({ ...d, line: v as Tactic["line"] }))} />
+            <CreatorDial label="Focus" options={FOCI} value={draft.focus ?? "Mixed"}
+              onPick={(v) => setDraft((d) => ({ ...d, focus: v as Tactic["focus"] }))} />
           </div>
         </div>
 
+        {/* What this plan MANUFACTURES (v2.2) — the replacement for the old
+            brief-balance percentage, and a different kind of statement. That
+            number was what a met brief was worth as a rating bonus, and there
+            is no such bonus any more. This says what the side is built to DO,
+            read from the same `sideMix` the engine uses. */}
+        <ChanceMixBar mix={preview.mix} exec={preview.exec} />
+
         <div className="flex flex-wrap gap-2">
           <GhostButton onClick={briefFromXI} className="!px-3 !py-1 text-xs">
-            Brief from current XI
+            Roles from current XI
           </GhostButton>
-          <GhostButton onClick={briefFromBlueprint} className="!px-3 !py-1 text-xs">
-            Use assistant&rsquo;s ideal
+          <GhostButton onClick={rolesFromStyle} className="!px-3 !py-1 text-xs">
+            Best for this style
           </GhostButton>
           <GhostButton
             onClick={() => setDraft((d) => ({ ...d, roles: undefined }))}
             className="!px-3 !py-1 text-xs"
           >
-            Clear briefs
+            Clear roles
           </GhostButton>
         </div>
 
         <div>
           <div className="mb-1.5 flex items-center justify-between text-[11px] uppercase tracking-widest text-faint">
-            <span>Role brief</span>
+            <span>Position roles</span>
             <span className="normal-case tracking-normal">
-              <span className="tnum">{balance.briefed}</span>/{formation.slots.length} slots briefed
+              <span className="tnum">{preview.briefed}</span>/{formation.slots.length} slots assigned
             </span>
           </div>
           <div className="max-h-[26rem] space-y-1 overflow-y-auto pr-1">
@@ -2557,7 +2468,7 @@ function SavedTactics() {
                       as what it is — a plan. Say which kind it is instead. */}
                   <div className="truncate text-[11px] text-faint">
                     {tacticSummary(t.tactic)}
-                    {hasBrief(t.tactic) && (
+                    {hasRoles(t.tactic) && (
                       <span className="text-gold"> · {Object.keys(t.tactic.roles ?? {}).length} roles</span>
                     )}
                     {" · "}
@@ -2609,10 +2520,6 @@ function SavedTactics() {
  * the lineup instead. It owns the formation-switch confirm because that dialogue
  * belongs to the control that triggers it, not to the screen.
  */
-/** The two halves of the setup. Basic is everything a casual manager needs to
- * touch; Advanced is the fine-tuning. */
-type SetupTab = "basic" | "advanced";
-
 /**
  * The formation dropdown's options, sectioned by how many defenders the shape
  * lines up with (v1.77).
@@ -2635,7 +2542,6 @@ function SetupPanel() {
   const game = useGame((s) => s.game)!;
   useGame((s) => s.rev);
   const setTactic = useGame((s) => s.setTactic);
-  const [setupTab, setSetupTab] = useState<SetupTab>("basic");
   /** Formation the user has clicked but not yet confirmed. Null when none. */
   const [formationSwitch, setFormationSwitch] = useState<string | null>(null);
 
@@ -2668,13 +2574,6 @@ function SetupPanel() {
     ? (xiPlayers.reduce((sum, p) => sum + synergyOf(p, tactic.style), 0) / xiPlayers.length - 1) * 100
     : undefined;
 
-  // The XI paired with the slot each player is FILLING — the same reading the
-  // engine and the assistant report use, so the roles readout under each dial
-  // can never disagree with them.
-  const xiSlots: ReportSlot[] = formation.slots.flatMap((slot) => {
-    const p = game.players[game.lineup[slot.id]];
-    return p?.attrs ? [{ player: p, slotPos: slot.pos }] : [];
-  });
 
   return (
     <>
@@ -2758,78 +2657,38 @@ function SetupPanel() {
               </p>
             )}
           </div>
-          {/* v1.77: the instructions split across two tabs rather than stacking
-              two always-open controls above a collapsible block of five. Basic is
-              the whole game for a casual manager — how committed you are, and how
-              you play — and Advanced is fine-tuning that now costs nothing to
-              ignore. The old collapsible carried a summary line because it was
-              hidden by default; a tab is visible in the strip itself, so that
-              summary moves onto the Basic panel as a link across. */}
-          <Tabs
-            className="mb-0"
-            tabs={[
-              { id: "basic", label: "Basic" },
-              { id: "advanced", label: "Advanced" },
-            ]}
-            active={setupTab}
-            onChange={setSetupTab}
-          />
-          {setupTab === "basic" ? (
-            <div className="space-y-4">
-              <Instruction label="Mentality" options={MENTALITIES} current={tactic.mentality} onPick={(v) => setTactic({ mentality: v })} />
-              <Instruction label="Style" options={STYLES} current={tactic.style} onPick={(v) => setTactic({ style: v })} styleFit={styleFit} />
-              {/* v1.84: one line where there were two. The old pair said what
-                  the five advanced dials are set to AND what they're worth, in
-                  separate paragraphs, both of which are answering the same
-                  question — "do I need to open Advanced?". The settings roll up
-                  into the button's own subtitle; the worth stays a sentence,
-                  because it's the half that changes as you pick. */}
-              <button
-                onClick={() => setSetupTab("advanced")}
-                className="flex w-full items-baseline gap-2 rounded-md border border-line/60 px-2.5 py-1.5 text-left transition-colors hover:border-faint hover:bg-hover"
-              >
-                <span className="min-w-0 flex-1 truncate text-[10px] text-faint">
-                  {tempo.toLowerCase()} tempo · {width.toLowerCase()} · {press.toLowerCase()} press ·{" "}
-                  {line.toLowerCase()} line · {focus.toLowerCase()} focus
-                </span>
-                <span className="shrink-0 text-[10px] text-dim">Fine-tune →</span>
-              </button>
-              {/* What those five dials are worth to the XI, summed (v1.79).
-                  Without it the Advanced tab is a door with nothing written on
-                  it — this is the one number that says whether it's worth
-                  opening, and it moves the moment the XI or the dials change. */}
-              <InstructionSummary xi={xiSlots} tactic={tactic} onOpen={() => setSetupTab("advanced")} />
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <Instruction label="Tempo" options={TEMPOS} current={tempo} onPick={(v) => setTactic({ tempo: v })} axis="tempo" xi={xiSlots} />
-              <Instruction label="Width" options={WIDTHS} current={width} onPick={(v) => setTactic({ width: v })} axis="width" xi={xiSlots} />
-              <Instruction label="Press" options={PRESSES} current={press} onPick={(v) => setTactic({ press: v })} axis="press" xi={xiSlots} />
-              <Instruction label="Defensive Line" options={LINES} current={line} onPick={(v) => setTactic({ line: v })} axis="line" xi={xiSlots} />
-              <Instruction label="Focus" options={FOCI} current={focus} onPick={(v) => setTactic({ focus: v })} axis="focus" xi={xiSlots} />
-            </div>
-          )}
-          {/* How well the squad KNOWS this system (v2.1). Deliberately above the
-              Assistant's report and separate from it: the report grades how well
-              suited these players are to this plan, which is a question about who
-              you signed. This is a question about how long you have kept them —
-              and it is the one the manager can only answer by leaving things
-              alone, which is exactly why it needs saying out loud. */}
+          {/* v2.2: the Basic/Advanced split is gone along with the fine-tune
+              door, and so is every ▲▼ mark that used to hang off these dials.
+              Those marks were the assistant grading your XI against each
+              setting, which is the graded-advice layer this rework removes.
+              What remains is the plan itself, always visible: five dials and
+              two pickers, no tabs, nothing folded away.
+
+              A tactic is now DESIGNED in the Creator — which owns these same
+              dials plus the position roles — and this panel is where you adjust
+              the one you are currently playing. */}
+          <div className="space-y-4">
+            <Instruction label="Mentality" options={MENTALITIES} current={tactic.mentality} onPick={(v) => setTactic({ mentality: v })} />
+            <Instruction label="Style" options={STYLES} current={tactic.style} onPick={(v) => setTactic({ style: v })} styleFit={styleFit} />
+            <Instruction label="Tempo" options={TEMPOS} current={tempo} onPick={(v) => setTactic({ tempo: v })} />
+            <Instruction label="Width" options={WIDTHS} current={width} onPick={(v) => setTactic({ width: v })} />
+            <Instruction label="Press" options={PRESSES} current={press} onPick={(v) => setTactic({ press: v })} />
+            <Instruction label="Defensive Line" options={LINES} current={line} onPick={(v) => setTactic({ line: v })} />
+            <Instruction label="Focus" options={FOCI} current={focus} onPick={(v) => setTactic({ focus: v })} />
+          </div>
+
+          {/* What this side is built to DO (v2.2), read from the same `sideMix`
+              the engine consumes. It replaces the Assistant's report and the
+              Squad Blueprint, and it is a deliberately different KIND of thing:
+              those graded you against an ideal, this simply states what your
+              plan and your players actually manufacture. */}
+          <LivePlanPanel tactic={tactic} />
+
+          {/* How well the squad KNOWS this system (v2.1). A question about how
+              long you have kept these players rather than who you signed — and
+              the one a manager can only answer by leaving things alone, which is
+              exactly why it needs saying out loud. */}
           <FamiliarityPanel />
-
-          {/* One report in place of the old Squad-fit and Squad-identity panels
-              (v1.77) — the far end of the Training Plan → Attributes → Archetype
-              → Tactics loop, stated as advice rather than as three charts. */}
-          <AssistantReportPanel tactic={tactic} />
-
-          {/* And the side you SHOULD be building for this plan (v1.79) — the
-              question the report above can't answer, because it only ever grades
-              the players you already have. */}
-          <SquadBlueprintPanel tactic={tactic} />
-
-          {/* v1.84: the ▲▼ legend was a permanent paragraph explaining two
-              glyphs that already carry the same sentence in their own tooltips.
-              It is gone; the marks are self-describing on hover. */}
         </div>
       </Section>
 
@@ -3060,72 +2919,6 @@ export default function TacticsScreen() {
     </div>
   );
 }
-
-/**
- * How well the picked XI suits the instructions it's been given (v1.72).
- *
- * The tactical-fit system asks each setting what attributes it leans on and
- * compares that to the players actually on the pitch. This panel is that
- * comparison made visible: without it, the effect is real but invisible, and a
- * manager would have no way to learn that their Gegenpress needs legs.
- *
- * Only phases the current setup actually makes a demand on appear. A Balanced,
- * Standard-everything tactic asks nothing and shows nothing — which is honest,
- * and is also the hint that the safe setup is the one with no requirements.
- */
-// ── The Assistant Manager's report (§15.3, v1.77) ─────────────────────────
-//
-// One box replacing three. Until v1.77 this column carried a "Squad fit" panel
-// of centred bars, a "Squad identity" stacked bar with five class counts and a
-// list of signed percentages, and a line of raw arithmetic under the style
-// picker. Every number was accurate and none of it was advice — the player had
-// to hold three scales in their head and work out for themselves whether the
-// combination was good.
-//
-// The report does that work instead: a single grade, then at most four
-// sentences in the voice of an assistant manager. The numbers still exist and
-// each note carries the figure that produced it on hover, but they are the
-// evidence for the advice rather than the interface itself.
-//
-// The class MIX moved out of here entirely: it is now drawn on the pitch, as a
-// coloured ring on each player node (`MatchdayBoard`), which is where it is
-// actually actionable — you can see which slot is which class while you are
-// picking, instead of reading a bar chart beside the picture.
-//
-// All of the analysis lives in `lib/assistant.ts` and is computed from the same
-// functions the match engine calls, so this can never claim something the
-// simulation won't do.
-
-const NOTE_ICON: Record<NoteTone, string> = { good: "👍", warn: "⚠️", tip: "💡" };
-const NOTE_TONE: Record<NoteTone, string> = {
-  good: "text-win",
-  warn: "text-loss",
-  tip: "text-gold",
-};
-
-/** The grade's colour ramp — A green through E red. */
-function gradeColor(grade: string): string {
-  if (grade.startsWith("A")) return "var(--color-win)";
-  if (grade.startsWith("B")) return "#7fbf5f";
-  if (grade.startsWith("C")) return "#d9a441";
-  if (grade.startsWith("D")) return "#d97a4a";
-  return "var(--color-loss)";
-}
-
-/**
- * How settled the squad is in its current system (v2.1).
- *
- * Its own strip rather than a line inside the Assistant's report, because it
- * answers a different question: the report grades how well SUITED these players
- * are to this plan, this says how well REHEARSED they are in it. A manager can
- * act on the first by signing someone and on the second only by leaving things
- * alone — and the second is invisible without a readout, which is what would
- * make the cost of changing system feel arbitrary rather than earned.
- *
- * Renders nothing at all before the club has played a match: an empty progress
- * bar reading 0% would be a lie (an untracked club computes as ordinary, not as
- * unfamiliar), and there is no decision to inform yet.
- */
 function FamiliarityPanel() {
   const game = useGame((s) => s.game)!;
   // `rev` is a real dependency: the store mutates the club in place, so a memo
@@ -3166,303 +2959,67 @@ function FamiliarityPanel() {
   );
 }
 
-function AssistantReportPanel({ tactic }: { tactic: Tactic }) {
+/**
+ * What the side you are actually playing is built to DO (v2.2).
+ *
+ * The replacement for the Assistant's report and the Squad Blueprint, and
+ * deliberately a different KIND of panel. Those two GRADED you — a letter, a
+ * list of notes, a ✓/~/✗ against an ideal XI the game computed for you — which
+ * is the layer this rework removes: it told a manager what to think about his
+ * own squad, and it made the identity system feel like a recipe to be looked up
+ * rather than a plan to be made.
+ *
+ * This states a fact instead. Given your shape, your dials and the eleven
+ * players you have picked, here is the mix of chances your side manufactures,
+ * and here is how well those players carry out the roles your tactic assigns.
+ * No verdict, no advice, no ideal to fall short of.
+ *
+ * It reads `sideMix` and `sideExecution` — THE functions the engine calls — so
+ * the panel can never describe a side the simulation won't produce.
+ */
+function LivePlanPanel({ tactic }: { tactic: Tactic }) {
   const game = useGame((s) => s.game)!;
-  // `rev` is a real dependency, not just a re-render subscription: lib modules
-  // mutate the single GameState in place, so `game` keeps its identity when the
-  // lineup changes and a memo keyed on it alone would never recompute.
   const rev = useGame((s) => s.rev);
   const formation = getFormation(tactic.formationId);
-  // Collapsed by default (v1.84), like the blueprint below it. The grade and
-  // the loudest note ride on the header, which is the part that is read every
-  // time; the other three notes and the class key are the part that is read
-  // once. Declared above the empty-XI early return so the hook order holds.
-  const [open, setOpen] = useState(false);
 
-  const report = useMemo(() => {
-    // Judged against the slot each player is FILLING, exactly as the engine
-    // does — a midfielder at full back is read as the full back he is asked to
-    // be, so the report and Saturday agree.
-    const slots: ReportSlot[] = [];
-    for (const slot of formation.slots) {
-      const p = game.players[game.lineup[slot.id]];
-      if (p?.attrs) slots.push({ player: p, slotPos: slot.pos });
-    }
-    return assistantReport(slots, tactic, synergyOf);
+  const plan = useMemo(() => {
+    const players = formation.slots.map((s) => {
+      const p = game.players[game.lineup?.[s.id] ?? ""];
+      return { slotId: s.id, slotPos: s.pos, attrs: p?.attrs };
+    });
+    const picked = players.filter((p) => p.attrs).length;
+    return {
+      picked,
+      mix: sideMix(players, tactic),
+      exec: sideExecution(players, tactic),
+      roled: hasRoles(tactic),
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game, rev, formation, tactic]);
+  }, [tactic, formation, game.lineup, game.players, rev]);
 
-  if (report.filled === 0) {
-    return (
-      <div className="rounded-md border border-line px-3 py-2.5">
-        <div className="text-[11px] uppercase tracking-widest text-faint">Assistant&apos;s report</div>
-        <p className="mt-1.5 text-[11px] leading-snug text-faint">
-          Pick a starting XI and I&apos;ll tell you how well it suits this plan.
-        </p>
-      </div>
-    );
-  }
-
-  const color = gradeColor(report.grade);
-  // The loudest note, shown alongside the grade when the panel is shut. A grade
-  // on its own says how good the setup is but never why, and "why" is the only
-  // part a manager can act on — so one sentence of it stays above the fold and
-  // the rest opens. Warnings outrank praise: a B with a problem in it is worth
-  // surfacing the problem, not the compliment.
-  const headline =
-    report.notes.find((n) => n.tone === "warn") ?? report.notes[0];
+  // With nobody picked there is no side to describe. An empty XI would report
+  // the neutral mix, which is a number rather than a fact about this club.
+  if (plan.picked === 0) return null;
 
   return (
-    <div className="rounded-md border border-line">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-hover"
-      >
-        {/* The grade IS the summary — everything else is why. */}
-        <span
-          className="display flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-base font-bold"
-          style={{ color, background: `${color}1a`, border: `1px solid ${color}59` }}
-        >
-          {report.grade}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[11px] uppercase tracking-widest text-faint">
-            Tactical synergy
-            {report.filled < 11 && <span className="ml-1.5 normal-case tracking-normal">{report.filled}/11 picked</span>}
-          </span>
-          <span className="block truncate text-[11px] leading-snug text-dim">
-            {headline ? (
-              <>
-                <b className={NOTE_TONE[headline.tone]}>{headline.title}:</b> {headline.body}
-              </>
-            ) : (
-              "Nothing stands out either way — a workable, unremarkable setup."
-            )}
-          </span>
-        </span>
-        <span className="shrink-0 text-[10px] text-faint" aria-hidden>
-          {open ? "▾" : "▸"}
-        </span>
-      </button>
-
-      {open && (
-        <>
-          {/* Every note, including the one already quoted above — the expanded
-              view is the full report, not the remainder of it, so a note doesn't
-              move around depending on whether the panel is shut. */}
-          <div className="space-y-1.5 border-t border-line/60 px-3 py-2.5">
-            {report.notes.length === 0 ? (
-              <p className="text-[11px] leading-snug text-faint">
-                Nothing stands out either way — this is a workable, unremarkable setup.
-              </p>
-            ) : (
-              report.notes.map((n, i) => (
-                <p key={i} className="flex gap-1.5 text-[11px] leading-snug text-dim" title={n.detail}>
-                  <span className="shrink-0" aria-hidden>{NOTE_ICON[n.tone]}</span>
-                  <span className="min-w-0">
-                    <b className={NOTE_TONE[n.tone]}>{n.title}:</b> {n.body}
-                  </span>
-                </p>
-              ))
-            )}
-          </div>
-
-          {/* The class mix, as a one-line key to the coloured rings on the pitch —
-              the counts without the chart the pitch now carries. */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line/60 px-3 py-2">
-            {ARCHETYPE_CLASS_ORDER.map((c) => (
-              <span
-                key={c}
-                className={`flex items-center gap-1.5 text-[10px] ${report.counts[c] > 0 ? "" : "opacity-30"}`}
-                title={ARCHETYPE_CLASS_BLURB[c]}
-              >
-                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: ARCHETYPE_CLASS_COLOR[c] }} />
-                <span className="text-faint">{c}</span>
-                <span className="tnum font-semibold text-dim">{report.counts[c]}</span>
-              </span>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ── Squad Blueprint (§9c, v1.79) ───────────────────────────────────────────
-//
-// The report above grades the side you have. This is the side you SHOULD have:
-// for the current formation, style and dials, the best archetype at every slot,
-// how the incumbent measures up, and a button that opens the transfer market
-// already filtered to what's missing.
-//
-// It exists because the redesign is only worth building if a manager can act on
-// it. Knowing that a Possession 4-3-3 wants a Constructor at full back rather
-// than a Protector otherwise means holding 45 archetypes × 6 styles × five dials
-// in your head — that is a wiki, not a game. All the ranking lives in
-// `lib/assistant.ts`; this only draws it.
-//
-// Collapsed by default: it is a planning tool, not a per-matchday readout, and
-// the assistant's report stays the headline.
-
-const GRADE_MARK: Record<SlotGrade, { mark: string; tone: string; title: string }> = {
-  ideal: { mark: "✓", tone: "text-win", title: "The best role available here for this setup" },
-  // "0 is neutral, not a trap" made visible: a role that simply isn't what the
-  // style is built around costs you a little, and is not a mistake.
-  fine: { mark: "~", tone: "text-dim", title: "Workable — not the ideal role, but no real cost" },
-  poor: { mark: "✗", tone: "text-loss", title: "This role is costing you against the best you could field here" },
-};
-
-function BlueprintRow({ row }: { row: BlueprintSlot }) {
-  const g = GRADE_MARK[row.grade];
-  // The row's own `gap` (v1.93), not `idealPct - actualPct`: a slot's ideal may
-  // be a differentiated second-choice role chosen to vary the line, and charging
-  // the incumbent for that would contradict the ✓ beside it.
-  const gap = row.gap;
-  // Worth naming only where the dials disagree with the style — which is the
-  // interesting case and, because style is the bigger lever, not the common one.
-  const dialPick = row.bestForDials.id !== row.ideal.id ? row.bestForDials : undefined;
-  return (
-    <div className="flex items-center gap-2 px-3 py-1 text-[11px] odd:bg-raised/30">
-      <span className="w-7 shrink-0 font-semibold text-faint">{row.label}</span>
-
-      {/* What this slot should be. */}
-      <span className="flex min-w-0 flex-[1.1] items-center gap-1" title={`${row.ideal.name} · ${row.ideal.cls} — ${row.ideal.desc}`}>
-        <ArchetypeIcon archetype={row.ideal} size={14} />
-        <span className="truncate text-dim">{row.ideal.name}</span>
-        {dialPick && (
-          <span
-            className="shrink-0 text-faint"
-            title={`${row.ideal.name} is the best fit for ${row.slotPos} in this style. For your dials alone, a ${dialPick.name} suits them better — but the style is the bigger lever, so it doesn't overturn the pick.`}
-          >
-            /{dialPick.name}
-          </span>
-        )}
-      </span>
-
-      {/* What it is. */}
-      <span className="flex min-w-0 flex-1 items-center gap-1">
-        {row.actual ? (
+    <div className="space-y-2">
+      <ChanceMixBar mix={plan.mix} exec={plan.exec} />
+      <p className="text-[11px] leading-relaxed text-faint">
+        {plan.roled ? (
           <>
-            <ArchetypeIcon archetype={row.actual} size={14} />
-            <span
-              className="truncate text-faint"
-              title={[
-                row.incumbent ? displayFullName(row.incumbent) : "",
-                `Style ${row.actualStylePct > 0 ? "+" : ""}${row.actualStylePct.toFixed(0)}% · dials ${row.actualDialsPct > 0 ? "+" : ""}${row.actualDialsPct.toFixed(1)}%`,
-              ]
-                .filter(Boolean)
-                .join("\n")}
-            >
-              {row.actual.name}
-            </span>
+            Your roles decide what <b className="text-dim">kind</b> of chance this side creates; the
+            players in those slots decide how well they are taken. The opposition&rsquo;s defenders and
+            shape decide how many are stopped — tall centre backs smother crosses, a deep block kills
+            balls in behind, a holding midfielder screens shots from distance.
           </>
         ) : (
-          <span className="italic text-faint">empty</span>
+          <>
+            This tactic assigns no position roles, so the mix comes from the players themselves. Open
+            the <b className="text-dim">Tactic Creator</b> to design a plan that names the role you
+            want in each position.
+          </>
         )}
-      </span>
-
-      <span className={`w-4 shrink-0 text-center ${g.tone}`} title={g.title} aria-label={row.grade}>
-        {g.mark}
-      </span>
-      {/* The cost, not the absolute: what this slot gives up against its ideal.
-          Shown only from the `fine` band up, so the column carries the same
-          message as the mark beside it rather than pricing every rounding error. */}
-      <span className={`w-9 shrink-0 text-right tnum ${row.grade === "poor" ? "text-loss" : "text-faint"}`}>
-        {row.actual && gap > 4 ? `−${Math.round(gap)}%` : ""}
-      </span>
-    </div>
-  );
-}
-
-function SquadBlueprintPanel({ tactic }: { tactic: Tactic }) {
-  const game = useGame((s) => s.game)!;
-  const rev = useGame((s) => s.rev);
-  const scoutFor = useGame((s) => s.scoutFor);
-  const [open, setOpen] = useState(false);
-  const formation = getFormation(tactic.formationId);
-
-  const bp = useMemo(() => {
-    const lineup: Record<string, PlayerBio | undefined> = {};
-    for (const slot of formation.slots) lineup[slot.id] = game.players[game.lineup[slot.id]];
-    return squadBlueprint(
-      // `x` is passed so the blueprint can order a position group left-to-right
-      // when it differentiates their roles (v1.93) — see `squadBlueprint`.
-      formation.slots.map((s) => ({ id: s.id, pos: s.pos, label: s.label, x: s.x })),
-      lineup,
-      tactic,
-      TUNING.instructionFitSwing
-    );
-    // `rev` is a real dependency: lib modules mutate GameState in place, so
-    // `game` keeps its identity when the lineup changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game, rev, formation, tactic]);
-
-  return (
-    <div className="rounded-md border border-line">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-hover"
-      >
-        <span className="flex-1 text-[11px] uppercase tracking-widest text-faint">Squad blueprint</span>
-        {/* The headline even when collapsed — one sentence of advice is worth
-            more than a disclosure triangle on its own. */}
-        <span className="truncate text-[10px] text-dim">
-          {bp.weakest ? (
-            <>
-              Weakest link: <b className="text-loss">{bp.weakest.label}</b>
-            </>
-          ) : (
-            "Every slot is well suited"
-          )}
-        </span>
-        <span className="shrink-0 text-[10px] text-faint" aria-hidden>{open ? "▾" : "▸"}</span>
-      </button>
-
-      {open && (
-        <>
-          <p className="border-t border-line/60 px-3 py-2 text-[11px] leading-snug text-faint">
-            The side to build for <b className="text-dim">{styleLabel(tactic.style)}</b> — and how your XI measures
-            up. Where a line has two of the same position it asks for two different roles, because a back four of
-            two identical centre backs covers less between them than a pair that complement each other. The ✓/~/✗
-            still grades each player against the best role available to him, so playing a recommended role in the
-            other slot is never marked down. This ranks ROLES; whether these particular players have the attributes
-            the plan demands is the assistant&apos;s report above, and it is the larger half of the grade.
-          </p>
-          <div className="flex items-center gap-2 border-b border-line/60 px-3 pb-1 text-[9px] uppercase tracking-widest text-faint">
-            <span className="w-7 shrink-0">Slot</span>
-            <span className="flex-[1.1]">Ideal</span>
-            <span className="flex-1">You have</span>
-            <span className="w-4 shrink-0" />
-            <span className="w-9 shrink-0" />
-          </div>
-          <div className="py-1">
-            {bp.slots.map((row) => (
-              <BlueprintRow key={row.slotId} row={row} />
-            ))}
-          </div>
-
-          {/* The shopping list. This is what makes the panel quality-of-life
-              rather than one more readout: a ✗ row now has somewhere to go. */}
-          {bp.wants.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 border-t border-line/60 px-3 py-2">
-              <span className="text-[10px] text-faint">Shop for:</span>
-              {bp.wants.slice(0, 3).map((w) => (
-                <button
-                  key={w.archetype.id}
-                  onClick={() => scoutFor(w.archetype.id, w.pos)}
-                  title={`Search the market for a ${w.archetype.name} at ${w.pos}`}
-                  className="flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[10px] text-dim hover:border-gold hover:text-gold"
-                >
-                  <ArchetypeIcon archetype={w.archetype} size={12} ring={false} />
-                  {w.archetype.name}
-                  <span className="text-faint">({w.pos})</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </>
-      )}
+      </p>
     </div>
   );
 }

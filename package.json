@@ -19,7 +19,7 @@
     "verify:v193": "tsx scripts/verify-v193.ts",
     "verify:achievements": "tsx scripts/verify-achievements.ts",
     "verify:inbox": "tsx scripts/verify-inbox.ts",
-    "verify:brief": "tsx scripts/verify-brief.ts",
+    "verify:chancetypes": "tsx scripts/verify-chancetypes.ts",
     "verify:sim-parity": "tsx scripts/verify-sim-parity.ts",
     "verify:rivalry": "tsx scripts/verify-rivalry.ts",
     "verify:quicksell": "tsx scripts/verify-quicksell.ts",

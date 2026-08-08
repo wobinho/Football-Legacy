@@ -6,7 +6,8 @@ import type { TuningConfig } from "./config/tuning";
 import { getFormation, type Formation } from "./config/formations";
 import { positionFit } from "./config/positions";
 import { tacticalFitMult, type EnginePlayer, type LineupEntry, type SideInput } from "./engine/match";
-import { hasBrief, roleBriefMult } from "./tacticbrief";
+import { executionOf, hasRoles, roleAt } from "./chancetypes";
+import { deriveArchetype } from "./config/archetype";
 import { familiarityMult } from "./familiarity";
 
 /**
@@ -121,22 +122,32 @@ export function pickLineup(
       weight: weight ? weight(p) : 1,
     });
   }
-  // The role brief (v1.99) is the one term that genuinely varies BY SLOT rather
-  // than by position, so it cannot join the cache above — two centre backs are
-  // two different jobs. It is only consulted when the tactic actually carries a
-  // brief, so an ordinary tactic pays a single boolean for the whole pick.
+  // The slot's ROLE (v2.2) is the one term that genuinely varies BY SLOT rather
+  // than by position, so it cannot join the cache above — two centre backs given
+  // different roles are two different jobs. It is only consulted when the tactic
+  // actually assigns roles, so an ordinary tactic pays a single boolean for the
+  // whole pick.
+  //
+  // What it reads is `executionOf`: how well this player would carry out the
+  // role the slot was given, which is the same question the match asks of the
+  // chances that role manufactures. It is never a bonus — 1 for the role asked
+  // for, below 1 for a player not built for it.
   //
   // v2.1: squad familiarity is the other per-SLOT term, and for the same reason
   // — how settled a player is at right back says nothing about how settled he is
-  // in midfield. Like the brief it is guarded, so a club with no record pays a
+  // in midfield. Like the role it is guarded, so a club with no record pays a
   // single null check for the whole pick.
-  const briefed = !!tactic && hasBrief(tactic);
+  const roled = !!tactic && hasRoles(tactic);
   const scoreFor = (p: PlayerBio, pos: Pos, slotId: string) => {
     const c = constFor.get(p.id)!;
     const fit = positionFit(p.positions, pos, cfg.adjacentPositionMult, cfg.outOfPositionFloor);
     const base = p.overall * fit * c.fitness * p.form * c.tactical * c.weight;
-    const withBrief = briefed ? base * roleBriefMult(p.attrs, pos, slotId, tactic!) : base;
-    return familiarity ? withBrief * familiarityMult(familiarity, p.id, slotId) : withBrief;
+    let withRole = base;
+    if (roled) {
+      const role = roleAt(tactic!, slotId);
+      if (role && p.attrs) withRole = base * executionOf(deriveArchetype(p.attrs, pos), role);
+    }
+    return familiarity ? withRole * familiarityMult(familiarity, p.id, slotId) : withRole;
   };
 
   for (const slot of slots) {

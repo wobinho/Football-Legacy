@@ -195,31 +195,44 @@ check(roleRows === 11, `every slot gets a role row (${roleRows}/11)`);
 
 // The Creator's pitch (v2.0): the same eleven slots drawn as a shape, so the
 // role brief is read on a formation rather than as a list of dropdowns. An
-// unbriefed slot is titled "GK — no brief yet".
-const pitchSlots = await dlg.getByTitle(/ — no brief yet$/).count();
+// slot with no role assigned is titled "GK — no role yet".
+const pitchSlots = await dlg.getByTitle(/ — no role yet$/).count();
 check(pitchSlots === 11, `the Creator draws its shape (${pitchSlots}/11 pitch slots)`);
 
-// The balance readout must MOVE when a brief is set. "Brief from current XI"
-// describes the side exactly, so it has to read positive.
-const readBalance = async () =>
-  Number((await dlg.locator("text=/slots briefed/").first().innerText()).match(/(\d+)\//)?.[1] ?? -1);
-check((await readBalance()) === 0, "a fresh draft briefs nothing");
-await dlg.getByRole("button", { name: "Brief from current XI" }).click();
+// v2.2: the Creator owns the WHOLE plan, so the instruction dials must be
+// here — this is the flow's central claim (design one thing, save it, load it
+// back intact) and a missing dial would silently make a saved tactic partial.
+for (const dial of ["Mentality", "Tempo", "Width", "Press", "Line", "Focus"]) {
+  const n = await dlg.locator(`text=/^${dial}$/`).count();
+  check(n > 0, `the Creator carries the ${dial} dial`);
+}
+
+// The roles counter, and the two fill routes. Both must actually populate it.
+const readRoles = async () =>
+  Number((await dlg.locator("text=/slots assigned/").first().innerText()).match(/(\d+)\//)?.[1] ?? -1);
+check((await readRoles()) === 0, "a fresh draft assigns no roles");
+await dlg.getByRole("button", { name: "Roles from current XI" }).click();
 await page.waitForTimeout(300);
-check((await readBalance()) > 0, "'brief from current XI' fills the brief");
-const pct = await dlg.locator("div.display.text-sm").first().innerText();
-check(/^\+/.test(pct.trim()), `describing your own side reads positive (${pct.trim()})`);
+check((await readRoles()) > 0, "'roles from current XI' fills them");
+
+// The chance-mix bar is the Creator's honest readout (v2.2) — it replaced the
+// brief's balance percentage, and it must name all four types. Asserted on the
+// LABELS rather than on any number: the numbers are `verify:chancetypes`'s job,
+// and matching arithmetic here is the v1.99 GCN lesson.
+for (const label of ["Through balls", "Crosses", "Long shots", "Box play"]) {
+  check((await dlg.locator(`text=${label}`).count()) > 0, `the mix names "${label}"`);
+}
 await page.screenshot({ path: shot("creator-briefed.png"), fullPage: true });
 
-// Clearing puts it back — the brief is not a one-way door.
-await dlg.getByRole("button", { name: "Clear briefs" }).click();
+// Clearing puts it back — a role assignment is not a one-way door.
+await dlg.getByRole("button", { name: "Clear roles" }).click();
 await page.waitForTimeout(300);
-check((await readBalance()) === 0, "'clear briefs' empties it again");
+check((await readRoles()) === 0, "'clear roles' empties it again");
 
-// The assistant's ideal is the other fill route, and must also populate.
-await dlg.getByRole("button", { name: /Use assistant/ }).click();
+// The style suggestion is the other fill route, and must also populate.
+await dlg.getByRole("button", { name: /Best for this style/ }).click();
 await page.waitForTimeout(300);
-check((await readBalance()) > 0, "'use assistant's ideal' fills the brief too");
+check((await readRoles()) > 0, "'best for this style' fills the roles too");
 
 // Saving lands it in Saved Tactics, described as a PLAN.
 await dlg.locator('input[placeholder^="e.g."]').fill("UI Test Plan");

@@ -98,11 +98,17 @@ design session before changing, `[FUTURE]` must not be built but must not be blo
   LABELS: it matched the literal string `"seat +"` off the old one-line sum, so rewriting
   that line into labelled rows made the harness report an empty seat while the card drew
   perfectly. Match labels, not arithmetic — the numbers are the verifier's job
-- `npm run verify:brief` — the Tactic Creator's role brief (v1.99): that an unbriefed
-  tactic is arithmetically inert, that a RANDOM brief is worth ~nothing across an XI (the
-  zero-sum claim, measured over 4000 random briefs — the check that caught the first cut
-  costing −16.7%), that briefing your own side gains and briefing roles you lack loses, and
-  that a brief can't outlive the slots it names
+- `npm run verify:chancetypes` — the chance-type system (v2.2), which replaced the role
+  brief's rating bonus: that a mix is always NORMALISED (the invariant that makes the
+  feature unable to move scoring, so `calibrate` is untouched by construction rather than
+  by hope), that resistance is CENTRED on the archetype table's own defence-weighted mean,
+  that it genuinely DISCRIMINATES (crosses convert 83% against a tall back line and 105%
+  against ball-players, and that same tall line is correspondingly weak to long shots),
+  that a save with no roles is arithmetically inert, and that a role is NEVER a bonus
+  (`executionOf` never exceeds 1). Also the guard that caught the bug which would have
+  disabled the whole feature silently: every archetype must resolve to real numbers, since
+  the roster contains one whose id is `constructor` and a plain `table[id]` lookup returns
+  `Object.prototype.constructor`
 - `npm run verify:achievements [seasons]` — the achievement catalogue (v2.0): the table
   (six rungs per ladder, ascending, no id both flat and tiered), the tier DERIVATION at
   every boundary including both ends, and — the section that matters — that the tallies
@@ -161,10 +167,12 @@ design session before changing, `[FUTURE]` must not be built but must not be blo
   fill (the layout shift a single viewport structurally cannot see), that the bench sits
   in the pitch's column with `benchSize` seats and that filled AND empty seats both open
   the sub picker, and that every roster row names an archetype. Also drives the **Tactic
-  Creator**: that it opens, that every slot in the shape gets a role row, that both fill
-  routes populate the brief and the live balance responds, and that a saved plan lands in
-  Saved Tactics reading as a PLAN rather than as a snapshot naming nobody — the numbers are
-  `verify:brief`'s job
+  Creator**: that it opens, that every slot in the shape gets a role row, that it carries
+  all six instruction dials (v2.2 — the Creator owns the WHOLE plan, and a missing dial
+  would silently make a saved tactic partial), that both fill routes populate the roles,
+  that the chance-mix bar names all four types, and that a saved plan lands in Saved
+  Tactics reading as a PLAN rather than as a snapshot naming nobody. Matched on LABELS,
+  never on arithmetic — the numbers are `verify:chancetypes`'s job
 - `node scripts/ui-test-season.mjs` — plays a full season, then exercises the finances breakdowns and the season-review modal
 
 ## Architecture (mirrors GAME_DESIGN.md §2 module map)
@@ -204,10 +212,16 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   prospect can leave by. `hubPlacementError` is the single ruling the UI greys
   destinations out with; `hubFocusError` (v1.99) is the other one, for the brief.
   `setHubPaused`/`setHubFocus` are the two v1.99 levers.
-- `lib/tacticbrief.ts` — the Tactic Creator's per-slot role brief (v1.99). The whole of
-  what "I want a Sniper here" means to the simulation: `roleBriefMult` is the lever,
-  `briefBalance` is what the screen prints, `pruneBrief` drops briefs a formation change
-  orphaned. Rules only — `components/screens/Tactics.tsx` draws it.
+- `lib/chancetypes.ts` — how archetypes reach the SIMULATION (v2.2), replacing
+  `tacticbrief.ts` (deleted). Four chance types (through / cross / longshot / box):
+  `sideMix` is what a side manufactures, `sideResistance` + `shapeResistance` what its
+  opponent smothers, `typeConversionMult` the contest between them, `executionOf` how well
+  the player fielded carries out his slot's assigned role. `RESIST_PIVOT` is DERIVED and
+  load-bearing. Rules only — `components/screens/Tactics.tsx` draws it.
+- `lib/rolesuggest.ts` — `suggestRoles`, what survives of the deleted `assistant.ts`: the
+  best role per slot for a shape and style. A suggestion about ROLES you could sign, never
+  a grade of the players you own; consumed only when the manager asks for it (the Creator's
+  fill button, the help tab's style chapter).
 - `lib/familiarity.ts` — squad familiarity (v2.1): what a side EARNS by playing
   together in one system, where the three channels above are what it LOOKS UP.
   `familiarityMult` is the lever (multiplied into `effectiveRating` and folded into
@@ -221,11 +235,6 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   up silently not existing on a crest); `badge.ts` and `kit.ts` are the two
   specs, their generators and their rules; `identity.ts` is who may re-brand
   what. Rules only — `components/visual/` draws.
-- `lib/assistant.ts` — everything the Tactics screen *says*: `assistantReport()` (the grade
-  and its notes) and `squadBlueprint()` (the ideal role per slot, the ✓/~/✗ against the
-  incumbent, and the shopping list). Both derive from the same functions the engine calls, so
-  the UI can never claim something the simulation won't do. New advice goes here, not in the
-  component — React must never implement rules.
 - `components/screens/` — the screens (§14); `Gcn.tsx` is the GCN page (below Achievements, unlocked only); `components/ui.tsx` — design primitives
   **The GCN screen is SIX tabs, and each answers one question (v1.95):** Headquarters
   (how is the network doing — read-only, no actions), Clubs (the holdings, and
@@ -1238,31 +1247,19 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   **after** the development pass (growth redistributes attributes too, and the last writer
   wins). Cancelling **keeps** the reshaping already done: it is real training, and undoing
   it would let a manager probe the system for free.
-- **The squad blueprint gives a LINE variety, and the grade doesn't punish you for it
-  (v1.93).** The blueprint used to pick each slot's best archetype independently, and since
-  the style term (±15) dwarfs the dial term (±6 × swing) the answer was very nearly a
-  function of the STYLE alone — so every slot sharing a position got the identical role.
-  Measured: a 4-3-3 returned **7 distinct roles of 11** and a 4-4-2 only 6 (two Architect
-  centre backs, two Constructor full backs, two Maestro centre mids, every time). A
-  position GROUP is now solved together, greedily taking the best role not already used in
-  that line; measured after, **9–10 of 11** across five formations × six styles.
-  The load-bearing companion change: the ✓/~/✗ is graded against the **best role available
-  at the position**, not against the slot's differentiated `ideal`. Grading against the
-  latter would mark down a side fielding two Architects — a role the blueprint explicitly
-  wants in that line — and swapping the two players between slots would flip which one was
-  flagged. `BlueprintSlot.gap` is that figure; `weakest` and `wants` sort on it, and
-  nothing may recompute `idealPct - actualPct` inline again.
-  Note LB/RB and LW/RW still share a role, correctly: they are different `Pos` values, so
-  they are separate groups of one. Mirrored flanks share a job; paired central slots don't.
-- **"I followed the blueprint and I'm still a C" was a real gap, not a misunderstanding
-  (v1.93).** The grade is 55% attribute fit, 30% style synergy, 15% instruction fit, while
-  the blueprint ranks roles on style and dials ALONE — so a manager who matched every slot
-  had addressed 45% of his grade and been told nothing about the largest term. Both halves
-  are right to be what they are (a blueprint must talk about ROLES, which are things you
-  can go and buy; attribute fit is a property of the eleven specific players). What was
-  missing was anyone saying so, which is the "Right roles, wrong players" note in
-  `assistant.ts`. It fires only when the roles ARE good, or it becomes noise on the side
-  that needs the simpler message.
+- **The Squad Blueprint, the Assistant's report and the fine-tune tab are DELETED (v2.2),
+  and the deletion is the feature.** All three graded the manager: a letter, a list of
+  notes, a ✓/~/✗ against an ideal XI the game computed for him, and ▲▼ marks on every dial
+  saying what his XI made of each setting. Together they turned the deepest system in the
+  game into a recipe — derive the answer once and never revisit it — which is the same
+  complaint v2.1 cut the lookup channels for. What replaces them states a FACT instead of a
+  verdict: the chance-mix bar says what your plan and your players actually manufacture,
+  read from the same `sideMix` the engine consumes. `lib/assistant.ts` is gone; the one
+  genuinely useful half survives as `suggestRoles` in `lib/rolesuggest.ts` — the best role
+  per slot for a shape and style, which is a suggestion about players you could SIGN rather
+  than a grade of the ones you own, and which runs only when the manager asks for it.
+  **Do not reintroduce a grade.** The Setup panel is now seven dials with no tabs and
+  nothing folded away, and the Creator owns the whole plan.
 - **The academy is a better place to be YOUNG (v1.93).** `academyYouthAgeBonus` in
   `lib/academy.ts`, folded into the same `extraGrowth` term every other academy lever uses.
   An AGE ramp, not a flat bonus: full value at `academyYouthPeakAge` (16), decaying to
@@ -1569,31 +1566,49 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   (`Cannot find module './331.js'`, a `text=NEW LEGACY` timeout) that look like selector
   rot and are not. If a UI harness starts failing mid-run, `curl` the dev server for a
   500 before touching a single selector — and restart it after any build.
-- **A ROLE BRIEF redistributes; it never adds (v1.99).** `lib/tacticbrief.ts`. The Tactic
-  Creator lets the manager name, per formation slot, the archetype he wants standing there
-  — EA FC's player roles in this game's vocabulary. The obvious implementation breaks two
-  rules at once, and both matter: granting a bonus for a met brief is a **third channel**
-  (v1.78 says identity reaches the engine through `synergyMult × instructionMult` and
-  nothing else), and it is **not zero-sum** — every manager would collect a free rating rise
-  by briefing the roles his squad already holds, which is a world-wide buff needing
-  re-calibration. So a brief is a BET: met is worth `+ROLE_BRIEF_SWING`, missed costs the
-  same, and the expected value of a brief chosen at random is zero. It rides the existing
-  lever (multiplied into `effectiveRating` beside the other two, and folded into
-  `tacticalFitMult` so selection asks what the match answers — the v1.90 rule), and returns
-  **exactly 1** when a tactic carries no brief, which is what lets it sit in the hot path.
-  **The miss penalty is DERIVED per position, not authored**, and this is the part that had
-  to be measured rather than reasoned about. A flat −1 made a random brief worth **−16.7%**
-  across an XI — the Creator was a tax nobody would rationally open. The cause is that the
-  five roles at a position are not evenly spread across the classes and the spread differs
-  wildly by position: at CB four of five are Enforcers (a same-class near-miss is 48%
-  likely), at GK all five are different classes (a near-miss is impossible), so no constant
-  can centre both. The penalty now solves `pExact·1 + pSame·0.5 + pOther·x = 0` from the
-  position's own roster, so adding a role re-centres itself. `verify:brief` asserts the
-  mean, both directions of the bet, and the inert case.
-  `SWING` is 0.08 — deliberately between style (±15%) and the dials (±6%), so the brief is a
-  real decision that never outranks who you actually signed. A saved Creator preset names
-  **no players** (`saveDesignedTactic`): it is a plan you build before you own the squad for
-  it, and freezing today's XI into it would make it a snapshot instead.
+- **ARCHETYPES MOVE THE MATCH, NOT THE RATING (v2.2).** `lib/chancetypes.ts`, which
+  replaced `lib/tacticbrief.ts` (deleted) and with it the last identity channel that was a
+  flat multiplier. The brief was scrupulously zero-sum and still the wrong shape: a rating
+  bonus makes an archetype a NUMBER, so two sides of equal rating played the same match
+  whatever they were made of. Every identity channel collapsed into one scalar before it
+  reached anything the match actually simulated.
+  The model is that a side does not create "chances" — it creates **through balls, crosses,
+  long shots and box play**, in a MIX set by the archetypes on the pitch; and a side does
+  not have "a defence" — it has a RESISTANCE to each type, set by its own archetypes and
+  its shape dials. A chance rolls its type from the attacker's mix and converts against the
+  defender's resistance to that type. So a Tower genuinely smothers a crossing side and is
+  genuinely no use against a Sniper striking from 25 yards. The precedent is `paceExploit`
+  (v2.1), generalised from one channel to the whole attacking phase.
+  **Two invariants, and both are why world scoring cannot drift.** A MIX IS NORMALISED —
+  every side always creates 100% of its own chances, so archetypes decide composition and
+  never volume, which is the quantity `calibrate` measures. And RESISTANCE IS CENTRED on
+  `RESIST_PIVOT`, derived at module load from the archetype table itself, so an ordinary
+  back line multiplies conversion by exactly 1.
+  **The pivot is DEFENCE-WEIGHTED, and that had to be measured.** The first cut took a flat
+  mean over the roster — but `sideResistance` weights by the slot's defensive phase weight,
+  so a real back line is made of defensive archetypes while a flat mean also counts every
+  Sniper and Winger, whose rows sit below 1. Centred on that lower number, every real
+  defence read as better than average: measured across 380 real club pairings the mean
+  conversion multiplier was **0.975**, and `calibrate` duly fell 2.62 → 2.55 goals/match.
+  Weighting by how much each archetype actually defends brought it to **0.995** and
+  calibration to 2.59 against a 2.61 channel-off baseline.
+  **A ROLE IS AN INSTRUCTION, NEVER A BONUS.** A Creator-authored tactic assigns each slot
+  an archetype; the ROLE decides what that slot manufactures, and the player standing there
+  decides how well it is taken (`executionOf`, which is 1 for the role asked for, 0.95 for
+  a same-class near miss, 0.86 otherwise — **it never exceeds 1**). Put a Battering Ram in
+  a Sniper's slot and the side still makes the Sniper's long shots; the Ram is simply bad
+  at them. That is why nothing here needs keeping artificially zero-sum: a manager who
+  briefs roles he lacks is not being taxed, he is asking players to do what they cannot.
+  **The trap that would have disabled the whole feature silently:** the roster contains an
+  archetype whose id is `constructor`, and `ARCHETYPE_DEFENCE["constructor"]` returns
+  `Object.prototype.constructor` — a function, which is truthy, so `??` never fell through
+  to the class row and reading `.cross` off it gave `undefined`. `RESIST_PIVOT` came out
+  `NaN`, every conversion multiplied by `NaN`, and nothing threw while every individual
+  spot check looked perfect. `rowFor` is the prototype-free lookup; `verify:chancetypes`
+  asserts every archetype resolves to real numbers.
+  Run `calibrate`, `verify:standings` AND `verify:reputation` after touching
+  `chanceTypeSwing` or either table — measured after this landed: 2.59 goals/match, rho
+  0.660, champion the 3.23rd-best squad, and a stacked squad still wins its division.
 - **The Tactic Creator is a SHAPE beside a list, and the roles carry their art (v2.0).**
   It was a single column of eleven dropdowns, which made a shape — the thing it exists to
   design — the one thing it never showed: "two Snipers and an Architect" says nothing about

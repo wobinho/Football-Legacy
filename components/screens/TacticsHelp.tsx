@@ -41,7 +41,7 @@ import {
   type InstructionPrefs,
 } from "@/lib/config/archetype";
 import { ATTR_META, type AttrKey } from "@/lib/config/attributes";
-import { squadBlueprint } from "@/lib/assistant";
+import { suggestRoles } from "@/lib/rolesuggest";
 import { getFormation, styleLabel } from "@/lib/config/formations";
 import { POS_ORDER } from "@/lib/config/positions";
 import { TRAINING_PLAN_MAP } from "@/lib/config/training";
@@ -530,30 +530,35 @@ function StyleBuilds() {
 
   const build = useMemo(() => {
     const formation = getFormation(STYLE_SHAPE[style]);
-    // An EMPTY lineup: with no incumbent every row reports its ideal and
-    // nothing else, which is exactly the "who should I sign" reading.
-    const bp = squadBlueprint(
-      formation.slots.map((s) => ({ id: s.id, pos: s.pos, label: s.label })),
-      {},
+    // v2.2: `suggestRoles` is what remains of the blueprint — the ROLE question
+    // ("who should I sign for this style") without the grading half, which is
+    // deleted along with the Squad Blueprint panel it used to feed.
+    const suggested = suggestRoles(
+      formation.slots.map((s) => ({ id: s.id, pos: s.pos, x: s.x })),
       { formationId: formation.id, mentality: "Balanced", style },
       TUNING.instructionFitSwing
     );
-    const ideals = bp.slots.map((s) => s.ideal);
+    const roleFor = new Map(suggested.map((s) => [s.slotId, s.role]));
+    const rows = formation.slots.flatMap((s) => {
+      const role = roleFor.get(s.id);
+      return role ? [{ slotId: s.id, label: s.label as string, role }] : [];
+    });
+    const ideals = rows.map((r) => r.role);
     // How the eleven break down by class — the bridge back to the grid above.
     const counts = ARCHETYPE_CLASS_ORDER.map((c) => ({
       cls: c,
       n: ideals.filter((a) => a.cls === c).length,
     })).filter((x) => x.n > 0);
-    return { formation, bp, dials: bestDials(ideals), counts };
+    return { formation, rows, dials: bestDials(ideals), counts };
   }, [style]);
 
   return (
     <div className="space-y-4">
       <p className="text-[12px] leading-relaxed text-dim">
         The grid one chapter up gives the rule; this gives the team sheet. Pick a style and this is
-        the best role at every position for it — the <b className="text-ink">exact</b> XI the Squad
-        Blueprint on the Setup tab grades your side against, produced by the same function, so what
-        you read here is what you will be marked on.
+        the best role at every position for it — the same suggestion the{" "}
+        <b className="text-ink">Tactic Creator</b> fills in when you ask it to, produced by the same
+        function, so what you read here is what it will propose.
       </p>
 
       <div className="flex flex-wrap items-center gap-1.5">
@@ -604,43 +609,34 @@ function StyleBuilds() {
       {/* The XI itself. One row per slot, in the formation's own slot order, so
           it reads goalkeeper-outward the way the pitch does. */}
       <Card className="divide-y divide-line/50">
-        {build.bp.slots.map((row) => (
+        {build.rows.map((row) => (
           <div key={row.slotId} className="flex items-center gap-2.5 px-3 py-2">
             <span className="display w-8 shrink-0 text-[11px] font-bold text-faint">{row.label}</span>
-            <ArchetypeIcon archetype={row.ideal} size={22} />
+            <ArchetypeIcon archetype={row.role} size={22} />
             <span className="min-w-0 flex-1">
               <span className="flex flex-wrap items-baseline gap-x-2">
-                <span className="display text-[12.5px] font-semibold text-ink">{row.ideal.name}</span>
+                <span className="display text-[12.5px] font-semibold text-ink">{row.role.name}</span>
                 <span
                   className="text-[9.5px] uppercase tracking-widest"
-                  style={{ color: ARCHETYPE_CLASS_COLOR[row.ideal.cls] }}
+                  style={{ color: ARCHETYPE_CLASS_COLOR[row.role.cls] }}
                 >
-                  {row.ideal.cls}
+                  {row.role.cls}
                 </span>
               </span>
               <span className="mt-0.5 block text-[11px] leading-snug text-faint">
-                {row.ideal.desc}
+                {row.role.desc}
               </span>
-            </span>
-            {/* What the role is worth here, on the same scale the blueprint and
-                the assistant's report both quote. */}
-            <span
-              className={`w-11 shrink-0 text-right tnum text-[11px] font-semibold ${toneOf(Math.round(row.idealPct))}`}
-              title={`This role earns ${Math.round(row.idealPct)}% on his own rating in this setup, against the best available at ${row.slotPos}.`}
-            >
-              {pct(Math.round(row.idealPct))}
             </span>
           </div>
         ))}
       </Card>
 
       <p className="text-[11px] leading-relaxed text-faint">
-        These are the <em>best</em> roles, not the only workable ones — the blueprint grades anything
-        within {/* the same band the blueprint itself uses for `fine` */}
-        <span className="tnum">20%</span> of the ideal as no real cost. Treat this as the side to aim
-        at over several windows, not a list of eleven players to go and buy at once. A slot showing a
-        small percentage is one where the style barely cares who plays there, which is where to spend
-        your budget last.
+        These are the <em>best</em> roles, not the only workable ones. A role assigned in the Creator
+        decides what <em>kind</em> of chances that slot manufactures, and the player you actually
+        field decides how well he takes them — so a near miss within the same class costs little,
+        while asking a target man to hit long shots costs a great deal. Treat this as the side to aim
+        at over several windows, not eleven players to go and buy at once.
       </p>
     </div>
   );
