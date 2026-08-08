@@ -33,6 +33,7 @@ import {
 } from "@/lib/config/archetype";
 import { briefBalance, hasBrief, pruneBrief } from "@/lib/tacticbrief";
 import { assistantReport, instructionViewOf, squadBlueprint, type BlueprintSlot, type NoteTone, type ReportSlot, type SlotGrade } from "@/lib/assistant";
+import { familiaritySummary } from "@/lib/familiarity";
 import { ConfirmButton, displayFullName, Flag, GhostButton, GoldButton, Modal, Ovr, ArchetypeIcon, ArchetypeLabel, PlayerSelect, PosBadge, Section, Select, Tabs, useIsMobile, type SelectOption } from "../ui";
 import TacticsHelp from "./TacticsHelp";
 
@@ -2808,6 +2809,14 @@ function SetupPanel() {
               <Instruction label="Focus" options={FOCI} current={focus} onPick={(v) => setTactic({ focus: v })} axis="focus" xi={xiSlots} />
             </div>
           )}
+          {/* How well the squad KNOWS this system (v2.1). Deliberately above the
+              Assistant's report and separate from it: the report grades how well
+              suited these players are to this plan, which is a question about who
+              you signed. This is a question about how long you have kept them —
+              and it is the one the manager can only answer by leaving things
+              alone, which is exactly why it needs saying out loud. */}
+          <FamiliarityPanel />
+
           {/* One report in place of the old Squad-fit and Squad-identity panels
               (v1.77) — the far end of the Training Plan → Attributes → Archetype
               → Tactics loop, stated as advice rather than as three charts. */}
@@ -3101,6 +3110,60 @@ function gradeColor(grade: string): string {
   if (grade.startsWith("C")) return "#d9a441";
   if (grade.startsWith("D")) return "#d97a4a";
   return "var(--color-loss)";
+}
+
+/**
+ * How settled the squad is in its current system (v2.1).
+ *
+ * Its own strip rather than a line inside the Assistant's report, because it
+ * answers a different question: the report grades how well SUITED these players
+ * are to this plan, this says how well REHEARSED they are in it. A manager can
+ * act on the first by signing someone and on the second only by leaving things
+ * alone — and the second is invisible without a readout, which is what would
+ * make the cost of changing system feel arbitrary rather than earned.
+ *
+ * Renders nothing at all before the club has played a match: an empty progress
+ * bar reading 0% would be a lie (an untracked club computes as ordinary, not as
+ * unfamiliar), and there is no decision to inform yet.
+ */
+function FamiliarityPanel() {
+  const game = useGame((s) => s.game)!;
+  // `rev` is a real dependency: the store mutates the club in place, so a memo
+  // keyed on the team object alone would never invalidate after a match banks
+  // familiarity. Same rule the identity surfaces follow (v1.97).
+  const rev = useGame((s) => s.rev);
+  const team = game.teams[game.userTeamId];
+  const summary = useMemo(
+    () => familiaritySummary(team),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [team, rev]
+  );
+
+  if (!team.familiarity) return null;
+
+  const pct = summary.pct;
+  // The same ramp the grade uses, so "settled" reads as good on a screen where
+  // green already means good.
+  const color = pct >= 85 ? "var(--color-win)" : pct >= 55 ? "var(--color-gold-lo)" : "var(--color-loss)";
+
+  return (
+    <div className="rounded-md border border-line px-3 py-2.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[11px] uppercase tracking-widest text-faint">System familiarity</span>
+        <span className="display tnum text-[15px] font-bold" style={{ color }}>
+          {pct}%
+        </span>
+      </div>
+      <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-raised">
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
+      </div>
+      <p className="mt-1.5 text-[11px] leading-snug text-dim">
+        {summary.settled
+          ? "This squad knows the system inside out. Changing shape or style now would cost that."
+          : `Another ${summary.matchesToFull} match${summary.matchesToFull === 1 ? "" : "es"} in this system to be fully settled. Changing the formation costs the most.`}
+      </p>
+    </div>
+  );
 }
 
 function AssistantReportPanel({ tactic }: { tactic: Tactic }) {

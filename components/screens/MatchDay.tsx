@@ -287,7 +287,10 @@ export default function MatchDayScreen() {
     setResult(res);
     setDoneFixture(fixture);
     setPhase("done");
-    applyUserResult(fixture, res);
+    // v2.1: the two sides as actually fielded, so squad familiarity is banked
+    // against the XI that played rather than a re-derived one. Read off the
+    // match state itself — it holds the very `SideInput`s the engine used.
+    applyUserResult(fixture, res, { home: state.home.input, away: state.away.input });
   };
 
   const instant = () => {

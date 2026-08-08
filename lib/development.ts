@@ -222,6 +222,36 @@ export function primeHeadroom(overall: number, potential: number, cfg: TuningCon
 }
 
 /**
+ * How much of a prime season's EARNED growth an age still gets (v2.1).
+ *
+ * The prime branch used to have no age term whatsoever — `primeGrowthPerSeasonMax
+ * × perf × minutes × facilities × elite-resist` reads identically for a
+ * 33-year-old and a 27-year-old — so a strong campaign was worth the same at
+ * both ends of a decade. Measured (`npx tsx scripts/measure-veteran.ts`, ten
+ * seasons), that left 24–33 as a flat plateau: +0.2 overall a season throughout,
+ * a 33-year-old as likely to improve as a 26-year-old, and nothing turning
+ * negative until 35. A career should be a curve.
+ *
+ * Full value at `growthEndAge`, tapering to zero at `primeGrowthTaperEndAge`.
+ * The curve is squared so the early thirties keep a little more than a straight
+ * line would give them — a 30-year-old having a great season should still edge
+ * forward; a 33-year-old should be holding on, not improving.
+ *
+ * Returns 1 for any age at or below `growthEndAge` (the youth branch never calls
+ * this) and for a config whose taper end sits at or below `growthEndAge`, which
+ * is how the whole term is switched off.
+ */
+export function primeGrowthAgeMult(age: number, cfg: TuningConfig): number {
+  const span = cfg.primeGrowthTaperEndAge - cfg.growthEndAge;
+  if (span <= 0) return 1;
+  const t = (age - cfg.growthEndAge) / span;
+  if (t <= 0) return 1;
+  if (t >= 1) return 0;
+  const remaining = 1 - t;
+  return remaining * remaining;
+}
+
+/**
  * The age at which THIS player's automatic decline begins (v1.52).
  *
  * `cfg.declineOnsetAge` is the base (35); a durable player holds on a little
@@ -355,12 +385,27 @@ export function developPlayer(
     // prime player's declared potential has usually collapsed onto his overall,
     // which used to make this whole branch a no-op.
     const headroom = primeHeadroom(p.overall, newPotential, cfg);
+    // v2.1: how much of a prime season's growth this AGE still earns, and what an
+    // ordinary late-prime season costs. Both are computed here because the earned
+    // branch below needs both — a good season used to dodge ageing entirely, so a
+    // 33-year-old who rated well was untouched by the drift that was supposed to
+    // be renewing the squad around him.
+    const ageMult = primeGrowthAgeMult(p.age, cfg);
+    const late = p.age - cfg.latePrimeAge;
+    const drift =
+      late > 0
+        ? cfg.latePrimeDriftMax * Math.min(1, late / Math.max(1, declineOnset - cfg.latePrimeAge))
+        : 0;
     if (primePerf > 0 && headroom > 0) {
       const earned =
         cfg.primeGrowthPerSeasonMax *
         Math.min(1, primePerf) *
         (0.4 + 0.6 * minutesFactor) *
         randRange(rng, 0.7, 1.1) *
+        // v2.1: the age term the branch never had. Full at growthEndAge, gone by
+        // `primeGrowthTaperEndAge`, so improvement fades out as decline nears
+        // instead of stopping at a cliff.
+        ageMult *
         // A well-equipped club develops its established pros too — the same
         // lever that accelerates youth applies here at its full weight.
         facilityMult *
@@ -371,7 +416,13 @@ export function developPlayer(
         // This is the branch the HPC exists for — an elite player is usually
         // past growthEndAge, so the prime branch is where his last points live.
         eliteResistMult(p.overall, cfg, eliteRelief, newPotential);
-      delta = Math.min(headroom, earned);
+      // v2.1: ageing is charged even on a good season. Previously the drift lived
+      // only in the ordinary-season branch below, so a 33-year-old who rated well
+      // was exempt from it entirely — which is the same "nobody ever gets worse"
+      // hole v1.92 closed for the ordinary case, still open for the good one. He
+      // can still finish net positive; a strong campaign now has to outrun his
+      // age rather than sidestep it.
+      delta = Math.min(headroom, earned) - drift * randRange(rng, 0.6, 1.1);
     } else if (primePerf < -cfg.primeDeclineTolerance) {
       // A genuinely poor season — well below the pivot, not merely average — and
       // only if he actually played enough for it to mean anything. Bounded by
@@ -398,14 +449,9 @@ export function developPlayer(
       // decline onset, so it joins smoothly onto the decline branch below rather
       // than arriving as a cliff. A 28-year-old is still untouched, which is the
       // whole of what v1.52 was protecting.
-      const late = p.age - cfg.latePrimeAge;
-      if (late > 0) {
-        const span = Math.max(1, declineOnset - cfg.latePrimeAge);
-        const ramp = Math.min(1, late / span);
-        delta = -cfg.latePrimeDriftMax * ramp * randRange(rng, 0.6, 1.1);
-      } else {
-        delta = 0;
-      }
+      // v2.1: `drift` is computed once above and shared with the earned branch,
+      // so the two can never disagree about what a year of age costs.
+      delta = drift > 0 ? -drift * randRange(rng, 0.6, 1.1) : 0;
     }
   } else {
     phase = "decline";
@@ -683,6 +729,10 @@ export function applyWeeklyProgress(
     const rate =
       ((cfg.primeGrowthPerSeasonMax * cfg.primeInSeasonShare) / 38) *
       Math.min(1, primePerf) *
+      // v2.1: the same age taper the rollover applies. Without it the weekly tick
+      // would go on handing a 33-year-old points the summer then had to take back
+      // — two answers to one question, which is the v1.85 rounding lesson.
+      primeGrowthAgeMult(p.age, cfg) *
       eliteResistMult(p.overall, cfg, eliteRelief, p.potential) *
       facilityMult;
     if (rng() < rate) return 1;
@@ -784,6 +834,8 @@ export function seasonGrowthEstimate(
       cfg.primeGrowthPerSeasonMax *
       Math.min(1, 0.3 / 1.2) *
       0.91 *
+      // v2.1: the age taper, so the projection and the rollover agree.
+      primeGrowthAgeMult(p.age, cfg) *
       facilityMult *
       (plan?.growthMult ?? 1) *
       eliteResistMult(p.overall, cfg, eliteRelief, p.potential);

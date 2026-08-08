@@ -21,6 +21,8 @@ import {
 } from "../config/archetype";
 import { TRAIT_MAP } from "../config/traits";
 import { roleBriefMult } from "../tacticbrief";
+import { familiarityMult } from "../familiarity";
+import type { ClubFamiliarity } from "../types";
 import { PHASE_WEIGHTS, positionFit } from "../config/positions";
 import type { AttrKey } from "../config/attributes";
 import {
@@ -97,6 +99,16 @@ export interface SideInput {
   tactic: Tactic;
   /** Head-coach match-day edge: effective-rating multiplier (1 = no coach). */
   coachMult?: number;
+  /**
+   * The club's squad-familiarity record (v2.1), or absent when it has none.
+   *
+   * Carried on the side rather than looked up because the engine holds no
+   * `GameState` — the same reason `coachMult` is passed in. Absent means every
+   * player reads exactly 1, which is what keeps a pre-v2.1 save (and the
+   * calibration harness, which builds sides by hand) computing what it always
+   * did. See lib/familiarity.ts for what it is worth and why it is centred.
+   */
+  familiarity?: ClubFamiliarity;
   /** EA-FC-style on-pitch assignments (v6). Player ids drawn from the XI; the
    * captain lifts the side (Leader trait), takers bias scorer/assist selection
    * on the relevant chances. Absent for AI sides (they field no assignments). */
@@ -256,7 +268,13 @@ export function tacticalFitMult(
    * case, and every pre-v1.99 caller — the brief contributes nothing, which is
    * correct for a question with no slot in it ("how useful is he to this tactic
    * at all", which is what the bench ranking asks). */
-  slot?: { pos: Pos; id: string }
+  slot?: { pos: Pos; id: string },
+  /** The club's familiarity record (v2.1). Supplied, how settled this player is
+   * in this slot is folded in exactly as the match will rate him — so a manager
+   * picking a side sees the settled incumbent preferred over the marginally
+   * better newcomer, which is the decision the feature exists to create.
+   * Omitted, it contributes nothing. */
+  familiarity?: ClubFamiliarity
 ): number {
   const prof = profileOfPlayer(p);
   const synergy = Math.max(
@@ -266,7 +284,8 @@ export function tacticalFitMult(
   const instructions =
     1 + instructionFitScore(prof.instructionPrefs, resolveInstructions(tactic)) * cfg.instructionFitSwing;
   const brief = slot ? roleBriefMult(p.attrs, slot.pos, slot.id, tactic) : 1;
-  return synergy * instructions * brief;
+  const settled = familiarity ? familiarityMult(familiarity, p.id, slot?.id) : 1;
+  return synergy * instructions * brief * settled;
 }
 
 /** The intrinsic shape of a side's chosen style (v19). A pure table lookup —
@@ -316,6 +335,11 @@ function effectiveRating(
     // class question, the dials are a role question — which is why a Sniper and
     // a Ram, the same class at the same position, now diverge here.
     instructionMult(p, side, cfg) *
+    // v2.1: and how well he and this squad actually KNOW this system — the
+    // earned half of identity, where the three above are the looked-up half.
+    // Exactly 1 for a side carrying no record, and centred so the world's mean
+    // does not drift (see lib/familiarity.ts).
+    familiarityMult(side.input.familiarity, p.id, op.entry.slotId) *
     p.form *
     fitnessMult(drained, cfg) *
     side.coachMult;
@@ -719,9 +743,55 @@ function playSegment(state: MatchState) {
     cfg.lineOppChanceMult[resolveLine(opp.tactic)] *
     styleShape(opp.tactic, cfg).oppChance;
 
+  /**
+   * How much a side's own attackers exploit the space the OPPONENT's line leaves
+   * (v2.1) — the archetype system reaching the simulation rather than the rating.
+   *
+   * `paceReliance` had, until now, exactly two readers and both were in ageing:
+   * a pace-reliant archetype declines earlier and faster. Nothing in a match ever
+   * asked the question the attribute is named for. This is that question: a high
+   * line leaves ball in behind, and a Speedster or a Bullet is who punishes it,
+   * where a Battering Ram is not.
+   *
+   * It moves chance VOLUME, not anyone's rating — so it makes two sides of equal
+   * strength produce visibly different matches against the same opponent, which
+   * is the whole point of pushing identity here instead. Centred on
+   * `paceExploitPivot`, so an ordinary attack is exactly 1 and this cannot lift
+   * the world's scoring; and it only ever bites against a line that is actually
+   * exposed, via the same `lineOppChanceMult` the term already reads.
+   */
+  const paceExploit = (own: SideState, opp: SideState) => {
+    const exposedBy = cfg.lineOppChanceMult[resolveLine(opp.tactic)] - 1;
+    if (exposedBy <= 0) return 1; // a deep block leaves nothing to run into
+    let paceSum = 0;
+    let weightSum = 0;
+    for (const op of own.onPitch) {
+      if (op.leftMinute !== null) continue;
+      const w = PHASE_WEIGHTS[op.entry.slotPos].attack;
+      if (w <= 0) continue;
+      paceSum += profileOfPlayer(op.entry.player).paceReliance * w;
+      weightSum += w;
+    }
+    if (weightSum <= 0) return 1;
+    const meanPace = paceSum / weightSum;
+    return 1 + (meanPace - cfg.paceExploitPivot) * cfg.paceExploitSwing * exposedBy;
+  };
+
   const perSegBase = cfg.baseChancesPerSegment;
-  const homeLambda = perSegBase * homeShare * mentality(state.home, state.away) * tempoMult(state.home, state.away) * exposure(state.away);
-  const awayLambda = perSegBase * (1 - homeShare) * mentality(state.away, state.home) * tempoMult(state.away, state.home) * exposure(state.home);
+  const homeLambda =
+    perSegBase *
+    homeShare *
+    mentality(state.home, state.away) *
+    tempoMult(state.home, state.away) *
+    exposure(state.away) *
+    paceExploit(state.home, state.away);
+  const awayLambda =
+    perSegBase *
+    (1 - homeShare) *
+    mentality(state.away, state.home) *
+    tempoMult(state.away, state.home) *
+    exposure(state.home) *
+    paceExploit(state.away, state.home);
 
   interface PendingChance {
     side: SideState;

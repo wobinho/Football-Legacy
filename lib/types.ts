@@ -604,6 +604,11 @@ export interface Team {
   stance?: ClubStance;
   stanceSeason?: number;
   tactic: Tactic;
+  /** Squad familiarity (v2.1): what this club has EARNED by playing together in
+   * one system, as against what its players' archetypes look up in a table. See
+   * lib/familiarity.ts. Absent means "at the centre" — a pre-v2.1 save therefore
+   * computes exactly what it always did, and needs no migration. */
+  familiarity?: ClubFamiliarity;
   /** Unlocked facilities and their level (v1.79). A missing key means the club
    * has never unlocked that facility. Only the user's club builds these. */
   facilities?: Partial<Record<FacilityId, FacilityState>>;
@@ -844,6 +849,24 @@ export interface MatchEvent {
   text: string;
   scorerId?: string;
   assistId?: string;
+}
+
+/**
+ * A club's squad-familiarity record (v2.1) — see lib/familiarity.ts, which owns
+ * every rule about it. Lives here because `Team` carries it and the module reads
+ * `Team`; putting it in the module would be a circular import.
+ *
+ * Absent on every pre-v2.1 save, and absent is read as "at the centre", so an
+ * old save is arithmetically untouched and needs no migration.
+ */
+export interface ClubFamiliarity {
+  /** 0..1 — how well the squad knows its CURRENT system. */
+  tactic: number;
+  /** playerId → slotId → 0..1. How settled each player is in each role. */
+  player?: Record<string, Record<string, number>>;
+  /** A fingerprint of the tactic the `tactic` figure was earned under, so a
+   * change can be detected without storing the whole tactic twice. */
+  signature?: string;
 }
 
 export interface MatchResult {

@@ -57,6 +57,21 @@ design session before changing, `[FUTURE]` must not be built but must not be blo
   one, because population is held up by intake and recruitment while every individual
   career is flat — which is exactly the shape the v2.0 growth complaint had, and it is
   invisible in every aggregate `measure:quality` prints
+- `npm run measure:veteran [seasons]` — season gain by the age it was PLAYED at (v2.1).
+  `measure:growth` buckets by the age a player STARTED at, which is the right question
+  for "did his career pay off" and the wrong one for "should a 34-year-old still be
+  improving" — a player who starts at 25 and runs ten seasons is counted once, in the
+  25–27 band, however much of that gain landed after he turned 33. This tracks every
+  player-season and buckets the delta by his age that year. It is what showed the
+  v2.1 defect: the whole 24–33 band was a PLATEAU at +0.2/season with a 33-year-old as
+  likely to improve as a 26-year-old, and nothing turning negative until 35
+- `npm run verify:familiarity` — squad familiarity (v2.1): that a club with NO record
+  computes exactly what it always did (the property that lets it sit in the hot path
+  and needs no migration), that it is CENTRED so the world's mean cannot drift, that a
+  change of system costs in proportion to how much changed and is charged when the
+  change is MADE, that a role brief costs nothing (it is not rehearsal), that
+  familiarity does not travel with a transferred player, and — the one that caught a
+  real design bug — that a settled SYSTEM cannot carry a stranger past the cap
 - `node scripts/ui-test-identity.mjs` — drives the badge and kit creators through the
   real UI: both mount, all 51 patterns draw (including the tiled textures), an edit
   survives a save and a reload, and the crest reaches every other screen. Extended
@@ -193,6 +208,13 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   what "I want a Sniper here" means to the simulation: `roleBriefMult` is the lever,
   `briefBalance` is what the screen prints, `pruneBrief` drops briefs a formation change
   orphaned. Rules only — `components/screens/Tactics.tsx` draws it.
+- `lib/familiarity.ts` — squad familiarity (v2.1): what a side EARNS by playing
+  together in one system, where the three channels above are what it LOOKS UP.
+  `familiarityMult` is the lever (multiplied into `effectiveRating` and folded into
+  `tacticalFitMult`, so it is the same one channel, not a fourth);
+  `bankMatchFamiliarity` is the accrual, called from `applyMatchResult`;
+  `applyTacticChange` is the cost of changing system; `familiaritySummary` is what the
+  Tactics screen prints. Rules only.
 - `lib/visual/` — club badges and kits (v1.96). `patterns.ts` is the shared
   pattern engine and all the colour maths (both consumers import it — the two
   creators shipped with a copy each, which is how a pattern added to a kit ends
@@ -244,6 +266,24 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   inside the 15-season walk where he used to still be climbing when it ran out. That is
   honest, and the check that proves it (rather than the re-baselined percentage) is
   "a youth told 'no growth left' has actually reached his ceiling" — 0 of 467 stop early.
+- **A career is a CURVE, and the prime branch had no age term at all (v2.1).** The
+  earned path — `primeGrowthPerSeasonMax × perf × minutes × facilities × elite-resist` —
+  read identically for a 33-year-old and a 27-year-old, so v2.0's +50% landed at full
+  strength on players a decade apart. Measured (`npm run measure:veteran`, 10 seasons),
+  that made the whole **24–33 band a plateau**: +0.2 overall a season flat throughout, a
+  33-year-old as likely to improve as a 26-year-old (12.7% vs 13.3%), and nothing
+  turning negative until 35. `primeGrowthAgeMult` is the fix — full at `growthEndAge`,
+  squared taper to zero at `primeGrowthTaperEndAge` (34), so it joins smoothly onto
+  decline rather than arriving as a cliff. **Two companion changes are load-bearing:**
+  the same taper is applied in the in-season tick AND in `seasonGrowthEstimate`, or the
+  projection quotes a number the rollover won't honour (the v1.85 rounding lesson); and
+  the late-prime drift now applies to the EARNED branch too, since a good season
+  previously dodged ageing entirely — the same "nobody ever gets worse" hole v1.92
+  closed for the ordinary case, still open for the good one. Measured after: the mean
+  crosses zero at 34 and the 33+ "+3 or more" rate is 0.0%. Expect
+  `verify:conversion`'s youth "out of growth" rate to rise (9.7% → 30.9%) — faster
+  taper spends the projection sooner; the check that still matters is "a youth told no
+  growth left has actually reached his ceiling", 0 of 455.
 - Players carry **35 attributes** (v41), not six. `lib/config/attributes.ts` is the single
   source of truth for the keys/labels/groups — iterate its `ATTR_KEYS`, never an inline list.
   The six card faces (PAC/SHO/…) still exist but are a *derived view* (`aggregateAttrs`),
@@ -276,6 +316,50 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   checked there and impossible to see in the tables alone: every (style, position) pair must
   have a **≥0** option, since the classes reachable at a position are fixed by the roster.
   The instruction table must never name an attribute — that question is `tacticfit.ts`'s.
+- **Identity is LOOKED UP and EARNED, and v2.1 rebalanced the two.** The three lookup
+  channels — `synergyCap` (style×class), `instructionFitSwing` (role×dials) and
+  `ROLE_BRIEF_SWING` (the Creator's brief) — compounded to a ~±30% band on effective
+  rating, every point of it readable off a table. That is a RECIPE: derive it once and
+  the answer never changes again. They are cut ~20% (0.16 / 0.05 / 0.06) and
+  `lib/familiarity.ts` is the counterpart, paying for CONTINUITY instead. It rides the
+  SAME lever — multiplied into `effectiveRating` beside the other three and folded into
+  `tacticalFitMult` — so this is still one channel, not a fourth.
+  **How far the lookup channels can be cut is measured, and two harnesses disagree
+  about it.** Halving them (0.1/0.04/0.04) failed `verify:standings` (champion the
+  4.7th-best squad) even though correlation IMPROVED to 0.695 — compressing the largest
+  channel narrows the spread between clubs and lets noise decide more seasons. 0.12
+  then passed standings and failed `verify:reputation`, which states it far more
+  starkly: a deliberately stacked squad finished 2nd, 2nd, then 7th/13th/**18th**.
+  `verify:standings` asks whether a table tracks quality across a division;
+  `verify:reputation` asks whether a genuinely superior squad can WIN. **Run both.**
+  `calibrate` is unmoved by all of it and structurally cannot see either failure.
+  **Do not expect familiarity to buy back a lookup cut one-for-one** — it only ever
+  separates clubs that DIFFER in how settled they are, and across a division where
+  everyone keeps their system it contributes nearly nothing. Zeroing
+  `FAMILIARITY_SWING` reproduced both failures byte-identically, which is how that was
+  established rather than assumed.
+- **A settled SYSTEM cannot make a stranger familiar with it (v2.1).** The player track
+  is a CEILING as well as a term in the blend (`PLAYER_CEILING_HEADROOM` in
+  `familiarity.ts`), because a plain weighted mean let the team track carry a newcomer:
+  measured, a brand-new signing at a fully settled club came out at **×1.04 — better
+  than average** — since 60% of his score was his club's grasp of a system he had never
+  played in. That inverts the feature's central claim, which is that a big signing is
+  worth less on debut than the settled incumbent he replaces. Note the three states
+  `playerFamiliarity` distinguishes and why none may be collapsed: an ABSENT record is
+  the CENTRE (untracked — a pre-v2.1 save), a record with no entry for the slot is
+  `NEWCOMER_FAMILIARITY` (tracked, and he knows nothing yet), and a value is itself.
+  `markNewcomer` writes an empty object rather than deleting for exactly that reason.
+- **`paceReliance` reaches the MATCH now, not just ageing (v2.1).** It had two readers
+  and both were in `development.ts` — nothing in a match ever asked the question the
+  attribute is named for. `paceExploit` in `engine/match.ts` moves chance VOLUME when
+  the opponent holds a high line: a Speedster punishes the space in behind, a Battering
+  Ram does not. It is deliberately not a rating term — the point of pushing identity
+  here is that two sides of equal strength should produce visibly different matches.
+  `paceExploitPivot` is MEASURED (0.524, the attack-weighted mean across the archetype
+  table), so an ordinary attack multiplies by exactly 1 and the world's scoring cannot
+  drift; and it is gated on the line actually being exposed, so a deep block is never
+  affected. Re-run `calibrate` if either constant moves — chance volume is precisely
+  what that harness measures.
 - Growth/decline emphasis reads the player's **training plan**, not his derived archetype —
   deriving it would be a feedback loop that entrenches an identity training can never move.
   `planScore` (auto-assign) is the opposite case and must read the attribute shape.
@@ -475,6 +559,21 @@ implements rules. State flows: lib modules mutate the single `GameState` object,
   **Youth wages** — `academyWageByTier`, £500/wk bronze → £5k/wk legacy. Priced on the badge,
   not on overall: two 15-year-olds rate the same however far apart their ceilings are, so the
   old overall-scaled band made the rarest prospects the cheapest thing in the game to hoard.
+- **A scouting brief says WHERE and WHAT (v2.1).** v2.1 had cut `SendScoutModal` back to
+  scout + region on the argument that the brief had become a form. That went one step too
+  far: region alone means the manager pays a travel band and an open-ended weekly retainer
+  to be sent whatever the generator rolls, which is precisely the decision he opened the
+  screen to make. The position group and the archetype focus are back; the trip length and
+  the level-5 acceptance filter are not, since neither moves the price and the point about
+  the quote being legible still holds. **The engine side never changed** — `briefTarget`
+  has always honoured both, generating a focused find from the archetype's own `planId`
+  (the only way a scouted prospect genuinely READS as the role asked for, since an
+  archetype is derived from attributes, v1.77). `archetypesForPosGroup` is the
+  intersection the picker filters on and `scoutFocusError` is the single ruling it greys
+  options out with — the same `hubFocusError` discipline: refuse an impossible pairing up
+  front rather than letting the brief quietly ignore half of itself. Changing the position
+  group prunes a focus it no longer reaches. `ui-test-mobile.mjs` asserts the filtering in
+  both directions (a GK brief offers Vanguard and not Sniper, 5 roles against 45).
 - **Season awards score `rating × (1 + teamSuccess)`, and league STANDING is one of the
   four terms (v1.87).** `lib/accolades.ts`. The other three (league finish, domestic cup,
   Europe) are about the candidate's club; `awardLeagueRepWeight` × `leagueReputation()` is

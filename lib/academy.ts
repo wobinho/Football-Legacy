@@ -25,7 +25,12 @@ import { generatePlayer } from "./worldgen";
 import { formatMoney, playerValue } from "./value";
 import { transferWindowState } from "./calendar";
 import { regionNats } from "./config/scouting";
-import { ARCHETYPE_MAP, positionsOfArchetype } from "./config/archetype";
+import {
+  ARCHETYPE_MAP,
+  archetypesForPositions,
+  positionsOfArchetype,
+  type Archetype,
+} from "./config/archetype";
 import { optimalTrainingPlan } from "./config/training";
 import { applyContract, grantDefaultContract } from "./contracts";
 import { academySquadCap } from "./economy";
@@ -62,7 +67,7 @@ import {
  * group; a specific position (v17) returns exactly that position, which is what
  * makes "find me a right back" a brief you can actually give. Note GK is both a
  * group and a Pos — the single entry serves both. */
-const POS_GROUPS: Record<ScoutPosGroup, Pos[]> = {
+export const POS_GROUPS: Record<ScoutPosGroup, Pos[]> = {
   GK: ["GK"],
   DEF: ["CB", "LB", "RB"],
   MID: ["DM", "CM", "LM", "RM", "AM"],
@@ -779,6 +784,32 @@ export function scoutSpeedMult(state: GameState, _cfg: TuningConfig): number {
  * auto-filter (v1.82). Until then no assignment may carry a filter and the
  * controls are locked in the send-scout flow. */
 export { scoutFilterUnlocked };
+
+/**
+ * The archetypes a given position brief can actually return (v2.1).
+ *
+ * The single ruling the send-scout picker greys options out with, and the same
+ * intersection `briefTarget` resolves a focused brief through — so the screen can
+ * never offer a role the generator will silently drop. Same discipline as
+ * `hubFocusError` (v1.99): refuse an impossible pairing up front rather than
+ * letting the brief quietly ignore half of itself.
+ */
+export function archetypesForPosGroup(group: ScoutPosGroup): Archetype[] {
+  return archetypesForPositions(POS_GROUPS[group] ?? POS_GROUPS.ANY);
+}
+
+/**
+ * Why this archetype focus can't be sent to this position group, or null when it
+ * can. An empty focus is always legal — that is "no preference", not an error.
+ */
+export function scoutFocusError(group: ScoutPosGroup, archetypeIds: string[]): string | null {
+  if (archetypeIds.length === 0) return null;
+  const reachable = new Set(archetypesForPosGroup(group).map((a) => a.id));
+  const stranded = archetypeIds.filter((id) => !reachable.has(id));
+  if (stranded.length === 0) return null;
+  const names = stranded.map((id) => ARCHETYPE_MAP[id]?.name ?? id).join(", ");
+  return `${names} ${stranded.length === 1 ? "does" : "do"} not play in that part of the pitch.`;
+}
 
 /** Add a new scout assignment if there's spare capacity. The full brief (region,
  * position group, and optional archetype focus) is locked in at send time (§18 v7)

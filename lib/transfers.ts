@@ -17,6 +17,7 @@ import { assignKitNumber, clearKitNumber } from "./kitnumbers";
 import { activePlayers, isFreeAgent } from "./archive";
 import { trackUserTransfer, syncProgress } from "./achievements";
 import { purgePlayerFromTactics } from "./tactics";
+import { markNewcomer, resetPlayerFamiliarity } from "./familiarity";
 import type { RNG } from "./rng";
 import {
   STANCE_PROFILE,
@@ -158,6 +159,11 @@ export function completeTransfer(
       from.academyPlayerIds = from.academyPlayerIds.filter((id) => id !== playerId);
     }
     from.budget += fee;
+    // v2.1: he takes no familiarity with him. It is a relationship with a squad
+    // and a system, not a property of a footballer — which is what makes a big
+    // signing worth less on debut than in his second season, and what stops a
+    // selling club carrying a dead record for a player who has gone.
+    resetPlayerFamiliarity(from, playerId);
   }
   // leaving the club ends any academy involvement (§18)
   p.loan = undefined;
@@ -167,6 +173,10 @@ export function completeTransfer(
     const to = state.teams[toClubId];
     to.playerIds.push(playerId);
     to.budget -= fee;
+    // v2.1: he arrives knowing nothing of his new club's system. Explicit rather
+    // than implied — an ABSENT record reads as the centre, so without this a
+    // £90M signing would be exactly as settled as a ten-year servant.
+    markNewcomer(to, playerId);
     if (terms) p.contract = makeContract(state, terms.wage, terms.years, terms.releaseClause);
     // Priced in the league he's joining, not the one he's leaving — clubId
     // still points at the old club at this point in the move (v1.65).

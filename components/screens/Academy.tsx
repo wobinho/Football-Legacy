@@ -23,6 +23,8 @@ import {
   prospectSignFee,
   quickSellQuote,
   scoutCapacity,
+  archetypesForPosGroup,
+  scoutFocusError,
 } from "@/lib/academy";
 import { POS_GROUP_COLORS, POS_LABELS, POS_ORDER, posGroup } from "@/lib/config/positions";
 import { academySquadCap } from "@/lib/economy";
@@ -42,7 +44,7 @@ import {
 import { transferWindowState } from "@/lib/calendar";
 import { formatMoney } from "@/lib/value";
 import { matchesPlayerName } from "@/lib/search";
-import { Card, ConfirmButton, displayFullName, Flag, GhostButton, GoldButton, Modal, Ovr, ArchetypeLabel, PlayerCard, PlayerGrid, PosBadge, PotentialBadge, Section, Stars, StarRange, Tabs, usePlayerView, ViewToggle } from "../ui";
+import { Card, ConfirmButton, displayFullName, Flag, GhostButton, GoldButton, Modal, Ovr, ArchetypeIcon, ArchetypeLabel, PlayerCard, PlayerGrid, PosBadge, PotentialBadge, Section, Stars, StarRange, Tabs, usePlayerView, ViewToggle } from "../ui";
 // The loan and sale choosers are shared with the senior squad (v1.52, v1.71) —
 // both squads resolve a move the same way, so the modals live outside this
 // screen and a prospect is sold through exactly the path a senior pro is.
@@ -1848,20 +1850,26 @@ function RegionPicker({ region, onChange }: { region: ScoutRegion; onChange: (r:
 
 
 /**
- * Send a scout (v2.1): pick who goes and WHERE, and nothing else.
+ * Send a scout: pick who goes, WHERE, and WHAT to look for.
  *
- * The brief used to carry five more decisions — a position group, an archetype
- * shortlist, a trip length and, behind a level-5 facility, a whole acceptance
- * filter with age, ability and rarity clauses. That is a form, and it stood
- * between the manager and the one question sending a scout actually asks: which
- * part of the world do you want to look at. Region alone also makes the price
- * legible, since the travel band — the only thing that moves the cost — is now
- * the only thing on the screen that can change it.
+ * v2.1 cut this back to scout + region on the argument that the brief had become
+ * a form. That went one step too far. Region answers *where*, but a scouting
+ * brief with no position and no role is a lottery ticket — the manager pays a
+ * travel band and an open-ended weekly retainer to be sent whatever the
+ * generator happens to roll, which is precisely the decision he opened the
+ * screen to make. Position and archetype are back; the trip length and the
+ * level-5 acceptance filter are not, since neither moves the price and the
+ * v2.1 point about the quote being legible still holds.
  *
- * The trip is open-ended by construction: with no duration control there is no
- * duration to commit to, so the scout files until he is recalled from the
- * Operations pane. The engine's brief fields still exist and are simply left at
- * their "no preference" values, so nothing downstream had to change.
+ * The archetype focus is filtered through `archetypesForPosGroup` — the same
+ * intersection `briefTarget` resolves the brief with — so the picker can never
+ * offer a role the generator would silently drop, and changing the position
+ * group prunes a focus that no longer reaches. `scoutFocusError` is the ruling;
+ * this screen never re-derives it.
+ *
+ * The trip is still open-ended by construction: with no duration control there
+ * is no duration to commit to, so the scout files until he is recalled from the
+ * Operations pane.
  */
 function SendScoutModal({ onClose }: { onClose: () => void }) {
   const game = useGame((s) => s.game)!;
@@ -1869,18 +1877,36 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
   const free = idleScouts(game);
   const [scoutId, setScoutId] = useState<string>(free[0]?.id ?? "");
   const [region, setRegion] = useState<ScoutRegion>("ENG");
+  const [positions, setPositions] = useState<ScoutPosGroup>("ANY");
+  const [archetypes, setArchetypes] = useState<string[]>([]);
 
   const chosenScout = free.find((s) => s.id === scoutId);
   const perReport = chosenScout ? expectedReportSize(TUNING, chosenScout.experience) : 0;
+
+  // Which roles this position brief can actually return. Read from the engine's
+  // own intersection so the two can't disagree about what plays where.
+  const roleOptions = useMemo(() => archetypesForPosGroup(positions), [positions]);
+
+  /** Changing the position group prunes any focus it no longer reaches, rather
+   * than leaving a stranded role selected and refusing to send. */
+  const chooseGroup = (g: ScoutPosGroup) => {
+    setPositions(g);
+    const reachable = new Set(archetypesForPosGroup(g).map((a) => a.id));
+    setArchetypes((prev) => prev.filter((id) => reachable.has(id)));
+  };
+
+  const toggleRole = (id: string) =>
+    setArchetypes((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   // What this trip costs (v1.85). Quoted from the same function that charges it,
   // so the modal can never advertise a price the engine then doesn't take.
   // Duration 0 = open-ended, which is the only shape of trip this modal sends.
   const quote = scoutTripQuote(game, TUNING, region, 0);
   const affordable = game.teams[game.userTeamId].budget >= quote.total;
+  const focusError = scoutFocusError(positions, archetypes);
 
   const confirm = () => {
-    addScout(region, "ANY", [], scoutId || undefined, 0, undefined);
+    addScout(region, positions, archetypes, scoutId || undefined, 0, undefined);
     onClose();
   };
 
@@ -1926,6 +1952,60 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
 
         <RegionPicker region={region} onChange={setRegion} />
 
+        {/* WHAT to look for — the half of the brief v2.1 removed. Position first,
+            since it is what narrows the role list below it. */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-widest text-faint">Position</span>
+            <span className="text-[11px] text-dim">
+              Brief: <span className="text-gold">{posGroupLabel(positions)}</span>
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+            {POS_OPTIONS.map((o) => (
+              <button key={o.id} onClick={() => chooseGroup(o.id)} className={chipClass(positions === o.id)}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Role focus. Optional by design — no selection is "no preference", and
+            a focused brief steers the find's TRAINING PLAN (v1.77), which is the
+            only way a scouted prospect genuinely reads as the role asked for. */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-widest text-faint">Role focus · optional</span>
+            {archetypes.length > 0 && (
+              <button onClick={() => setArchetypes([])} className="text-[11px] text-dim hover:text-ink">
+                Clear
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+            {roleOptions.map((a) => {
+              const on = archetypes.includes(a.id);
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => toggleRole(a.id)}
+                  className={`${chipClass(on)} flex items-center gap-1.5`}
+                  title={`${a.name} · ${a.cls}`}
+                >
+                  <ArchetypeIcon archetype={a} size={16} ring={false} className="shrink-0" />
+                  <span className="min-w-0 truncate">{a.name}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] leading-snug text-dim">
+            {archetypes.length === 0
+              ? "No preference — the scout files whoever he rates in that position."
+              : `Looking for ${archetypes.length} role${archetypes.length === 1 ? "" : "s"}. He will still report anyone exceptional he finds.`}
+          </p>
+          {focusError && <p className="text-[11px] leading-snug text-loss">{focusError}</p>}
+        </div>
+
         {/* What the trip costs (v1.85). The band is shown alongside the money
             because the band is the thing the manager can actually change — the
             price follows from how far the brief sends him. */}
@@ -1959,7 +2039,11 @@ function SendScoutModal({ onClose }: { onClose: () => void }) {
             <GhostButton onClick={onClose} className="!px-3 !py-1.5 text-xs">
               Cancel
             </GhostButton>
-            <GoldButton onClick={confirm} disabled={!affordable || !chosenScout} className="!px-5 !py-1.5 text-xs">
+            <GoldButton
+              onClick={confirm}
+              disabled={!affordable || !chosenScout || !!focusError}
+              className="!px-5 !py-1.5 text-xs"
+            >
               SEND · {formatMoney(quote.total)}
             </GoldButton>
           </span>

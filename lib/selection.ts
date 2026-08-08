@@ -1,12 +1,13 @@
 // Squad selection: pick the best XI + bench for a formation. Used by AI
 // clubs every matchday, by the harness, and as the user's auto-pick.
 
-import type { PlayerBio, Pos, Tactic, TeamAssignments } from "./types";
+import type { ClubFamiliarity, PlayerBio, Pos, Tactic, TeamAssignments } from "./types";
 import type { TuningConfig } from "./config/tuning";
 import { getFormation, type Formation } from "./config/formations";
 import { positionFit } from "./config/positions";
 import { tacticalFitMult, type EnginePlayer, type LineupEntry, type SideInput } from "./engine/match";
 import { hasBrief, roleBriefMult } from "./tacticbrief";
+import { familiarityMult } from "./familiarity";
 
 /**
  * How many substitutes a side names — the single accessor (v1.99).
@@ -80,7 +81,12 @@ export function pickLineup(
   weight?: SelectionWeight,
   /** The tactic the side will actually play (v1.90). Supplied, both the XI and
    * the bench are chosen for it — see `selectionScore`. */
-  tactic?: Tactic
+  tactic?: Tactic,
+  /** The club's squad-familiarity record (v2.1). Supplied, the pick prefers the
+   * settled incumbent over the marginally better newcomer exactly as the match
+   * will rate them — the v1.90 "selection asks what the match answers" rule.
+   * Omitted (worldgen, the harnesses, a pre-v2.1 save), it changes nothing. */
+  familiarity?: ClubFamiliarity
 ): { lineup: { slotId: string; player: PlayerBio }[]; bench: PlayerBio[] } {
   const available = players.filter((p) => !p.retired);
   const pool = new Set(available.map((p) => p.id));
@@ -119,12 +125,18 @@ export function pickLineup(
   // than by position, so it cannot join the cache above — two centre backs are
   // two different jobs. It is only consulted when the tactic actually carries a
   // brief, so an ordinary tactic pays a single boolean for the whole pick.
+  //
+  // v2.1: squad familiarity is the other per-SLOT term, and for the same reason
+  // — how settled a player is at right back says nothing about how settled he is
+  // in midfield. Like the brief it is guarded, so a club with no record pays a
+  // single null check for the whole pick.
   const briefed = !!tactic && hasBrief(tactic);
   const scoreFor = (p: PlayerBio, pos: Pos, slotId: string) => {
     const c = constFor.get(p.id)!;
     const fit = positionFit(p.positions, pos, cfg.adjacentPositionMult, cfg.outOfPositionFloor);
     const base = p.overall * fit * c.fitness * p.form * c.tactical * c.weight;
-    return briefed ? base * roleBriefMult(p.attrs, pos, slotId, tactic!) : base;
+    const withBrief = briefed ? base * roleBriefMult(p.attrs, pos, slotId, tactic!) : base;
+    return familiarity ? withBrief * familiarityMult(familiarity, p.id, slotId) : withBrief;
   };
 
   for (const slot of slots) {
@@ -200,10 +212,14 @@ export function buildSideInput(
   fixedBench?: string[],
   /** Rotation weighting for this fixture (v1.66). Applied only when the side is
    * auto-picked — a user who named his own XI gets exactly the XI he named. */
-  weight?: SelectionWeight
+  weight?: SelectionWeight,
+  /** The club's squad-familiarity record (v2.1), carried onto the `SideInput` so
+   * the engine can read it — it holds no `GameState`. Also steers the auto-pick,
+   * so the XI chosen and the XI rated agree. */
+  familiarity?: ClubFamiliarity
 ): SideInput {
   const formation = getFormation(tactic.formationId);
-  const picked = fixedLineup ?? pickLineup(players, formation, cfg, true, weight, tactic).lineup;
+  const picked = fixedLineup ?? pickLineup(players, formation, cfg, true, weight, tactic, familiarity).lineup;
   const usedIds = new Set(picked.map((e) => e.player.id));
   const cap = benchCap(cfg);
   let bench: PlayerBio[];
@@ -228,7 +244,7 @@ export function buildSideInput(
   } else {
     bench = fixedLineup
       ? players.filter((p) => !usedIds.has(p.id) && !p.retired).sort((a, b) => b.overall - a.overall).slice(0, cap)
-      : pickLineup(players, formation, cfg, true, weight, tactic).bench;
+      : pickLineup(players, formation, cfg, true, weight, tactic, familiarity).bench;
   }
 
   const slotById = new Map(formation.slots.map((s) => [s.id, s]));
@@ -250,6 +266,7 @@ export function buildSideInput(
     bench: bench.map(toEnginePlayer),
     tactic,
     coachMult,
+    familiarity,
     captainId: ifStarting(assignments?.captainId),
     penaltyTakerId: ifStarting(assignments?.penaltyTakerId),
     freeKickTakerId: ifStarting(assignments?.freeKickTakerId),

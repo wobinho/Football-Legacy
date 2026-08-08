@@ -8,7 +8,8 @@ import { TUNING } from "./config/tuning";
 import { hashString, mulberry32, deriveSeed, uid } from "./rng";
 import { isMonday, formatDayShort, buildSeasonSchedule, leagueRoundCount, seasonYearLabel } from "./calendar";
 import { buildSideInput, pickLineup } from "./selection";
-import { simulateMatch } from "./engine/match";
+import { simulateMatch, type SideInput } from "./engine/match";
+import { bankMatchFamiliarity } from "./familiarity";
 import { generateLeagueFixtures, drawCupRound, applyPromotionRelegation, initCup } from "./season";
 import { regenFromRetiree, replenishFreeAgents, replenishYouth } from "./worldgen";
 import { collectSeasonFinishes, driftClubReputations } from "./reputation";
@@ -222,12 +223,27 @@ function sideInputFor(
     coachMult,
     assignments,
     fixedBench,
-    weight
+    weight,
+    // v2.1: what this squad has EARNED by playing together in this system. The
+    // engine holds no GameState, so the record rides in on the side.
+    t.familiarity
   );
 }
 
-/** Apply a finished match to the world: stats, fatigue, form, table data. */
-export function applyMatchResult(state: GameState, fixture: Fixture, result: MatchResult) {
+/** Apply a finished match to the world: stats, fatigue, form, table data.
+ *
+ * `sides` (v2.1) are the two `SideInput`s the engine actually played, supplied so
+ * squad familiarity is banked against the XI as FIELDED rather than against a
+ * re-derived one — re-picking the lineup here would be a second answer to "who
+ * played", and the two would drift the moment selection changed. Optional
+ * because the harnesses call this with a result alone; omitted, nothing is
+ * banked, which is correct for a caller with no side in hand. */
+export function applyMatchResult(
+  state: GameState,
+  fixture: Fixture,
+  result: MatchResult,
+  sides?: { home: SideInput; away: SideInput }
+) {
   fixture.played = true;
   fixture.homeGoals = result.homeGoals;
   fixture.awayGoals = result.awayGoals;
@@ -273,6 +289,26 @@ export function applyMatchResult(state: GameState, fixture: Fixture, result: Mat
   }
   trackBiggestWin(state, fixture, result.homeGoals, result.awayGoals);
 
+  // Squad familiarity (v2.1): both clubs know their system a little better, and
+  // the eleven who started know their own roles a little better. Banked here
+  // because this is the single chokepoint every played match goes through — a
+  // match cannot be played without being learned from. Only the XI accrues:
+  // a substitute's twenty minutes is not a season of occupying the role, and
+  // crediting the bench would let a manager farm familiarity by rotating.
+  if (sides) {
+    for (const side of [sides.home, sides.away]) {
+      const team = state.teams[side.teamId];
+      if (!team) continue;
+      bankMatchFamiliarity(
+        team,
+        side.tactic,
+        side.lineup
+          .filter((e) => e.slotId)
+          .map((e) => ({ slotId: e.slotId!, playerId: e.player.id }))
+      );
+    }
+  }
+
   // Manager accolades (v1.45): record the user club's own matches from their
   // perspective, then refresh the live high-water marks and unlock any newly-met
   // achievement. AI-vs-AI fixtures never touch the manager's ledger.
@@ -301,7 +337,7 @@ function simAiFixture(state: GameState, fixture: Fixture) {
   const home = sideInputFor(state, fixture.homeId, undefined, fixture);
   const away = sideInputFor(state, fixture.awayId, undefined, fixture);
   const result = simulateMatch(home, away, cfg, matchSeed(state, fixture));
-  applyMatchResult(state, fixture, result);
+  applyMatchResult(state, fixture, result, { home, away });
 }
 
 function pushInbox(state: GameState, type: import("./types").InboxItem["type"], title: string, body: string) {
@@ -730,7 +766,7 @@ function autoPlayUserFixture(state: GameState, fixture: Fixture) {
   const home = userIsHome ? userSide : oppSide;
   const away = userIsHome ? oppSide : userSide;
   const result = simulateMatch(home, away, cfg, matchSeed(state, fixture));
-  applyMatchResult(state, fixture, result);
+  applyMatchResult(state, fixture, result, { home, away });
 }
 
 /** Called by the UI after the user's match result has been applied. Never rolls

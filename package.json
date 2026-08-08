@@ -33,6 +33,8 @@
     "measure:quality": "tsx scripts/measure-quality.ts",
     "measure:ratings": "tsx scripts/measure-ratings.ts",
     "measure:growth": "tsx scripts/measure-growth.ts",
+    "measure:veteran": "tsx scripts/measure-veteran.ts",
+    "verify:familiarity": "tsx scripts/verify-familiarity.ts",
     "verify:cloud": "tsx scripts/verify-cloud.ts",
     "verify:livescores": "tsx scripts/verify-livescores.ts",
     "verify:visual": "tsx scripts/verify-visual.ts",

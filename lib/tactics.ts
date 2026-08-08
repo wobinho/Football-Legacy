@@ -21,6 +21,7 @@ import { getFormation, styleLabel } from "./config/formations";
 import { benchCap } from "./selection";
 import { TUNING } from "./config/tuning";
 import { uid } from "./rng";
+import { applyTacticChange, pruneFamiliarity } from "./familiarity";
 
 /** How many presets a manager may keep. Generous enough for home/away/European
  * variants and a couple of experiments, bounded so the save can't grow without
@@ -194,7 +195,12 @@ export function loadSavedTactic(state: GameState, id: string): LoadTacticResult 
   if (!preset) return null;
 
   const team = state.teams[state.userTeamId];
-  team.tactic = { ...preset.tactic };
+  const next = { ...preset.tactic };
+  // v2.1: loading a preset is a change of system, and costs what one costs — a
+  // no-op when the preset matches what is already being played, so re-loading
+  // the current tactic is free.
+  applyTacticChange(team, team.tactic, next);
+  team.tactic = next;
 
   const fieldable = new Set(
     team.playerIds.filter((pid) => {
@@ -217,6 +223,8 @@ export function loadSavedTactic(state: GameState, id: string): LoadTacticResult 
     taken.add(pid);
   }
   state.lineup = lineup;
+  // Drop what was banked against slots this shape does not have (v2.1).
+  pruneFamiliarity(team, slots);
 
   const cap = benchCap(TUNING);
   const bench: string[] = [];

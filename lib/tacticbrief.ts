@@ -43,17 +43,25 @@ import { getFormation } from "./config/formations";
 /**
  * How far a met or missed brief moves a player's rating.
  *
- * Deliberately sized BETWEEN the two existing levers — style synergy runs ±15%
- * and the instruction layer ±6% — so the brief is a real decision without
- * outranking the question of who you actually signed. A 78-rated player reads
- * about 84 on brief and about 72 off it, which is a difference a manager feels
- * in the table without it ever beating a genuinely better footballer by much.
+ * Sized against the other two lookup levers — style synergy (`synergyCap`) and
+ * the instruction layer (`instructionFitSwing`) — so the brief is a real
+ * decision without outranking the question of who you actually signed.
+ *
+ * v2.1: 0.08 → 0.06, cut in step with those two — see the long note beside
+ * `synergyCap` in `config/tuning.ts` for the measurement that sized all three,
+ * including why a deeper cut failed `verify:standings`. The three of them are
+ * the LOOKUP half of player identity, and compounded they were a ~±30% band on
+ * effective rating: a recipe a manager could derive once and never revisit. The
+ * counterpart is `lib/familiarity.ts`, which pays for CONTINUITY instead —
+ * something a save earns rather than reads off a table. The brief is still worth
+ * opening the Creator for; it is no longer worth more than the squad you spent
+ * ten seasons building.
  *
  * Lives here rather than in `config/tuning.ts` because it is the definition of
  * this feature rather than a balance dial shared by anything else; the two
  * bounds it is calibrated against are tuning values and are read as such.
  */
-export const ROLE_BRIEF_SWING = 0.08;
+export const ROLE_BRIEF_SWING = 0.06;
 
 /**
  * A slot's brief is "met" on a sliding scale, not a coin flip.

@@ -31,7 +31,7 @@ export interface TuningConfig {
   /** ATTACK/(ATTACK+DEFENSE) value of two equal teams — centers the squash. */
   chanceQualityCenter: number;
   homeAdvantage: number; // +5% effective rating
-  synergyCap: number; // ±20% (archetype/tactic synergy band)
+  synergyCap: number; // ±10% (archetype/tactic synergy band) — v2.1, was ±20%
   /**
    * How far a role's INSTRUCTION fit may move his own effective rating. ±6%.
    *
@@ -73,6 +73,13 @@ export interface TuningConfig {
   /** Defensive line height: trades defense solidity for chance suppression vs exposure. */
   lineDefenseMult: { Deep: number; Standard: number; High: number };
   lineOppChanceMult: { Deep: number; Standard: number; High: number };
+  /** Attack-weighted mean `paceReliance` — the point at which a side's attackers
+   * exploit a high line exactly as much as an average side would (v2.1). Derived
+   * from the archetype table by measurement; see the value's own note. */
+  paceExploitPivot: number;
+  /** How hard pace punishes an exposed defensive line (v2.1). Multiplied by how
+   * exposed the line actually is, so a deep block is never affected. */
+  paceExploitSwing: number;
   /** Attacking focus biases scorer/assist weighting toward a flank or the centre.
    * "Wide" (v19) applies this same bias to BOTH flanks at once. */
   focusFlankBias: number; // extra scorer weight applied to the emphasised side (0..1)
@@ -455,6 +462,21 @@ export interface TuningConfig {
   /** Overall an ordinary season costs at the top of the ramp (just before
    * decline onset). Small: this is a fade, not a fall. */
   latePrimeDriftMax: number;
+  /** Age at which EARNED prime growth has tapered to nothing (v2.1).
+   *
+   * The prime branch's gain path had no age term at all: `primeGrowthPerSeasonMax
+   * × perf × minutes × facilities × elite-resist` reads exactly the same for a
+   * 33-year-old as for a 27-year-old. Measured over ten seasons
+   * (`npx tsx scripts/measure-veteran.ts`), that made the whole 24–33 band a
+   * PLATEAU rather than a curve — mean gain +0.2/season flat across ten years,
+   * with a 33-year-old as likely to improve as a 26-year-old (12.7% vs 13.3%)
+   * and nothing turning negative until 35.
+   *
+   * The taper runs from `growthEndAge` to here, so a 27-year-old is untouched
+   * and improvement fades out smoothly as decline approaches instead of
+   * stopping at a cliff. Set at/below `growthEndAge` it disables the taper
+   * entirely, which is the pre-v2.1 behaviour. */
+  primeGrowthTaperEndAge: number;
   /** Headroom a prime player is granted above his current overall (v1.51), so a
    * player whose dynamic potential has converged onto his rating can still
    * improve on a strong campaign. Without this, `recalcPotential`'s
@@ -1983,8 +2005,58 @@ export const TUNING: TuningConfig = {
   midfieldSharpness: 3.0,
   chanceQualityCenter: 0.5,
   homeAdvantage: 1.04,
-  synergyCap: 0.2,
-  instructionFitSwing: 0.06,
+  // v2.1: 0.2 → 0.16, and `instructionFitSwing` 0.06 → 0.05, alongside
+  // `ROLE_BRIEF_SWING` 0.08 → 0.06. The three of them are the LOOKUP half of
+  // player identity — a manager reads `CLASS_STYLE_ROW`, fields the class it
+  // rewards, and the answer never changes again. Compounded they were a ~±30%
+  // band on effective rating, which is more than most transfer decisions are
+  // worth and is what made the game have a recipe. Softening them is what makes
+  // archetypes FORGIVING: a Sniper asked to play a possession game is still a
+  // worse idea than a Metronome, no longer a disqualifying one.
+  //
+  // The counterpart is `lib/familiarity.ts`, which pays a side for CONTINUITY —
+  // something a save earns rather than looks up.
+  //
+  // ── How far these could be cut, and why not further (MEASURED) ────────────
+  //
+  // The first cut halved all three (0.1 / 0.04 / 0.04) and FAILED
+  // `verify:standings`: the champion averaged the 4.7th-best squad against a
+  // ceiling of 4. Correlation actually IMPROVED (0.632 → 0.695) — the table
+  // still tracked quality, but titles stopped going to the best sides, because
+  // compressing the largest identity channel narrows the spread between clubs
+  // and lets noise decide more seasons.
+  //
+  // The instinct to blame familiarity for that was wrong, and A/B measurement is
+  // what showed it: setting `FAMILIARITY_SWING` to 0 reproduced the failure
+  // BYTE-IDENTICALLY. `verify:standings` drives `simulateMatch` directly and
+  // never calls `applyMatchResult`, so no club in it ever accrues familiarity —
+  // every side sits at the centre reading exactly 1.
+  //
+  // That is not a flaw in the harness; it is the honest statement of the trade.
+  // Familiarity only separates clubs that DIFFER in how settled they are, and in
+  // a steady-state division they largely do not. So it cannot substitute
+  // one-for-one for a channel that separated them by squad composition — the
+  // headroom it reclaims is real for a manager who rebuilds or churns systems,
+  // and near-zero across a division of clubs that all keep theirs.
+  //
+  // 0.12 then passed `verify:standings` (rho 0.668, champion the 3.5th-best
+  // squad) and FAILED `verify:reputation`, which is the harness that catches
+  // this properly: it stacks one club's squad and asserts it wins its division
+  // at least once in eight seasons. At 0.12 it finished 2nd, 2nd, then collapsed
+  // to 7th/13th/18th — a side built to dominate sliding to the bottom of the
+  // table, which is the same compression stated far more starkly than a mean
+  // champion rank ever states it. Two harnesses, two different sensitivities:
+  // `verify:standings` asks whether the table tracks quality ACROSS a division,
+  // `verify:reputation` asks whether a genuinely superior squad can WIN.
+  //
+  // 0.16 is the landing point — a 20% cut, with margin on both (champion rank
+  // 3.30, one title). 0.14 also passes both but sits exactly on
+  // `verify:standings`'s champion-rank ceiling of 4.00, which is too tight to
+  // ship. **Run `verify:standings` AND `verify:reputation` before cutting these
+  // further** — `calibrate` is unmoved by all of it and structurally cannot see
+  // either failure.
+  synergyCap: 0.16,
+  instructionFitSwing: 0.05,
   formMin: 0.94,
   formMax: 1.06,
   fitnessFloorMult: 0.85,
@@ -2002,6 +2074,19 @@ export const TUNING: TuningConfig = {
   pressOppChanceMult: { Low: 1.0, Medium: 1.0, High: 1.06 },
   lineDefenseMult: { Deep: 1.06, Standard: 1.0, High: 0.95 },
   lineOppChanceMult: { Deep: 0.95, Standard: 1.0, High: 1.08 },
+  // v2.1: pace vs a high line. `paceExploitPivot` is MEASURED, not chosen — it
+  // is the attack-weighted mean `paceReliance` across the 30 archetypes with a
+  // real attacking phase weight (0.524; the span is 0.25 for a Conductor to 0.90
+  // for a Bullet). Centred there, an ordinary attack multiplies by exactly 1, so
+  // this cannot lift the world's scoring and `calibrate` is unmoved.
+  //
+  // The swing is large because what it multiplies is small: a high line's own
+  // `lineOppChanceMult` term is 1.08, so `exposedBy` is 0.08 and the effect at
+  // the extremes is ±0.08 × 2.5 × 0.38 ≈ ±7.6% of chance VOLUME against a high
+  // line, and exactly nothing against a deep block. Re-run `calibrate` if either
+  // moves — it is chance volume, which is the thing that harness measures.
+  paceExploitPivot: 0.524,
+  paceExploitSwing: 2.5,
   focusFlankBias: 0.5,
 
   penaltyChance: 0.022,
@@ -2319,6 +2404,13 @@ export const TUNING: TuningConfig = {
   // is exactly how a squad renews itself.
   latePrimeAge: 30,
   latePrimeDriftMax: 1.2,
+  // 34 — earned growth is at full strength at 27 and gone by 34, which is where
+  // the measured data says it should be: at 34 only 9.6% of regulars gained
+  // anything at all even before this, so the taper is finishing a curve the
+  // world was already implying rather than imposing a new rule. Deliberately
+  // short of `declineOnsetAge` (35) so the two join smoothly — earned growth
+  // reaches zero just as automatic decline takes over.
+  primeGrowthTaperEndAge: 34,
   // A 6-point floor tapering out at 92 keeps a mid-70s pro improving for several
   // seasons on good form, while a 90-rated star has almost nothing left — the
   // last few points of a great career have to come from the youth curve.

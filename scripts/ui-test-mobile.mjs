@@ -101,10 +101,33 @@ await page.waitForTimeout(400);
 await page.click('button:has-text("OPERATIONS")');
 await page.waitForSelector("text=SEND A SCOUT");
 await page.click("text=+ SEND A SCOUT");
-// The brief is REGION ONLY as of v2.1 — the position group, the archetype
-// shortlist, the trip length and the auto-filter are all gone, so "Region" is
-// what proves the modal is open now.
-await page.waitForSelector("text=Region");
+// The brief is scout + WHERE + WHAT. v2.1 had cut it to region alone; the
+// position group and the role focus came back, because a brief that cannot say
+// what you are looking for is a lottery ticket. Assert all three are present —
+// this is the check that stops them being quietly deleted a second time.
+await page.waitForSelector("text=Where to scout");
+await page.waitForSelector("text=Position");
+await page.waitForSelector("text=Role focus");
+// The role list must be FILTERED to the chosen position group, or the picker is
+// offering roles the generator would silently drop. "Any position" reaches every
+// archetype; a keeper brief reaches only the five GK roles.
+const roleCount = async () =>
+  page.locator("text=Role focus").locator("xpath=../..").locator("button").count();
+const anyRoles = await roleCount();
+await page.click('button:has-text("Goalkeepers")');
+await page.waitForTimeout(200);
+const gkRoles = await roleCount();
+// "Vanguard" is a GK role and must be offered; "Sniper" is a striker's and must
+// not be. Counting alone would pass a list that was filtered to the wrong five.
+if (!(await page.locator('button:has-text("Vanguard")').count()))
+  throw new Error("GK brief does not offer Vanguard — the focus list is filtered to the wrong roles");
+if (await page.locator('button:has-text("Sniper")').count())
+  throw new Error("GK brief offers Sniper — the focus list is not filtered by position");
+if (gkRoles >= anyRoles)
+  throw new Error(`GK brief offers ${gkRoles} roles vs ${anyRoles} for any position — not filtered`);
+console.log(`role focus filtered: any position ${anyRoles} roles, GK ${gkRoles} (Vanguard yes, Sniper no)`);
+await page.click('button:has-text("Any position")');
+await page.waitForTimeout(200);
 await page.screenshot({ path: shot("m08-send-scout-modal.png"), fullPage: true });
 // The submit carries the quoted trip cost ("SEND · £1.2M") since scouting
 // became billable in v1.85, so match the prefix rather than a bare label.

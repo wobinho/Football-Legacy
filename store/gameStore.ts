@@ -19,6 +19,7 @@ import {
   type StopReason,
 } from "@/lib/gameloop";
 import type { Fixture, MatchResult } from "@/lib/types";
+import type { SideInput } from "@/lib/engine/match";
 import { saveGame, loadGame, listSaves, deleteSave, exportSave, importSave, backfillLocalToCloud, type SaveMeta } from "@/lib/save";
 import { cloudOwner } from "@/lib/cloud";
 import { forgetKey, rememberLastSave, lastSave, clearLastSave } from "@/lib/auth";
@@ -111,6 +112,8 @@ import {
   renameSavedTactic,
   autoAssignRoles,
 } from "@/lib/tactics";
+import { getFormation } from "@/lib/config/formations";
+import { applyTacticChange, pruneFamiliarity } from "@/lib/familiarity";
 import {
   deleteInboxItem,
   clearInbox,
@@ -280,7 +283,13 @@ interface GameStore {
   endSeason: () => void;
   /** Dismiss the end-of-season review modal. */
   closeSeasonReview: () => void;
-  applyUserResult: (fixture: Fixture, result: MatchResult) => void;
+  /** `sides` (v2.1) are the two sides as fielded, so squad familiarity is banked
+   * against the XI that actually played. */
+  applyUserResult: (
+    fixture: Fixture,
+    result: MatchResult,
+    sides?: { home: SideInput; away: SideInput }
+  ) => void;
 
   setTrainingPlan: (playerId: string, planId: string) => void;
   /** Auto-assign the optimal training focus. With a playerId, just that player;
@@ -945,10 +954,10 @@ export const useGame = create<GameStore>((set, get) => ({
 
   closeSeasonReview: () => set({ seasonReview: null }),
 
-  applyUserResult: (fixture, result) => {
+  applyUserResult: (fixture, result, sides) => {
     const g = get().game;
     if (!g) return;
-    applyMatchResult(g, fixture, result);
+    applyMatchResult(g, fixture, result, sides);
     afterUserMatch(g);
     set({ rev: get().rev + 1 });
     scheduleSave(g, true); // match results must never be lost to a debounce window
@@ -1005,8 +1014,18 @@ export const useGame = create<GameStore>((set, get) => ({
     const g = get().game;
     if (!g) return;
     const team = g.teams[g.userTeamId];
-    team.tactic = { ...team.tactic, ...t };
-    if (t.formationId) g.lineup = {};
+    const previous = team.tactic;
+    const next = { ...team.tactic, ...t };
+    // v2.1: what the squad has rehearsed is charged the moment the system
+    // changes, not at the next kick-off — otherwise a manager could rotate
+    // systems between fixtures for free. `applyTacticChange` is a no-op when
+    // nothing rehearsable moved, so touching the role brief costs nothing.
+    applyTacticChange(team, previous, next);
+    team.tactic = next;
+    if (t.formationId) {
+      g.lineup = {};
+      pruneFamiliarity(team, new Set(getFormation(next.formationId).slots.map((s) => s.id)));
+    }
     get().bump(true);
   },
 
@@ -1036,10 +1055,18 @@ export const useGame = create<GameStore>((set, get) => ({
     if (!g) return;
     const team = g.teams[g.userTeamId];
     const changingShape = team.tactic.formationId !== tactic.formationId;
-    team.tactic = { ...tactic, roles: tactic.roles ? { ...tactic.roles } : undefined };
+    const next = { ...tactic, roles: tactic.roles ? { ...tactic.roles } : undefined };
+    // Same familiarity charge `setTactic` takes (v2.1) — adopting a designed
+    // plan is a change of system like any other, and the Creator must not be a
+    // way to sidestep the cost.
+    applyTacticChange(team, team.tactic, next);
+    team.tactic = next;
     // Same rule `setTactic` follows: the slots themselves change with the
     // formation, so an XI picked for the old shape cannot survive into the new.
-    if (changingShape) g.lineup = {};
+    if (changingShape) {
+      g.lineup = {};
+      pruneFamiliarity(team, new Set(getFormation(next.formationId).slots.map((s) => s.id)));
+    }
     get().bump(true);
   },
 

@@ -12,6 +12,7 @@ import type { GameState, PlayerBio, Pos, Style, Tactic, Team, ClubStance } from 
 import { TUNING, type TuningConfig } from "../config/tuning";
 import { computeTable } from "../season";
 import { AI_FORMATIONS, FORMATIONS } from "../config/formations";
+import { applyTacticChange, pruneFamiliarity } from "../familiarity";
 import { positionFit } from "../config/positions";
 import { pickLineup, selectionScore, toEnginePlayer } from "../selection";
 import { tacticalFitMult } from "../engine/match";
@@ -280,7 +281,17 @@ export function reviewClubTactics(state: GameState, cfg: TuningConfig) {
       cfg
     );
     if (best.score > currentScore * (1 + cfg.aiTacticSwitchGain)) {
+      // v2.1: tearing up the system costs the squad part of what it has learned,
+      // charged HERE rather than at the next kick-off — a change that is free
+      // until the club next plays is a change a club could make for nothing.
+      // Both scores above are computed without familiarity, so the comparison
+      // stays apples-to-apples; this is the price of acting on it.
+      applyTacticChange(team, team.tactic, best.tactic);
       team.tactic = best.tactic;
+      // A new shape has different slots, so whatever was banked against the old
+      // ones is meaningless — and would otherwise never be cleared.
+      const shape = FORMATIONS.find((f) => f.id === best.tactic.formationId) ?? FORMATIONS[0];
+      pruneFamiliarity(team, new Set(shape.slots.map((s) => s.id)));
     }
   }
 }
